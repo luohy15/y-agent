@@ -4,20 +4,26 @@ A tiny command-line interface chat application that brings AI conversations to y
 
 ## ✨ Features
 
+- 📝 All chat data stored in single JSONL files for easy access and sync
 - 💬 Interactive chat interface
 - 🤖 Support for multiple bot configurations (any base_url/api_key/model combination compatible with [OpenAI chat completion streaming format](https://platform.openai.com/docs/api-reference/chat/streaming))
-- 📝 All chat data stored in single JSONL files for easy access and sync
 - 🔗 MCP (Model Context Protocol) client support
 - 🤔 Deepseek-r1 reasoning content support for enhanced AI responses
 
 ## Demo
+
+### Interactive chat
+![interactive-chat](.github/visuals/interactive-chat.png)
+
+### Multiple bot
+![multiple-bot](.github/visuals/multiple-bot.png)
 
 ### MCP client
 ![mcp](.github/visuals/mcp.gif)
 
 [asciicast](https://asciinema.org/a/702199)
 
-### reasoning content
+### Reasoning content
 ![r1](.github/visuals/r1.gif)
 
 [asciicast](https://asciinema.org/a/702204)

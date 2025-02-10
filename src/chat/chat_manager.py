@@ -20,7 +20,6 @@ class ChatManager:
         input_manager: InputManager,
         mcp_manager: MCPManager,
         openrouter_manager: OpenRouterManager,
-        model: str,
         bot_config: BotConfig,
         chat_id: Optional[str] = None,
         verbose: bool = False
@@ -33,14 +32,13 @@ class ChatManager:
             input_manager: Manager for user input
             mcp_manager: Manager for MCP operations
             openrouter_manager: Manager for OpenRouter interactions
-            model: Model to use for chat
             bot_config: Bot configuration
             chat_id: Optional ID of existing chat to load
             verbose: Whether to show verbose output
         """
         self.service = ChatService(repository)
-        self.model = model
         self.bot_config = bot_config
+        self.model = bot_config.model
         self.display_manager = display_manager
         self.input_manager = input_manager
         self.mcp_manager = mcp_manager

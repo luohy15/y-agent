@@ -10,32 +10,29 @@ from mcp_setting.mcp_manager import MCPManager
 from .openrouter_manager import OpenRouterManager
 from .chat_manager import ChatManager
 from config import bot_config_manager
+from bot.models import BotConfig
 
 class ChatApp:
-    def __init__(self, chat_id: Optional[str] = None, verbose: bool = False, model: Optional[str] = None, 
-                 api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, bot_config: Optional[BotConfig] = None, chat_id: Optional[str] = None, verbose: bool = False):
         """Initialize the chat application.
 
         Args:
+            bot_config: Bot configuration to use
             chat_id: Optional ID of existing chat to load
             verbose: Whether to show verbose output
-            model: Optional model to use for chat (defaults to MODEL)
-            api_key: Optional API key override
-            base_url: Optional base URL override
         """
+        # Initialize repository
+        repository = ChatRepository()
+
+        # Use default bot config if not provided
+        if not bot_config:
+            bot_config = bot_config_manager.get_config()
+
         # Initialize managers
         display_manager = DisplayManager()
         input_manager = InputManager(display_manager.console)
         mcp_manager = MCPManager(display_manager.console)
-        openrouter_manager = OpenRouterManager(
-            api_key=api_key,
-            base_url=base_url,
-            model=model
-        )
-
-        # Initialize repository and create chat manager
-        repository = ChatRepository()
-        bot_config = bot_config_manager.get_config()
+        openrouter_manager = OpenRouterManager(bot_config)
         self.chat_manager = ChatManager(
             repository=repository,
             display_manager=display_manager,
@@ -43,7 +40,6 @@ class ChatApp:
             mcp_manager=mcp_manager,
             openrouter_manager=openrouter_manager,
             bot_config=bot_config,
-            model=model,
             chat_id=chat_id,
             verbose=verbose
         )
@@ -60,7 +56,7 @@ async def main():
             msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
             msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
 
-        app = ChatApp(verbose=True)
+        app = ChatApp(bot_config=bot_config_manager.get_config(), verbose=True)
         await app.chat()
     except KeyboardInterrupt:
         # Exit silently on Ctrl+C

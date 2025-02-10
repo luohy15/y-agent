@@ -108,6 +108,9 @@ class ChatService:
             md_content += f"{msg.content}\n\n"
             md_content += f"*{msg.timestamp}*\n\n---\n\n"
 
+        # ensure tmp directory exists
+        os.makedirs(config["tmp_dir"], exist_ok=True)
+
         # Write markdown to temporary file
         md_file = os.path.join(config["tmp_dir"], f"{chat_id}.md")
         html_file = os.path.join(config["tmp_dir"], f"{chat_id}.html")

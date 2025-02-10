@@ -8,27 +8,16 @@ from config import config
 from chat.models import Message
 
 class OpenRouterManager:
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model: str = None):
+    def __init__(self, bot_config):
         """Initialize OpenRouter settings.
 
         Args:
-            api_key: OpenRouter API key
-            base_url: Optional custom base URL for API
-            model: Model to use for chat completions
+            bot_config: Bot configuration containing API settings
         """
-        self.api_key = api_key
-        self.base_url = base_url or "https://openrouter.ai/api/v1"
-        self.model = model
+        self.api_key = bot_config.api_key
+        self.base_url = bot_config.base_url
+        self.model = bot_config.model
         self.display_manager = None
-
-    def load_openrouter_config(self, config_file: str) -> dict:
-        """Load openrouter server config from json file"""
-        try:
-            with open(config_file, 'r', encoding="utf-8") as f:
-                config = json.load(f)
-            return config.get('config', {})
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
 
     def set_display_manager(self, display_manager: DisplayManager):
         """Set the display manager for streaming responses"""
@@ -85,8 +74,8 @@ class OpenRouterManager:
             system_message_dict = system_message.to_dict()
             if isinstance(system_message_dict["content"], str):
                 system_message_dict["content"] = [{"type": "text", "text": system_message_dict["content"]}]
-            # add cache_control only to claude-3.5-sonnet model
-            if "claude-3.5-sonnet" in self.model:
+            # add cache_control only to claude-3 series model
+            if "claude-3" in self.model:
                 for part in system_message_dict["content"]:
                     if part.get("type") == "text":
                         part["cache_control"] = {"type": "ephemeral"}
@@ -100,7 +89,7 @@ class OpenRouterManager:
             prepared_messages.append(msg_dict)
 
         # Find last user message
-        if "claude-3.5-sonnet" in self.model:
+        if "claude-3" in self.model:
             for msg in reversed(prepared_messages):
                 if msg["role"] == "user":
                     if isinstance(msg["content"], str):

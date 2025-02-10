@@ -1,6 +1,6 @@
 [project]
 name = "y-cli"
-version = "0.3.1"
+version = "0.3.2"
 description = "Command-line real-time conversation app"
 readme = "README.md"
 requires-python = ">=3.10"

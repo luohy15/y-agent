@@ -55,7 +55,7 @@ def list_chats(keyword: Optional[str], model: Optional[str], provider: Optional[
                 filters.append(f"provider: '{provider}'")
             click.echo(f"Applied filters: {', '.join(filters)}")
         click.echo(f"Result limit: {limit}")
-    chat_app = ChatApp(model=None)
+    chat_app = ChatApp()
     chats = chat_app.chat_manager.service.list_chats(
         keyword=keyword,
         model=model,

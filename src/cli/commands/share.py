@@ -15,7 +15,7 @@ def share(chat_id: Optional[str], latest: bool, push: bool):
     Use --latest/-l to share your most recent chat.
     Use --chat-id/-c to share a specific chat ID.
     """
-    chat_app = ChatApp(model=None)
+    chat_app = ChatApp()
 
     # Handle --latest flag
     if latest:
