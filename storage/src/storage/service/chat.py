@@ -1,32 +1,33 @@
 import sys
 import os
-from typing import Dict, List, Optional
+from typing import List, Optional
 from storage.entity.dto import Chat, Message
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
-from storage.cache import cache_chat, get_cached_chat
 
 from storage.util import get_iso8601_timestamp, generate_id
 
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(limit: int = 10, user_id: Optional[int] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(limit=limit, user_id=user_id)
+async def list_chats(limit: int = 10, user_id: Optional[int] = None, query: Optional[str] = None) -> List[ChatSummary]:
+    return await chat_repo.list_chats(limit=limit, user_id=user_id, query=query)
 
 
 async def get_chat(chat_id: str, user_id: Optional[int] = None) -> Optional[Chat]:
     return await chat_repo.get_chat(chat_id, user_id=user_id)
 
 
-async def create_chat(messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
+async def create_chat(messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, status: Optional[str] = None, bot_name: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
     timestamp = get_iso8601_timestamp()
     chat = Chat(
         id=chat_id if chat_id else generate_id(),
         create_time=timestamp,
         update_time=timestamp,
         messages=[msg for msg in messages if msg.role != 'system'],
-        external_id=external_id
+        external_id=external_id,
+        status=status,
+        bot_name=bot_name,
     )
     return await chat_repo.add_chat(chat, user_id=user_id)
 
@@ -40,62 +41,46 @@ async def update_chat(chat_id: str, messages: List[Message], external_id: Option
     return await chat_repo.update_chat(chat, user_id=user_id)
 
 
-# ---------------------------------------------------------------------------
-# Cache-aware methods (for API/worker use)
-# ---------------------------------------------------------------------------
-
-async def create_chat_with_cache(
-    messages: List[Message],
-    chat_id: Optional[str] = None,
-    status: Optional[str] = None,
-    bot_name: Optional[str] = None,
-    prompt: Optional[str] = None,
-    user_id: Optional[int] = None,
-) -> Chat:
-    """Create chat in DB and populate cache."""
-    timestamp = get_iso8601_timestamp()
-    chat = Chat(
-        id=chat_id if chat_id else generate_id(),
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=[msg for msg in messages if msg.role != 'system'],
-        status=status,
-        bot_name=bot_name,
-    )
-    chat = await chat_repo.add_chat(chat, user_id=user_id)
-    # Populate cache with chat data + transient fields
-    cache_data: Dict = chat.to_dict()
-    if prompt:
-        cache_data["prompt"] = prompt
-    cache_chat(chat.id, cache_data)
-    return chat
+async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
+    """Get chat by ID without user_id filter (for worker use)."""
+    return await chat_repo.get_chat_by_id(chat_id)
 
 
-async def get_chat_with_cache(chat_id: str, user_id: Optional[int] = None) -> Optional[Dict]:
-    """Cache-aside read: check cache first, fallback to DB, backfill cache."""
-    cached = get_cached_chat(chat_id)
-    if cached:
-        return cached
-    chat = await chat_repo.get_chat(chat_id, user_id=user_id)
-    if not chat:
-        return None
-    cache_data = chat.to_dict()
-    cache_chat(chat_id, cache_data)
-    return cache_data
-
-
-async def update_chat_with_cache(chat_id: str, messages: List[Message], status: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
-    """Update chat in DB and refresh cache."""
-    chat = await get_chat(chat_id, user_id=user_id)
+async def update_chat_status(chat_id: str, status: str) -> Chat:
+    """Update only the status field of a chat."""
+    chat = await chat_repo.get_chat_by_id(chat_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
-    chat.update_messages(messages)
-    if status is not None:
-        chat.status = status
-    chat = await chat_repo.update_chat(chat, user_id=user_id)
-    cache_data = chat.to_dict()
-    cache_chat(chat_id, cache_data)
-    return chat
+    chat.status = status
+    return await chat_repo.save_chat_by_id(chat)
+
+
+async def append_message(chat_id: str, message: Message) -> Chat:
+    """Append a single message to a chat."""
+    chat = await chat_repo.get_chat_by_id(chat_id)
+    if not chat:
+        raise ValueError(f"Chat with id {chat_id} not found")
+    chat.messages.append(message)
+    return await chat_repo.save_chat_by_id(chat)
+
+
+async def save_messages(chat_id: str, messages: List[Message]) -> Chat:
+    """Replace all messages in a chat."""
+    chat = await chat_repo.get_chat_by_id(chat_id)
+    if not chat:
+        raise ValueError(f"Chat with id {chat_id} not found")
+    chat.messages = messages
+    return await chat_repo.save_chat_by_id(chat)
+
+
+def append_message_sync(chat_id: str, message: Message) -> Chat:
+    """Append a single message to a chat (sync, for worker display_callback)."""
+    from storage.repository.chat import _get_chat_by_id_sync, _save_chat_by_id_sync
+    chat = _get_chat_by_id_sync(chat_id)
+    if not chat:
+        raise ValueError(f"Chat with id {chat_id} not found")
+    chat.messages.append(message)
+    return _save_chat_by_id_sync(chat)
 
 
 async def delete_chat(chat_id: str, user_id: Optional[int] = None) -> bool:

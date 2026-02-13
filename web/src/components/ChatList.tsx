@@ -3,10 +3,10 @@ import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
 interface Chat {
-  id: string;
-  status: string;
-  prompt?: string;
+  chat_id: string;
+  title?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 interface ChatListProps {
@@ -25,33 +25,12 @@ const fetcher = async (url: string) => {
 };
 
 export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: ChatListProps) {
-  const { data: chats, error, isLoading, mutate } = useSWR<Chat[]>(
-    isLoggedIn ? `${API}/api/chat/list` : null,
+  const [search, setSearch] = useState("");
+  const queryParam = search.trim() ? `?query=${encodeURIComponent(search.trim())}` : "";
+  const { data: chats, error, isLoading } = useSWR<Chat[]>(
+    isLoggedIn ? `${API}/api/chat/list${queryParam}` : null,
     fetcher,
   );
-  const [prompt, setPrompt] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const createChat = async () => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    setSending(true);
-    try {
-      await authFetch(`${API}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: trimmed }),
-      });
-      setPrompt("");
-      mutate();
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") createChat();
-  };
 
   const handleClick = (id: string) => {
     onSelectChat(selectedChatId === id ? null : id);
@@ -59,23 +38,15 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
 
   return (
     <div className="w-80 min-w-[260px] border-r border-neutral-800 flex flex-col shrink-0">
-      <div className="flex gap-2 p-3 border-b border-neutral-800">
+      <div className="p-3 border-b border-neutral-800">
         <input
           type="text"
-          placeholder="New chat..."
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="flex-1 px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded-md text-sm text-neutral-200 outline-none focus:border-blue-400"
+          placeholder="Search chats..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded-md text-sm text-neutral-200 outline-none focus:border-blue-400"
           autoFocus
         />
-        <button
-          onClick={createChat}
-          disabled={sending}
-          className="px-3.5 py-1.5 bg-blue-400 text-neutral-950 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Send
-        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {!isLoggedIn ? (
@@ -85,26 +56,23 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
         ) : error ? (
           <p className="text-neutral-500 italic text-sm p-3">Error loading chats</p>
         ) : !chats || chats.length === 0 ? (
-          <p className="text-neutral-500 italic text-sm p-3">No chats yet</p>
+          <p className="text-neutral-500 italic text-sm p-3">{search ? "No matching chats" : "No chats yet"}</p>
         ) : (
           chats.map((c) => {
-            const sel = c.id === selectedChatId;
-            const time = c.created_at
-              ? new Date(c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-              : "";
+            const sel = c.chat_id === selectedChatId;
+            const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
+            const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
+            const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
             return (
               <div
-                key={c.id}
-                onClick={() => handleClick(c.id)}
+                key={c.chat_id}
+                onClick={() => handleClick(c.chat_id)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-neutral-800 transition-colors ${
                   sel ? "ring-1 ring-blue-400 bg-neutral-800/50" : ""
                 }`}
               >
-                <span className={`badge-${c.status} shrink-0 px-1.5 py-0.5 rounded-full text-[0.6rem] font-semibold uppercase`}>
-                  {c.status}
-                </span>
-                <span className="flex-1 truncate text-sm">{c.prompt || ""}</span>
-                <span className="text-[0.65rem] text-neutral-500 shrink-0">{time}</span>
+                <span className="flex-1 truncate text-sm">{c.title || ""}</span>
+                <span className="text-[0.65rem] text-neutral-500 shrink-0 text-right">{date}<br/>{time}</span>
               </div>
             );
           })

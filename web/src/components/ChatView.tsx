@@ -8,6 +8,7 @@ interface Message {
   role: BubbleRole;
   content: string;
   toolName?: string;
+  timestamp?: string;
 }
 
 interface ContentPart {
@@ -77,7 +78,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
 
     const token = getToken();
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-    const es = new EventSource(`${API}/api/chat/events?chat_id=${chatId}&last_index=0${tokenParam}`);
+    const es = new EventSource(`${API}/api/chat/messages?chat_id=${chatId}&last_index=0${tokenParam}`);
 
     const handleMessage = (raw: string) => {
       try {
@@ -86,16 +87,17 @@ export default function ChatView({ chatId }: ChatViewProps) {
         const role = msg.role || "assistant";
         const content = extractContent(msg.content);
         const tool = msg.tool;
+        const timestamp = msg.timestamp;
 
         if (role === "user") {
-          addMessage({ role: "user", content });
+          addMessage({ role: "user", content, timestamp });
         } else if (tool) {
           const body = msg.arguments
             ? `${tool}\n${formatArgs(msg.arguments)}`
             : `${tool}\n${truncate(content, 500)}`;
-          addMessage({ role: "tool", content: body, toolName: tool });
+          addMessage({ role: "tool", content: body, toolName: tool, timestamp });
         } else {
-          addMessage({ role: "assistant", content });
+          addMessage({ role: "assistant", content, timestamp });
         }
       } catch {}
     };
@@ -141,7 +143,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
     <div className="flex-1 flex flex-col min-w-0">
       <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
         {messages.map((m, i) => (
-          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} />
+          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} timestamp={m.timestamp} />
         ))}
       </div>
       <ApprovalBar

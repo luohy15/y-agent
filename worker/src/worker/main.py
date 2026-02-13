@@ -1,38 +1,32 @@
-"""Worker: polls DynamoDB cache for pending chats and executes them (local dev)."""
+"""Worker: starts Celery worker for processing chats (local dev)."""
 
-import asyncio
 import os
 
 from dotenv import load_dotenv
 from loguru import logger
 
-from storage.cache import claim_pending_chat
-from worker.runner import run_chat
-
 load_dotenv()
 
 
-POLL_INTERVAL = int(os.environ.get("WORKER_POLL_INTERVAL", "2"))
-
-
-async def poll_loop():
-    logger.info("Polling for chats every {}s", POLL_INTERVAL)
-    while True:
-        chat = claim_pending_chat()
-        if chat:
-            chat_id = chat["id"]
-            logger.info("Claimed chat {}", chat_id)
-            try:
-                await run_chat(chat)
-                logger.info("Finished chat {}", chat_id)
-            except Exception as e:
-                logger.exception("Chat {} failed: {}", chat_id, e)
-        else:
-            await asyncio.sleep(POLL_INTERVAL)
+def _ensure_broker_dirs():
+    """Create filesystem broker directories if they don't exist."""
+    dirs = [
+        "/tmp/celery/out",
+        "/tmp/celery/processed",
+        "/tmp/celery/results",
+    ]
+    for d in dirs:
+        os.makedirs(d, exist_ok=True)
 
 
 def main():
-    asyncio.run(poll_loop())
+    _ensure_broker_dirs()
+
+    # Import here so dotenv is loaded before any Celery/storage imports
+    from worker.celery_app import app
+
+    logger.info("Starting Celery worker with filesystem broker")
+    app.worker_main(["worker", "--loglevel=info", "--pool=solo"])
 
 
 if __name__ == "__main__":

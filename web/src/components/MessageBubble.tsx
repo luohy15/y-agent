@@ -23,9 +23,22 @@ interface MessageBubbleProps {
   role: BubbleRole;
   content: string;
   toolName?: string;
+  timestamp?: string;
 }
 
-export default function MessageBubble({ role, content, toolName }: MessageBubbleProps) {
+function formatDateTime(ts?: string): string {
+  if (!ts) return "";
+  try {
+    const dt = new Date(ts);
+    const date = dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
+    const time = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return `${date} ${time}`;
+  } catch {
+    return "";
+  }
+}
+
+export default function MessageBubble({ role, content, toolName, timestamp }: MessageBubbleProps) {
   if (role === "system") {
     return <div className={bubbleStyles.system}>{content}</div>;
   }
@@ -34,11 +47,16 @@ export default function MessageBubble({ role, content, toolName }: MessageBubble
     <div
       className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-[0.825rem] leading-relaxed whitespace-pre-wrap break-words ${bubbleStyles[role]}`}
     >
-      <div className={`text-[0.65rem] font-semibold uppercase tracking-wide mb-1 ${labelStyles[role]}`}>
-        {labelText[role]}
+      <div className={`text-[0.65rem] font-semibold uppercase tracking-wide mb-1 flex items-center gap-2 ${labelStyles[role]}`}>
+        <span>{labelText[role]}</span>
         {toolName && role === "tool" && (
-          <span className="ml-1.5 px-1.5 py-0.5 bg-neutral-800 rounded text-[0.65rem] text-violet-400">
+          <span className="px-1.5 py-0.5 bg-neutral-800 rounded text-[0.65rem] text-violet-400">
             {toolName}
+          </span>
+        )}
+        {timestamp && (
+          <span className="text-[0.6rem] font-normal text-neutral-500 normal-case tracking-normal">
+            {formatDateTime(timestamp)}
           </span>
         )}
       </div>

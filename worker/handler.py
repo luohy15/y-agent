@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from storage.cache import get_cached_chat, update_chat_status
+from storage.service import chat as chat_service
 from worker.runner import run_chat
 
 
@@ -23,19 +23,19 @@ def lambda_handler(event, context):
 
     print(f"[worker] SQS trigger for chat {chat_id}")
 
-    chat = get_cached_chat(chat_id)
+    chat = asyncio.run(chat_service.get_chat_by_id(chat_id))
     if not chat:
         print(f"[worker] chat {chat_id} not found, skipping")
         return {"status": "error", "message": f"chat {chat_id} not found"}
 
-    status = chat.get("status")
-    if status not in ("pending",):
+    status = chat.status
+    if status not in ("pending", "approved", "denied"):
         print(f"[worker] chat {chat_id} status={status}, skipping")
         return {"status": "ok", "message": f"chat {chat_id} already {status}"}
 
-    # Atomically claim the chat
-    update_chat_status(chat_id, "running")
-    print(f"[worker] claimed chat {chat_id}")
+    if status == "pending":
+        asyncio.run(chat_service.update_chat_status(chat_id, "running"))
+        print(f"[worker] claimed chat {chat_id}")
 
-    asyncio.run(run_chat(chat))
+    asyncio.run(run_chat(chat_id, status))
     return {"status": "ok", "chat_id": chat_id}
