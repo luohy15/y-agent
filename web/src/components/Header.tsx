@@ -20,17 +20,17 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout }: Header
   }, [isLoggedIn, gsiReady]);
 
   return (
-    <header className="px-6 py-4 border-b border-neutral-800 shrink-0 flex items-center justify-between">
-      <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent inline">
-        yovy
-      </h1>
+    <header className="px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
+      <div className="h-8 w-8 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm">
+        <span className="text-lg font-bold text-sol-blue">Y</span>
+      </div>
       <div className="flex items-center gap-3">
         {isLoggedIn ? (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-neutral-400">{email}</span>
+            <span className="text-sm text-sol-base01">{email}</span>
             <button
               onClick={onLogout}
-              className="px-2.5 py-1 bg-neutral-800 border border-neutral-700 text-neutral-400 rounded-md text-xs cursor-pointer hover:bg-neutral-700 hover:text-neutral-200"
+              className="px-2.5 py-1 bg-sol-base02 border border-sol-base01 text-sol-base01 rounded-md text-xs cursor-pointer hover:bg-sol-base01 hover:text-sol-base2"
             >
               Logout
             </button>

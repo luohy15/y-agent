@@ -1,29 +1,41 @@
-type BubbleRole = "user" | "assistant" | "tool" | "system";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-const bubbleStyles: Record<BubbleRole, string> = {
-  user: "self-end bg-blue-900/40 text-blue-100 rounded-br-sm",
-  assistant: "self-start bg-neutral-800 text-neutral-300 rounded-bl-sm",
-  tool: "self-start bg-neutral-900 text-neutral-400 border border-neutral-700 rounded-bl-sm text-xs",
-  system: "self-center text-neutral-500 text-[0.7rem] py-1",
-};
-
-const labelStyles: Record<string, string> = {
-  user: "text-blue-400",
-  assistant: "text-violet-400",
-  tool: "text-neutral-500",
-};
-
-const labelText: Record<string, string> = {
-  user: "You",
-  assistant: "Assistant",
-  tool: "Tool",
-};
+type BubbleRole = "user" | "assistant" | "tool_call" | "tool_result" | "system";
 
 interface MessageBubbleProps {
   role: BubbleRole;
   content: string;
   toolName?: string;
+  arguments?: Record<string, unknown>;
   timestamp?: string;
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n) + "..." : s;
+}
+
+function formatToolCall(toolName: string, args?: Record<string, unknown>): string {
+  if (!args) return toolName;
+  if (toolName === "bash") {
+    return `$ ${truncate(args.command as string || "", 200)}`;
+  }
+  if (toolName === "file_read") {
+    return `read("${args.path || ""}")`;
+  }
+  if (toolName === "file_write") {
+    return `write("${args.path || ""}")`;
+  }
+  if (toolName === "file_edit") {
+    return `edit("${args.path || ""}")`;
+  }
+  try {
+    const argsStr = JSON.stringify(args, null, 0);
+    return `${toolName}(${truncate(argsStr, 200)})`;
+  } catch {
+    return toolName;
+  }
 }
 
 function formatDateTime(ts?: string): string {
@@ -38,29 +50,57 @@ function formatDateTime(ts?: string): string {
   }
 }
 
-export default function MessageBubble({ role, content, toolName, timestamp }: MessageBubbleProps) {
+function TimestampLine({ timestamp }: { timestamp?: string }) {
+  const formatted = formatDateTime(timestamp);
+  if (!formatted) return null;
+  return <div className="text-[0.65rem] text-sol-base01 mb-1">{formatted}</div>;
+}
+
+export default function MessageBubble({ role, content, toolName, arguments: args, timestamp }: MessageBubbleProps) {
   if (role === "system") {
-    return <div className={bubbleStyles.system}>{content}</div>;
+    return <div className="self-center text-sol-base01 text-[0.7rem] py-1">{content}</div>;
   }
 
-  return (
-    <div
-      className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-[0.825rem] leading-relaxed whitespace-pre-wrap break-words ${bubbleStyles[role]}`}
-    >
-      <div className={`text-[0.65rem] font-semibold uppercase tracking-wide mb-1 flex items-center gap-2 ${labelStyles[role]}`}>
-        <span>{labelText[role]}</span>
-        {toolName && role === "tool" && (
-          <span className="px-1.5 py-0.5 bg-neutral-800 rounded text-[0.65rem] text-violet-400">
-            {toolName}
-          </span>
-        )}
-        {timestamp && (
-          <span className="text-[0.6rem] font-normal text-neutral-500 normal-case tracking-normal">
-            {formatDateTime(timestamp)}
-          </span>
-        )}
+  // Tool call: compact one-liner like CLI
+  if (role === "tool_call" && toolName) {
+    return (
+      <div className="text-[0.8rem] font-mono text-sol-cyan">
+        {formatToolCall(toolName, args)}
       </div>
-      <div>{content}</div>
+    );
+  }
+
+  // Tool result: single-line truncated output like CLI
+  if (role === "tool_result") {
+    const result = content.replace(/\n/g, " ");
+    return (
+      <div className="text-[0.75rem] font-mono text-sol-blue">
+        {truncate(result, 80)}
+      </div>
+    );
+  }
+
+  // User message: bordered panel like CLI
+  if (role === "user") {
+    return (
+      <div>
+        <TimestampLine timestamp={timestamp} />
+        <div className="border border-sol-green rounded-lg px-4 py-3">
+          <div className="text-[0.825rem] text-sol-base1 whitespace-pre-wrap break-words prose prose-invert prose-sm max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant message: rendered markdown like CLI
+  return (
+    <div>
+      <TimestampLine timestamp={timestamp} />
+      <div className="text-[0.825rem] text-sol-base0 prose prose-invert prose-sm max-w-none">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ interface Message {
   role: BubbleRole;
   content: string;
   toolName?: string;
+  arguments?: Record<string, unknown>;
   timestamp?: string;
 }
 
@@ -34,20 +35,6 @@ function extractContent(content?: string | ContentPart[]): string {
       .join("");
   }
   return String(content);
-}
-
-function formatArgs(args: unknown): string {
-  if (!args || typeof args !== "object") return "";
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
-function truncate(s: string, n: number): string {
-  if (!s) return "";
-  return s.length > n ? s.slice(0, n) + "..." : s;
 }
 
 export default function ChatView({ chatId }: ChatViewProps) {
@@ -91,11 +78,10 @@ export default function ChatView({ chatId }: ChatViewProps) {
 
         if (role === "user") {
           addMessage({ role: "user", content, timestamp });
-        } else if (tool) {
-          const body = msg.arguments
-            ? `${tool}\n${formatArgs(msg.arguments)}`
-            : `${tool}\n${truncate(content, 500)}`;
-          addMessage({ role: "tool", content: body, toolName: tool, timestamp });
+        } else if (role === "assistant" && tool) {
+          addMessage({ role: "tool_call", content, toolName: tool, arguments: msg.arguments, timestamp });
+        } else if (role === "tool") {
+          addMessage({ role: "tool_result", content, toolName: tool, timestamp });
         } else {
           addMessage({ role: "assistant", content, timestamp });
         }
@@ -108,7 +94,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
         const data = evt.data || evt;
         const toolName = data.tool_name || "";
         const args = data.tool_args || {};
-        addMessage({ role: "tool", content: `${toolName}\n${formatArgs(args)}`, toolName });
+        addMessage({ role: "tool_call", content: "", toolName, arguments: args });
         setShowApproval(true);
       } catch {}
     };
@@ -133,7 +119,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
 
   if (!chatId) {
     return (
-      <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
+      <div className="flex-1 flex items-center justify-center text-sol-base01 text-sm">
         Select a chat to view its conversation
       </div>
     );
@@ -143,7 +129,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
     <div className="flex-1 flex flex-col min-w-0">
       <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
         {messages.map((m, i) => (
-          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} timestamp={m.timestamp} />
+          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
         ))}
       </div>
       <ApprovalBar
