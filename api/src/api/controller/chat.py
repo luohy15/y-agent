@@ -41,23 +41,27 @@ def _get_celery_app():
     return app
 
 
-def _send_chat_message(chat_id: str):
+def _send_chat_message(chat_id: str, bot_name: str = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
     Falls back to Celery with filesystem broker for local dev.
     """
+    payload = {"chat_id": chat_id}
+    if bot_name:
+        payload["bot_name"] = bot_name
+
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
         client = _get_sqs_client()
         client.send_message(
             QueueUrl=queue_url,
-            MessageBody=json.dumps({"chat_id": chat_id}),
+            MessageBody=json.dumps(payload),
         )
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id])
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name})
 
 
 class CreateChatRequest(BaseModel):
@@ -108,16 +112,13 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         "id": generate_message_id(),
     })
 
-    # Create in DB with status=pending
     await chat_service.create_chat(
         messages=[user_msg],
         chat_id=chat_id,
-        status="pending",
-        bot_name=req.bot_name,
         user_id=user_id,
     )
 
-    _send_chat_message(chat_id)
+    _send_chat_message(chat_id, bot_name=req.bot_name)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -126,10 +127,32 @@ async def post_approve(req: ApproveRequest):
     chat = await chat_service.get_chat_by_id(req.chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
-    if chat.status != "waiting_approval":
-        raise HTTPException(status_code=400, detail="chat is not waiting for approval")
-    status = "approved" if req.approved else "denied"
-    await chat_service.update_chat_status(req.chat_id, status)
+
+    # Find last assistant message with tool_calls
+    last_assistant = None
+    for m in reversed(chat.messages):
+        if m.role == "assistant" and m.tool_calls:
+            last_assistant = m
+            break
+
+    if not last_assistant or not last_assistant.tool_calls:
+        raise HTTPException(status_code=400, detail="no tool calls to approve")
+
+    # Check there are pending tool_calls
+    has_pending = any(tc.get("status") == "pending" for tc in last_assistant.tool_calls)
+    if not has_pending:
+        raise HTTPException(status_code=400, detail="no pending tool calls")
+
+    # Update all pending tool_call statuses
+    new_status = "approved" if req.approved else "rejected"
+    for tc in last_assistant.tool_calls:
+        if tc.get("status") == "pending":
+            tc["status"] = new_status
+
+    # Re-save the chat with updated tool_call statuses
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+
     _send_chat_message(req.chat_id)
     return {"ok": True}
 
@@ -155,24 +178,20 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
                     "data": json.dumps({"index": idx_val, "type": "message", "data": msg_data}),
                 }
 
-            status = chat.status or ""
-            if status in ("completed", "failed"):
-                yield {"event": "done", "data": json.dumps({"status": status})}
-                return
+            # Infer state from messages
+            last_msg = messages[-1] if messages else None
 
-            if status == "waiting_approval":
-                # Find the last assistant message - its tool/arguments fields
-                # indicate what needs approval
-                for m in reversed(messages):
-                    if m.role == "assistant" and m.tool:
-                        yield {
-                            "event": "ask",
-                            "data": json.dumps({
-                                "tool_name": m.tool,
-                                "tool_args": m.arguments or {},
-                            }),
-                        }
-                        break
+            if last_msg and last_msg.role == "assistant" and last_msg.tool_calls:
+                pending_calls = [tc for tc in last_msg.tool_calls if tc.get("status") == "pending"]
+                if pending_calls:
+                    yield {
+                        "event": "ask",
+                        "data": json.dumps({"tool_calls": pending_calls}),
+                    }
+
+            elif last_msg and last_msg.role == "assistant" and not last_msg.tool_calls:
+                yield {"event": "done", "data": json.dumps({"status": "completed"})}
+                return
 
             await asyncio.sleep(1)
 

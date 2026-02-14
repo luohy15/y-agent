@@ -56,6 +56,8 @@ class Message:
     server: Optional[str] = None
     tool: Optional[str] = None
     arguments: Optional[Dict[str, Union[str, int, float, bool, Dict, List]]] = None
+    tool_calls: Optional[List[Dict]] = None
+    tool_call_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Message':
@@ -85,7 +87,9 @@ class Message:
             parent_id=data.get('parent_id'),
             server=data.get('server'),
             tool=data.get('tool'),
-            arguments=data.get('arguments')
+            arguments=data.get('arguments'),
+            tool_calls=data.get('tool_calls'),
+            tool_call_id=data.get('tool_call_id'),
         )
 
     def to_dict(self) -> Dict:
@@ -122,6 +126,10 @@ class Message:
             result['tool'] = self.tool
         if self.arguments is not None:
             result['arguments'] = self.arguments
+        if self.tool_calls is not None:
+            result['tool_calls'] = self.tool_calls
+        if self.tool_call_id is not None:
+            result['tool_call_id'] = self.tool_call_id
         return result
 
 @dataclass
@@ -135,8 +143,6 @@ class Chat:
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None
-    status: Optional[str] = None
-    bot_name: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -153,8 +159,6 @@ class Chat:
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id'),
             selected_message_id=data.get('selected_message_id'),
-            status=data.get('status'),
-            bot_name=data.get('bot_name'),
         )
 
     def to_dict(self) -> Dict:
@@ -174,10 +178,6 @@ class Chat:
             result['origin_message_id'] = self.origin_message_id
         if self.selected_message_id is not None:
             result['selected_message_id'] = self.selected_message_id
-        if self.status is not None:
-            result['status'] = self.status
-        if self.bot_name is not None:
-            result['bot_name'] = self.bot_name
         return result
 
     def update_messages(self, messages: List[Message]) -> None:

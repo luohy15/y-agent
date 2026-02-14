@@ -28,12 +28,8 @@ def _parse_frontmatter(content: str) -> dict:
         return {}
 
 
-def discover_skills(skills_dir: Optional[str] = None) -> List[SkillMeta]:
-    """Discover skills from the skills directory."""
-    if skills_dir is None:
-        base = os.environ.get("Y_AGENT_HOME", os.path.expanduser("~/.y-agent"))
-        skills_dir = os.path.join(base, "skills")
-
+def _discover_skills_in_dir(skills_dir: str) -> List[SkillMeta]:
+    """Discover skills from a single skills directory."""
     if not os.path.isdir(skills_dir):
         return []
 
@@ -69,6 +65,29 @@ def discover_skills(skills_dir: Optional[str] = None) -> List[SkillMeta]:
             logger.warning(f"Failed to load skill from {skill_file}: {e}")
 
     return skills
+
+
+def discover_skills(skills_dir: Optional[str] = None) -> List[SkillMeta]:
+    """Discover skills from multiple directories.
+
+    Search order (later entries override earlier ones by name):
+    1. ~/.agents/skills (home directory)
+    2. .agents/skills (project directory, i.e. cwd)
+    """
+    if skills_dir is not None:
+        return _discover_skills_in_dir(skills_dir)
+
+    search_dirs = [
+        os.path.expanduser("~/.agents/skills"),
+        os.path.join(os.getcwd(), ".agents", "skills"),
+    ]
+
+    seen = {}
+    for d in search_dirs:
+        for skill in _discover_skills_in_dir(d):
+            seen[skill.name] = skill
+
+    return sorted(seen.values(), key=lambda s: s.name)
 
 
 def skills_to_prompt(skills: List[SkillMeta]) -> str:

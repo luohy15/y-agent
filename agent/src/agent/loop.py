@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from storage.entity.dto import Message
@@ -11,18 +12,12 @@ class ClientError(Exception):
     pass
 
 
-class ApprovalNeeded(Exception):
-    """Raised by permission_callback to pause the agent loop.
-
-    The caller should save state (messages already include the assistant
-    message with tool calls) and resume later once approval is granted.
-    """
-    def __init__(self, tool_name: str, tool_args: Dict, tool_calls: List[Dict], tool_call_index: int):
-        self.tool_name = tool_name
-        self.tool_args = tool_args
-        self.tool_calls = tool_calls           # full tool_calls list from the LLM response
-        self.tool_call_index = tool_call_index  # index into tool_calls where we stopped
-        super().__init__(f"Approval needed for {tool_name}")
+@dataclass
+class LoopResult:
+    status: str  # "completed" | "approval_needed" | "interrupted" | "error" | "max_iterations"
+    new_messages: List[Message] = field(default_factory=list)
+    tool_name: Optional[str] = None  # only for approval_needed
+    error: Optional[str] = None      # only for error
 
 
 def _default_display(message: Message):
@@ -34,16 +29,149 @@ def _default_display(message: Message):
         print(f"[tool_result] {message.tool}: {result[:200]}{'...' if len(result) > 200 else ''}")
 
 
-async def _default_permission_callback(tool_name: str, tool_args: Dict) -> bool:
-    """Default interactive permission prompt via stdin."""
-    try:
-        args_str = json.dumps(tool_args, ensure_ascii=False)
-        if len(args_str) > 80:
-            args_str = args_str[:80] + "..."
-        answer = input(f"Allow {tool_name}({args_str})? [y/N] ").strip().lower()
-    except EOFError:
-        answer = "n"
-    return answer == "y"
+def _backfill_rejected_tool_results(messages: List[Message]):
+    """Backfill tool results for rejected tool calls that lack responses.
+
+    When a user rejects tools and then sends a new message, the message order
+    is assistant(rejected tools) → user. The LLM expects tool results between
+    them, so this inserts rejection results at the correct position.
+    """
+    # Find last assistant message with tool_calls
+    last_assistant = None
+    last_assistant_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant" and messages[i].tool_calls:
+            last_assistant = messages[i]
+            last_assistant_idx = i
+            break
+
+    if not last_assistant or not last_assistant.tool_calls:
+        return
+
+    # Collect existing tool responses
+    existing_tool_ids = set()
+    for m in messages[last_assistant_idx + 1:]:
+        if m.role == "tool" and m.tool_call_id:
+            existing_tool_ids.add(m.tool_call_id)
+
+    unhandled = [tc for tc in last_assistant.tool_calls if tc["id"] not in existing_tool_ids]
+    if not unhandled:
+        return
+
+    # Only backfill if all unhandled are rejected (not pending/approved)
+    if not all(tc.get("status") == "rejected" for tc in unhandled):
+        return
+
+    # Check if there are non-tool messages after the assistant (e.g. user message)
+    # If so, we need to insert tool results before them
+    insert_idx = last_assistant_idx + 1
+    while insert_idx < len(messages) and messages[insert_idx].role == "tool":
+        insert_idx += 1
+
+    # If insert_idx == len(messages), no user message follows — _run_tool_calls handles it
+    if insert_idx >= len(messages):
+        return
+
+    # Insert rejection results at the correct position
+    tool_msgs = []
+    for tc in unhandled:
+        func = tc["function"]
+        tool_name = func["name"]
+        try:
+            tool_args = json.loads(func["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            tool_args = {}
+        tool_msg = Message.from_dict({
+            "role": "tool",
+            "content": f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded.",
+            "timestamp": get_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+            "parent_id": last_assistant.id,
+            "tool": tool_name,
+            "arguments": tool_args,
+            "tool_call_id": tc["id"],
+        })
+        tool_msgs.append(tool_msg)
+
+    for offset, msg in enumerate(tool_msgs):
+        messages.insert(insert_idx + offset, msg)
+
+
+async def _run_tool_calls(
+    messages: List[Message],
+    new_messages: List[Message],
+    tools_map: Dict,
+    message_callback: Callable[[Message], None],
+) -> Optional[LoopResult]:
+    """Execute unhandled tool_calls on the last assistant message.
+
+    Returns None if all tool_calls were executed (or nothing to do).
+    Returns LoopResult if the loop should exit (approval_needed / interrupted).
+    """
+    # Find last assistant message with tool_calls
+    last_assistant = None
+    last_assistant_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant" and messages[i].tool_calls:
+            last_assistant = messages[i]
+            last_assistant_idx = i
+            break
+
+    if not last_assistant or not last_assistant.tool_calls:
+        return None
+
+    # Collect existing tool responses
+    existing_tool_ids = set()
+    for m in messages[last_assistant_idx + 1:]:
+        if m.role == "tool" and m.tool_call_id:
+            existing_tool_ids.add(m.tool_call_id)
+
+    unhandled = [tc for tc in last_assistant.tool_calls if tc["id"] not in existing_tool_ids]
+    if not unhandled:
+        return None
+
+    # Still waiting for user approval
+    pending_tc = next((tc for tc in unhandled if tc.get("status") == "pending"), None)
+    if pending_tc:
+        return LoopResult("approval_needed", new_messages, tool_name=pending_tc["function"]["name"])
+
+    # Execute approved/rejected tool_calls
+    for tc in unhandled:
+        func = tc["function"]
+        tool_name = func["name"]
+        try:
+            tool_args = json.loads(func["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            tool_args = {}
+
+        status = tc.get("status", "approved")
+        if status == "rejected":
+            result = f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded."
+        else:
+            tool = tools_map.get(tool_name)
+            result = await tool.execute(tool_args) if tool else f"Unknown tool: {tool_name}"
+
+        if len(result) > 10000:
+            result = result[:10000] + "\n... (truncated)"
+
+        tool_msg = Message.from_dict({
+            "role": "tool",
+            "content": result,
+            "timestamp": get_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+            "parent_id": last_assistant.id,
+            "tool": tool_name,
+            "arguments": tool_args,
+            "tool_call_id": tc["id"],
+        })
+        message_callback(tool_msg)
+        messages.append(tool_msg)
+        new_messages.append(tool_msg)
+
+    return None
+
 
 
 async def run_agent_loop(
@@ -54,25 +182,25 @@ async def run_agent_loop(
     openai_tools: List[Dict],
     max_iterations: int = 50,
     permission_manager: Optional[PermissionManager] = None,
-    display_callback: Optional[Callable[[Message], None]] = None,
-    permission_callback: Optional[Callable[[str, Dict], bool]] = None,
-) -> List[Message]:
+    message_callback: Optional[Callable[[Message], None]] = None,
+) -> LoopResult:
     """Run the agent loop: call LLM, execute tool calls, repeat until plain text.
 
-    Args:
-        permission_callback: Async callable(tool_name, tool_args) -> bool.
-            Called when a tool is not auto-allowed by the permission_manager.
-            Return True to approve, False to deny.
-            May raise ApprovalNeeded to pause the loop (worker use-case).
-            Defaults to an interactive stdin prompt.
+    Returns a LoopResult indicating how the loop exited.
     """
     if permission_manager is None:
         permission_manager = PermissionManager()
-    if display_callback is None:
-        display_callback = _default_display
-    if permission_callback is None:
-        permission_callback = _default_permission_callback
+    if message_callback is None:
+        message_callback = _default_display
     new_messages: List[Message] = []
+
+    # --- Backfill rejected tool results that lack responses ---
+    _backfill_rejected_tool_results(messages)
+
+    # --- Resume unhandled tool_calls from previous run ---
+    early_exit = await _run_tool_calls(messages, new_messages, tools_map, message_callback)
+    if early_exit:
+        return early_exit
 
     try:
         for _ in range(max_iterations):
@@ -99,18 +227,26 @@ async def run_agent_loop(
                     "provider": provider_name,
                     "model": model,
                 })
-                display_callback(assistant_message)
+                message_callback(assistant_message)
                 messages.append(assistant_message)
                 new_messages.append(assistant_message)
-                return new_messages
+                return LoopResult("completed", new_messages)
 
-            # Has tool calls
-            first_tc = tool_calls[0]
-            func = first_tc["function"]
-            try:
-                args = json.loads(func["arguments"])
-            except (json.JSONDecodeError, TypeError):
-                args = {"raw": func["arguments"]}
+            # Has tool calls — check permissions and set statuses
+            for tc_index, tc in enumerate(tool_calls):
+                func = tc["function"]
+                tool_name = func["name"]
+                try:
+                    tool_args = json.loads(func["arguments"])
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+
+                if tools_map.get(tool_name) and not permission_manager.is_allowed(tool_name, tool_args):
+                    for remaining_tc in tool_calls[tc_index:]:
+                        remaining_tc["status"] = "pending"
+                    break
+                else:
+                    tc["status"] = "approved"
 
             assistant_message = Message.from_dict({
                 "role": "assistant",
@@ -121,50 +257,16 @@ async def run_agent_loop(
                 "parent_id": parent_id,
                 "provider": provider_name,
                 "model": model,
-                "tool": func["name"],
-                "arguments": args,
+                "tool_calls": tool_calls,
             })
-            assistant_message._raw_tool_calls = tool_calls
-            display_callback(assistant_message)
+            message_callback(assistant_message)
             messages.append(assistant_message)
             new_messages.append(assistant_message)
 
-            for tc_index, tc in enumerate(tool_calls):
-                func = tc["function"]
-                tool_name = func["name"]
-                try:
-                    tool_args = json.loads(func["arguments"])
-                except (json.JSONDecodeError, TypeError):
-                    tool_args = {}
-
-                tool = tools_map.get(tool_name)
-                if not tool:
-                    result = f"Unknown tool: {tool_name}"
-                elif permission_manager.is_allowed(tool_name, tool_args):
-                    result = await tool.execute(tool_args)
-                elif await permission_callback(tool_name, tool_args):
-                    # permission_callback may raise ApprovalNeeded to pause
-                    result = await tool.execute(tool_args)
-                else:
-                    result = f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded."
-
-                if len(result) > 10000:
-                    result = result[:10000] + "\n... (truncated)"
-
-                tool_msg_id = generate_message_id()
-                tool_message = Message.from_dict({
-                    "role": "tool",
-                    "content": result,
-                    "timestamp": get_iso8601_timestamp(),
-                    "unix_timestamp": get_unix_timestamp(),
-                    "id": tool_msg_id,
-                    "parent_id": assistant_msg_id,
-                    "tool": tool_name,
-                })
-                tool_message._tool_call_id = tc["id"]
-                display_callback(tool_message)
-                messages.append(tool_message)
-                new_messages.append(tool_message)
+            # Execute tool_calls (or exit if pending/interrupted)
+            early_exit = await _run_tool_calls(messages, new_messages, tools_map, message_callback)
+            if early_exit:
+                return early_exit
     except ClientError as e:
         error_message = Message.from_dict({
             "role": "assistant",
@@ -174,13 +276,26 @@ async def run_agent_loop(
             "id": generate_message_id(),
             "parent_id": messages[-1].id if messages and messages[-1].id else None,
         })
-        display_callback(error_message)
+        message_callback(error_message)
         messages.append(error_message)
         new_messages.append(error_message)
-        return new_messages
+        return LoopResult("error", new_messages, error=str(e))
     except KeyboardInterrupt:
         print("\n[agent] Interrupted")
-        return new_messages
+        return LoopResult("interrupted", new_messages)
+    except Exception as e:
+        error_message = Message.from_dict({
+            "role": "assistant",
+            "content": f"[agent] Unexpected error: {e}",
+            "timestamp": get_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+            "parent_id": messages[-1].id if messages and messages[-1].id else None,
+        })
+        message_callback(error_message)
+        messages.append(error_message)
+        new_messages.append(error_message)
+        return LoopResult("error", new_messages, error=str(e))
 
     print("[agent] Max iterations reached")
-    return new_messages
+    return LoopResult("max_iterations", new_messages)

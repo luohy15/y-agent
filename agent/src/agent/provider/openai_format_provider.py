@@ -65,12 +65,12 @@ class OpenAIFormatProvider(BaseProvider):
             if 0 <= orig_idx < len(messages):
                 orig_msg = messages[orig_idx]
 
-            if orig_msg and hasattr(orig_msg, '_raw_tool_calls') and orig_msg._raw_tool_calls:
-                msg_dict["tool_calls"] = orig_msg._raw_tool_calls
+            if orig_msg and orig_msg.tool_calls:
+                msg_dict["tool_calls"] = orig_msg.tool_calls
                 if not msg_dict.get("content"):
                     msg_dict["content"] = ""
-            if orig_msg and hasattr(orig_msg, '_tool_call_id') and orig_msg._tool_call_id:
-                msg_dict["tool_call_id"] = orig_msg._tool_call_id
+            if orig_msg and orig_msg.tool_call_id:
+                msg_dict["tool_call_id"] = orig_msg.tool_call_id
 
             result.append(msg_dict)
         return result

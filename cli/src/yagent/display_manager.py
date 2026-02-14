@@ -21,10 +21,21 @@ class DisplayManager:
         """Display a message in a panel with role-colored borders."""
         index_str = f"[{index}] " if index is not None else ""
 
-        # Tool call: formatted display per tool type
-        if message.role == "assistant" and message.tool:
+        # Assistant message with tool_calls: skip display (tool results will show the call info)
+        if message.role == "assistant" and message.tool_calls:
+            if message.content:
+                content = message.content
+                if isinstance(content, list):
+                    content = next((part.text for part in content if part.type == 'text'), '')
+                if content.strip():
+                    self.console.print(Markdown(content))
+                    self.console.print()
+            return
+
+        # Tool result: show tool name + args + result together
+        if message.role == "tool":
             args = message.arguments or {}
-            tool = message.tool
+            tool = message.tool or "unknown"
             if tool == "bash":
                 cmd = args.get("command", "")
                 cmd = cmd[:200] + '...' if len(cmd) > 200 else cmd
@@ -39,15 +50,11 @@ class DisplayManager:
                 import json
                 args_str = json.dumps(args, separators=(',', ':'))
                 args_str = args_str[:200] + '...' if len(args_str) > 200 else args_str
-                display = f"[assistant]$ {tool}[/assistant]({args_str})"
-            self.console.print(f"{display}\n")
-            return
-
-        # Tool result: shell output style
-        if message.role == "tool":
+                display = f"[assistant]{tool}[/assistant]({args_str})"
             result = message.content if isinstance(message.content, str) else str(message.content)
             result = result.replace('\n', ' ')[:80]
-            self.console.print(f"[tool]{result}[/tool]\n")
+            self.console.print(f"{display}")
+            self.console.print(f"[tool]→ {result}[/tool]\n")
             return
 
         # Extract content text from structured content if needed

@@ -1,3 +1,4 @@
+.agents
 .aws-sam/
 
 # GitHub Actions config secrets

@@ -1,9 +1,11 @@
-import os
 import asyncio
 import click
 from typing import Optional
 
-from yagent.chat.app import ChatApp
+from yagent.display_manager import DisplayManager
+from yagent.input_manager import InputManager
+from agent.config import make_provider
+from yagent.chat.runner import run_chat
 from storage.service import bot_config as bot_service
 from loguru import logger
 
@@ -24,10 +26,7 @@ def chat_group(ctx, chat_id: Optional[str], latest: bool, model: Optional[str], 
     if verbose:
         logger.info("Starting chat command")
 
-    # Get bot config
     bot_config = bot_service.get_config(bot or "default")
-
-    # Use command line model if specified, otherwise use bot config model
     bot_config.model = model or bot_config.model
 
     # Handle --latest flag
@@ -39,8 +38,9 @@ def chat_group(ctx, chat_id: Optional[str], latest: bool, model: Optional[str], 
             raise click.Abort()
         chat_id = chats[0].chat_id
 
-    # Create ChatApp instance
-    chat_app = ChatApp(bot_config=bot_config, chat_id=chat_id, verbose=verbose)
+    display_manager = DisplayManager(bot_config)
+    input_manager = InputManager(display_manager.console)
+    provider = make_provider(bot_config)
 
     if verbose:
         logger.info(f"Using OpenRouter API Base URL: {bot_config.base_url}")
@@ -51,7 +51,14 @@ def chat_group(ctx, chat_id: Optional[str], latest: bool, model: Optional[str], 
         else:
             logger.info("Starting new chat")
 
-    asyncio.run(chat_app.run(prompt))
+    asyncio.run(run_chat(
+        display_manager=display_manager,
+        input_manager=input_manager,
+        provider=provider,
+        chat_id=chat_id,
+        verbose=verbose,
+        prompt=prompt,
+    ))
 
 
 from .list import list_chats

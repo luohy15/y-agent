@@ -18,7 +18,7 @@ async def get_chat(chat_id: str, user_id: Optional[int] = None) -> Optional[Chat
     return await chat_repo.get_chat(chat_id, user_id=user_id)
 
 
-async def create_chat(messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, status: Optional[str] = None, bot_name: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
+async def create_chat(messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
     timestamp = get_iso8601_timestamp()
     chat = Chat(
         id=chat_id if chat_id else generate_id(),
@@ -26,8 +26,6 @@ async def create_chat(messages: List[Message], external_id: Optional[str] = None
         update_time=timestamp,
         messages=[msg for msg in messages if msg.role != 'system'],
         external_id=external_id,
-        status=status,
-        bot_name=bot_name,
     )
     return await chat_repo.add_chat(chat, user_id=user_id)
 
@@ -46,30 +44,12 @@ async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     return await chat_repo.get_chat_by_id(chat_id)
 
 
-async def update_chat_status(chat_id: str, status: str) -> Chat:
-    """Update only the status field of a chat."""
-    chat = await chat_repo.get_chat_by_id(chat_id)
-    if not chat:
-        raise ValueError(f"Chat with id {chat_id} not found")
-    chat.status = status
-    return await chat_repo.save_chat_by_id(chat)
-
-
 async def append_message(chat_id: str, message: Message) -> Chat:
     """Append a single message to a chat."""
     chat = await chat_repo.get_chat_by_id(chat_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
     chat.messages.append(message)
-    return await chat_repo.save_chat_by_id(chat)
-
-
-async def save_messages(chat_id: str, messages: List[Message]) -> Chat:
-    """Replace all messages in a chat."""
-    chat = await chat_repo.get_chat_by_id(chat_id)
-    if not chat:
-        raise ValueError(f"Chat with id {chat_id} not found")
-    chat.messages = messages
     return await chat_repo.save_chat_by_id(chat)
 
 
@@ -80,6 +60,16 @@ def append_message_sync(chat_id: str, message: Message) -> Chat:
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
     chat.messages.append(message)
+    return _save_chat_by_id_sync(chat)
+
+
+def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
+    """Replace all messages in a chat (sync). Used to persist in-place mutations like tool_call statuses."""
+    from storage.repository.chat import _get_chat_by_id_sync, _save_chat_by_id_sync
+    chat = _get_chat_by_id_sync(chat_id)
+    if not chat:
+        raise ValueError(f"Chat with id {chat_id} not found")
+    chat.messages = messages
     return _save_chat_by_id_sync(chat)
 
 

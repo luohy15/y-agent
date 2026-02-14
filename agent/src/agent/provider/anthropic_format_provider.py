@@ -35,9 +35,9 @@ class AnthropicFormatProvider(BaseProvider):
                 if text_content:
                     content_blocks.append({"type": "text", "text": text_content})
 
-                # Add tool_use blocks from raw tool calls
-                if hasattr(msg, '_raw_tool_calls') and msg._raw_tool_calls:
-                    for tc in msg._raw_tool_calls:
+                # Add tool_use blocks from tool calls
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
                         try:
                             tool_input = json.loads(tc["function"]["arguments"])
                         except (json.JSONDecodeError, TypeError):
@@ -52,7 +52,7 @@ class AnthropicFormatProvider(BaseProvider):
                 result.append({"role": "assistant", "content": content_blocks or [{"type": "text", "text": ""}]})
 
             elif role == "tool":
-                tool_call_id = getattr(msg, '_tool_call_id', None) or "unknown"
+                tool_call_id = msg.tool_call_id or "unknown"
                 result.append({
                     "role": "user",
                     "content": [{
