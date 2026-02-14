@@ -1,6 +1,6 @@
 import click
 from storage.service import bot_config as bot_service
-from storage.service.user import get_current_user_id
+from storage.service.user import get_cli_user_id
 
 @click.command('update')
 @click.argument('name')
@@ -10,7 +10,7 @@ from storage.service.user import get_current_user_id
 @click.option('--api-type', '-t', default=None, help='API type (e.g. anthropic)')
 def bot_update(name, model, api_key, base_url, api_type):
     """Update an existing bot configuration."""
-    user_id = get_current_user_id()
+    user_id = get_cli_user_id()
     config = bot_service.get_config(user_id, name)
     if not config:
         click.echo(f"Bot '{name}' not found")

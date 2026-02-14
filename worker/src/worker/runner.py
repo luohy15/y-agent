@@ -6,10 +6,10 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
+from storage.util import backfill_tool_results
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
-from agent.utils.message_utils import backfill_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 
 
@@ -33,7 +33,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     logger.info("run_chat start chat_id={} bot_name={} user_id={}", chat_id, bot_name, user_id)
 
     # Load chat from DB (with user_id access check)
-    chat = await chat_service.get_chat(chat_id, user_id=user_id)
+    chat = await chat_service.get_chat(user_id, chat_id)
     if not chat:
         logger.error("Chat {} not found", chat_id)
         return

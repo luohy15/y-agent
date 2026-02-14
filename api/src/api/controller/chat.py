@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from storage.service import chat as chat_service
-from storage.util import generate_id, generate_message_id, get_iso8601_timestamp, get_unix_timestamp
+from storage.util import generate_id, generate_message_id, get_iso8601_timestamp, get_unix_timestamp, backfill_tool_results
 from storage.entity.dto import Message
 
 router = APIRouter(prefix="/chat")
@@ -105,7 +105,7 @@ def _get_user_id(request: Request) -> int:
 @router.get("/list")
 async def get_chats(request: Request, query: Optional[str] = Query(None)):
     user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(user_id=user_id, query=query)
+    chats = await chat_service.list_chats(user_id, query=query)
     return [
         {
             "chat_id": c.chat_id,
@@ -132,9 +132,9 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     })
 
     await chat_service.create_chat(
+        user_id,
         messages=[user_msg],
         chat_id=chat_id,
-        user_id=user_id,
         auto_approve=req.auto_approve,
     )
 
@@ -145,7 +145,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
 @router.post("/message")
 async def post_send_message(req: SendMessageRequest, request: Request):
     user_id = _get_user_id(request)
-    chat = await chat_service.get_chat(req.chat_id, user_id=user_id)
+    chat = await chat_service.get_chat(user_id, req.chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
 
@@ -193,7 +193,6 @@ async def post_approve(req: ApproveRequest):
             tc["status"] = "approved" if req.decisions[tc["id"]] else "rejected"
 
     # Backfill rejection tool results so they are persisted
-    from storage.util import backfill_tool_results
     backfill_tool_results(chat.messages, mode="rejected")
 
     # Append user message if provided (deny with message)
@@ -247,7 +246,7 @@ async def post_auto_approve(req: AutoApproveRequest):
 @router.get("/detail")
 async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     user_id = _get_user_id(request)
-    chat = await chat_service.get_chat(chat_id, user_id=user_id)
+    chat = await chat_service.get_chat(user_id, chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
     return {

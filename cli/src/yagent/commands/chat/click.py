@@ -7,7 +7,7 @@ from yagent.input_manager import InputManager
 from agent.config import make_provider
 from yagent.chat.runner import run_chat
 from storage.service import bot_config as bot_service
-from storage.service.user import get_current_user_id
+from storage.service.user import get_cli_user_id
 from loguru import logger
 
 
@@ -27,13 +27,13 @@ def chat_group(ctx, chat_id: Optional[str], latest: bool, model: Optional[str], 
     if verbose:
         logger.info("Starting chat command")
 
-    bot_config = bot_service.get_config(get_current_user_id(), bot or "default")
+    bot_config = bot_service.get_config(get_cli_user_id(), bot or "default")
     bot_config.model = model or bot_config.model
 
     # Handle --latest flag
     if latest:
         from storage.service import chat as chat_service
-        chats = asyncio.run(chat_service.list_chats(limit=1))
+        chats = asyncio.run(chat_service.list_chats(get_cli_user_id(), limit=1))
         if not chats:
             click.echo("Error: No existing chats found")
             raise click.Abort()

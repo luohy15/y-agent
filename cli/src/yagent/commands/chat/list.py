@@ -24,7 +24,8 @@ def list_chats(limit: int, verbose: bool = False):
     import asyncio
 
     from storage.service import chat as chat_service
-    chats = asyncio.run(chat_service.list_chats(limit=limit))
+    from storage.service.user import get_cli_user_id
+    chats = asyncio.run(chat_service.list_chats(get_cli_user_id(), limit=limit))
     if not chats:
         click.echo("No chats found")
         return

@@ -1,7 +1,6 @@
 from typing import Optional, List, Dict, Union
 from storage.entity.dto import Message
 from storage.util import get_iso8601_timestamp, get_unix_timestamp
-from storage.util import backfill_tool_results as backfill_tool_results  # re-export
 
 def create_message(role: str, content: str, reasoning_content: Optional[str] = None, provider: Optional[str] = None,
                    model: Optional[str] = None, id: Optional[str] = None, reasoning_effort: Optional[float] = None,
@@ -43,7 +42,3 @@ def create_message(role: str, content: str, reasoning_content: Optional[str] = N
         message_data["links"] = links
 
     return Message.from_dict(message_data)
-
-
-
-# backfill_tool_results is re-exported from storage.util for backward compatibility

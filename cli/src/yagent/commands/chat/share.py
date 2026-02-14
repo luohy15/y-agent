@@ -4,6 +4,7 @@ from typing import Optional
 import click
 
 from storage.service import chat as chat_service
+from storage.service.user import get_cli_user_id
 from yagent.config import config
 
 @click.command()
@@ -18,7 +19,7 @@ def share(chat_id: Optional[str], latest: bool, push: bool):
     """
     # Handle --latest flag
     if latest:
-        chats = asyncio.run(chat_service.list_chats(limit=1))
+        chats = asyncio.run(chat_service.list_chats(get_cli_user_id(), limit=1))
         if not chats:
             click.echo("Error: No chats found to share")
             raise click.Abort()

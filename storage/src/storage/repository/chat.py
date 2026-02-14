@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from sqlalchemy.orm import defer
 
 from storage.entity.chat import ChatEntity
+from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity FK resolution
 from storage.entity.dto import Chat
 from storage.database.base import get_db
-from storage.repository.user import get_current_user_db_id
 
 
 @dataclass
@@ -24,17 +24,10 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return Chat.from_dict(json.loads(entity.json_content))
 
 
-def _resolve_user_id(session, user_id: Optional[int] = None) -> int:
-    if user_id is not None:
-        return user_id
-    return get_current_user_db_id(session)
-
-
-async def list_chats(limit: int = 10, user_id: Optional[int] = None, query: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None) -> List[ChatSummary]:
     with get_db() as session:
-        uid = _resolve_user_id(session, user_id)
         q = (session.query(ChatEntity)
-             .filter_by(user_id=uid)
+             .filter_by(user_id=user_id)
              .options(defer(ChatEntity.json_content)))
         if query:
             q = q.filter(ChatEntity.title.ilike(f"%{query}%"))
@@ -52,10 +45,9 @@ async def list_chats(limit: int = 10, user_id: Optional[int] = None, query: Opti
         ]
 
 
-async def get_chat(chat_id: str, user_id: Optional[int] = None) -> Optional[Chat]:
+async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
     with get_db() as session:
-        uid = _resolve_user_id(session, user_id)
-        row = session.query(ChatEntity).filter_by(user_id=uid, chat_id=chat_id).first()
+        row = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).first()
         if not row:
             return None
         try:
@@ -65,21 +57,20 @@ async def get_chat(chat_id: str, user_id: Optional[int] = None) -> Optional[Chat
             return None
 
 
-async def add_chat(chat: Chat, user_id: Optional[int] = None) -> Chat:
-    return await save_chat(chat, user_id=user_id)
+async def add_chat(user_id: int, chat: Chat) -> Chat:
+    return await save_chat(user_id, chat)
 
 
-async def update_chat(chat: Chat, user_id: Optional[int] = None) -> Chat:
-    existing = await get_chat(chat.id, user_id=user_id)
+async def update_chat(user_id: int, chat: Chat) -> Chat:
+    existing = await get_chat(user_id, chat.id)
     if not existing:
         raise ValueError(f"Chat with id {chat.id} not found")
-    return await save_chat(chat, user_id=user_id)
+    return await save_chat(user_id, chat)
 
 
-async def delete_chat(chat_id: str, user_id: Optional[int] = None) -> bool:
+async def delete_chat(user_id: int, chat_id: str) -> bool:
     with get_db() as session:
-        uid = _resolve_user_id(session, user_id)
-        count = session.query(ChatEntity).filter_by(user_id=uid, chat_id=chat_id).delete()
+        count = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).delete()
         return count > 0
 
 
@@ -90,13 +81,12 @@ def _extract_title(chat: Chat) -> str:
     return ""
 
 
-def _save_chat_sync(chat: Chat, user_id: Optional[int] = None) -> Chat:
+def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
     from storage.util import get_iso8601_timestamp
     chat.update_time = get_iso8601_timestamp()
 
     with get_db() as session:
-        uid = _resolve_user_id(session, user_id)
-        entity = session.query(ChatEntity).filter_by(user_id=uid, chat_id=chat.id).first()
+        entity = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat.id).first()
         content = json.dumps(chat.to_dict())
         title = _extract_title(chat)
         if entity:
@@ -104,7 +94,7 @@ def _save_chat_sync(chat: Chat, user_id: Optional[int] = None) -> Chat:
             entity.title = title
         else:
             entity = ChatEntity(
-                user_id=uid,
+                user_id=user_id,
                 chat_id=chat.id,
                 title=title,
                 json_content=content,
@@ -113,8 +103,8 @@ def _save_chat_sync(chat: Chat, user_id: Optional[int] = None) -> Chat:
         return chat
 
 
-async def save_chat(chat: Chat, user_id: Optional[int] = None) -> Chat:
-    return _save_chat_sync(chat, user_id=user_id)
+async def save_chat(user_id: int, chat: Chat) -> Chat:
+    return _save_chat_sync(user_id, chat)
 
 
 def _get_chat_by_id_sync(chat_id: str) -> Optional[Chat]:

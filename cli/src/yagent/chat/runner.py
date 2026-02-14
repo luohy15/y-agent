@@ -9,13 +9,13 @@ from rich.console import Console
 
 from storage.entity.dto import Chat, Message
 from storage.service import chat as chat_service
-from storage.util import generate_id, generate_message_id
+from storage.service.user import get_cli_user_id
+from storage.util import generate_id, generate_message_id, backfill_tool_results
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
-from agent.utils.message_utils import backfill_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 from .provider.base_provider import BaseProvider
 from .utils.message_utils import create_message
@@ -28,7 +28,7 @@ def handle_message(display_manager: DisplayManager, chat_id: str, message: Messa
 
 async def ensure_chat(chat_id: str, messages: List[Message], current_chat: Optional[Chat]) -> Chat:
     if not current_chat:
-        current_chat = await chat_service.create_chat(messages, None, chat_id)
+        current_chat = await chat_service.create_chat(get_cli_user_id(), messages, chat_id=chat_id)
     return current_chat
 
 
@@ -193,7 +193,7 @@ async def run_chat(
 
     # Load existing chat or generate new ID
     if chat_id:
-        existing_chat = await chat_service.get_chat(chat_id)
+        existing_chat = await chat_service.get_chat(get_cli_user_id(), chat_id)
         if not existing_chat:
             display_manager.print_error(f"Chat {chat_id} not found")
             raise ValueError(f"Chat {chat_id} not found")

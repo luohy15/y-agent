@@ -6,7 +6,6 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from pydantic import BaseModel
 
-from storage.database.base import get_db
 from storage.repository.user import get_or_create_user_by_email
 
 router = APIRouter(prefix="/auth")
@@ -42,9 +41,8 @@ async def google_login(req: GoogleLoginRequest):
 
     username = idinfo.get("name", email.split("@")[0])
 
-    with get_db() as session:
-        user = get_or_create_user_by_email(session, email, username)
-        user_id = user.id
+    user = get_or_create_user_by_email(email, username)
+    user_id = user.id
 
     token = jwt.encode(
         {"user_id": user_id, "email": email},

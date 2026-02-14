@@ -10,15 +10,15 @@ from storage.util import get_iso8601_timestamp, generate_id
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(limit: int = 10, user_id: Optional[int] = None, query: Optional[str] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(limit=limit, user_id=user_id, query=query)
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None) -> List[ChatSummary]:
+    return await chat_repo.list_chats(user_id, limit=limit, query=query)
 
 
-async def get_chat(chat_id: str, user_id: Optional[int] = None) -> Optional[Chat]:
-    return await chat_repo.get_chat(chat_id, user_id=user_id)
+async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
+    return await chat_repo.get_chat(user_id, chat_id)
 
 
-async def create_chat(messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, user_id: Optional[int] = None, auto_approve: bool = False) -> Chat:
+async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, auto_approve: bool = False) -> Chat:
     timestamp = get_iso8601_timestamp()
     chat = Chat(
         id=chat_id if chat_id else generate_id(),
@@ -28,16 +28,16 @@ async def create_chat(messages: List[Message], external_id: Optional[str] = None
         external_id=external_id,
         auto_approve=auto_approve,
     )
-    return await chat_repo.add_chat(chat, user_id=user_id)
+    return await chat_repo.add_chat(user_id, chat)
 
 
-async def update_chat(chat_id: str, messages: List[Message], external_id: Optional[str] = None, user_id: Optional[int] = None) -> Chat:
-    chat = await get_chat(chat_id, user_id=user_id)
+async def update_chat(user_id: int, chat_id: str, messages: List[Message], external_id: Optional[str] = None) -> Chat:
+    chat = await get_chat(user_id, chat_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
     chat.update_messages(messages)
     chat.external_id = external_id
-    return await chat_repo.update_chat(chat, user_id=user_id)
+    return await chat_repo.update_chat(user_id, chat)
 
 
 async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
@@ -80,14 +80,14 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
-async def delete_chat(chat_id: str, user_id: Optional[int] = None) -> bool:
-    return await chat_repo.delete_chat(chat_id, user_id=user_id)
+async def delete_chat(user_id: int, chat_id: str) -> bool:
+    return await chat_repo.delete_chat(user_id, chat_id)
 
 
 async def generate_share_html(chat_id: str) -> str:
     home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
     tmp_dir = os.path.join(home, "tmp")
-    chat = await get_chat(chat_id)
+    chat = await chat_repo.get_chat_by_id(chat_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
 

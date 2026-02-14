@@ -3,7 +3,7 @@ import shutil
 from tabulate import tabulate
 from yagent.config import config
 from storage.service import bot_config as bot_service
-from storage.service.user import get_current_user_id
+from storage.service.user import get_cli_user_id
 
 def truncate_text(text, max_length):
     """Truncate text to max_length with ellipsis if needed."""
@@ -18,7 +18,7 @@ def bot_list(verbose: bool = False):
     if verbose:
         click.echo(f"{click.style('Database:', fg='green')}\n{click.style(config['database_url'], fg='cyan')}")
 
-    configs = bot_service.list_configs(get_current_user_id())
+    configs = bot_service.list_configs(get_cli_user_id())
 
     if not configs:
         click.echo("No bot configurations found")
