@@ -22,6 +22,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(p) for p in PUBLIC_PREFIXES):
             return await call_next(request)
 
+        # Allow public share GET endpoint
+        if path == "/api/chat/share" and request.method == "GET":
+            return await call_next(request)
+
         # Allow static files (served at root by StaticFiles mount)
         if not path.startswith("/api/chat"):
             return await call_next(request)

@@ -49,6 +49,7 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
   const [completed, setCompleted] = useState(false);
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
@@ -194,6 +195,23 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     setPendingToolCalls([]);
   }, [chatId]);
 
+  const shareChat = useCallback(async () => {
+    if (!chatId || sharing) return;
+    setSharing(true);
+    try {
+      const res = await authFetch(`${API}/api/chat/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      const data = await res.json();
+      const shareUrl = `${window.location.origin}/s/${data.share_id}`;
+      await navigator.clipboard.writeText(shareUrl);
+    } finally {
+      setSharing(false);
+    }
+  }, [chatId, sharing]);
+
   const sendFollowUp = useCallback(async () => {
     const text = followUp.trim();
     if (!text || sending || !chatId) return;
@@ -225,7 +243,7 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <div className="flex items-center px-6 py-2 border-b border-sol-base02 shrink-0">
+      <div className="flex items-center justify-between px-6 py-2 border-b border-sol-base02 shrink-0">
         <label className="flex items-center gap-2 text-xs text-sol-base1 cursor-pointer select-none">
           <span>Auto-approve</span>
           <button
@@ -235,6 +253,13 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
             <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-sol-base3 transition-transform ${autoApprove ? "translate-x-4" : ""}`} />
           </button>
         </label>
+        <button
+          onClick={shareChat}
+          disabled={sharing}
+          className="px-3 py-1 text-xs text-sol-base1 border border-sol-base01 rounded-md hover:bg-sol-base02 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+        >
+          {sharing ? "..." : "Share"}
+        </button>
       </div>
       <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
         {messages.map((m, i) => (

@@ -5,7 +5,7 @@ from storage.entity.dto import Chat, Message
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
 
-from storage.util import get_iso8601_timestamp, generate_id
+from storage.util import get_iso8601_timestamp, generate_id, build_message_path
 
 IS_WINDOWS = sys.platform == 'win32'
 
@@ -78,6 +78,47 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
         raise ValueError(f"Chat with id {chat_id} not found")
     chat.messages = messages
     return _save_chat_by_id_sync(chat)
+
+
+async def create_share(user_id: int, chat_id: str, message_id: str = None) -> str:
+    """Create a shared copy of a chat under the default user.
+
+    Returns the share ID (which is the chat_id of the shared copy).
+    Deduplicates: if a share already exists for the same origin_chat_id + origin_message_id, returns existing ID.
+    """
+    from storage.service.user import get_default_user_id
+
+    chat = await chat_repo.get_chat(user_id, chat_id)
+    if not chat:
+        raise ValueError(f"Chat with id {chat_id} not found")
+
+    default_user_id = get_default_user_id()
+
+    # Check for existing share (dedup) via indexed origin_chat_id column
+    existing = await chat_repo.find_chat_by_origin(default_user_id, chat_id)
+    for e in existing:
+        if e.origin_message_id == message_id:
+            return e.id
+
+    # Create shared copy
+    share_id = generate_id()
+    timestamp = get_iso8601_timestamp()
+
+    messages = chat.messages
+    if message_id:
+        messages = build_message_path(messages, message_id)
+
+    shared_chat = Chat(
+        id=share_id,
+        create_time=timestamp,
+        update_time=timestamp,
+        messages=messages,
+        origin_chat_id=chat_id,
+        origin_message_id=message_id,
+    )
+
+    await chat_repo.save_chat(default_user_id, shared_chat)
+    return share_id
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:

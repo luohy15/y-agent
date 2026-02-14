@@ -1,6 +1,7 @@
 import json
 import time
 from typing import List
+from loguru import logger
 
 def get_unix_timestamp() -> int:
     """Get current time as 13-digit unix timestamp (milliseconds)"""
@@ -25,6 +26,34 @@ def generate_message_id() -> str:
     chars = string.ascii_lowercase + string.digits
     rand = ''.join(random.choices(chars, k=8))
     return f"msg_{int(time.time() * 1000)}_{rand}"
+
+
+def build_message_path(messages: List, message_id: str) -> List:
+    """Traverse parent_id from a given message back to root, returning messages forming the conversation path."""
+    msg_map = {}
+    for msg in messages:
+        if msg.id:
+            msg_map[msg.id] = msg
+
+    logger.debug("build_message_path: starting from {}, {} messages in map", message_id, len(msg_map))
+
+    path = []
+    visited = set()
+    current_id = message_id
+    max_steps = 20
+    while current_id and current_id in msg_map and len(path) < max_steps:
+        if current_id in visited:
+            logger.warning("build_message_path: cycle detected at {}, breaking", current_id)
+            break
+        visited.add(current_id)
+        msg = msg_map[current_id]
+        path.append(msg)
+        logger.debug("build_message_path: {} -> parent {}", current_id, msg.parent_id)
+        current_id = msg.parent_id
+
+    path.reverse()
+    logger.debug("build_message_path: result path has {} messages", len(path))
+    return path
 
 
 def backfill_tool_results(messages: List, mode: str = "rejected") -> List:

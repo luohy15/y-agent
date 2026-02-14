@@ -243,6 +243,34 @@ async def post_auto_approve(req: AutoApproveRequest):
     return {"ok": True, "auto_approve": chat.auto_approve}
 
 
+class ShareChatRequest(BaseModel):
+    chat_id: str
+    message_id: Optional[str] = None
+
+
+@router.post("/share")
+async def post_share_chat(req: ShareChatRequest, request: Request):
+    user_id = _get_user_id(request)
+    share_id = await chat_service.create_share(user_id, req.chat_id, req.message_id)
+    return {"share_id": share_id}
+
+
+@router.get("/share")
+async def get_share_chat(share_id: str = Query(...)):
+    from storage.service.user import get_default_user_id
+    default_user_id = get_default_user_id()
+    chat = await chat_service.get_chat(default_user_id, share_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="shared chat not found")
+    return {
+        "chat_id": chat.id,
+        "messages": [m.to_dict() for m in chat.messages],
+        "create_time": chat.create_time,
+        "origin_chat_id": chat.origin_chat_id,
+        "origin_message_id": chat.origin_message_id,
+    }
+
+
 @router.get("/detail")
 async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     user_id = _get_user_id(request)

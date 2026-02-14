@@ -92,11 +92,13 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
         if entity:
             entity.json_content = content
             entity.title = title
+            entity.origin_chat_id = chat.origin_chat_id
         else:
             entity = ChatEntity(
                 user_id=user_id,
                 chat_id=chat.id,
                 title=title,
+                origin_chat_id=chat.origin_chat_id,
                 json_content=content,
             )
             session.add(entity)
@@ -139,6 +141,21 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
 
 async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     return _get_chat_by_id_sync(chat_id)
+
+
+async def find_chat_by_origin(user_id: int, origin_chat_id: str) -> List[Chat]:
+    """Find chats by origin_chat_id column (for share dedup)."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity)
+                .filter_by(user_id=user_id, origin_chat_id=origin_chat_id)
+                .all())
+        result = []
+        for row in rows:
+            try:
+                result.append(_entity_to_chat(row))
+            except Exception:
+                pass
+        return result
 
 
 async def save_chat_by_id(chat: Chat) -> Chat:
