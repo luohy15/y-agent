@@ -15,7 +15,7 @@ from yagent.input_manager import InputManager
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
-from agent.utils.message_utils import backfill_rejected_tool_results
+from agent.utils.message_utils import backfill_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 from .provider.base_provider import BaseProvider
 from .utils.message_utils import create_message
@@ -157,16 +157,14 @@ async def run_round(
         )
         save_messages(chat_id, messages, current_chat)
 
-        if result.status == "interrupted":
-            backfill_rejected_tool_results(messages)
-            save_messages(chat_id, messages, current_chat)
-            return
-
         if result.status != "approval_needed":
+            if result.status == "interrupted":
+                backfill_tool_results(messages)
+                save_messages(chat_id, messages, current_chat)
             return
 
         interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
-        backfill_rejected_tool_results(messages)
+        backfill_tool_results(messages)
         save_messages(chat_id, messages, current_chat)
         if interrupted:
             return
@@ -211,7 +209,7 @@ async def run_chat(
         # If last assistant message has pending tool calls, resume tool approval flow
         if _has_pending_tools(messages):
             interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
-            backfill_rejected_tool_results(messages)
+            backfill_tool_results(messages)
             save_messages(chat_id, messages, current_chat)
             if user_msg:
                 user_message = create_message("user", user_msg, id=generate_message_id())

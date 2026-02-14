@@ -155,6 +155,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         "id": generate_message_id(),
     })
     chat.messages.append(user_msg)
+    chat.interrupted = False
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
@@ -190,8 +191,8 @@ async def post_approve(req: ApproveRequest):
             tc["status"] = "approved" if req.decisions[tc["id"]] else "rejected"
 
     # Backfill rejection tool results so they are persisted
-    from agent.utils.message_utils import backfill_rejected_tool_results
-    backfill_rejected_tool_results(chat.messages)
+    from agent.utils.message_utils import backfill_tool_results
+    backfill_tool_results(chat.messages)
 
     # Append user message if provided (deny with message)
     if req.user_message:

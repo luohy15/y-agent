@@ -45,12 +45,12 @@ def create_message(role: str, content: str, reasoning_content: Optional[str] = N
     return Message.from_dict(message_data)
 
 
-def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
-    """Backfill tool results for rejected tool calls that lack responses.
+def backfill_tool_results(messages: List[Message]) -> List[Message]:
+    """Backfill tool results for unhandled tool calls that lack responses.
 
-    When a user rejects tools and then sends a new message, the message order
-    is assistant(rejected tools) → user. The LLM expects tool results between
-    them, so this inserts rejection results at the correct position.
+    Handles two cases:
+    - rejected: user explicitly denied the tool call
+    - cancelled: tool call was interrupted before execution
 
     Returns the list of newly inserted tool messages.
     """
@@ -76,11 +76,7 @@ def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
     if not unhandled:
         return []
 
-    # Only backfill if all unhandled are rejected (not pending/approved)
-    if not all(tc.get("status") == "rejected" for tc in unhandled):
-        return []
-
-    # Insert rejection results after existing tool responses
+    # Insert results after existing tool responses
     insert_idx = last_assistant_idx + 1
     while insert_idx < len(messages) and messages[insert_idx].role == "tool":
         insert_idx += 1
@@ -92,9 +88,16 @@ def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
             tool_args = json.loads(func["arguments"])
         except (json.JSONDecodeError, TypeError):
             tool_args = {}
+
+        if tc.get("status") == "rejected":
+            content = f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded."
+        else:
+            content = f"ERROR: Execution of {tool_name} was cancelled due to interruption. The command was NOT executed."
+            tc["status"] = "cancelled"
+
         tool_msg = Message.from_dict({
             "role": "tool",
-            "content": f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded.",
+            "content": content,
             "timestamp": get_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
@@ -107,3 +110,5 @@ def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
 
     for offset, msg in enumerate(tool_msgs):
         messages.insert(insert_idx + offset, msg)
+
+    return tool_msgs

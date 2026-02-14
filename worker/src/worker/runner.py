@@ -9,7 +9,7 @@ from storage.service import chat as chat_service
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
-from agent.utils.message_utils import backfill_rejected_tool_results
+from agent.utils.message_utils import backfill_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 
 
@@ -67,7 +67,7 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
     )
 
     if result.status == "interrupted":
-        backfill_rejected_tool_results(messages)
+        backfill_tool_results(messages)
         chat_service.save_messages_sync(chat_id, messages)
 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
