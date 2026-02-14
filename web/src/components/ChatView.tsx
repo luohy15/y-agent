@@ -1,43 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
-import MessageBubble, { type BubbleRole } from "./MessageBubble";
 import ApprovalModal from "./ApprovalBar";
 import NewChatInput from "./NewChatInput";
-
-interface Message {
-  role: BubbleRole;
-  content: string;
-  toolName?: string;
-  arguments?: Record<string, unknown>;
-  toolCallId?: string;
-  timestamp?: string;
-}
-
-interface ContentPart {
-  type: string;
-  text?: string;
-}
+import MessageList, { type Message, extractContent } from "./MessageList";
 
 interface ChatViewProps {
   chatId: string | null;
   onChatCreated?: (chatId: string) => void;
-}
-
-function extractContent(content?: string | ContentPart[]): string {
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((p) => {
-        if (typeof p === "string") return p;
-        if (p.type === "text") return p.text || "";
-        if (p.type === "image") return "[image]";
-        return "";
-      })
-      .join("");
-  }
-  return String(content);
 }
 
 export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
@@ -50,7 +20,6 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
 
@@ -65,12 +34,6 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     });
   }, [chatId, autoApprove]);
 
-  const scrollToBottom = useCallback(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, []);
-
   const addMessage = useCallback((msg: Message) => {
     setMessages((prev) => [...prev, msg]);
   }, []);
@@ -80,10 +43,6 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
       m.toolCallId === toolCallId ? { ...m, ...updates } : m
     ));
   }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
 
   // Fetch chat detail (auto_approve, etc.) when chatId changes
   useEffect(() => {
@@ -261,11 +220,7 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
           {sharing ? "..." : "Share"}
         </button>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
-        {messages.map((m, i) => (
-          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
-        ))}
-      </div>
+      <MessageList messages={messages} />
       <ApprovalModal
         chatId={chatId}
         toolCalls={pendingToolCalls}

@@ -1,36 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { API, getToken } from "../api";
-import MessageBubble, { type BubbleRole } from "./MessageBubble";
-
-interface Message {
-  role: BubbleRole;
-  content: string;
-  toolName?: string;
-  arguments?: Record<string, unknown>;
-  timestamp?: string;
-}
-
-interface ContentPart {
-  type: string;
-  text?: string;
-}
-
-function extractContent(content?: string | ContentPart[]): string {
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((p) => {
-        if (typeof p === "string") return p;
-        if (p.type === "text") return p.text || "";
-        if (p.type === "image") return "[image]";
-        return "";
-      })
-      .join("");
-  }
-  return String(content);
-}
+import MessageBubble from "./MessageBubble";
+import { type Message, extractContent } from "./MessageList";
 
 function parseMessages(rawMessages: any[]): Message[] {
   // Build tool_call_id → {name, args} map from assistant messages
@@ -77,7 +49,6 @@ export default function ShareView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const isLoggedIn = !!getToken();
 
   useEffect(() => {
@@ -119,7 +90,7 @@ export default function ShareView() {
           <span className="text-xs text-sol-base01">Shared conversation</span>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
+      <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
         <div className="max-w-3xl mx-auto w-full flex flex-col gap-3">
           {messages.map((m, i) => (
             <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />

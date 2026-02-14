@@ -20,17 +20,17 @@ class DisplayManager:
     def _format_tool_call(self, tool: str, args: dict, status: str = "approved") -> str:
         """Format a tool call for display. status: pending, denied, approved."""
         style = {"pending": "tool", "denied": "dim", "approved": "assistant"}[status]
+        prefix = "$" if status == "approved" else "#"
         if tool == "bash":
-            prefix = "$" if status == "approved" else "#"
             cmd = args.get("command", "")
             cmd = cmd[:200] + '...' if len(cmd) > 200 else cmd
             return f"[{style}]{prefix} {cmd}[/{style}]"
         elif tool == "file_read":
-            return f'[{style}]read[/{style}]("{args.get("path", "")}")'
+            return f"[{style}]{prefix} cat {args.get('path', '')}[/{style}]"
         elif tool == "file_write":
-            return f'[{style}]write[/{style}]("{args.get("path", "")}")'
+            return f"[{style}]{prefix} tee {args.get('path', '')}[/{style}]"
         elif tool == "file_edit":
-            return f'[{style}]edit[/{style}]("{args.get("path", "")}")'
+            return f"[{style}]{prefix} edit {args.get('path', '')}[/{style}]"
         else:
             import json
             args_str = json.dumps(args, separators=(',', ':'))

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -23,13 +24,16 @@ function formatToolCall(toolName: string, args?: Record<string, unknown>, approv
     return `${prefix} ${truncate(args.command as string || "", 200)}`;
   }
   if (toolName === "file_read") {
-    return `read("${args.path || ""}")`;
+    const prefix = approved ? "$" : "#";
+    return `${prefix} cat ${args.path || ""}`;
   }
   if (toolName === "file_write") {
-    return `write("${args.path || ""}")`;
+    const prefix = approved ? "$" : "#";
+    return `${prefix} tee ${args.path || ""}`;
   }
   if (toolName === "file_edit") {
-    return `edit("${args.path || ""}")`;
+    const prefix = approved ? "$" : "#";
+    return `${prefix} edit ${args.path || ""}`;
   }
   try {
     const argsStr = JSON.stringify(args, null, 0);
@@ -57,6 +61,22 @@ function TimestampLine({ timestamp }: { timestamp?: string }) {
   return <div className="text-[0.65rem] text-sol-base01 mb-1">{formatted}</div>;
 }
 
+function ExpandableResult({ content, color }: { content: string; color: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const oneLine = content.replace(/\n/g, " ").slice(0, 80);
+  const isLong = content.length > 80;
+
+  return (
+    <div
+      className={`text-[0.75rem] font-mono ${color} ${isLong ? "cursor-pointer" : ""}`}
+      onClick={() => isLong && setExpanded((v) => !v)}
+    >
+      <span>{oneLine}{isLong && "..."}{isLong && <span className="text-sol-base01 text-[0.65rem] ml-1">{expanded ? "▲" : "▼"}</span>}</span>
+      {expanded && <pre className="whitespace-pre-wrap break-all">{content}</pre>}
+    </div>
+  );
+}
+
 export default function MessageBubble({ role, content, toolName, arguments: args, timestamp }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-[0.7rem] py-1">{content}</div>;
@@ -72,32 +92,26 @@ export default function MessageBubble({ role, content, toolName, arguments: args
     );
   }
 
-  // Tool denied: show tool call with # prefix (grey) + denied result
+  // Tool denied: show tool call with # prefix (grey) + expandable denied result
   if (role === "tool_denied" && toolName) {
-    const result = content.replace(/\n/g, " ");
     return (
       <div>
         <div className="text-[0.8rem] font-mono text-sol-base01">
           {formatToolCall(toolName, args, false)}
         </div>
-        <div className="text-[0.75rem] font-mono text-sol-base01">
-          {truncate(result, 80)}
-        </div>
+        <ExpandableResult content={content} color="text-sol-base01" />
       </div>
     );
   }
 
-  // Tool result: tool name + args on first line, result on second line (like CLI)
+  // Tool result: tool name + args on first line, expandable result on second line
   if (role === "tool_result" && toolName) {
-    const result = content.replace(/\n/g, " ");
     return (
       <div>
         <div className="text-[0.8rem] font-mono text-sol-cyan">
           {formatToolCall(toolName, args)}
         </div>
-        <div className="text-[0.75rem] font-mono text-sol-blue">
-          {truncate(result, 80)}
-        </div>
+        <ExpandableResult content={content} color="text-sol-blue" />
       </div>
     );
   }
