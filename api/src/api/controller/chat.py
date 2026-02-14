@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 import boto3
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -76,7 +76,7 @@ class CreateChatResponse(BaseModel):
 
 class ApproveRequest(BaseModel):
     chat_id: str
-    approved: bool
+    decisions: Dict[str, bool]  # {tool_call_id: approved}
 
 
 def _get_user_id(request: Request) -> int:
@@ -143,17 +143,19 @@ async def post_approve(req: ApproveRequest):
     if not has_pending:
         raise HTTPException(status_code=400, detail="no pending tool calls")
 
-    # Update all pending tool_call statuses
-    new_status = "approved" if req.approved else "rejected"
+    # Update tool_call statuses from decisions map
     for tc in last_assistant.tool_calls:
-        if tc.get("status") == "pending":
-            tc["status"] = new_status
+        if tc.get("status") == "pending" and tc["id"] in req.decisions:
+            tc["status"] = "approved" if req.decisions[tc["id"]] else "rejected"
 
     # Re-save the chat with updated tool_call statuses
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    _send_chat_message(req.chat_id)
+    # Only trigger worker when no pending tool calls remain
+    still_pending = any(tc.get("status") == "pending" for tc in last_assistant.tool_calls)
+    if not still_pending:
+        _send_chat_message(req.chat_id)
     return {"ok": True}
 
 

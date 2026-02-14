@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
+import { useParams, useNavigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Header from "./components/Header";
 import ChatList from "./components/ChatList";
@@ -6,16 +7,22 @@ import ChatView from "./components/ChatView";
 
 export default function App() {
   const auth = useAuth();
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const { chatId: urlChatId } = useParams<{ chatId: string }>();
+  const navigate = useNavigate();
+  const selectedChatId = urlChatId || null;
 
   const handleSelectChat = useCallback((id: string | null) => {
-    setSelectedChatId(id);
-  }, []);
+    navigate(id ? `/${id}` : "/");
+  }, [navigate]);
+
+  const handleChatCreated = useCallback((chatId: string) => {
+    navigate(`/${chatId}`);
+  }, [navigate]);
 
   const handleLogout = useCallback(() => {
     auth.logout();
-    setSelectedChatId(null);
-  }, [auth]);
+    navigate("/");
+  }, [auth, navigate]);
 
   return (
     <div className="h-full flex flex-col">
@@ -28,6 +35,7 @@ export default function App() {
         />
         <ChatView
           chatId={selectedChatId}
+          onChatCreated={handleChatCreated}
         />
       </div>
     </div>

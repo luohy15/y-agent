@@ -48,7 +48,4 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
         message_callback=lambda msg: message_callback(chat_id, msg),
     )
 
-    # Re-save all messages to persist in-place mutations (e.g. tool_call statuses)
-    chat_service.save_messages_sync(chat_id, messages)
-
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)

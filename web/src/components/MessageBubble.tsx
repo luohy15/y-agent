@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-type BubbleRole = "user" | "assistant" | "tool_call" | "tool_result" | "system";
+type BubbleRole = "user" | "assistant" | "tool_result" | "system";
 
 interface MessageBubbleProps {
   role: BubbleRole;
@@ -61,21 +61,17 @@ export default function MessageBubble({ role, content, toolName, arguments: args
     return <div className="self-center text-sol-base01 text-[0.7rem] py-1">{content}</div>;
   }
 
-  // Tool call: compact one-liner like CLI
-  if (role === "tool_call" && toolName) {
-    return (
-      <div className="text-[0.8rem] font-mono text-sol-cyan">
-        {formatToolCall(toolName, args)}
-      </div>
-    );
-  }
-
-  // Tool result: single-line truncated output like CLI
-  if (role === "tool_result") {
+  // Tool result: tool name + args on first line, result on second line (like CLI)
+  if (role === "tool_result" && toolName) {
     const result = content.replace(/\n/g, " ");
     return (
-      <div className="text-[0.75rem] font-mono text-sol-blue">
-        {truncate(result, 80)}
+      <div>
+        <div className="text-[0.8rem] font-mono text-sol-cyan">
+          {formatToolCall(toolName, args)}
+        </div>
+        <div className="text-[0.75rem] font-mono text-sol-blue">
+          {truncate(result, 80)}
+        </div>
       </div>
     );
   }

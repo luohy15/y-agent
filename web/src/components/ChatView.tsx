@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSWRConfig } from "swr";
-import { API, getToken } from "../api";
+import { API, getToken, authFetch } from "../api";
 import MessageBubble, { type BubbleRole } from "./MessageBubble";
-import ApprovalBar from "./ApprovalBar";
+import ApprovalModal from "./ApprovalBar";
+import NewChatInput from "./NewChatInput";
 
 interface Message {
   role: BubbleRole;
@@ -19,6 +20,7 @@ interface ContentPart {
 
 interface ChatViewProps {
   chatId: string | null;
+  onChatCreated?: (chatId: string) => void;
 }
 
 function extractContent(content?: string | ContentPart[]): string {
@@ -37,10 +39,11 @@ function extractContent(content?: string | ContentPart[]): string {
   return String(content);
 }
 
-export default function ChatView({ chatId }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
+  const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; function: { name: string; arguments: string }; status?: string }>>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -62,6 +65,7 @@ export default function ChatView({ chatId }: ChatViewProps) {
 
     setMessages([]);
     setShowApproval(false);
+    setPendingToolCalls([]);
 
     const token = getToken();
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
@@ -73,15 +77,18 @@ export default function ChatView({ chatId }: ChatViewProps) {
         const msg = evt.data || evt;
         const role = msg.role || "assistant";
         const content = extractContent(msg.content);
-        const tool = msg.tool;
         const timestamp = msg.timestamp;
 
         if (role === "user") {
           addMessage({ role: "user", content, timestamp });
-        } else if (role === "assistant" && tool) {
-          addMessage({ role: "tool_call", content, toolName: tool, arguments: msg.arguments, timestamp });
+        } else if (role === "assistant" && msg.tool_calls) {
+          // Assistant with tool_calls: show content if any, skip tool_calls display
+          if (content.trim()) {
+            addMessage({ role: "assistant", content, timestamp });
+          }
         } else if (role === "tool") {
-          addMessage({ role: "tool_result", content, toolName: tool, timestamp });
+          // Tool result: combined display with tool name + args + result
+          addMessage({ role: "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
         } else {
           addMessage({ role: "assistant", content, timestamp });
         }
@@ -92,9 +99,8 @@ export default function ChatView({ chatId }: ChatViewProps) {
       try {
         const evt = JSON.parse(raw);
         const data = evt.data || evt;
-        const toolName = data.tool_name || "";
-        const args = data.tool_args || {};
-        addMessage({ role: "tool_call", content: "", toolName, arguments: args });
+        const toolCalls = data.tool_calls || [];
+        setPendingToolCalls(toolCalls);
         setShowApproval(true);
       } catch {}
     };
@@ -119,8 +125,12 @@ export default function ChatView({ chatId }: ChatViewProps) {
 
   if (!chatId) {
     return (
-      <div className="flex-1 flex items-center justify-center text-sol-base01 text-sm">
-        Select a chat to view its conversation
+      <div className="flex-1 flex items-center justify-center">
+        {onChatCreated ? (
+          <NewChatInput onCreated={onChatCreated} />
+        ) : (
+          <span className="text-sol-base01 text-sm">Select a chat or start a new one</span>
+        )}
       </div>
     );
   }
@@ -132,11 +142,13 @@ export default function ChatView({ chatId }: ChatViewProps) {
           <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
         ))}
       </div>
-      <ApprovalBar
+      <ApprovalModal
         chatId={chatId}
+        toolCalls={pendingToolCalls}
         visible={showApproval}
         onApproved={() => {
           setShowApproval(false);
+          setPendingToolCalls([]);
           mutate(`${API}/api/chat/list`);
         }}
       />

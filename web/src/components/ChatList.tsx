@@ -38,14 +38,20 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
 
   return (
     <div className="w-80 min-w-[260px] border-r border-sol-base02 flex flex-col shrink-0">
-      <div className="p-3 border-b border-sol-base02">
+      <div className="p-3 border-b border-sol-base02 flex flex-col gap-2">
+        <button
+          onClick={() => onSelectChat(null)}
+          disabled={!isLoggedIn}
+          className="w-full px-2.5 py-1.5 bg-sol-blue text-sol-base03 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default"
+        >
+          + New Task
+        </button>
         <input
           type="text"
           placeholder="Search chats..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2.5 py-1.5 bg-sol-base02 border border-sol-base01 rounded-md text-sm text-sol-base0 outline-none focus:border-sol-blue"
-          autoFocus
         />
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
