@@ -4,6 +4,7 @@ from yagent.config import config
 from storage.database.base import init_tables
 from storage.entity.dto import BotConfig
 from storage.service import bot_config as bot_service
+from storage.service.user import get_current_user_id
 
 def print_config_info():
     """Print configuration information and available settings."""
@@ -33,7 +34,8 @@ def init():
     init_tables()
 
     # Get existing default config or create new one
-    default_config = bot_service.get_config()
+    user_id = get_current_user_id()
+    default_config = bot_service.get_config(user_id)
 
     # If already initialized with API key, skip to echo
     if default_config and default_config.api_key:
@@ -63,6 +65,6 @@ def init():
     )
 
     # Update the default config
-    bot_service.add_config(new_config)
+    bot_service.add_config(user_id, new_config)
 
     print_config_info()

@@ -1,6 +1,7 @@
 import click
 from storage.entity.dto import BotConfig
 from storage.service import bot_config as bot_service
+from storage.service.user import get_current_user_id
 
 @click.command('add')
 @click.argument('name')
@@ -11,7 +12,8 @@ from storage.service import bot_config as bot_service
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
 def bot_add(name, model, api_key, base_url, api_type, yes):
     """Add a new bot configuration."""
-    existing_configs = bot_service.list_configs()
+    user_id = get_current_user_id()
+    existing_configs = bot_service.list_configs(user_id)
     if any(config.name == name for config in existing_configs):
         if not yes and not click.confirm(f"Bot '{name}' already exists. Overwrite?"):
             click.echo("Operation cancelled")
@@ -22,5 +24,5 @@ def bot_add(name, model, api_key, base_url, api_type, yes):
         base_url = default_config.base_url
 
     bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, api_type=api_type)
-    bot_service.add_config(bot_config)
+    bot_service.add_config(user_id, bot_config)
     click.echo(f"Bot '{name}' added successfully")

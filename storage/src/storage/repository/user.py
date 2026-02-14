@@ -43,5 +43,8 @@ def get_or_create_user_by_email(session: Session, email: str, username: str) -> 
 
 def get_current_user_db_id(session: Session) -> int:
     """Resolve the configured string user_id to the integer user.id PK."""
-    user_id = int(os.environ.get("Y_AGENT_USER_ID", get_or_create_user(session, "default")))
-    return user_id
+    env_val = os.environ.get("Y_AGENT_USER_ID")
+    if env_val is not None:
+        return int(env_val)
+    user = get_or_create_user(session, "default")
+    return user.id

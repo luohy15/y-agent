@@ -1,10 +1,9 @@
 """Function-based bot config repository using SQLAlchemy sessions."""
 
 from typing import List, Optional
-from sqlalchemy.orm import Session
 from storage.entity.bot_config import BotConfigEntity
 from storage.entity.dto import BotConfig
-from storage.repository.user import get_current_user_db_id
+from storage.database.base import get_db
 
 
 def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
@@ -36,38 +35,36 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
     )
 
 
-def list_configs(session: Session) -> List[BotConfig]:
-    user_id = get_current_user_db_id(session)
-    rows = session.query(BotConfigEntity).filter_by(user_id=user_id).all()
-    return [_entity_to_dto(row) for row in rows]
+def list_configs(user_id: int) -> List[BotConfig]:
+    with get_db() as session:
+        rows = session.query(BotConfigEntity).filter_by(user_id=user_id).all()
+        return [_entity_to_dto(row) for row in rows]
 
 
-def get_config(session: Session, name: str) -> Optional[BotConfig]:
-    user_id = get_current_user_db_id(session)
-    row = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).first()
-    if row:
-        return _entity_to_dto(row)
-    return None
+def get_config(user_id: int, name: str = "default") -> Optional[BotConfig]:
+    with get_db() as session:
+        row = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).first()
+        if row:
+            return _entity_to_dto(row)
+        return None
 
 
-def add_config(session: Session, config: BotConfig) -> BotConfig:
-    user_id = get_current_user_db_id(session)
-    entity = session.query(BotConfigEntity).filter_by(user_id=user_id, name=config.name).first()
-    fields = _dto_to_entity_fields(config)
-    if entity:
-        for k, v in fields.items():
-            setattr(entity, k, v)
-    else:
-        entity = BotConfigEntity(user_id=user_id, name=config.name, **fields)
-        session.add(entity)
-    session.flush()
-    return config
+def add_config(user_id: int, config: BotConfig) -> BotConfig:
+    with get_db() as session:
+        entity = session.query(BotConfigEntity).filter_by(user_id=user_id, name=config.name).first()
+        fields = _dto_to_entity_fields(config)
+        if entity:
+            for k, v in fields.items():
+                setattr(entity, k, v)
+        else:
+            entity = BotConfigEntity(user_id=user_id, name=config.name, **fields)
+            session.add(entity)
+        session.flush()
+        return config
 
 
-def delete_config(session: Session, name: str) -> bool:
-    user_id = get_current_user_db_id(session)
-    count = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).delete()
-    session.flush()
-    return count > 0
-
-
+def delete_config(user_id: int, name: str) -> bool:
+    with get_db() as session:
+        count = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).delete()
+        session.flush()
+        return count > 0

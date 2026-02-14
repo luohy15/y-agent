@@ -24,8 +24,9 @@ def lambda_handler(event, context):
     body = json.loads(record["body"])
     chat_id = body["chat_id"]
     bot_name = body.get("bot_name")
+    user_id = body.get("user_id")
 
-    print(f"[worker] SQS trigger for chat {chat_id} bot_name={bot_name}")
+    print(f"[worker] SQS trigger for chat {chat_id} bot_name={bot_name} user_id={user_id}")
 
-    asyncio.run(run_chat(chat_id, bot_name=bot_name))
+    asyncio.run(run_chat(user_id, chat_id, bot_name=bot_name))
     return {"status": "ok", "chat_id": chat_id}

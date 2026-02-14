@@ -2,30 +2,25 @@
 
 from typing import List, Optional
 from storage.entity.dto import BotConfig, DEFAULT_OPENROUTER_CONFIG
-from storage.database.base import get_db
 from storage.repository import bot_config as bot_repo
 
 
-def list_configs() -> List[BotConfig]:
-    with get_db() as session:
-        return bot_repo.list_configs(session)
+def list_configs(user_id: int) -> List[BotConfig]:
+    return bot_repo.list_configs(user_id)
 
 
-def get_config(name: str = "default") -> Optional[BotConfig]:
-    with get_db() as session:
-        return bot_repo.get_config(session, name)
+def get_config(user_id: int, name: str = "default") -> Optional[BotConfig]:
+    return bot_repo.get_config(user_id, name=name)
 
 
-def add_config(config: BotConfig) -> BotConfig:
+def add_config(user_id: int, config: BotConfig) -> BotConfig:
     if config.name == "default":
         if config.openrouter_config is None:
             config.openrouter_config = DEFAULT_OPENROUTER_CONFIG.copy()
-    with get_db() as session:
-        return bot_repo.add_config(session, config)
+    return bot_repo.add_config(user_id, config)
 
 
-def delete_config(name: str) -> bool:
+def delete_config(user_id: int, name: str) -> bool:
     if name == "default":
         return False
-    with get_db() as session:
-        return bot_repo.delete_config(session, name)
+    return bot_repo.delete_config(user_id, name)

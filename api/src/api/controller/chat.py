@@ -41,7 +41,7 @@ def _get_celery_app():
     return app
 
 
-def _send_chat_message(chat_id: str, bot_name: str = None):
+def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -50,6 +50,8 @@ def _send_chat_message(chat_id: str, bot_name: str = None):
     payload = {"chat_id": chat_id}
     if bot_name:
         payload["bot_name"] = bot_name
+    if user_id is not None:
+        payload["user_id"] = user_id
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
@@ -61,7 +63,7 @@ def _send_chat_message(chat_id: str, bot_name: str = None):
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id})
 
 
 class CreateChatRequest(BaseModel):
@@ -136,7 +138,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         auto_approve=req.auto_approve,
     )
 
-    _send_chat_message(chat_id, bot_name=req.bot_name)
+    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -160,7 +162,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    _send_chat_message(req.chat_id, bot_name=req.bot_name)
+    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id)
     return {"ok": True}
 
 

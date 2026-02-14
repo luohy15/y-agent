@@ -28,12 +28,12 @@ def check_interrupted(chat_id: str) -> bool:
     return c.interrupted if c else False
 
 
-async def run_chat(chat_id: str, bot_name: str = None) -> None:
-    """Execute a chat round. bot_name is passed from the queue message."""
-    logger.info("run_chat start chat_id={} bot_name={}", chat_id, bot_name)
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
+    """Execute a chat round. bot_name and user_id are passed from the queue message."""
+    logger.info("run_chat start chat_id={} bot_name={} user_id={}", chat_id, bot_name, user_id)
 
-    # Load chat from DB
-    chat = await chat_service.get_chat_by_id(chat_id)
+    # Load chat from DB (with user_id access check)
+    chat = await chat_service.get_chat(chat_id, user_id=user_id)
     if not chat:
         logger.error("Chat {} not found", chat_id)
         return
@@ -43,7 +43,7 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    bot_config = agent_config.resolve_bot_config(bot_name)
+    bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
     provider = agent_config.make_provider(bot_config)
 

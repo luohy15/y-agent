@@ -18,10 +18,10 @@ def make_provider(bot_config: BotConfig):
     return OpenAIFormatProvider(bot_config)
 
 
-def resolve_bot_config(bot_name: str = None) -> BotConfig:
+def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
     bot_config = None
     if bot_name:
-        bot_config = bot_service.get_config(bot_name)
+        bot_config = bot_service.get_config(user_id, bot_name)
     if not bot_config:
-        bot_config = bot_service.get_config()
+        bot_config = bot_service.get_config(user_id)
     return bot_config
