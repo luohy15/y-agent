@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-type BubbleRole = "user" | "assistant" | "tool_result" | "system";
+type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
 interface MessageBubbleProps {
   role: BubbleRole;
@@ -16,10 +16,11 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "..." : s;
 }
 
-function formatToolCall(toolName: string, args?: Record<string, unknown>): string {
+function formatToolCall(toolName: string, args?: Record<string, unknown>, approved = true): string {
   if (!args) return toolName;
   if (toolName === "bash") {
-    return `$ ${truncate(args.command as string || "", 200)}`;
+    const prefix = approved ? "$" : "#";
+    return `${prefix} ${truncate(args.command as string || "", 200)}`;
   }
   if (toolName === "file_read") {
     return `read("${args.path || ""}")`;
@@ -59,6 +60,31 @@ function TimestampLine({ timestamp }: { timestamp?: string }) {
 export default function MessageBubble({ role, content, toolName, arguments: args, timestamp }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-[0.7rem] py-1">{content}</div>;
+  }
+
+  // Tool pending: show tool call with # prefix (blue) + pulsing dot
+  if (role === "tool_pending" && toolName) {
+    return (
+      <div className="text-[0.8rem] font-mono text-sol-blue flex items-center gap-2">
+        <span>{formatToolCall(toolName, args, false)}</span>
+        <span className="animate-pulse">●</span>
+      </div>
+    );
+  }
+
+  // Tool denied: show tool call with # prefix (grey) + denied result
+  if (role === "tool_denied" && toolName) {
+    const result = content.replace(/\n/g, " ");
+    return (
+      <div>
+        <div className="text-[0.8rem] font-mono text-sol-base01">
+          {formatToolCall(toolName, args, false)}
+        </div>
+        <div className="text-[0.75rem] font-mono text-sol-base01">
+          {truncate(result, 80)}
+        </div>
+      </div>
+    );
   }
 
   // Tool result: tool name + args on first line, result on second line (like CLI)

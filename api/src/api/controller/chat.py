@@ -68,10 +68,17 @@ class CreateChatRequest(BaseModel):
     prompt: str
     bot_name: Optional[str] = None
     chat_id: Optional[str] = None
+    auto_approve: bool = False
 
 
 class CreateChatResponse(BaseModel):
     chat_id: str
+
+
+class SendMessageRequest(BaseModel):
+    chat_id: str
+    prompt: str
+    bot_name: Optional[str] = None
 
 
 class AutoApproveRequest(BaseModel):
@@ -82,6 +89,7 @@ class AutoApproveRequest(BaseModel):
 class ApproveRequest(BaseModel):
     chat_id: str
     decisions: Dict[str, bool]  # {tool_call_id: approved}
+    user_message: Optional[str] = None
 
 
 def _get_user_id(request: Request) -> int:
@@ -121,10 +129,34 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         messages=[user_msg],
         chat_id=chat_id,
         user_id=user_id,
+        auto_approve=req.auto_approve,
     )
 
     _send_chat_message(chat_id, bot_name=req.bot_name)
     return CreateChatResponse(chat_id=chat_id)
+
+
+@router.post("/message")
+async def post_send_message(req: SendMessageRequest, request: Request):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(req.chat_id, user_id=user_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    user_msg = Message.from_dict({
+        "role": "user",
+        "content": req.prompt,
+        "timestamp": get_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+    })
+    chat.messages.append(user_msg)
+
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+
+    _send_chat_message(req.chat_id, bot_name=req.bot_name)
+    return {"ok": True}
 
 
 @router.post("/approve")
@@ -153,6 +185,21 @@ async def post_approve(req: ApproveRequest):
         if tc.get("status") == "pending" and tc["id"] in req.decisions:
             tc["status"] = "approved" if req.decisions[tc["id"]] else "rejected"
 
+    # Backfill rejection tool results so they are persisted
+    from agent.utils.message_utils import backfill_rejected_tool_results
+    chat.messages = backfill_rejected_tool_results(chat.messages)
+
+    # Append user message if provided (deny with message)
+    if req.user_message:
+        user_msg = Message.from_dict({
+            "role": "user",
+            "content": req.user_message,
+            "timestamp": get_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+        })
+        chat.messages.append(user_msg)
+
     # Re-save the chat with updated tool_call statuses
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
@@ -175,6 +222,18 @@ async def post_auto_approve(req: AutoApproveRequest):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
     return {"ok": True, "auto_approve": chat.auto_approve}
+
+
+@router.get("/detail")
+async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(chat_id, user_id=user_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return {
+        "chat_id": chat.id,
+        "auto_approve": chat.auto_approve,
+    }
 
 
 @router.get("/messages")

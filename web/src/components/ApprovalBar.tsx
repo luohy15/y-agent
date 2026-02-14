@@ -35,19 +35,23 @@ function formatToolCall(tc: ToolCall): string {
 
 export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }: ApprovalModalProps) {
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
+  const [showDenyMessage, setShowDenyMessage] = useState(false);
+  const [denyMessage, setDenyMessage] = useState("");
 
   const setDecision = useCallback((id: string, approved: boolean) => {
     setDecisions((prev) => ({ ...prev, [id]: approved }));
   }, []);
 
-  const submit = useCallback(async (overrideDecisions?: Record<string, boolean>) => {
+  const submit = useCallback(async (overrideDecisions?: Record<string, boolean>, userMessage?: string) => {
     const d = overrideDecisions || decisions;
     await authFetch(`${API}/api/chat/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, decisions: d }),
+      body: JSON.stringify({ chat_id: chatId, decisions: d, ...(userMessage ? { user_message: userMessage } : {}) }),
     });
     setDecisions({});
+    setShowDenyMessage(false);
+    setDenyMessage("");
     onApproved();
   }, [chatId, decisions, onApproved]);
 
@@ -56,6 +60,12 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }
     for (const tc of toolCalls) d[tc.id] = approved;
     submit(d);
   }, [toolCalls, submit]);
+
+  const submitDenyWithMessage = useCallback(() => {
+    const d: Record<string, boolean> = {};
+    for (const tc of toolCalls) d[tc.id] = false;
+    submit(d, denyMessage || undefined);
+  }, [toolCalls, submit, denyMessage]);
 
   if (!visible || toolCalls.length === 0) return null;
 
@@ -105,6 +115,12 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }
           >
             Deny All
           </button>
+          <button
+            onClick={() => setShowDenyMessage((v) => !v)}
+            className="px-2 py-1 border border-sol-orange text-sol-orange rounded text-xs font-semibold cursor-pointer"
+          >
+            Deny with Message
+          </button>
           <div className="flex-1" />
           {allDecided && (
             <button
@@ -115,6 +131,25 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }
             </button>
           )}
         </div>
+        {showDenyMessage && (
+          <div className="flex items-center gap-2 pt-2 border-t border-sol-base02">
+            <input
+              type="text"
+              value={denyMessage}
+              onChange={(e) => setDenyMessage(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitDenyWithMessage(); }}
+              placeholder="Enter message..."
+              className="flex-1 bg-sol-base02 text-sol-base1 text-xs px-2 py-1 rounded border border-sol-base01 outline-none focus:border-sol-orange"
+              autoFocus
+            />
+            <button
+              onClick={submitDenyWithMessage}
+              className="px-3 py-1 bg-sol-orange text-sol-base03 rounded text-xs font-semibold cursor-pointer"
+            >
+              Send
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

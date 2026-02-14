@@ -29,74 +29,6 @@ def _default_display(message: Message):
         print(f"[tool_result] {message.tool}: {result[:200]}{'...' if len(result) > 200 else ''}")
 
 
-def _backfill_rejected_tool_results(messages: List[Message]):
-    """Backfill tool results for rejected tool calls that lack responses.
-
-    When a user rejects tools and then sends a new message, the message order
-    is assistant(rejected tools) → user. The LLM expects tool results between
-    them, so this inserts rejection results at the correct position.
-    """
-    # Find last assistant message with tool_calls
-    last_assistant = None
-    last_assistant_idx = None
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].role == "assistant" and messages[i].tool_calls:
-            last_assistant = messages[i]
-            last_assistant_idx = i
-            break
-
-    if not last_assistant or not last_assistant.tool_calls:
-        return
-
-    # Collect existing tool responses
-    existing_tool_ids = set()
-    for m in messages[last_assistant_idx + 1:]:
-        if m.role == "tool" and m.tool_call_id:
-            existing_tool_ids.add(m.tool_call_id)
-
-    unhandled = [tc for tc in last_assistant.tool_calls if tc["id"] not in existing_tool_ids]
-    if not unhandled:
-        return
-
-    # Only backfill if all unhandled are rejected (not pending/approved)
-    if not all(tc.get("status") == "rejected" for tc in unhandled):
-        return
-
-    # Check if there are non-tool messages after the assistant (e.g. user message)
-    # If so, we need to insert tool results before them
-    insert_idx = last_assistant_idx + 1
-    while insert_idx < len(messages) and messages[insert_idx].role == "tool":
-        insert_idx += 1
-
-    # If insert_idx == len(messages), no user message follows — _run_tool_calls handles it
-    if insert_idx >= len(messages):
-        return
-
-    # Insert rejection results at the correct position
-    tool_msgs = []
-    for tc in unhandled:
-        func = tc["function"]
-        tool_name = func["name"]
-        try:
-            tool_args = json.loads(func["arguments"])
-        except (json.JSONDecodeError, TypeError):
-            tool_args = {}
-        tool_msg = Message.from_dict({
-            "role": "tool",
-            "content": f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded.",
-            "timestamp": get_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-            "parent_id": last_assistant.id,
-            "tool": tool_name,
-            "arguments": tool_args,
-            "tool_call_id": tc["id"],
-        })
-        tool_msgs.append(tool_msg)
-
-    for offset, msg in enumerate(tool_msgs):
-        messages.insert(insert_idx + offset, msg)
-
 
 async def _run_tool_calls(
     messages: List[Message],
@@ -194,9 +126,6 @@ async def run_agent_loop(
     if message_callback is None:
         message_callback = _default_display
     new_messages: List[Message] = []
-
-    # --- Backfill rejected tool results that lack responses ---
-    _backfill_rejected_tool_results(messages)
 
     # --- Resume unhandled tool_calls from previous run ---
     early_exit = await _run_tool_calls(messages, new_messages, tools_map, message_callback)

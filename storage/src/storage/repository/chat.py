@@ -45,8 +45,8 @@ async def list_chats(limit: int = 10, user_id: Optional[int] = None, query: Opti
             ChatSummary(
                 chat_id=row.chat_id,
                 title=row.title or "",
-                created_at=str(row.created_at) if row.created_at else "",
-                updated_at=str(row.updated_at) if row.updated_at else "",
+                created_at=row.created_at.isoformat() + "Z" if row.created_at else "",
+                updated_at=row.updated_at.isoformat() + "Z" if row.updated_at else "",
             )
             for row in rows
         ]

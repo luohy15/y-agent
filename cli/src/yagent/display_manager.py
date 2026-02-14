@@ -17,11 +17,31 @@ class DisplayManager:
     def __init__(self, bot_config: Optional[BotConfig] = None):
         self.console = Console(theme=custom_theme)
 
+    def _format_tool_call(self, tool: str, args: dict, status: str = "approved") -> str:
+        """Format a tool call for display. status: pending, denied, approved."""
+        style = {"pending": "tool", "denied": "dim", "approved": "assistant"}[status]
+        if tool == "bash":
+            prefix = "$" if status == "approved" else "#"
+            cmd = args.get("command", "")
+            cmd = cmd[:200] + '...' if len(cmd) > 200 else cmd
+            return f"[{style}]{prefix} {cmd}[/{style}]"
+        elif tool == "file_read":
+            return f'[{style}]read[/{style}]("{args.get("path", "")}")'
+        elif tool == "file_write":
+            return f'[{style}]write[/{style}]("{args.get("path", "")}")'
+        elif tool == "file_edit":
+            return f'[{style}]edit[/{style}]("{args.get("path", "")}")'
+        else:
+            import json
+            args_str = json.dumps(args, separators=(',', ':'))
+            args_str = args_str[:200] + '...' if len(args_str) > 200 else args_str
+            return f"[{style}]{tool}[/{style}]({args_str})"
+
     def display_message_panel(self, message: Message, index: Optional[int] = None):
         """Display a message in a panel with role-colored borders."""
         index_str = f"[{index}] " if index is not None else ""
 
-        # Assistant message with tool_calls: skip display (tool results will show the call info)
+        # Assistant message with tool_calls: show content + pending tool status
         if message.role == "assistant" and message.tool_calls:
             if message.content:
                 content = message.content
@@ -30,28 +50,26 @@ class DisplayManager:
                 if content.strip():
                     self.console.print(Markdown(content))
                     self.console.print()
+            # Show pending tool calls
+            import json
+            for tc in message.tool_calls:
+                func = tc.get("function", {})
+                tool_name = func.get("name", "unknown")
+                try:
+                    args = json.loads(func.get("arguments", "{}"))
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+                display = self._format_tool_call(tool_name, args, status="pending")
+                self.console.print(f"{display}")
             return
 
         # Tool result: show tool name + args + result together
         if message.role == "tool":
             args = message.arguments or {}
             tool = message.tool or "unknown"
-            if tool == "bash":
-                cmd = args.get("command", "")
-                cmd = cmd[:200] + '...' if len(cmd) > 200 else cmd
-                display = f"[assistant]$ {cmd}[/assistant]"
-            elif tool == "file_read":
-                display = f'[assistant]read[/assistant]("{args.get("path", "")}")'
-            elif tool == "file_write":
-                display = f'[assistant]write[/assistant]("{args.get("path", "")}")'
-            elif tool == "file_edit":
-                display = f'[assistant]edit[/assistant]("{args.get("path", "")}")'
-            else:
-                import json
-                args_str = json.dumps(args, separators=(',', ':'))
-                args_str = args_str[:200] + '...' if len(args_str) > 200 else args_str
-                display = f"[assistant]{tool}[/assistant]({args_str})"
             result = message.content if isinstance(message.content, str) else str(message.content)
+            status = "denied" if result.startswith("ERROR: User denied") else "approved"
+            display = self._format_tool_call(tool, args, status=status)
             result = result.replace('\n', ' ')[:80]
             self.console.print(f"{display}")
             self.console.print(f"[tool]→ {result}[/tool]\n")

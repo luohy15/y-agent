@@ -68,7 +68,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
             const sel = c.chat_id === selectedChatId;
             const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
             const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
-            const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+            const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
             return (
               <div
                 key={c.chat_id}

@@ -1,6 +1,7 @@
+import json
 from typing import Optional, List, Dict, Union
 from storage.entity.dto import Message
-from storage.util import get_iso8601_timestamp, get_unix_timestamp
+from storage.util import generate_message_id, get_iso8601_timestamp, get_unix_timestamp
 
 def create_message(role: str, content: str, reasoning_content: Optional[str] = None, provider: Optional[str] = None,
                    model: Optional[str] = None, id: Optional[str] = None, reasoning_effort: Optional[float] = None,
@@ -42,3 +43,69 @@ def create_message(role: str, content: str, reasoning_content: Optional[str] = N
         message_data["links"] = links
 
     return Message.from_dict(message_data)
+
+
+def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
+    """Backfill tool results for rejected tool calls that lack responses.
+
+    When a user rejects tools and then sends a new message, the message order
+    is assistant(rejected tools) → user. The LLM expects tool results between
+    them, so this inserts rejection results at the correct position.
+
+    Returns the list of newly inserted tool messages.
+    """
+    # Find last assistant message with tool_calls
+    last_assistant = None
+    last_assistant_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant" and messages[i].tool_calls:
+            last_assistant = messages[i]
+            last_assistant_idx = i
+            break
+
+    if not last_assistant or not last_assistant.tool_calls:
+        return []
+
+    # Collect existing tool responses
+    existing_tool_ids = set()
+    for m in messages[last_assistant_idx + 1:]:
+        if m.role == "tool" and m.tool_call_id:
+            existing_tool_ids.add(m.tool_call_id)
+
+    unhandled = [tc for tc in last_assistant.tool_calls if tc["id"] not in existing_tool_ids]
+    if not unhandled:
+        return []
+
+    # Only backfill if all unhandled are rejected (not pending/approved)
+    if not all(tc.get("status") == "rejected" for tc in unhandled):
+        return []
+
+    # Insert rejection results after existing tool responses
+    insert_idx = last_assistant_idx + 1
+    while insert_idx < len(messages) and messages[insert_idx].role == "tool":
+        insert_idx += 1
+    tool_msgs = []
+    for tc in unhandled:
+        func = tc["function"]
+        tool_name = func["name"]
+        try:
+            tool_args = json.loads(func["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            tool_args = {}
+        tool_msg = Message.from_dict({
+            "role": "tool",
+            "content": f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded.",
+            "timestamp": get_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+            "parent_id": last_assistant.id,
+            "tool": tool_name,
+            "arguments": tool_args,
+            "tool_call_id": tc["id"],
+        })
+        tool_msgs.append(tool_msg)
+
+    for offset, msg in enumerate(tool_msgs):
+        messages.insert(insert_idx + offset, msg)
+
+    return messages

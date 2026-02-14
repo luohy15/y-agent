@@ -15,6 +15,7 @@ from yagent.input_manager import InputManager
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
+from agent.utils.message_utils import backfill_rejected_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 from .provider.base_provider import BaseProvider
 from .utils.message_utils import create_message
@@ -57,9 +58,10 @@ def _has_pending_tools(messages: List[Message]) -> bool:
     return False
 
 
-def _prompt_tool_approval(console: Console, messages: List[Message]) -> bool:
+def _prompt_tool_approval(console: Console, messages: List[Message]) -> tuple[bool, Optional[str]]:
     """Prompt user to approve/reject each pending tool_call in the last assistant message.
-    Returns True if interrupted (Ctrl-C), False otherwise."""
+    Returns (interrupted, user_message). interrupted=True means Ctrl-C.
+    user_message is set when user denies with a message (d option)."""
     # Find last assistant message with tool_calls
     last_assistant = None
     for i in range(len(messages) - 1, -1, -1):
@@ -68,7 +70,7 @@ def _prompt_tool_approval(console: Console, messages: List[Message]) -> bool:
             break
 
     if not last_assistant:
-        return False
+        return False, None
 
     for tc in last_assistant.tool_calls:
         if tc.get("status") != "pending":
@@ -84,7 +86,7 @@ def _prompt_tool_approval(console: Console, messages: List[Message]) -> bool:
         args_str = json.dumps(tool_args, separators=(',', ':'))
         if len(args_str) > 200:
             args_str = args_str[:200] + '...'
-        console.print(f"[yellow]Tool call: {tool_name}({args_str})[/yellow] [dim]Allow? [y/n/s(kip all)][/dim] ", end="")
+        console.print(f"[yellow]Tool call: {tool_name}({args_str})[/yellow] [dim]Allow? \\[y/n/s(kip all)/d(eny with msg)][/dim] ", end="")
 
         # Read single keypress without Enter
         fd = sys.stdin.fileno()
@@ -106,12 +108,22 @@ def _prompt_tool_approval(console: Console, messages: List[Message]) -> bool:
         if ch == '\x03':  # Ctrl-C: reject all and interrupt
             console.print("[red]interrupted[/red]")
             _reject_all_pending()
-            return True
+            return True, None
 
         if ch == 's':  # Skip all: reject all remaining pending tools
             console.print("[red]skip all[/red]")
             _reject_all_pending()
-            return False
+            return False, None
+
+        if ch == 'd':  # Deny with message: reject all and prompt for user message
+            console.print("[red]deny with message[/red]")
+            _reject_all_pending()
+            console.print("[dim]Enter message:[/dim] ", end="")
+            try:
+                user_msg = input()
+            except (KeyboardInterrupt, EOFError):
+                return True, None
+            return False, user_msg or None
 
         if ch == 'y':
             tc["status"] = "approved"
@@ -120,7 +132,7 @@ def _prompt_tool_approval(console: Console, messages: List[Message]) -> bool:
             tc["status"] = "rejected"
             console.print("[red]n[/red]")
 
-    return False
+    return False, None
 
 
 async def run_round(
@@ -131,6 +143,7 @@ async def run_round(
     provider: BaseProvider,
     tools_map: dict,
     openai_tools: list,
+    auto_approve_state: list = None,
 ):
     while True:
         result = await run_agent_loop(
@@ -140,16 +153,23 @@ async def run_round(
             tools_map=tools_map,
             openai_tools=openai_tools,
             message_callback=lambda msg: handle_message(display_manager, chat_id, msg),
+            auto_approve_fn=lambda: auto_approve_state[0] if auto_approve_state else False,
         )
         save_messages(chat_id, messages, current_chat)
 
         if result.status != "approval_needed":
             return
 
-        interrupted = _prompt_tool_approval(display_manager.console, messages)
+        interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
+        backfill_rejected_tool_results(messages)
         save_messages(chat_id, messages, current_chat)
         if interrupted:
             return
+
+        if user_msg:
+            user_message = create_message("user", user_msg, id=generate_message_id())
+            messages.append(user_message)
+            handle_message(display_manager, chat_id, user_message)
 
 
 async def run_chat(
@@ -165,6 +185,8 @@ async def run_chat(
 
     messages: List[Message] = []
     current_chat: Optional[Chat] = None
+    # Mutable container so lambda in run_round sees current value
+    auto_approve_state = [False]
 
     # Load existing chat or generate new ID
     if chat_id:
@@ -174,6 +196,7 @@ async def run_chat(
             raise ValueError(f"Chat {chat_id} not found")
         messages = list(existing_chat.messages)
         current_chat = existing_chat
+        auto_approve_state[0] = existing_chat.auto_approve
         if verbose:
             logger.info(f"Loaded {len(messages)} messages from chat {chat_id}")
 
@@ -182,10 +205,15 @@ async def run_chat(
 
         # If last assistant message has pending tool calls, resume tool approval flow
         if _has_pending_tools(messages):
-            interrupted = _prompt_tool_approval(display_manager.console, messages)
+            interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
+            messages = backfill_rejected_tool_results(messages)
             save_messages(chat_id, messages, current_chat)
+            if user_msg:
+                user_message = create_message("user", user_msg, id=generate_message_id())
+                messages.append(user_message)
+                handle_message(display_manager, chat_id, user_message)
             if not interrupted:
-                await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools)
+                await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools, auto_approve_state=auto_approve_state)
     else:
         chat_id = generate_id()
 
@@ -196,7 +224,7 @@ async def run_chat(
         user_message = create_message("user", prompt, id=generate_message_id())
         messages.append(user_message)
         current_chat = await ensure_chat(chat_id, messages, current_chat)
-        await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools)
+        await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools, auto_approve_state=auto_approve_state)
 
     # Continue with follow-up rounds
     while True:
@@ -211,6 +239,13 @@ async def run_chat(
         if not user_input:
             continue
 
+        # Handle /auto command to toggle auto-approve
+        if user_input.strip().lower() == "/auto":
+            auto_approve_state[0] = not auto_approve_state[0]
+            status = "ON" if auto_approve_state[0] else "OFF"
+            display_manager.console.print(f"[yellow]Auto-approve: {status}[/yellow]")
+            continue
+
         # Clear input lines and redisplay user input in a panel
         clear_lines = num_lines + 2 if is_multiline else 1
         sys.stdout.write("\033[A\033[2K" * clear_lines)
@@ -220,4 +255,4 @@ async def run_chat(
         current_chat = await ensure_chat(chat_id, messages, current_chat)
         handle_message(display_manager, chat_id, user_message)
 
-        await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools)
+        await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools, auto_approve_state=auto_approve_state)

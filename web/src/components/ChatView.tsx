@@ -10,6 +10,7 @@ interface Message {
   content: string;
   toolName?: string;
   arguments?: Record<string, unknown>;
+  toolCallId?: string;
   timestamp?: string;
 }
 
@@ -45,7 +46,12 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
   const [showApproval, setShowApproval] = useState(false);
   const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; function: { name: string; arguments: string }; status?: string }>>([]);
   const [autoApprove, setAutoApprove] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const [followUp, setFollowUp] = useState("");
+  const [sending, setSending] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const esRef = useRef<EventSource | null>(null);
+  const idxRef = useRef(0);
 
   const toggleAutoApprove = useCallback(async () => {
     if (!chatId) return;
@@ -68,21 +74,37 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
+  const updateToolMessage = useCallback((toolCallId: string, updates: Partial<Message>) => {
+    setMessages((prev) => prev.map((m) =>
+      m.toolCallId === toolCallId ? { ...m, ...updates } : m
+    ));
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Fetch chat detail (auto_approve, etc.) when chatId changes
   useEffect(() => {
     if (!chatId) return;
+    authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.auto_approve !== undefined) setAutoApprove(data.auto_approve);
+      })
+      .catch(() => {});
+  }, [chatId]);
 
-    setMessages([]);
+  const connectSSE = useCallback((chatId: string, fromIndex: number) => {
+    if (esRef.current) esRef.current.close();
+    setCompleted(false);
     setShowApproval(false);
     setPendingToolCalls([]);
-    setAutoApprove(false);
 
     const token = getToken();
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-    const es = new EventSource(`${API}/api/chat/messages?chat_id=${chatId}&last_index=0${tokenParam}`);
+    const es = new EventSource(`${API}/api/chat/messages?chat_id=${chatId}&last_index=${fromIndex}${tokenParam}`);
+    esRef.current = es;
 
     const handleMessage = (raw: string) => {
       try {
@@ -91,17 +113,28 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
         const role = msg.role || "assistant";
         const content = extractContent(msg.content);
         const timestamp = msg.timestamp;
+        idxRef.current = (evt.index ?? idxRef.current) + 1;
 
         if (role === "user") {
           addMessage({ role: "user", content, timestamp });
         } else if (role === "assistant" && msg.tool_calls) {
-          // Assistant with tool_calls: show content if any, skip tool_calls display
           if (content.trim()) {
             addMessage({ role: "assistant", content, timestamp });
           }
+          for (const tc of msg.tool_calls) {
+            const func = tc.function || {};
+            let toolArgs: Record<string, unknown> = {};
+            try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
+            addMessage({ role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp });
+          }
         } else if (role === "tool") {
-          // Tool result: combined display with tool name + args + result
-          addMessage({ role: "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
+          const tcId = msg.tool_call_id;
+          const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
+          if (tcId) {
+            updateToolMessage(tcId, { role: denied ? "tool_denied" : "tool_result", content });
+          } else {
+            addMessage({ role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
+          }
         } else {
           addMessage({ role: "assistant", content, timestamp });
         }
@@ -125,16 +158,43 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     es.addEventListener("ask", (e) => handleAsk((e as MessageEvent).data));
     es.addEventListener("waiting_approval", (e) => handleAsk((e as MessageEvent).data));
     es.addEventListener("done", () => {
-      addMessage({ role: "system", content: "Chat completed" });
+      setCompleted(true);
       es.close();
+      esRef.current = null;
       mutate(`${API}/api/chat/list`);
     });
     es.addEventListener("error", () => {});
+  }, [addMessage, updateToolMessage, mutate]);
 
+  useEffect(() => {
+    if (!chatId) return;
+    setMessages([]);
+    idxRef.current = 0;
+    connectSSE(chatId, 0);
     return () => {
-      es.close();
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
     };
-  }, [chatId, addMessage, mutate]);
+  }, [chatId, connectSSE]);
+
+  const sendFollowUp = useCallback(async () => {
+    const text = followUp.trim();
+    if (!text || sending || !chatId) return;
+    setSending(true);
+    try {
+      await authFetch(`${API}/api/chat/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, prompt: text }),
+      });
+      setFollowUp("");
+      connectSSE(chatId, idxRef.current);
+    } finally {
+      setSending(false);
+    }
+  }, [followUp, sending, chatId, connectSSE]);
 
   if (!chatId) {
     return (
@@ -176,6 +236,28 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
           mutate(`${API}/api/chat/list`);
         }}
       />
+      {completed && (
+        <div className="px-6 py-3 border-t border-sol-base02 shrink-0">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFollowUp(); } }}
+              placeholder="Send a follow-up message..."
+              autoFocus
+              className="flex-1 px-3 py-2 bg-sol-base02 border border-sol-base01 rounded-md text-sm text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            <button
+              onClick={sendFollowUp}
+              disabled={!followUp.trim() || sending}
+              className="px-4 py-2 bg-sol-blue text-sol-base03 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            >
+              {sending ? "..." : "Send"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
