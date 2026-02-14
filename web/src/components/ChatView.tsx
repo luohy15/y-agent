@@ -232,10 +232,10 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
   if (!chatId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        {onChatCreated ? (
+        {onChatCreated && getToken() ? (
           <NewChatInput onCreated={onChatCreated} />
         ) : (
-          <span className="text-sol-base01 text-sm">Select a chat or start a new one</span>
+          <span className="text-sol-base01 text-sm"></span>
         )}
       </div>
     );
