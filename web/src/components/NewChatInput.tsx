@@ -47,7 +47,7 @@ export default function NewChatInput({ onCreated }: NewChatInputProps) {
         placeholder="What would you like to do?"
         rows={4}
         autoFocus
-        className="w-full px-4 py-3 bg-sol-base02 border border-sol-base01 rounded-lg text-sm text-sol-base0 outline-none focus:border-sol-blue resize-none"
+        className="w-full px-4 py-3 bg-sol-base02 border border-sol-base01 rounded-lg text-base text-sol-base0 outline-none focus:border-sol-blue resize-none"
       />
       <div className="flex items-center justify-end gap-3 mt-2">
         <label className="flex items-center gap-2 text-xs text-sol-base1 cursor-pointer select-none">

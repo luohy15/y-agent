@@ -305,7 +305,7 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFollowUp(); } }}
               placeholder="Send a follow-up message..."
               autoFocus
-              className="flex-1 px-3 py-2 bg-sol-base02 border border-sol-base01 rounded-md text-sm text-sol-base0 outline-none focus:border-sol-blue"
+              className="flex-1 px-3 py-2 bg-sol-base02 border border-sol-base01 rounded-md text-base text-sol-base0 outline-none focus:border-sol-blue"
             />
             <button
               onClick={sendFollowUp}
