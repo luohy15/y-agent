@@ -3,7 +3,6 @@
 import json
 import os
 
-
 def lambda_handler(event, context):
     """Handle admin actions dispatched by CloudWatch schedules or manual invocation.
 
@@ -21,3 +20,9 @@ def lambda_handler(event, context):
         return {"status": "ok", "action": action}
 
     return {"status": "error", "message": f"Unknown action: {action}"}
+
+
+if __name__ == "__main__":
+    lambda_handler({"action": "init_db"}, None)
+    # result = lambda_handler({"action": "init_vm_config"}, None)
+    print(result)

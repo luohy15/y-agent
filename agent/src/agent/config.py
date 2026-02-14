@@ -1,7 +1,10 @@
 """Shared configuration helpers for CLI and worker."""
 
-from storage.entity.dto import BotConfig
+import os
+
+from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
+from storage.service import vm_config as vm_service
 from storage.service.user import get_default_user_id
 
 from agent.provider import OpenAIFormatProvider, AnthropicFormatProvider
@@ -32,3 +35,16 @@ def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
     if not bot_config:
         raise ValueError(f"No bot config found for user_id={user_id}, bot_name={bot_name}")
     return bot_config
+
+
+def resolve_vm_config(user_id: int) -> VmConfig | None:
+    if os.environ.get("VM_BACKEND") == "local":
+        return None
+    vm_config = vm_service.get_config(user_id)
+    if not vm_config:
+        default_user_id = get_default_user_id()
+        if default_user_id != user_id:
+            vm_config = vm_service.get_config(default_user_id)
+    if not vm_config:
+        raise ValueError(f"No vm config found for user_id={user_id}")
+    return vm_config

@@ -32,6 +32,21 @@ class BotConfig:
 
     def to_dict(self) -> Dict:
         return {k: v for k, v in asdict(self).items() if v is not None}
+
+# ── VM ──
+
+@dataclass
+class VmConfig:
+    api_token: str = ""
+    vm_name: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'VmConfig':
+        return cls(**data)
+
+    def to_dict(self) -> Dict:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
 # ── Chat ──
 
 @dataclass

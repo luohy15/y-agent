@@ -25,9 +25,10 @@ class FileWriteTool(Tool):
         path = arguments["path"]
         content = arguments["content"]
         try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with open(path, "w") as f:
-                f.write(content)
+            dirname = os.path.dirname(path)
+            if dirname:
+                await self.run_cmd(cmd=["mkdir", "-p", dirname])
+            await self.run_cmd(cmd=["tee", path], stdin=content)
             return f"Successfully wrote to {path}"
         except Exception as e:
             return f"Error writing file: {e}"

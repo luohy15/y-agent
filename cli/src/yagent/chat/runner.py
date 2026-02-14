@@ -183,8 +183,9 @@ async def run_chat(
     verbose: bool = False,
     prompt: Optional[str] = None,
 ):
-    tools_map = get_tools_map()
-    openai_tools = get_openai_tools()
+    vm_config = agent_config.resolve_vm_config(get_cli_user_id())
+    tools_map = get_tools_map(vm_config)  # None = local execution
+    openai_tools = get_openai_tools(vm_config)
 
     messages: List[Message] = []
     current_chat: Optional[Chat] = None

@@ -19,7 +19,6 @@ class FileReadTool(Tool):
     async def execute(self, arguments: Dict) -> str:
         path = arguments["path"]
         try:
-            with open(path, "r") as f:
-                return f.read()
+            return await self.run_cmd(cmd=["cat", path])
         except Exception as e:
             return f"Error reading file: {e}"

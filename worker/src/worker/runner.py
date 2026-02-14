@@ -47,8 +47,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
     provider = agent_config.make_provider(bot_config)
 
-    tools_map = get_tools_map()
-    openai_tools = get_openai_tools()
+    vm_config = agent_config.resolve_vm_config(user_id)
+    tools_map = get_tools_map(vm_config)
+    openai_tools = get_openai_tools(vm_config)
     system_prompt = agent_config.build_system_prompt()
     logger.info("Loaded {} tools, system_prompt length={}", len(tools_map), len(system_prompt) if system_prompt else 0)
 

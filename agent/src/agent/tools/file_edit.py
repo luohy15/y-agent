@@ -34,10 +34,7 @@ class FileEditTool(Tool):
         new_string = arguments["new_string"]
 
         try:
-            with open(path, "r") as f:
-                content = f.read()
-        except FileNotFoundError:
-            return f"Error: file not found: {path}"
+            content = await self.run_cmd(cmd=["cat", path])
         except Exception as e:
             return f"Error reading file: {e}"
 
@@ -52,8 +49,7 @@ class FileEditTool(Tool):
 
         new_content = content.replace(old_string, new_string, 1)
         try:
-            with open(path, "w") as f:
-                f.write(new_content)
+            await self.run_cmd(cmd=["tee", path], stdin=new_content)
             return f"Successfully edited {path}"
         except Exception as e:
             return f"Error writing file: {e}"
