@@ -229,6 +229,7 @@ async def run_chat(
         messages.append(user_message)
         current_chat = await ensure_chat(chat_id, messages, current_chat)
         await run_round(display_manager, chat_id, messages, current_chat, provider, tools_map, openai_tools, auto_approve_state=auto_approve_state)
+        return
 
     # Continue with follow-up rounds
     while True:

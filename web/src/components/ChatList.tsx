@@ -37,7 +37,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
   };
 
   return (
-    <div className="w-80 min-w-[260px] border-r border-sol-base02 flex flex-col shrink-0">
+    <div className="w-80 min-w-[260px] h-full bg-sol-base03 border-r border-sol-base02 flex flex-col shrink-0">
       <div className="p-3 border-b border-sol-base02 flex flex-col gap-2">
         <button
           onClick={() => onSelectChat(null)}

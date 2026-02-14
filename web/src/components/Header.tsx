@@ -5,9 +5,10 @@ interface HeaderProps {
   isLoggedIn: boolean;
   gsiReady: boolean;
   onLogout: () => void;
+  onToggleSidebar?: () => void;
 }
 
-export default function Header({ email, isLoggedIn, gsiReady, onLogout }: HeaderProps) {
+export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleSidebar }: HeaderProps) {
   const signinRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,9 +21,16 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout }: Header
   }, [isLoggedIn, gsiReady]);
 
   return (
-    <header className="px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
-      <div className="h-8 w-8 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm">
-        <span className="text-lg font-bold text-sol-blue">Y</span>
+    <header className="px-4 md:px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        {onToggleSidebar && (
+          <button onClick={onToggleSidebar} className="md:hidden p-1 text-sol-base1 hover:text-sol-blue cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+        )}
+        <div className="h-8 w-8 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm">
+          <span className="text-lg font-bold text-sol-blue">Y</span>
+        </div>
       </div>
       <div className="flex items-center gap-3">
         <a href="https://github.com/luohy15/y-agent" target="_blank" rel="noopener noreferrer" className="flex items-center text-sol-base01 hover:text-sol-base1">
