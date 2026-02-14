@@ -159,12 +159,12 @@ async def run_round(
 
         if result.status != "approval_needed":
             if result.status == "interrupted":
-                backfill_tool_results(messages)
+                backfill_tool_results(messages, mode="cancelled")
                 save_messages(chat_id, messages, current_chat)
             return
 
         interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
-        backfill_tool_results(messages)
+        backfill_tool_results(messages, mode="rejected")
         save_messages(chat_id, messages, current_chat)
         if interrupted:
             return
@@ -209,7 +209,7 @@ async def run_chat(
         # If last assistant message has pending tool calls, resume tool approval flow
         if _has_pending_tools(messages):
             interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
-            backfill_tool_results(messages)
+            backfill_tool_results(messages, mode="rejected")
             save_messages(chat_id, messages, current_chat)
             if user_msg:
                 user_message = create_message("user", user_msg, id=generate_message_id())

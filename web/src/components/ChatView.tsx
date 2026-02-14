@@ -156,7 +156,6 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
       es.addEventListener(t, (e) => handleMessage((e as MessageEvent).data));
     }
     es.addEventListener("ask", (e) => handleAsk((e as MessageEvent).data));
-    es.addEventListener("waiting_approval", (e) => handleAsk((e as MessageEvent).data));
     es.addEventListener("done", () => {
       setCompleted(true);
       es.close();
@@ -251,9 +250,18 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
           setPendingToolCalls([]);
           mutate(`${API}/api/chat/list`);
         }}
+        onClose={() => setShowApproval(false)}
       />
       {!completed && !showApproval && (
-        <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex justify-center">
+        <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex justify-center gap-3">
+          {pendingToolCalls.length > 0 && (
+            <button
+              onClick={() => setShowApproval(true)}
+              className="px-4 py-2 bg-sol-yellow text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
+            >
+              Need Approve
+            </button>
+          )}
           <button
             onClick={stopChat}
             className="px-4 py-2 bg-sol-red text-sol-base3 rounded-md text-sm font-semibold cursor-pointer"

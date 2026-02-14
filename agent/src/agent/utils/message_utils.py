@@ -45,12 +45,13 @@ def create_message(role: str, content: str, reasoning_content: Optional[str] = N
     return Message.from_dict(message_data)
 
 
-def backfill_tool_results(messages: List[Message]) -> List[Message]:
+def backfill_tool_results(messages: List[Message], mode: str = "rejected") -> List[Message]:
     """Backfill tool results for unhandled tool calls that lack responses.
 
-    Handles two cases:
-    - rejected: user explicitly denied the tool call
-    - cancelled: tool call was interrupted before execution
+    Args:
+        messages: list of messages to backfill (mutated in-place)
+        mode: "cancelled" backfills all unhandled tool calls as cancelled;
+              "rejected" backfills only unhandled tool calls marked as "rejected".
 
     Returns the list of newly inserted tool messages.
     """
@@ -73,6 +74,9 @@ def backfill_tool_results(messages: List[Message]) -> List[Message]:
             existing_tool_ids.add(m.tool_call_id)
 
     unhandled = [tc for tc in last_assistant.tool_calls if tc["id"] not in existing_tool_ids]
+    # When rejected, only backfill tool calls explicitly marked as "rejected"
+    if mode == "rejected":
+        unhandled = [tc for tc in unhandled if tc.get("status") == "rejected"]
     if not unhandled:
         return []
 
@@ -89,7 +93,7 @@ def backfill_tool_results(messages: List[Message]) -> List[Message]:
         except (json.JSONDecodeError, TypeError):
             tool_args = {}
 
-        if tc.get("status") == "rejected":
+        if mode == "rejected":
             content = f"ERROR: User denied execution of {tool_name} with args {tool_args}. The command was NOT executed. Do NOT proceed as if it succeeded."
         else:
             content = f"ERROR: Execution of {tool_name} was cancelled due to interruption. The command was NOT executed."

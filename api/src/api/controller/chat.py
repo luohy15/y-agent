@@ -192,7 +192,7 @@ async def post_approve(req: ApproveRequest):
 
     # Backfill rejection tool results so they are persisted
     from agent.utils.message_utils import backfill_tool_results
-    backfill_tool_results(chat.messages)
+    backfill_tool_results(chat.messages, mode="rejected")
 
     # Append user message if provided (deny with message)
     if req.user_message:
@@ -258,6 +258,7 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
 async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0, ge=0)):
     async def event_stream():
         idx = last_index
+        asked = False
         while True:
             chat = await chat_service.get_chat_by_id(chat_id)
             if chat is None:
@@ -265,15 +266,19 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
                 return
 
             messages = chat.messages
+            new_messages = False
             while idx < len(messages):
                 msg = messages[idx]
                 msg_data = msg.to_dict()
                 idx_val = idx
                 idx += 1
+                new_messages = True
                 yield {
                     "event": "message",
                     "data": json.dumps({"index": idx_val, "type": "message", "data": msg_data}),
                 }
+            if new_messages:
+                asked = False
 
             # Check if chat was interrupted
             if chat.interrupted:
@@ -285,7 +290,8 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
 
             if last_msg and last_msg.role == "assistant" and last_msg.tool_calls:
                 pending_calls = [tc for tc in last_msg.tool_calls if tc.get("status") == "pending"]
-                if pending_calls:
+                if pending_calls and not asked:
+                    asked = True
                     yield {
                         "event": "ask",
                         "data": json.dumps({"tool_calls": pending_calls}),

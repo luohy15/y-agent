@@ -12,6 +12,7 @@ interface ApprovalModalProps {
   toolCalls: ToolCall[];
   visible: boolean;
   onApproved: () => void;
+  onClose?: () => void;
 }
 
 function truncate(s: string, n: number): string {
@@ -33,7 +34,7 @@ function formatToolCall(tc: ToolCall): string {
   } catch { return name; }
 }
 
-export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }: ApprovalModalProps) {
+export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, onClose }: ApprovalModalProps) {
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [showDenyMessage, setShowDenyMessage] = useState(false);
   const [denyMessage, setDenyMessage] = useState("");
@@ -74,7 +75,17 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-sol-base03 border border-sol-base01 rounded-lg shadow-lg w-full max-w-xl mx-4 p-4 flex flex-col gap-3">
-        <div className="text-sm text-sol-yellow font-semibold">Tool Approval</div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-sol-yellow font-semibold">Tool Approval</div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-sol-base01 hover:text-sol-base1 text-lg leading-none cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
         {toolCalls.map((tc) => (
           <div key={tc.id} className="flex items-center gap-2">
             <span className="text-[0.8rem] font-mono text-sol-cyan flex-1 truncate">
