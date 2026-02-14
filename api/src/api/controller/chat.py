@@ -74,6 +74,11 @@ class CreateChatResponse(BaseModel):
     chat_id: str
 
 
+class AutoApproveRequest(BaseModel):
+    chat_id: str
+    auto_approve: bool
+
+
 class ApproveRequest(BaseModel):
     chat_id: str
     decisions: Dict[str, bool]  # {tool_call_id: approved}
@@ -157,6 +162,19 @@ async def post_approve(req: ApproveRequest):
     if not still_pending:
         _send_chat_message(req.chat_id)
     return {"ok": True}
+
+
+@router.post("/auto_approve")
+async def post_auto_approve(req: AutoApproveRequest):
+    chat = await chat_service.get_chat_by_id(req.chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    chat.auto_approve = req.auto_approve
+
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+    return {"ok": True, "auto_approve": chat.auto_approve}
 
 
 @router.get("/messages")

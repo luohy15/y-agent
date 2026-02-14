@@ -44,6 +44,12 @@ async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     return await chat_repo.get_chat_by_id(chat_id)
 
 
+def get_chat_by_id_sync(chat_id: str) -> Optional[Chat]:
+    """Get chat by ID (sync, for worker use)."""
+    from storage.repository.chat import _get_chat_by_id_sync
+    return _get_chat_by_id_sync(chat_id)
+
+
 async def append_message(chat_id: str, message: Message) -> Chat:
     """Append a single message to a chat."""
     chat = await chat_repo.get_chat_by_id(chat_id)

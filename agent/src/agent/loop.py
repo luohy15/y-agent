@@ -183,6 +183,7 @@ async def run_agent_loop(
     max_iterations: int = 50,
     permission_manager: Optional[PermissionManager] = None,
     message_callback: Optional[Callable[[Message], None]] = None,
+    auto_approve_fn: Optional[Callable[[], bool]] = None,
 ) -> LoopResult:
     """Run the agent loop: call LLM, execute tool calls, repeat until plain text.
 
@@ -241,7 +242,8 @@ async def run_agent_loop(
                 except (json.JSONDecodeError, TypeError):
                     tool_args = {}
 
-                if tools_map.get(tool_name) and not permission_manager.is_allowed(tool_name, tool_args):
+                auto = auto_approve_fn() if auto_approve_fn else False
+                if tools_map.get(tool_name) and not auto and not permission_manager.is_allowed(tool_name, tool_args):
                     for remaining_tc in tool_calls[tc_index:]:
                         remaining_tc["status"] = "pending"
                     break
