@@ -179,6 +179,22 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     };
   }, [chatId, connectSSE]);
 
+  const stopChat = useCallback(async () => {
+    if (!chatId) return;
+    await authFetch(`${API}/api/chat/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    setCompleted(true);
+    setShowApproval(false);
+    setPendingToolCalls([]);
+  }, [chatId]);
+
   const sendFollowUp = useCallback(async () => {
     const text = followUp.trim();
     if (!text || sending || !chatId) return;
@@ -236,6 +252,16 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
           mutate(`${API}/api/chat/list`);
         }}
       />
+      {!completed && !showApproval && (
+        <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex justify-center">
+          <button
+            onClick={stopChat}
+            className="px-4 py-2 bg-sol-red text-sol-base3 rounded-md text-sm font-semibold cursor-pointer"
+          >
+            Stop
+          </button>
+        </div>
+      )}
       {completed && (
         <div className="px-6 py-3 border-t border-sol-base02 shrink-0">
           <div className="flex gap-2">

@@ -116,6 +116,7 @@ async def run_agent_loop(
     permission_manager: Optional[PermissionManager] = None,
     message_callback: Optional[Callable[[Message], None]] = None,
     auto_approve_fn: Optional[Callable[[], bool]] = None,
+    check_interrupted_fn: Optional[Callable[[], bool]] = None,
 ) -> LoopResult:
     """Run the agent loop: call LLM, execute tool calls, repeat until plain text.
 
@@ -134,6 +135,9 @@ async def run_agent_loop(
 
     try:
         for _ in range(max_iterations):
+            if check_interrupted_fn and check_interrupted_fn():
+                return LoopResult("interrupted", new_messages)
+
             raw = await provider.call_chat_completions_non_stream(
                 messages, system_prompt, tools=openai_tools
             )

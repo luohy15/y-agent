@@ -157,6 +157,11 @@ async def run_round(
         )
         save_messages(chat_id, messages, current_chat)
 
+        if result.status == "interrupted":
+            backfill_rejected_tool_results(messages)
+            save_messages(chat_id, messages, current_chat)
+            return
+
         if result.status != "approval_needed":
             return
 

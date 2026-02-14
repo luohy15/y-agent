@@ -9,6 +9,7 @@ from storage.service import chat as chat_service
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
+from agent.utils.message_utils import backfill_rejected_tool_results
 from agent.tools import get_tools_map, get_openai_tools
 
 
@@ -22,6 +23,11 @@ def check_auto_approve(chat_id: str) -> bool:
     return c.auto_approve if c else False
 
 
+def check_interrupted(chat_id: str) -> bool:
+    c = chat_service.get_chat_by_id_sync(chat_id)
+    return c.interrupted if c else False
+
+
 async def run_chat(chat_id: str, bot_name: str = None) -> None:
     """Execute a chat round. bot_name is passed from the queue message."""
     logger.info("run_chat start chat_id={} bot_name={}", chat_id, bot_name)
@@ -31,6 +37,11 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
     if not chat:
         logger.error("Chat {} not found", chat_id)
         return
+
+    # Reset interrupted flag so it doesn't persist across runs
+    chat.interrupted = False
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
 
     bot_config = agent_config.resolve_bot_config(bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
@@ -52,6 +63,11 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
         openai_tools=openai_tools,
         message_callback=lambda msg: message_callback(chat_id, msg),
         auto_approve_fn=lambda: check_auto_approve(chat_id),
+        check_interrupted_fn=lambda: check_interrupted(chat_id),
     )
+
+    if result.status == "interrupted":
+        backfill_rejected_tool_results(messages)
+        chat_service.save_messages_sync(chat_id, messages)
 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)

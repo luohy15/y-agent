@@ -86,6 +86,10 @@ class AutoApproveRequest(BaseModel):
     auto_approve: bool
 
 
+class StopChatRequest(BaseModel):
+    chat_id: str
+
+
 class ApproveRequest(BaseModel):
     chat_id: str
     decisions: Dict[str, bool]  # {tool_call_id: approved}
@@ -211,6 +215,19 @@ async def post_approve(req: ApproveRequest):
     return {"ok": True}
 
 
+@router.post("/stop")
+async def post_stop_chat(req: StopChatRequest):
+    chat = await chat_service.get_chat_by_id(req.chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    chat.interrupted = True
+
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+    return {"ok": True}
+
+
 @router.post("/auto_approve")
 async def post_auto_approve(req: AutoApproveRequest):
     chat = await chat_service.get_chat_by_id(req.chat_id)
@@ -256,6 +273,11 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
                     "event": "message",
                     "data": json.dumps({"index": idx_val, "type": "message", "data": msg_data}),
                 }
+
+            # Check if chat was interrupted
+            if chat.interrupted:
+                yield {"event": "done", "data": json.dumps({"status": "interrupted"})}
+                return
 
             # Infer state from messages
             last_msg = messages[-1] if messages else None

@@ -144,6 +144,7 @@ class Chat:
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None
     auto_approve: bool = False
+    interrupted: bool = False
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -161,6 +162,7 @@ class Chat:
             origin_message_id=data.get('origin_message_id'),
             selected_message_id=data.get('selected_message_id'),
             auto_approve=data.get('auto_approve', False),
+            interrupted=data.get('interrupted', False),
         )
 
     def to_dict(self) -> Dict:
@@ -182,6 +184,8 @@ class Chat:
             result['selected_message_id'] = self.selected_message_id
         if self.auto_approve:
             result['auto_approve'] = self.auto_approve
+        if self.interrupted:
+            result['interrupted'] = self.interrupted
         return result
 
     def update_messages(self, messages: List[Message]) -> None:
