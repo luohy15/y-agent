@@ -193,7 +193,7 @@ async def post_approve(req: ApproveRequest):
             tc["status"] = "approved" if req.decisions[tc["id"]] else "rejected"
 
     # Backfill rejection tool results so they are persisted
-    from agent.utils.message_utils import backfill_tool_results
+    from storage.util import backfill_tool_results
     backfill_tool_results(chat.messages, mode="rejected")
 
     # Append user message if provided (deny with message)
