@@ -187,7 +187,7 @@ async def post_approve(req: ApproveRequest):
 
     # Backfill rejection tool results so they are persisted
     from agent.utils.message_utils import backfill_rejected_tool_results
-    chat.messages = backfill_rejected_tool_results(chat.messages)
+    backfill_rejected_tool_results(chat.messages)
 
     # Append user message if provided (deny with message)
     if req.user_message:

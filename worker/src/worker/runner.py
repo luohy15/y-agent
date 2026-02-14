@@ -17,6 +17,11 @@ def message_callback(chat_id: str, message: Message):
     chat_service.append_message_sync(chat_id, message)
 
 
+def check_auto_approve(chat_id: str) -> bool:
+    c = chat_service.get_chat_by_id_sync(chat_id)
+    return c.auto_approve if c else False
+
+
 async def run_chat(chat_id: str, bot_name: str = None) -> None:
     """Execute a chat round. bot_name is passed from the queue message."""
     logger.info("run_chat start chat_id={} bot_name={}", chat_id, bot_name)
@@ -39,10 +44,6 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
     messages: List[Message] = list(chat.messages)
     logger.info("Loaded {} messages from chat {}", len(messages), chat_id)
 
-    def check_auto_approve() -> bool:
-        c = chat_service.get_chat_by_id_sync(chat_id)
-        return c.auto_approve if c else False
-
     result = await run_agent_loop(
         provider=provider,
         messages=messages,
@@ -50,7 +51,7 @@ async def run_chat(chat_id: str, bot_name: str = None) -> None:
         tools_map=tools_map,
         openai_tools=openai_tools,
         message_callback=lambda msg: message_callback(chat_id, msg),
-        auto_approve_fn=check_auto_approve,
+        auto_approve_fn=lambda: check_auto_approve(chat_id),
     )
 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)

@@ -107,5 +107,3 @@ def backfill_rejected_tool_results(messages: List[Message]) -> List[Message]:
 
     for offset, msg in enumerate(tool_msgs):
         messages.insert(insert_idx + offset, msg)
-
-    return messages

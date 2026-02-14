@@ -206,7 +206,7 @@ async def run_chat(
         # If last assistant message has pending tool calls, resume tool approval flow
         if _has_pending_tools(messages):
             interrupted, user_msg = _prompt_tool_approval(display_manager.console, messages)
-            messages = backfill_rejected_tool_results(messages)
+            backfill_rejected_tool_results(messages)
             save_messages(chat_id, messages, current_chat)
             if user_msg:
                 user_message = create_message("user", user_msg, id=generate_message_id())
