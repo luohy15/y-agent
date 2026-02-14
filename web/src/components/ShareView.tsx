@@ -115,12 +115,16 @@ export default function ShareView() {
   return (
     <div className="h-full flex flex-col">
       <div className="px-6 py-2 border-b border-sol-base02 shrink-0">
-        <span className="text-xs text-sol-base01">Shared conversation</span>
+        <div className="max-w-3xl mx-auto w-full">
+          <span className="text-xs text-sol-base01">Shared conversation</span>
+        </div>
       </div>
       <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
-        {messages.map((m, i) => (
-          <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
-        ))}
+        <div className="max-w-3xl mx-auto w-full flex flex-col gap-3">
+          {messages.map((m, i) => (
+            <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
+          ))}
+        </div>
       </div>
       <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex items-center justify-center gap-3">
         <button
