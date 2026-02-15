@@ -104,7 +104,7 @@ export default function MessageList({ messages, running }: MessageListProps) {
   const groups = groupMessages(messages);
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
+    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 text-xs">
       {groups.map((g) =>
         g.type === "file_reads" ? (
           <FileReadGroup key={`fr-${g.startIndex}`} messages={g.messages} startIndex={g.startIndex} />

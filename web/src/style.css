@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   --color-sol-base03: #002b36;
@@ -19,8 +20,54 @@
   --color-sol-green: #859900;
 }
 
+/* Scrollbar — solarized dark */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #073642 #002b36;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #002b36;
+}
+::-webkit-scrollbar-thumb {
+  background: #073642;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #586e75;
+}
+
+/* highlight.js — transparent bg to match our solarized theme */
+.hljs { background: transparent !important; }
+
 /* Status badges — dynamic class names from JS */
 .badge-pending { background: #073642; color: #839496; }
 .badge-running { background: #073642; color: #268bd2; }
 .badge-completed { background: #073642; color: #859900; }
 .badge-failed { background: #073642; color: #dc322f; }
+
+/* Prose — solarized dark overrides */
+.prose {
+  --tw-prose-body: #839496;           /* base0 */
+  --tw-prose-headings: #93a1a1;       /* base1 */
+  --tw-prose-links: #268bd2;          /* blue */
+  --tw-prose-bold: #93a1a1;           /* base1 */
+  --tw-prose-counters: #586e75;       /* base01 */
+  --tw-prose-bullets: #586e75;        /* base01 */
+  --tw-prose-hr: #073642;            /* base02 */
+  --tw-prose-quotes: #93a1a1;        /* base1 */
+  --tw-prose-quote-borders: #586e75; /* base01 */
+  --tw-prose-code: #2aa198;          /* cyan */
+  --tw-prose-pre-code: #839496;      /* base0 */
+  --tw-prose-pre-bg: #073642;        /* base02 */
+  --tw-prose-th-borders: #586e75;    /* base01 */
+  --tw-prose-td-borders: #073642;    /* base02 */
+}
+
+/* Hide native caret — we render a custom block cursor */
+.caret-hide {
+  caret-color: transparent;
+}

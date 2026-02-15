@@ -1,34 +1,35 @@
-import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import ApprovalModal from "./ApprovalBar";
-import NewChatInput from "./NewChatInput";
 import MessageList, { type Message, extractContent } from "./MessageList";
+import ChatInput, { type ChatInputHandle } from "./ChatInput";
 
 interface ChatViewProps {
   chatId: string | null;
   onChatCreated?: (chatId: string) => void;
   isLoggedIn: boolean;
-  gsiReady: boolean;
 }
 
-export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
   const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; function: { name: string; arguments: string }; status?: string }>>([]);
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem("autoApprove") === "true");
   const [completed, setCompleted] = useState(false);
+  const [newPrompt, setNewPrompt] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
+  const inputRef = useRef<ChatInputHandle | null>(null);
 
   const toggleAutoApprove = useCallback(async () => {
-    if (!chatId) return;
     const next = !autoApprove;
     setAutoApprove(next);
+    localStorage.setItem("autoApprove", String(next));
+    if (!chatId) return;
     await authFetch(`${API}/api/chat/auto_approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -156,22 +157,16 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }
     setPendingToolCalls([]);
   }, [chatId]);
 
-  const shareChat = useCallback(async () => {
-    if (!chatId || sharing) return;
-    setSharing(true);
-    try {
-      const res = await authFetch(`${API}/api/chat/share`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId }),
-      });
-      const data = await res.json();
-      const shareUrl = `${window.location.origin}/s/${data.share_id}`;
-      await navigator.clipboard.writeText(shareUrl);
-    } finally {
-      setSharing(false);
-    }
-  }, [chatId, sharing]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "c" && !completed) {
+        e.preventDefault();
+        stopChat();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [completed, stopChat]);
 
   const sendFollowUp = useCallback(async () => {
     const text = followUp.trim();
@@ -190,52 +185,47 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }
     }
   }, [followUp, sending, chatId, connectSSE]);
 
-  const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
-    if (!node || isLoggedIn || !gsiReady) return;
-    (window as any).google.accounts.id.renderButton(node, {
-      theme: "filled_black",
-      size: "large",
-      shape: "pill",
-    });
-  }, [isLoggedIn, gsiReady]);
+  const createChat = useCallback(async () => {
+    const text = newPrompt.trim();
+    if (!text || sending || !onChatCreated) return;
+    setSending(true);
+    try {
+      const res = await authFetch(`${API}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text, auto_approve: autoApprove }),
+      });
+      const data = await res.json();
+      mutate(`${API}/api/chat/list`);
+      setNewPrompt("");
+      onChatCreated(data.chat_id);
+    } finally {
+      setSending(false);
+    }
+  }, [newPrompt, sending, autoApprove, mutate, onChatCreated]);
 
   if (!chatId) {
+    if (!isLoggedIn) {
+      return <div className="flex-1" />;
+    }
     return (
-      <div className="flex-1 flex items-center justify-center">
-        {isLoggedIn && onChatCreated ? (
-          <NewChatInput onCreated={onChatCreated} />
-        ) : (
-          <div className="relative inline-flex items-center justify-center">
-            <span className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded-md text-sm font-semibold pointer-events-none">
-              Sign in with Google
-            </span>
-            <div ref={signinRef} className="absolute inset-0 opacity-[0.01] overflow-hidden [&_iframe]{min-width:100%!important;min-height:100%!important}" />
-          </div>
-        )}
+      <div className="flex-1 flex flex-col min-h-0" onClick={() => inputRef.current?.focus()}>
+        <ChatInput
+          ref={inputRef}
+          value={newPrompt}
+          onChange={setNewPrompt}
+          onSubmit={createChat}
+          autoApprove={autoApprove}
+          onToggleAutoApprove={toggleAutoApprove}
+          sending={sending}
+          autoFocus
+        />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <div className="flex items-center justify-between px-6 py-2 border-b border-sol-base02 shrink-0">
-        <label className="flex items-center gap-2 text-xs text-sol-base1 cursor-pointer select-none">
-          <span>Auto-approve</span>
-          <button
-            onClick={toggleAutoApprove}
-            className={`relative w-8 h-4 rounded-full transition-colors ${autoApprove ? "bg-sol-green" : "bg-sol-base02"}`}
-          >
-            <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-sol-base3 transition-transform ${autoApprove ? "translate-x-4" : ""}`} />
-          </button>
-        </label>
-        <button
-          onClick={shareChat}
-          disabled={sharing}
-          className="px-3 py-1 text-xs text-sol-base1 border border-sol-base01 rounded-md hover:bg-sol-base02 cursor-pointer disabled:opacity-40 disabled:cursor-default"
-        >
-          {sharing ? "..." : "Share"}
-        </button>
-      </div>
+    <div className="flex-1 flex flex-col min-w-0 min-h-0" onClick={() => inputRef.current?.focus()}>
       <MessageList messages={messages} running={!completed} />
       <ApprovalModal
         chatId={chatId}
@@ -248,45 +238,26 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }
         }}
         onClose={() => setShowApproval(false)}
       />
-      {!completed && !showApproval && (
-        <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex justify-center gap-3">
-          {pendingToolCalls.length > 0 && (
-            <button
-              onClick={() => setShowApproval(true)}
-              className="px-4 py-2 bg-sol-yellow text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
-            >
-              Need Approve
-            </button>
-          )}
+      {!completed && !showApproval && pendingToolCalls.length > 0 && (
+        <div className="px-6 py-3 border-t border-sol-base022 shrink-0 flex justify-center">
           <button
-            onClick={stopChat}
-            className="px-4 py-2 bg-sol-red text-sol-base3 rounded-md text-sm font-semibold cursor-pointer"
+            onClick={() => setShowApproval(true)}
+            className="px-4 py-2 bg-sol-yellow text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
           >
-            Stop
+            Need Approve
           </button>
         </div>
       )}
       {completed && (
-        <div className="px-6 py-3 border-t border-sol-base02 shrink-0">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFollowUp(); } }}
-              placeholder="Send a follow-up message..."
-              autoFocus
-              className="flex-1 px-3 py-2 bg-sol-base02 border border-sol-base01 rounded-md text-base text-sol-base0 outline-none focus:border-sol-blue"
-            />
-            <button
-              onClick={sendFollowUp}
-              disabled={!followUp.trim() || sending}
-              className="px-4 py-2 bg-sol-blue text-sol-base03 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default"
-            >
-              {sending ? "..." : "Send"}
-            </button>
-          </div>
-        </div>
+        <ChatInput
+          ref={inputRef}
+          value={followUp}
+          onChange={setFollowUp}
+          onSubmit={sendFollowUp}
+          autoApprove={autoApprove}
+          onToggleAutoApprove={toggleAutoApprove}
+          autoFocus
+        />
       )}
     </div>
   );
