@@ -1,9 +1,19 @@
 """Data Transfer Objects (dataclass DTOs) for bot, prompt, and chat domains."""
 
+import re
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Union, Iterable
 from datetime import datetime
 from storage.util import get_iso8601_timestamp
+
+# Invisible Unicode characters that Safari renders as boxes
+_INVISIBLE_RE = re.compile(
+    '[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f'
+    '\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff9-\ufffc]'
+)
+
+def _strip_invisible(s: str) -> str:
+    return _INVISIBLE_RE.sub('', s)
 
 # ── Bot ──
 
@@ -84,8 +94,13 @@ class Message:
             unix_timestamp = int(unix_timestamp)
 
         content = data['content']
-        if isinstance(content, list):
+        if isinstance(content, str):
+            content = _strip_invisible(content)
+        elif isinstance(content, list):
             content = [ContentPart(**part) if isinstance(part, dict) else part for part in content]
+            for part in content:
+                if isinstance(part, ContentPart):
+                    part.text = _strip_invisible(part.text)
 
         return cls(
             role=data['role'],

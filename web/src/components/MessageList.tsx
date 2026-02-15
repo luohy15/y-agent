@@ -15,20 +15,27 @@ interface ContentPart {
   text?: string;
 }
 
+// Strip invisible Unicode control characters that Safari renders as boxes
+function stripInvisible(s: string): string {
+  // Remove BOM, zero-width spaces, and other common invisible characters
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF\uFFF9-\uFFFC]/g, "");
+}
+
 export function extractContent(content?: string | ContentPart[]): string {
   if (!content) return "";
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return stripInvisible(content);
   if (Array.isArray(content)) {
     return content
       .map((p) => {
-        if (typeof p === "string") return p;
-        if (p.type === "text") return p.text || "";
+        if (typeof p === "string") return stripInvisible(p);
+        if (p.type === "text") return stripInvisible(p.text || "");
         if (p.type === "image") return "[image]";
         return "";
       })
       .join("");
   }
-  return String(content);
+  return stripInvisible(String(content));
 }
 
 function isFileReadResult(m: Message): boolean {
