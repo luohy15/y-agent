@@ -63,11 +63,11 @@ def get_db() -> Session:
     """Context manager that yields a SQLAlchemy session."""
     if _SessionLocal is None:
         # Auto-initialize from DATABASE_URL env var
-        database_url = os.environ.get("DATABASE_URL")
+        database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))
         if database_url:
             init_db(database_url)
         else:
-            raise RuntimeError("Database not initialized. Set DATABASE_URL or call init_db() first.")
+            raise RuntimeError("Database not initialized. Set DATABASE_URL_DEV or DATABASE_URL, or call init_db() first.")
     session = _SessionLocal()
     try:
         yield session

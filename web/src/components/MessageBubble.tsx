@@ -85,7 +85,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   // Tool pending: show tool call with # prefix (blue) + pulsing dot
   if (role === "tool_pending" && toolName) {
     return (
-      <div className="text-[0.8rem] font-mono text-sol-blue flex items-center gap-2">
+      <div className="text-[0.775rem] font-mono text-sol-blue flex items-center gap-2">
         <span>{formatToolCall(toolName, args, false)}</span>
         <span className="animate-pulse">●</span>
       </div>
@@ -96,7 +96,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_denied" && toolName) {
     return (
       <div>
-        <div className="text-[0.8rem] font-mono text-sol-base01">
+        <div className="text-[0.775rem] font-mono text-sol-base01">
           {formatToolCall(toolName, args, false)}
         </div>
         <ExpandableResult content={content} color="text-sol-base01" />
@@ -108,7 +108,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_result" && toolName) {
     return (
       <div>
-        <div className="text-[0.8rem] font-mono text-sol-cyan">
+        <div className="text-[0.775rem] font-mono text-sol-cyan">
           {formatToolCall(toolName, args)}
         </div>
         <ExpandableResult content={content} color="text-sol-blue" />
@@ -116,14 +116,17 @@ export default function MessageBubble({ role, content, toolName, arguments: args
     );
   }
 
-  // User message: bordered panel like CLI
+  // User message: terminal input style with > prompt and grey background
   if (role === "user") {
     return (
       <div>
         <TimestampLine timestamp={timestamp} />
-        <div className="border border-sol-green rounded-lg px-4 py-3">
-          <div className="text-[0.825rem] text-sol-base1 whitespace-pre-wrap break-words prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
+          <div className="flex items-baseline">
+            <span className="text-sol-base01 font-mono text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
+            <div className="text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0">
+              {content}
+            </div>
           </div>
         </div>
       </div>
@@ -134,7 +137,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   return (
     <div>
       <TimestampLine timestamp={timestamp} />
-      <div className="text-[0.825rem] text-sol-base0 prose prose-invert prose-sm max-w-none">
+      <div className="text-[0.775rem] text-sol-base0 prose prose-sm max-w-none">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     </div>

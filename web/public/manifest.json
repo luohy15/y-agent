@@ -1,0 +1,8 @@
+{
+  "name": "Yovy",
+  "short_name": "Yovy",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#002b36",
+  "theme_color": "#002b36"
+}

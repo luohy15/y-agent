@@ -14,7 +14,7 @@ def lambda_handler(event, context):
 
     if action == "init_db":
         from storage.database.base import init_db, init_tables
-        database_url = os.environ.get("DATABASE_URL", "")
+        database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))
         init_db(database_url)
         init_tables()
         return {"status": "ok", "action": action}
@@ -23,6 +23,6 @@ def lambda_handler(event, context):
 
 
 if __name__ == "__main__":
-    lambda_handler({"action": "init_db"}, None)
+    result = lambda_handler({"action": "init_db"}, None)
     # result = lambda_handler({"action": "init_vm_config"}, None)
     print(result)
