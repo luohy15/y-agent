@@ -39,13 +39,6 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-[0.65rem]">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
-        <button
-          onClick={() => onSelectChat(null)}
-          disabled={!isLoggedIn}
-          className="w-full px-2 py-1 bg-sol-blue text-sol-base03 rounded-md font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default"
-        >
-          + New Task
-        </button>
         <input
           type="text"
           placeholder="Search tasks..."

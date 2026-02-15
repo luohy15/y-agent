@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
 
 interface ChatInputProps {
   value: string;
@@ -17,9 +17,36 @@ export interface ChatInputHandle {
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   ({ value, onChange, onSubmit, autoApprove, onToggleAutoApprove, sending, autoFocus }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
-    const [inputFocused, setInputFocused] = useState(false);
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
+
+    // Capture keyboard events globally and redirect to textarea
+    useEffect(() => {
+      const handler = (e: KeyboardEvent) => {
+        const el = document.activeElement;
+        // Skip if already in an editable element
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement)?.isContentEditable) return;
+        const textarea = inputRef.current;
+        if (!textarea) return;
+        // Redirect printable keys, Enter, Backspace, and ctrl shortcuts
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          onSubmit();
+          return;
+        }
+        if (e.key === "Tab" && e.shiftKey) {
+          e.preventDefault();
+          onToggleAutoApprove();
+          return;
+        }
+        if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
+          textarea.focus();
+          // The native event will replay in the now-focused textarea
+        }
+      };
+      document.addEventListener("keydown", handler);
+      return () => document.removeEventListener("keydown", handler);
+    }, [onSubmit, onToggleAutoApprove]);
 
     const handleBashKeys = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (!e.ctrlKey) return;
@@ -59,8 +86,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               ref={inputRef}
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setInputFocused(false)}
               onKeyDown={(e) => {
                 if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); onToggleAutoApprove(); }
                 else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); }
@@ -72,12 +97,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             />
             <div className="text-[0.775rem] font-mono text-sol-base0 whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em]">
               {value}
-              {inputFocused && <span className="inline-block w-[0.6em] h-[1em] bg-sol-base1 align-text-bottom" />}
+              <span className="inline-block w-[0.6em] h-[1em] bg-sol-base1 align-text-bottom" />
             </div>
           </div>
         </div>
         <div className="px-2 pt-1 pb-1 text-xs select-none">
-          <span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span> <span className="text-sol-base01">(shift+tab to cycle)</span>{sending && " · sending..."}
+          <button onClick={onToggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button><span className="hidden sm:inline"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span> <span className="text-sol-base01">(shift+tab to cycle)</span></span>{sending && " · sending..."}
         </div>
       </div>
     );

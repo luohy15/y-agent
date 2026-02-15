@@ -167,7 +167,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
 
 @router.post("/approve")
-async def post_approve(req: ApproveRequest):
+async def post_approve(req: ApproveRequest, request: Request):
     chat = await chat_service.get_chat_by_id(req.chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
@@ -213,7 +213,8 @@ async def post_approve(req: ApproveRequest):
     # Only trigger worker when no pending tool calls remain
     still_pending = any(tc.get("status") == "pending" for tc in last_assistant.tool_calls)
     if not still_pending:
-        _send_chat_message(req.chat_id)
+        user_id = _get_user_id(request)
+        _send_chat_message(req.chat_id, user_id=user_id)
     return {"ok": True}
 
 
