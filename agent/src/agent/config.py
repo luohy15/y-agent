@@ -38,7 +38,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
 
 
 def resolve_vm_config(user_id: int) -> VmConfig | None:
-    if os.environ.get("VM_BACKEND") == "local":
+    if os.environ.get("VM_BACKEND") != "remote":
         return None
     vm_config = vm_service.get_config(user_id)
     if not vm_config:

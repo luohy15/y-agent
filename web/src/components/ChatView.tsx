@@ -236,7 +236,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }
           {sharing ? "..." : "Share"}
         </button>
       </div>
-      <MessageList messages={messages} />
+      <MessageList messages={messages} running={!completed} />
       <ApprovalModal
         chatId={chatId}
         toolCalls={pendingToolCalls}

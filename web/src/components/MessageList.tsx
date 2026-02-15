@@ -33,9 +33,10 @@ export function extractContent(content?: string | ContentPart[]): string {
 
 interface MessageListProps {
   messages: Message[];
+  running?: boolean;
 }
 
-export default function MessageList({ messages }: MessageListProps) {
+export default function MessageList({ messages, running }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,6 +50,11 @@ export default function MessageList({ messages }: MessageListProps) {
       {messages.map((m, i) => (
         <MessageBubble key={i} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
       ))}
+      {running && (
+        <div className="flex">
+          <span className="inline-block w-2.5 h-5 bg-sol-base1" />
+        </div>
+      )}
     </div>
   );
 }
