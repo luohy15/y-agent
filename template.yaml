@@ -28,6 +28,11 @@ Parameters:
     Description: Google OAuth Client ID
     Default: ""
 
+  VmBackend:
+    Type: String
+    Description: VM backend mode (local or remote)
+    Default: "remote"
+
 Globals:
   Function:
     Timeout: 900
@@ -226,6 +231,7 @@ Resources:
           DATABASE_URL: !Ref DatabaseUrl
           DYNAMODB_TABLE: !Ref CacheTable
           SQS_QUEUE_URL: !Ref JobQueue
+          VM_BACKEND: !Ref VmBackend
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
