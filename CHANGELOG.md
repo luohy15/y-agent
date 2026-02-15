@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-15
+
+### Added
+- **Web UI**: Full React web frontend with Solarized theme, markdown rendering, and CLI-style messages
+- **Serverless backend**: AWS SAM-based API (Lambda) and Celery task queue worker
+- **Google OAuth authentication** for multi-user support
+- **Agent package**: Autonomous tool-use loop with `LoopResult` and unified CLI/worker runners
+- **Skill discovery**: Auto-detect and load agent skills
+- **Remote VM execution** via Sprites API backend with configurable `VmBackend` parameter
+- **Chat sharing**: Public share view with DB-backed deduplication and `/share/:shareId` route
+- **Tool approval system**: Per-tool-call approval modal, auto-approve toggle, deny-with-message, and tool status display
+- **Chat interrupt/stop** functionality across full stack (CLI, API, and web)
+- **SQLite local storage** and D1 export command
+- **Intent analyzer** for smart routing and dependency cleanup
+- **One-off prompt mode** for non-interactive usage
+- **Responsive mobile UI**: Hamburger menu sidebar, dvh viewport units, zoom prevention on input focus
+- **Running cursor indicator** in message list during agent execution
+- **User isolation**: `user_id` support in bot config for multi-user environments
+- Perplexity links display support
+- GitHub link icon in Header and ShareView
+
+### Changed
+- **Project renamed** to y-agent
+- **Major restructure**: Multi-package workspace with `cli`, `storage`, `admin`, `api`, `agent`, and `worker` packages
+- Replaced DynamoDB cache with DB-backed chat state and Celery task queue
+- Consolidated API routes under `/api` prefix
+- Refactored user management and service layer abstractions
+- Refactored tool approval flow with separate rejected/cancelled backfill modes
+- Refactored `MessageList` into shared component with improved tool display
+- Improved web deployment pipeline with SWR replacing manual polling
+- Auto-allow read-only bash commands for smoother agent experience
+- Moved Google sign-in button from header to chat view landing page
+- Made header logo clickable to start new chat
+
+### Removed
+- MCP daemon and deprecated features
+- VPC config from Lambda functions (simplified networking)
+
 ## [0.4.0] - 2025-06-09
 
 ### Added
