@@ -185,24 +185,24 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         ) : isPdf && activeData.blobUrl ? (
           <iframe src={activeData.blobUrl} className="w-full h-full border-0" title={activeFile!} />
         ) : activeData.content !== undefined ? (
-          <div className="flex text-sm font-mono leading-relaxed">
-            {/* Line numbers */}
-            <div className="select-none text-right pr-3 pl-2 py-2 text-sol-base01 border-r border-sol-base02 shrink-0 sticky left-0 bg-sol-base03">
-              {Array.from({ length: lineCount }, (_, i) => (
-                <div key={i}>{i + 1}</div>
+          <table className="text-sm font-mono leading-relaxed w-full border-collapse">
+            <tbody>
+              {(activeData.content).split("\n").map((line, i) => (
+                <tr key={i}>
+                  <td className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 align-top bg-sol-base03 sticky left-0 w-[1%]">
+                    {i + 1}
+                  </td>
+                  {highlightedHtml ? (
+                    <td className="pl-4 pr-3 whitespace-pre-wrap break-all hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml.split("\n")[i] ?? "" }} />
+                  ) : (
+                    <td className="pl-4 pr-3 text-sol-base0 whitespace-pre-wrap break-all">
+                      {line}
+                    </td>
+                  )}
+                </tr>
               ))}
-            </div>
-            {/* Code */}
-            {highlightedHtml ? (
-              <pre className="py-2 pl-4 pr-3 whitespace-pre overflow-x-auto flex-1 hljs">
-                <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
-              </pre>
-            ) : (
-              <pre className="py-2 pl-4 pr-3 text-sol-base0 whitespace-pre overflow-x-auto flex-1">
-                {activeData.content}
-              </pre>
-            )}
-          </div>
+            </tbody>
+          </table>
         ) : null}
       </div>
     </div>

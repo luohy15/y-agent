@@ -159,7 +159,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "c" && !completed) {
+      if (((e.ctrlKey && e.key === "c") || e.key === "Escape") && !completed) {
         e.preventDefault();
         stopChat();
       }
@@ -209,7 +209,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
       return <div className="flex-1" />;
     }
     return (
-      <div className="flex-1 flex flex-col min-h-0" onClick={() => inputRef.current?.focus()}>
+      <div className="flex-1 flex flex-col min-h-0">
         <ChatInput
           ref={inputRef}
           value={newPrompt}
@@ -225,7 +225,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0" onClick={() => inputRef.current?.focus()}>
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
       <MessageList messages={messages} running={!completed} />
       <ApprovalModal
         chatId={chatId}
@@ -246,6 +246,23 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
           >
             Need Approve
           </button>
+        </div>
+      )}
+      {!completed && (
+        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-xs select-none">
+          <button
+            onClick={toggleAutoApprove}
+            className={`font-mono cursor-pointer px-3 py-1 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}
+          >
+            {autoApprove ? "auto approve on" : "auto approve off"}
+          </button>
+          <button
+            onClick={stopChat}
+            className="md:hidden ml-auto px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
+          >
+            Stop
+          </button>
+          <span className="hidden md:inline ml-auto text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
         </div>
       )}
       {completed && (
