@@ -50,6 +50,11 @@
 .badge-failed { background: #073642; color: #dc322f; }
 
 /* Prose — solarized dark overrides */
+.prose pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 .prose {
   --tw-prose-body: #839496;           /* base0 */
   --tw-prose-headings: #93a1a1;       /* base1 */
