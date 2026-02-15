@@ -225,7 +225,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <MessageList messages={messages} running={!completed} />
       <ApprovalModal
         chatId={chatId}
