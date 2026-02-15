@@ -77,7 +77,7 @@ def _discover_skills_in_dir(skills_dir: str) -> List[SkillMeta]:
 _FIND_SKILLS_SCRIPT = r"""
 for dir in {dirs}; do
   [ -d "$dir" ] || continue
-  find "$dir" -maxdepth 2 \( -name "SKILL.md" -o -name "skill.md" \) -print0 | while IFS= read -r -d '' f; do
+  find -L "$dir" -maxdepth 2 \( -name "SKILL.md" -o -name "skill.md" \) -print0 | while IFS= read -r -d '' f; do
     printf '===SKILL_FILE:%s===\n' "$f"
     cat "$f"
   done
