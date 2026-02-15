@@ -75,19 +75,20 @@ function FileTreeNode({
   }, [path]);
 
   const refresh = useCallback(() => {
-    setChildren(null);
     if (expanded) {
       loadChildren();
+    } else {
+      setChildren(null);
     }
   }, [expanded, loadChildren]);
 
   const isDir = type === "directory";
   useEffect(() => {
-    if (isDir) {
+    if (isDir && expanded) {
       dirRefreshMap.set(path, refresh);
       return () => { dirRefreshMap.delete(path); };
     }
-  }, [isDir, path, refresh, dirRefreshMap]);
+  }, [isDir, expanded, path, refresh, dirRefreshMap]);
 
   const toggle = useCallback(async () => {
     if (!isDir) {
@@ -326,7 +327,16 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
-      <div className="flex items-center justify-end px-2 py-1 border-b border-sol-base02 shrink-0">
+      <div className="flex items-center justify-end gap-3 px-2 py-1 border-b border-sol-base02 shrink-0">
+        <button
+          onClick={() => { if (dirRefreshMapRef.current.size > 5) { setCollapseVersion(v => v + 1); loadRoot(); } else { for (const refresh of dirRefreshMapRef.current.values()) refresh(); } }}
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-4 h-4 flex items-center justify-center"
+          title="Refresh file tree"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V5L4.5 2 8 -1v2zm0 14a7 7 0 0 1-7-7h1.5A5.5 5.5 0 0 0 8 13.5V11l3.5 3L8 17v-2z" />
+          </svg>
+        </button>
         <button
           onClick={() => setCollapseVersion(v => v + 1)}
           className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-4 h-4 flex items-center justify-center"
