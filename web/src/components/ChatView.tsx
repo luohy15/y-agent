@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import ApprovalModal from "./ApprovalBar";
@@ -8,9 +8,11 @@ import MessageList, { type Message, extractContent } from "./MessageList";
 interface ChatViewProps {
   chatId: string | null;
   onChatCreated?: (chatId: string) => void;
+  isLoggedIn: boolean;
+  gsiReady: boolean;
 }
 
-export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, isLoggedIn, gsiReady }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -188,13 +190,27 @@ export default function ChatView({ chatId, onChatCreated }: ChatViewProps) {
     }
   }, [followUp, sending, chatId, connectSSE]);
 
+  const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
+    if (!node || isLoggedIn || !gsiReady) return;
+    (window as any).google.accounts.id.renderButton(node, {
+      theme: "filled_black",
+      size: "large",
+      shape: "pill",
+    });
+  }, [isLoggedIn, gsiReady]);
+
   if (!chatId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        {onChatCreated && getToken() ? (
+        {isLoggedIn && onChatCreated ? (
           <NewChatInput onCreated={onChatCreated} />
         ) : (
-          <span className="text-sol-base01 text-sm"></span>
+          <div className="relative inline-flex items-center justify-center">
+            <span className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded-md text-sm font-semibold pointer-events-none">
+              Sign in with Google
+            </span>
+            <div ref={signinRef} className="absolute inset-0 opacity-[0.01] overflow-hidden [&_iframe]{min-width:100%!important;min-height:100%!important}" />
+          </div>
         )}
       </div>
     );

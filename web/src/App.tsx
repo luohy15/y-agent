@@ -29,7 +29,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onToggleSidebar={() => setSidebarOpen((v) => !v)} onClickLogo={() => handleSelectChat(null)} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} onLogout={handleLogout} onToggleSidebar={() => setSidebarOpen((v) => !v)} onClickLogo={() => handleSelectChat(null)} />
       <div className="flex flex-1 min-h-0 relative">
         {/* Mobile overlay backdrop */}
         {sidebarOpen && (
@@ -48,6 +48,8 @@ export default function App() {
         <ChatView
           chatId={selectedChatId}
           onChatCreated={handleChatCreated}
+          isLoggedIn={auth.isLoggedIn}
+          gsiReady={auth.gsiReady}
         />
       </div>
     </div>
