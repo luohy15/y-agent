@@ -48,7 +48,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
         </button>
         <input
           type="text"
-          placeholder="Search chats..."
+          placeholder="Search tasks..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
@@ -56,13 +56,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
-          <p className="text-sol-base01 italic p-2">Sign in to view chats</p>
+          <p className="text-sol-base01 italic p-2">Sign in to view tasks</p>
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading chats</p>
+          <p className="text-sol-base01 italic p-2">Error loading tasks</p>
         ) : !chats || chats.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">{search ? "No matching chats" : "No chats yet"}</p>
+          <p className="text-sol-base01 italic p-2">{search ? "No matching tasks" : "No tasks yet"}</p>
         ) : (
           chats.map((c) => {
             const sel = c.chat_id === selectedChatId;
