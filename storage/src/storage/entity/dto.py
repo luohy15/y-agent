@@ -172,6 +172,7 @@ class Chat:
     content_hash: Optional[str] = None
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
+    selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
     auto_approve: bool = False
     interrupted: bool = False
 
@@ -189,6 +190,7 @@ class Chat:
             content_hash=data.get('content_hash'),
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
+            selected_message_id=data.get('selected_message_id'),
             auto_approve=data.get('auto_approve', False),
             interrupted=data.get('interrupted', False),
         )
@@ -208,6 +210,8 @@ class Chat:
             result['origin_chat_id'] = self.origin_chat_id
         if self.origin_message_id is not None:
             result['origin_message_id'] = self.origin_message_id
+        if self.selected_message_id is not None:
+            result['selected_message_id'] = self.selected_message_id
         if self.auto_approve:
             result['auto_approve'] = self.auto_approve
         if self.interrupted:
