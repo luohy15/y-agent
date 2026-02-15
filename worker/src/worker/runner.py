@@ -50,7 +50,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     vm_config = agent_config.resolve_vm_config(user_id)
     tools_map = get_tools_map(vm_config)
     openai_tools = get_openai_tools(vm_config)
-    system_prompt = agent_config.build_system_prompt()
+    system_prompt = await agent_config.build_system_prompt(vm_config)
     logger.info("Loaded {} tools, system_prompt length={}", len(tools_map), len(system_prompt) if system_prompt else 0)
 
     messages: List[Message] = list(chat.messages)
@@ -66,9 +66,5 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
         auto_approve_fn=lambda: check_auto_approve(chat_id),
         check_interrupted_fn=lambda: check_interrupted(chat_id),
     )
-
-    if result.status == "interrupted":
-        backfill_tool_results(messages, mode="cancelled")
-        chat_service.save_messages_sync(chat_id, messages)
 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)

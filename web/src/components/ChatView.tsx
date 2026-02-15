@@ -250,19 +250,15 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
       )}
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-xs select-none">
-          <button
-            onClick={toggleAutoApprove}
-            className={`font-mono cursor-pointer px-3 py-1 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}
-          >
-            {autoApprove ? "auto approve on" : "auto approve off"}
-          </button>
+          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
+          <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
           <button
             onClick={stopChat}
-            className="md:hidden ml-auto px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
+            className="sm:hidden ml-auto px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
           >
             Stop
           </button>
-          <span className="hidden md:inline ml-auto text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
+          <span className="hidden sm:inline ml-auto text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
         </div>
       )}
       {completed && (
