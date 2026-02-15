@@ -68,7 +68,7 @@ function ExpandableResult({ content, color }: { content: string; color: string }
 
   return (
     <div
-      className={`text-[0.75rem] font-mono ${color} ${isLong ? "cursor-pointer" : ""}`}
+      className={`text-[0.75rem] font-mono break-all ${color} ${isLong ? "cursor-pointer" : ""}`}
       onClick={() => isLong && setExpanded((v) => !v)}
     >
       <span>{oneLine}{isLong && "..."}{isLong && <span className="text-sol-base01 text-[0.65rem] ml-1">{expanded ? "▲" : "▼"}</span>}</span>
@@ -85,8 +85,8 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   // Tool pending: show tool call with # prefix (blue) + pulsing dot
   if (role === "tool_pending" && toolName) {
     return (
-      <div className="text-[0.775rem] font-mono text-sol-blue flex items-center gap-2">
-        <span>{formatToolCall(toolName, args, false)}</span>
+      <div className="text-[0.775rem] font-mono text-sol-blue flex items-center gap-2 break-all">
+        <span className="min-w-0">{formatToolCall(toolName, args, false)}</span>
         <span className="animate-pulse">●</span>
       </div>
     );
@@ -96,7 +96,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_denied" && toolName) {
     return (
       <div>
-        <div className="text-[0.775rem] font-mono text-sol-base01">
+        <div className="text-[0.775rem] font-mono text-sol-base01 break-all">
           {formatToolCall(toolName, args, false)}
         </div>
         <ExpandableResult content={content} color="text-sol-base01" />
@@ -108,7 +108,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_result" && toolName) {
     return (
       <div>
-        <div className="text-[0.775rem] font-mono text-sol-cyan">
+        <div className="text-[0.775rem] font-mono text-sol-cyan break-all">
           {formatToolCall(toolName, args)}
         </div>
         <ExpandableResult content={content} color="text-sol-blue" />
