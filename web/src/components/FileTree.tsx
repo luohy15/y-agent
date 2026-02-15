@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, MutableRefObject } from "react";
+import { createPortal } from "react-dom";
 import { API, authFetch } from "../api";
 
 interface FileEntry {
@@ -15,6 +16,12 @@ interface SelectionHandlers {
   onPlainSelect: (path: string) => void;   // plain click – select only this
 }
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  path: string;
+}
+
 interface FileTreeNodeProps {
   name: string;
   path: string;
@@ -27,11 +34,13 @@ interface FileTreeNodeProps {
   dirRefreshMap: DirRefreshMap;
   visiblePathsRef: MutableRefObject<string[]>;
   collapseVersion: number;
+  onContextMenu: (e: React.MouseEvent, path: string) => void;
 }
 
 function FileTreeNode({
   name, path, type, depth, onSelectFile,
   selected, selection, selectedPaths, dirRefreshMap, visiblePathsRef, collapseVersion,
+  onContextMenu: onCtxMenu,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -113,6 +122,11 @@ function FileTreeNode({
     }
   }, [path, isDir, toggle, selection, onSelectFile]);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    onCtxMenu(e, path);
+  }, [path, onCtxMenu]);
+
   const handleDragStart = useCallback((e: React.DragEvent) => {
     const paths = selectedPaths.has(path) ? Array.from(selectedPaths) : [path];
     e.dataTransfer.setData("application/json", JSON.stringify(paths));
@@ -164,6 +178,7 @@ function FileTreeNode({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         className={`flex items-center gap-1 px-2 py-0.5 text-xs truncate cursor-pointer hover:bg-sol-base02 ${
           isDir ? "" : "text-sol-base0"
         } ${selected ? "bg-sol-base02 text-sol-base1" : ""} ${
@@ -189,6 +204,7 @@ function FileTreeNode({
           dirRefreshMap={dirRefreshMap}
           visiblePathsRef={visiblePathsRef}
           collapseVersion={collapseVersion}
+          onContextMenu={onCtxMenu}
         />
       ))}
     </div>
@@ -205,6 +221,7 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
   const [loading, setLoading] = useState(false);
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const dirRefreshMapRef = useRef<DirRefreshMap>(new Map());
   const anchorRef = useRef<string | null>(null);
   const visiblePathsRef = useRef<string[]>([]);
@@ -285,6 +302,28 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
     }
   }, []);
 
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, path: string) => {
+    setCtxMenu({ x: e.clientX, y: e.clientY, path });
+  }, []);
+
+  const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  const copyPath = useCallback(() => {
+    if (!ctxMenu) return;
+    const cleanPath = ctxMenu.path.startsWith("./") ? ctxMenu.path.slice(2) : ctxMenu.path;
+    navigator.clipboard.writeText(cleanPath);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtxMenu(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [ctxMenu]);
+
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
       <div className="flex items-center justify-end px-2 py-1 border-b border-sol-base02 shrink-0">
@@ -320,10 +359,28 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
               dirRefreshMap={dirRefreshMapRef.current}
               visiblePathsRef={visiblePathsRef}
               collapseVersion={collapseVersion}
+              onContextMenu={handleNodeContextMenu}
             />
           ))
         ) : null}
       </div>
+      {ctxMenu && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
+          <div
+            className="fixed z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[120px]"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button
+              className="w-full text-left px-3 py-1 text-xs text-sol-base1 hover:bg-sol-base03 cursor-pointer"
+              onClick={copyPath}
+            >
+              Copy Path
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

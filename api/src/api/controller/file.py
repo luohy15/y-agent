@@ -32,6 +32,9 @@ async def list_files(request: Request, path: str = Query(".")):
     for line in output.strip().splitlines():
         if not line or line == "./" or line == "../":
             continue
+        # Skip entries with control characters (non-printable)
+        if any(c < ' ' or c == '\x7f' for c in line.rstrip("/")):
+            continue
         if line.endswith("/"):
             entries.append({"name": line[:-1], "type": "directory"})
         else:
