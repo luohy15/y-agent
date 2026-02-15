@@ -149,7 +149,7 @@ async def run_round(
         result = await run_agent_loop(
             provider=provider,
             messages=messages,
-            system_prompt=agent_config.build_system_prompt(),
+            system_prompt=await agent_config.build_system_prompt(),
             tools_map=tools_map,
             openai_tools=openai_tools,
             message_callback=lambda msg: handle_message(display_manager, chat_id, msg),

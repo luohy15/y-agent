@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from storage.entity.dto import Message
@@ -12,12 +12,14 @@ class ClientError(Exception):
     pass
 
 
+class InterruptedError(Exception):
+    """Raised when the agent loop is interrupted via check_interrupted_fn."""
+    pass
+
+
 @dataclass
 class LoopResult:
     status: str  # "completed" | "approval_needed" | "interrupted" | "error" | "max_iterations"
-    new_messages: List[Message] = field(default_factory=list)
-    tool_name: Optional[str] = None  # only for approval_needed
-    error: Optional[str] = None      # only for error
 
 
 def _default_display(message: Message):
@@ -32,14 +34,13 @@ def _default_display(message: Message):
 
 async def _run_tool_calls(
     messages: List[Message],
-    new_messages: List[Message],
     tools_map: Dict,
     message_callback: Callable[[Message], None],
 ) -> Optional[LoopResult]:
     """Execute unhandled tool_calls on the last assistant message.
 
     Returns None if all tool_calls were executed (or nothing to do).
-    Returns LoopResult if the loop should exit (approval_needed / interrupted).
+    Returns LoopResult if the loop should exit (approval_needed).
     """
     # Find last assistant message with tool_calls
     last_assistant = None
@@ -66,7 +67,7 @@ async def _run_tool_calls(
     # Still waiting for user approval
     pending_tc = next((tc for tc in unhandled if tc.get("status") == "pending"), None)
     if pending_tc:
-        return LoopResult("approval_needed", new_messages, tool_name=pending_tc["function"]["name"])
+        return LoopResult("approval_needed")
 
     # Execute approved/rejected tool_calls
     for tc in unhandled:
@@ -100,7 +101,6 @@ async def _run_tool_calls(
         })
         message_callback(tool_msg)
         messages.append(tool_msg)
-        new_messages.append(tool_msg)
 
     return None
 
@@ -126,18 +126,21 @@ async def run_agent_loop(
         permission_manager = PermissionManager()
     if message_callback is None:
         message_callback = _default_display
-    new_messages: List[Message] = []
 
-    # --- Resume unhandled tool_calls from previous run ---
-    early_exit = await _run_tool_calls(messages, new_messages, tools_map, message_callback)
-    if early_exit:
-        return early_exit
+    # Wrap message_callback to check interrupted before persisting
+    original_callback = message_callback
+    def message_callback_with_interrupt_check(msg: Message):
+        if check_interrupted_fn and check_interrupted_fn():
+            raise InterruptedError()
+        original_callback(msg)
 
     try:
-        for _ in range(max_iterations):
-            if check_interrupted_fn and check_interrupted_fn():
-                return LoopResult("interrupted", new_messages)
+        # --- Resume unhandled tool_calls from previous run ---
+        early_exit = await _run_tool_calls(messages, tools_map, message_callback_with_interrupt_check)
+        if early_exit:
+            return early_exit
 
+        for _ in range(max_iterations):
             raw = await provider.call_chat_completions_non_stream(
                 messages, system_prompt, tools=openai_tools
             )
@@ -161,10 +164,9 @@ async def run_agent_loop(
                     "provider": provider_name,
                     "model": model,
                 })
-                message_callback(assistant_message)
+                message_callback_with_interrupt_check(assistant_message)
                 messages.append(assistant_message)
-                new_messages.append(assistant_message)
-                return LoopResult("completed", new_messages)
+                return LoopResult("completed")
 
             # Has tool calls — check permissions and set statuses
             for tc_index, tc in enumerate(tool_calls):
@@ -194,14 +196,15 @@ async def run_agent_loop(
                 "model": model,
                 "tool_calls": tool_calls,
             })
-            message_callback(assistant_message)
+            message_callback_with_interrupt_check(assistant_message)
             messages.append(assistant_message)
-            new_messages.append(assistant_message)
 
-            # Execute tool_calls (or exit if pending/interrupted)
-            early_exit = await _run_tool_calls(messages, new_messages, tools_map, message_callback)
+            # Execute tool_calls (or exit if pending)
+            early_exit = await _run_tool_calls(messages, tools_map, message_callback_with_interrupt_check)
             if early_exit:
                 return early_exit
+    except InterruptedError:
+        return LoopResult("interrupted")
     except ClientError as e:
         error_message = Message.from_dict({
             "role": "assistant",
@@ -211,13 +214,12 @@ async def run_agent_loop(
             "id": generate_message_id(),
             "parent_id": messages[-1].id if messages and messages[-1].id else None,
         })
-        message_callback(error_message)
+        original_callback(error_message)
         messages.append(error_message)
-        new_messages.append(error_message)
-        return LoopResult("error", new_messages, error=str(e))
+        return LoopResult("error")
     except KeyboardInterrupt:
         print("\n[agent] Interrupted")
-        return LoopResult("interrupted", new_messages)
+        return LoopResult("interrupted")
     except Exception as e:
         error_message = Message.from_dict({
             "role": "assistant",
@@ -227,10 +229,9 @@ async def run_agent_loop(
             "id": generate_message_id(),
             "parent_id": messages[-1].id if messages and messages[-1].id else None,
         })
-        message_callback(error_message)
+        original_callback(error_message)
         messages.append(error_message)
-        new_messages.append(error_message)
-        return LoopResult("error", new_messages, error=str(e))
+        return LoopResult("error")
 
     print("[agent] Max iterations reached")
-    return LoopResult("max_iterations", new_messages)
+    return LoopResult("max_iterations")

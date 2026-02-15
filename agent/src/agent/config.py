@@ -11,8 +11,8 @@ from agent.provider import OpenAIFormatProvider, AnthropicFormatProvider
 from agent.skills import discover_skills, skills_to_prompt
 
 
-def build_system_prompt() -> str:
-    skills_block = skills_to_prompt(discover_skills())
+async def build_system_prompt(vm_config: VmConfig | None = None) -> str:
+    skills_block = skills_to_prompt(await discover_skills(vm_config=vm_config))
     return ("\n" + skills_block) if skills_block else ""
 
 

@@ -149,6 +149,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
 
+    # Backfill tool results so they are persisted
+    backfill_tool_results(chat.messages, mode="cancelled")
     user_msg = Message.from_dict({
         "role": "user",
         "content": req.prompt,
