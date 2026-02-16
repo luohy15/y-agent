@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -129,7 +129,17 @@ export default function TodoViewer() {
     return saved === "all" ? "all" : "pending";
   });
   useEffect(() => { localStorage.setItem("todoFilter", bottomFilter); }, [bottomFilter]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const scrollToId = useRef<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(() => {
+    const saved = localStorage.getItem("todoExpandId");
+    if (saved) {
+      localStorage.removeItem("todoExpandId");
+      setBottomFilter("all");
+      scrollToId.current = saved;
+      return saved;
+    }
+    return null;
+  });
   const [sortState, setSortState] = useState<Record<BottomFilter, { key: SortKey; dir: SortDir }>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("todoSortState") || "");
@@ -157,6 +167,16 @@ export default function TodoViewer() {
   const activeCards = (activeTodos || []).slice(0, 3);
   const filteredTodos = bottomTodos?.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
   const sortedTodos = filteredTodos ? sortTodos(filteredTodos, sortKey, sortDir) : undefined;
+
+  useEffect(() => {
+    if (scrollToId.current && sortedTodos) {
+      const id = scrollToId.current;
+      scrollToId.current = null;
+      requestAnimationFrame(() => {
+        document.getElementById(`todo-row-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+  }, [sortedTodos]);
 
   const handleSort = (key: SortKey) => {
     setSortState((prev) => ({
@@ -233,6 +253,7 @@ export default function TodoViewer() {
                 <>
                   <tr
                     key={t.todo_id}
+                    id={`todo-row-${t.todo_id}`}
                     className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""}`}
                   >
                     <td

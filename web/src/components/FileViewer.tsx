@@ -3,6 +3,7 @@ import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
 import TodoViewer from "./TodoViewer";
+import CalendarViewer from "./CalendarViewer";
 
 
 interface FileViewerProps {
@@ -10,6 +11,7 @@ interface FileViewerProps {
   activeFile: string | null;
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
+  onReorderFiles: (files: string[]) => void;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -36,16 +38,20 @@ interface FileCache {
   error?: string;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles }: FileViewerProps) {
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
-  const isTodo = activeFile?.endsWith("todo/todo.md") ?? false;
+  const dragIdx = useRef<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
+  const isTodo = activeFileName === "todo.md";
+  const isCalendar = activeFileName === "calendar.md";
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isTodo) return;
+    if (isTodo || isCalendar) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -129,14 +135,38 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     <div className="flex flex-col h-full border-b border-sol-base02">
       {/* Tab bar */}
       <div className="flex items-center bg-sol-base02 shrink-0 overflow-x-auto">
-        {openFiles.map((filePath) => (
+        {openFiles.map((filePath, i) => (
           <div
             key={filePath}
+            draggable
+            onDragStart={(e) => {
+              dragIdx.current = i;
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDropIdx(i);
+            }}
+            onDragLeave={() => setDropIdx((cur) => cur === i ? null : cur)}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = dragIdx.current;
+              if (from !== null && from !== i) {
+                const reordered = [...openFiles];
+                const [moved] = reordered.splice(from, 1);
+                reordered.splice(i, 0, moved);
+                onReorderFiles(reordered);
+              }
+              dragIdx.current = null;
+              setDropIdx(null);
+            }}
+            onDragEnd={() => { dragIdx.current = null; setDropIdx(null); }}
             className={`flex items-center gap-1 px-3 py-1.5 text-sm cursor-pointer shrink-0 border-r border-sol-base03 ${
               filePath === activeFile
                 ? "bg-sol-base03 text-sol-base1"
                 : "text-sol-base01 hover:text-sol-base1"
-            }`}
+            } ${dropIdx === i ? "border-l-2 border-l-sol-blue" : ""}`}
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
@@ -165,9 +195,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         </div>
       )}
       {/* Content */}
-      <div className={`flex-1 min-h-0 bg-sol-base03 ${isTodo ? "overflow-hidden" : "overflow-auto"}`}>
+      <div className={`flex-1 min-h-0 bg-sol-base03 ${isTodo || isCalendar ? "overflow-hidden" : "overflow-auto"}`}>
         {isTodo ? (
           <TodoViewer />
+        ) : isCalendar ? (
+          <CalendarViewer onOpenFile={onSelectFile} />
         ) : !activeData || activeData.loading ? (
           <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
         ) : activeData.error ? (

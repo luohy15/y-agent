@@ -55,6 +55,7 @@ def init_tables():
     import storage.entity.vm_config  # noqa: F401
     import storage.entity.chat  # noqa: F401
     import storage.entity.todo  # noqa: F401
+    import storage.entity.calendar_event  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 

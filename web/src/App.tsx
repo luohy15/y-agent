@@ -115,7 +115,7 @@ export default function App() {
           {/* Right top: FileViewer (always takes half, hidden content when no file) */}
           {(!chatMaximize || chatHide) && (
             <div className={`${chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} />
+              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} />
             </div>
           )}
           {/* Toolbar (always visible) */}
