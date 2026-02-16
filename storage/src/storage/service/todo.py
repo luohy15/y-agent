@@ -50,7 +50,7 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
             timestamp=get_utc_iso8601_timestamp(),
             unix_timestamp=get_unix_timestamp(),
             action="updated",
-            note=f"changed: {', '.join(changed)}",
+            note=f"changed: {', '.join(f'{k}={getattr(todo, k)!r}' for k in changed)}",
         ))
         todo.history = history
         return todo_repo.save_todo(user_id, todo)
