@@ -19,8 +19,10 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         progress=entity.progress,
         completed_at=entity.completed_at,
         history=[TodoHistoryEntry.from_dict(h) for h in history],
-        created_at=entity.created_at.isoformat() if entity.created_at else None,
-        updated_at=entity.updated_at.isoformat() if entity.updated_at else None,
+        created_at=entity.created_at if entity.created_at else None,
+        updated_at=entity.updated_at if entity.updated_at else None,
+        created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
+        updated_at_unix=entity.updated_at_unix if entity.updated_at_unix else None,
     )
 
 

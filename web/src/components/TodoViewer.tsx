@@ -13,7 +13,9 @@ interface Todo {
   progress?: string;
   completed_at?: string;
   updated_at?: string;
-  history?: { timestamp: string; action: string; note?: string }[];
+  created_at_unix?: number;
+  updated_at_unix?: number;
+  history?: { timestamp: string; unix_timestamp: number; action: string; note?: string }[];
 }
 
 const fetcher = async (url: string) => {
@@ -268,7 +270,7 @@ export default function TodoViewer() {
                   <td className={`py-1 px-1.5 ${priorityColor[t.priority || ""] || "text-sol-base0"}`}>
                     {t.priority || "-"}
                   </td>
-                  <td className="py-1 px-1.5 text-sol-base01">{t.updated_at ? new Date(t.updated_at).toLocaleDateString() : "-"}</td>
+                  <td className="py-1 px-1.5 text-sol-base01">{t.updated_at ? new Date(t.updated_at).toLocaleString() : "-"}</td>
                   <td className="py-1 px-1.5">
                     {t.tags?.map((tag) => (
                       <span key={tag} className="inline-block bg-sol-base02 text-sol-base0 text-xs px-1.5 py-0.5 rounded mr-1">

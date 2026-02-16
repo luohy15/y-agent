@@ -38,8 +38,8 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None)
             ChatSummary(
                 chat_id=row.chat_id,
                 title=row.title or "",
-                created_at=row.created_at.isoformat() + "Z" if row.created_at else "",
-                updated_at=row.updated_at.isoformat() + "Z" if row.updated_at else "",
+                created_at=row.created_at or "",
+                updated_at=row.updated_at or "",
             )
             for row in rows
         ]
@@ -82,8 +82,8 @@ def _extract_title(chat: Chat) -> str:
 
 
 def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
-    from storage.util import get_iso8601_timestamp
-    chat.update_time = get_iso8601_timestamp()
+    from storage.util import get_utc_iso8601_timestamp
+    chat.update_time = get_utc_iso8601_timestamp()
 
     with get_db() as session:
         entity = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat.id).first()
@@ -124,8 +124,8 @@ def _get_chat_by_id_sync(chat_id: str) -> Optional[Chat]:
 
 def _save_chat_by_id_sync(chat: Chat) -> Chat:
     """Save chat without user_id filter (for worker use). Sync."""
-    from storage.util import get_iso8601_timestamp
-    chat.update_time = get_iso8601_timestamp()
+    from storage.util import get_utc_iso8601_timestamp
+    chat.update_time = get_utc_iso8601_timestamp()
 
     with get_db() as session:
         entity = session.query(ChatEntity).filter_by(chat_id=chat.id).first()

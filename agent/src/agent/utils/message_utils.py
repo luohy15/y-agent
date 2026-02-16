@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Union
 from storage.entity.dto import Message
-from storage.util import get_iso8601_timestamp, get_unix_timestamp
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 def create_message(role: str, content: str, reasoning_content: Optional[str] = None, provider: Optional[str] = None,
                    model: Optional[str] = None, id: Optional[str] = None, reasoning_effort: Optional[float] = None,
@@ -10,7 +10,7 @@ def create_message(role: str, content: str, reasoning_content: Optional[str] = N
     message_data = {
         "role": role,
         "content": content,
-        "timestamp": get_iso8601_timestamp(),
+        "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp()
     }
 

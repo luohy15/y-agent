@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from storage.entity.dto import Message
-from storage.util import generate_message_id, get_iso8601_timestamp, get_unix_timestamp
+from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from agent.permissions import PermissionManager
 
 
@@ -91,7 +91,7 @@ async def _run_tool_calls(
         tool_msg = Message.from_dict({
             "role": "tool",
             "content": result,
-            "timestamp": get_iso8601_timestamp(),
+            "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
             "parent_id": last_assistant.id,
@@ -157,7 +157,7 @@ async def run_agent_loop(
                 assistant_message = Message.from_dict({
                     "role": "assistant",
                     "content": content or "",
-                    "timestamp": get_iso8601_timestamp(),
+                    "timestamp": get_utc_iso8601_timestamp(),
                     "unix_timestamp": get_unix_timestamp(),
                     "id": assistant_msg_id,
                     "parent_id": parent_id,
@@ -188,7 +188,7 @@ async def run_agent_loop(
             assistant_message = Message.from_dict({
                 "role": "assistant",
                 "content": content or "",
-                "timestamp": get_iso8601_timestamp(),
+                "timestamp": get_utc_iso8601_timestamp(),
                 "unix_timestamp": get_unix_timestamp(),
                 "id": assistant_msg_id,
                 "parent_id": parent_id,
@@ -209,7 +209,7 @@ async def run_agent_loop(
         error_message = Message.from_dict({
             "role": "assistant",
             "content": f"[agent] API client error (not retrying): {e}",
-            "timestamp": get_iso8601_timestamp(),
+            "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
             "parent_id": messages[-1].id if messages and messages[-1].id else None,
@@ -224,7 +224,7 @@ async def run_agent_loop(
         error_message = Message.from_dict({
             "role": "assistant",
             "content": f"[agent] Unexpected error: {e}",
-            "timestamp": get_iso8601_timestamp(),
+            "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
             "parent_id": messages[-1].id if messages and messages[-1].id else None,

@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Union, Iterable
 from datetime import datetime
-from storage.util import get_iso8601_timestamp
+from storage.util import get_utc_iso8601_timestamp
 
 # Invisible Unicode characters that Safari renders as boxes
 _INVISIBLE_RE = re.compile(
@@ -224,26 +224,34 @@ class Chat:
             [msg for msg in messages if msg.role != 'system'],
             key=lambda x: (x.unix_timestamp)
         )
-        self.update_time = get_iso8601_timestamp()
+        self.update_time = get_utc_iso8601_timestamp()
 
 # ── Todo ──
 
 @dataclass
 class TodoHistoryEntry:
     timestamp: str
+    unix_timestamp: int
     action: str
     note: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'TodoHistoryEntry':
+        unix_timestamp = data.get('unix_timestamp')
+        if unix_timestamp is None:
+            dt = datetime.strptime(data['timestamp'].split('+')[0], "%Y-%m-%dT%H:%M:%S")
+            unix_timestamp = int(dt.timestamp() * 1000)
+        else:
+            unix_timestamp = int(unix_timestamp)
         return cls(
             timestamp=data['timestamp'],
+            unix_timestamp=unix_timestamp,
             action=data['action'],
             note=data.get('note'),
         )
 
     def to_dict(self) -> Dict:
-        result = {'timestamp': self.timestamp, 'action': self.action}
+        result = {'timestamp': self.timestamp, 'unix_timestamp': self.unix_timestamp, 'action': self.action}
         if self.note is not None:
             result['note'] = self.note
         return result
@@ -262,6 +270,8 @@ class Todo:
     history: Optional[List[TodoHistoryEntry]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    created_at_unix: Optional[int] = None
+    updated_at_unix: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Todo':
@@ -281,6 +291,8 @@ class Todo:
             history=history,
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
+            created_at_unix=data.get('created_at_unix'),
+            updated_at_unix=data.get('updated_at_unix'),
         )
 
     def to_dict(self) -> Dict:
@@ -307,4 +319,8 @@ class Todo:
             result['created_at'] = self.created_at
         if self.updated_at is not None:
             result['updated_at'] = self.updated_at
+        if self.created_at_unix is not None:
+            result['created_at_unix'] = self.created_at_unix
+        if self.updated_at_unix is not None:
+            result['updated_at_unix'] = self.updated_at_unix
         return result
