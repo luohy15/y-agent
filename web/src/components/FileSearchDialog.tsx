@@ -35,7 +35,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile }: FileSe
     try {
       const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}`);
       const data = await res.json();
-      setResults((data.files || []).map((f: string) => f.replace(/^\.\//, "")));
+      setResults(data.files || []);
       setSelectedIndex(0);
     } catch {
       setResults([]);

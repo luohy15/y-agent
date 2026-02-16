@@ -79,7 +79,8 @@ async def search_files(request: Request, q: str = Query(...), path: str = Query(
     files = []
     for line in output.strip().splitlines():
         if line and len(files) < 50:
-            files.append(line)
+            # Strip leading "./" from find output
+            files.append(line.removeprefix("./"))
     return {"query": q, "files": files}
 
 

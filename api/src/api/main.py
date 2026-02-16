@@ -14,6 +14,7 @@ from api.controller.auth import router as auth_router
 from api.controller.chat import router as chat_router
 from api.controller.file import router as file_router
 from api.controller.todo import router as todo_router
+from api.controller.calendar_event import router as calendar_router
 from api.middleware.auth import AuthMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
@@ -31,6 +32,7 @@ api_router.include_router(auth_router)
 api_router.include_router(chat_router)
 api_router.include_router(file_router)
 api_router.include_router(todo_router)
+api_router.include_router(calendar_router)
 app.include_router(api_router)
 
 def main():

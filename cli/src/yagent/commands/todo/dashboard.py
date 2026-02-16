@@ -1,4 +1,4 @@
-"""Generate todo.md dashboard at $Y_TODO_HOME/todo.md."""
+"""Generate todo.md dashboard at $Y_AGENT_HOME/todo.md."""
 
 import os
 from datetime import datetime, timedelta
@@ -6,14 +6,13 @@ from typing import List
 from storage.entity.dto import Todo
 
 
-def _todo_home() -> str:
-    agent_home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
-    return os.path.join(agent_home, "todo")
+def _agent_home() -> str:
+    return os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
 
 
 def update_dashboard(user_id: int):
     """Regenerate todo.md dashboard. Called after each todo operation."""
-    home = _todo_home()
+    home = _agent_home()
 
     from storage.service import todo as todo_service
 
@@ -113,7 +112,6 @@ def update_dashboard(user_id: int):
         lines.append("_No recent operations._")
     lines.append("")
 
-    os.makedirs(home, exist_ok=True)
     path = os.path.join(home, "todo.md")
     with open(path, "w") as f:
         f.write("\n".join(lines))
