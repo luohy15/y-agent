@@ -37,14 +37,17 @@ def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
     return bot_config
 
 
-def resolve_vm_config(user_id: int) -> VmConfig | None:
-    if os.environ.get("VM_BACKEND") != "remote":
-        return None
-    vm_config = vm_service.get_config(user_id)
-    if not vm_config:
-        default_user_id = get_default_user_id()
-        if default_user_id != user_id:
-            vm_config = vm_service.get_config(default_user_id)
-    if not vm_config:
-        raise ValueError(f"No vm config found for user_id={user_id}")
+def resolve_vm_config(user_id: int) -> VmConfig:
+    vm_config = None
+    if os.environ.get("VM_BACKEND") == "remote":
+        vm_config = vm_service.get_config(user_id)
+        if not vm_config:
+            default_user_id = get_default_user_id()
+            if default_user_id != user_id:
+                vm_config = vm_service.get_config(default_user_id)
+        if not vm_config:
+            raise ValueError(f"No vm config found for user_id={user_id}")
+    else:
+        vm_config = VmConfig()
+        vm_config.work_dir = os.environ.get("VM_WORK_DIR_LOCAL", "")
     return vm_config

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tty
 import termios
@@ -184,7 +185,8 @@ async def run_chat(
     prompt: Optional[str] = None,
 ):
     vm_config = agent_config.resolve_vm_config(get_cli_user_id())
-    tools_map = get_tools_map(vm_config)  # None = local execution
+    vm_config.work_dir = os.getcwd()
+    tools_map = get_tools_map(vm_config)
     openai_tools = get_openai_tools(vm_config)
 
     messages: List[Message] = []

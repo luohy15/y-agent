@@ -26,10 +26,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path == "/api/chat/share" and request.method == "GET":
             return await call_next(request)
 
-        # Allow static files (served at root by StaticFiles mount)
-        if not path.startswith("/api/chat") and not path.startswith("/api/file"):
-            return await call_next(request)
-
         # Protected routes require JWT (header or query param for SSE)
         auth_header = request.headers.get("Authorization", "")
         token = None

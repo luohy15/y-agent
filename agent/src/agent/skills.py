@@ -127,7 +127,7 @@ async def discover_skills(skills_dir: Optional[str] = None, vm_config: Optional[
 
     When vm_config is provided, uses a single remote command to discover all skills.
     """
-    if skills_dir is not None and vm_config is None:
+    if skills_dir is not None and (not vm_config or not vm_config.api_token):
         return _discover_skills_in_dir(skills_dir)
 
     search_dirs = [skills_dir] if skills_dir is not None else [
@@ -135,7 +135,7 @@ async def discover_skills(skills_dir: Optional[str] = None, vm_config: Optional[
         ".agents/skills",
     ]
 
-    if vm_config is not None:
+    if vm_config and vm_config.api_token:
         all_skills = await _discover_skills_remote(search_dirs, vm_config)
     else:
         # Local: expand paths and discover

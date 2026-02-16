@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
+import TodoViewer from "./TodoViewer";
+
 
 interface FileViewerProps {
   openFiles: string[];
@@ -38,10 +40,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
+  const isTodo = activeFile?.endsWith("todo/todo.md") ?? false;
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
+    if (isTodo) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -161,8 +165,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         </div>
       )}
       {/* Content */}
-      <div className="flex-1 overflow-auto bg-sol-base03">
-        {!activeData || activeData.loading ? (
+      <div className={`flex-1 min-h-0 bg-sol-base03 ${isTodo ? "overflow-hidden" : "overflow-auto"}`}>
+        {isTodo ? (
+          <TodoViewer />
+        ) : !activeData || activeData.loading ? (
           <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
         ) : activeData.error ? (
           <p className="text-sol-red text-sm p-3">{activeData.error}</p>

@@ -1,0 +1,2 @@
+- We use uv to manage Python dependencies, so run Python scripts with uv run
+- CLI install command: uv tool install --force -e ./cli

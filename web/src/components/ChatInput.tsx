@@ -4,6 +4,7 @@ interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onClear?: () => void;
   autoApprove: boolean;
   onToggleAutoApprove: () => void;
   sending?: boolean;
@@ -15,10 +16,20 @@ export interface ChatInputHandle {
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ value, onChange, onSubmit, autoApprove, onToggleAutoApprove, sending, autoFocus }, ref) => {
+  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
+
+    const handleSubmit = useCallback(() => {
+      const trimmed = value.trim();
+      if (onClear && (trimmed === "/cl" || trimmed === "/clear")) {
+        onChange("");
+        onClear();
+        return;
+      }
+      onSubmit();
+    }, [value, onChange, onClear, onSubmit]);
 
     // Capture keyboard events globally and redirect to textarea
     useEffect(() => {
@@ -31,7 +42,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         // Redirect printable keys, Enter, Backspace, and ctrl shortcuts
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
-          onSubmit();
+          handleSubmit();
           return;
         }
         if (e.key === "Tab" && e.shiftKey) {
@@ -46,7 +57,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       };
       document.addEventListener("keydown", handler);
       return () => document.removeEventListener("keydown", handler);
-    }, [onSubmit, onToggleAutoApprove]);
+    }, [handleSubmit, onToggleAutoApprove]);
 
     const handleBashKeys = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (!e.ctrlKey) return;
@@ -88,7 +99,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); onToggleAutoApprove(); }
-                else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+                else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
                 else handleBashKeys(e);
               }}
               autoFocus={autoFocus}
