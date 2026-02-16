@@ -5,7 +5,7 @@ from storage.entity.dto import Chat, Message
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
 
-from storage.util import get_iso8601_timestamp, generate_id, build_message_path
+from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_path
 
 IS_WINDOWS = sys.platform == 'win32'
 
@@ -19,7 +19,7 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
 
 
 async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, auto_approve: bool = False) -> Chat:
-    timestamp = get_iso8601_timestamp()
+    timestamp = get_utc_iso8601_timestamp()
     chat = Chat(
         id=chat_id if chat_id else generate_id(),
         create_time=timestamp,
@@ -102,7 +102,7 @@ async def create_share(user_id: int, chat_id: str, message_id: str = None) -> st
 
     # Create shared copy
     share_id = generate_id()
-    timestamp = get_iso8601_timestamp()
+    timestamp = get_utc_iso8601_timestamp()
 
     messages = chat.messages
     if message_id:

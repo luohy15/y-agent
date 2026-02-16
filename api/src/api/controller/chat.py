@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from storage.service import chat as chat_service
-from storage.util import generate_id, generate_message_id, get_iso8601_timestamp, get_unix_timestamp, backfill_tool_results
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, backfill_tool_results
 from storage.entity.dto import Message
 
 router = APIRouter(prefix="/chat")
@@ -126,7 +126,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     user_msg = Message.from_dict({
         "role": "user",
         "content": req.prompt,
-        "timestamp": get_iso8601_timestamp(),
+        "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp(),
         "id": generate_message_id(),
     })
@@ -154,7 +154,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     user_msg = Message.from_dict({
         "role": "user",
         "content": req.prompt,
-        "timestamp": get_iso8601_timestamp(),
+        "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp(),
         "id": generate_message_id(),
     })
@@ -202,7 +202,7 @@ async def post_approve(req: ApproveRequest, request: Request):
         user_msg = Message.from_dict({
             "role": "user",
             "content": req.user_message,
-            "timestamp": get_iso8601_timestamp(),
+            "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
         })

@@ -7,12 +7,13 @@ def get_unix_timestamp() -> int:
     """Get current time as 13-digit unix timestamp (milliseconds)"""
     return int(time.time() * 1000)
 
-def get_iso8601_timestamp() -> str:
-    localtime = time.localtime()
-    offset = time.strftime("%z", localtime)
-    offset_with_colon = f"{offset[:3]}:{offset[3:]}"
-    formatted_time = time.strftime(f"%Y-%m-%dT%H:%M:%S{offset_with_colon}", localtime)
-    return formatted_time
+def get_utc_iso8601_timestamp() -> str:
+    """Get current UTC time as ISO 8601 string with ms precision and Z suffix.
+    Example: '2025-04-28T04:08:29.568Z'
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 def generate_id() -> str:
     """Generate a unique ID (6 characters)"""
@@ -115,7 +116,7 @@ def backfill_tool_results(messages: List, mode: str = "rejected") -> List:
         tool_msg = Message.from_dict({
             "role": "tool",
             "content": content,
-            "timestamp": get_iso8601_timestamp(),
+            "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
             "parent_id": last_assistant.id,
