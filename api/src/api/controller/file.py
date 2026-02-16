@@ -1,5 +1,6 @@
 import asyncio
 import mimetypes
+import os
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
@@ -17,10 +18,10 @@ def _get_user_id(request: Request) -> int:
 
 async def _exec(user_id: int, cmd: list[str], timeout: float = 10) -> str:
     vm_config = resolve_vm_config(user_id)
-    if vm_config is None:
-        return await local_exec(cmd, timeout=timeout)
+    if not vm_config.api_token:
+        return await local_exec(cmd, timeout=timeout, cwd=vm_config.work_dir or None)
     from agent.tools.sprites_exec import sprites_exec
-    return await sprites_exec(vm_config, cmd, timeout=timeout)
+    return await sprites_exec(vm_config, cmd, dir=vm_config.work_dir or None, timeout=timeout)
 
 
 @router.get("/list")
@@ -51,11 +52,12 @@ async def read_file(request: Request, path: str = Query(...)):
 
 async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10) -> bytes:
     vm_config = resolve_vm_config(user_id)
-    if vm_config is None:
+    if not vm_config.api_token:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            cwd=os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else None,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return stdout or b""

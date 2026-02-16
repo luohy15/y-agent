@@ -10,6 +10,7 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
     return VmConfig(
         api_token=entity.api_token,
         vm_name=entity.vm_name,
+        work_dir=entity.work_dir,
     )
 
 
@@ -17,6 +18,7 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
     return dict(
         api_token=config.api_token,
         vm_name=config.vm_name,
+        work_dir=config.work_dir,
     )
 
 

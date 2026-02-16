@@ -49,6 +49,7 @@ class BotConfig:
 class VmConfig:
     api_token: str = ""
     vm_name: str = ""
+    work_dir: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VmConfig':
@@ -224,3 +225,86 @@ class Chat:
             key=lambda x: (x.unix_timestamp)
         )
         self.update_time = get_iso8601_timestamp()
+
+# ── Todo ──
+
+@dataclass
+class TodoHistoryEntry:
+    timestamp: str
+    action: str
+    note: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'TodoHistoryEntry':
+        return cls(
+            timestamp=data['timestamp'],
+            action=data['action'],
+            note=data.get('note'),
+        )
+
+    def to_dict(self) -> Dict:
+        result = {'timestamp': self.timestamp, 'action': self.action}
+        if self.note is not None:
+            result['note'] = self.note
+        return result
+
+@dataclass
+class Todo:
+    todo_id: str
+    name: str
+    desc: Optional[str] = None
+    tags: Optional[List[str]] = None
+    due_date: Optional[str] = None
+    priority: Optional[str] = None
+    status: str = "pending"
+    progress: Optional[str] = None
+    completed_at: Optional[str] = None
+    history: Optional[List[TodoHistoryEntry]] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Todo':
+        history = data.get('history')
+        if history:
+            history = [TodoHistoryEntry.from_dict(h) if isinstance(h, dict) else h for h in history]
+        return cls(
+            todo_id=data['todo_id'],
+            name=data['name'],
+            desc=data.get('desc'),
+            tags=data.get('tags'),
+            due_date=data.get('due_date'),
+            priority=data.get('priority'),
+            status=data.get('status', 'pending'),
+            progress=data.get('progress'),
+            completed_at=data.get('completed_at'),
+            history=history,
+            created_at=data.get('created_at'),
+            updated_at=data.get('updated_at'),
+        )
+
+    def to_dict(self) -> Dict:
+        result = {
+            'todo_id': self.todo_id,
+            'name': self.name,
+            'status': self.status,
+        }
+        if self.desc is not None:
+            result['desc'] = self.desc
+        if self.tags is not None:
+            result['tags'] = self.tags
+        if self.due_date is not None:
+            result['due_date'] = self.due_date
+        if self.priority is not None:
+            result['priority'] = self.priority
+        if self.progress is not None:
+            result['progress'] = self.progress
+        if self.completed_at is not None:
+            result['completed_at'] = self.completed_at
+        if self.history:
+            result['history'] = [h.to_dict() for h in self.history]
+        if self.created_at is not None:
+            result['created_at'] = self.created_at
+        if self.updated_at is not None:
+            result['updated_at'] = self.updated_at
+        return result

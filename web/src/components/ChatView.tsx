@@ -8,10 +8,11 @@ import ChatInput, { type ChatInputHandle } from "./ChatInput";
 interface ChatViewProps {
   chatId: string | null;
   onChatCreated?: (chatId: string) => void;
+  onClear?: () => void;
   isLoggedIn: boolean;
 }
 
-export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -267,6 +268,7 @@ export default function ChatView({ chatId, onChatCreated, isLoggedIn }: ChatView
           value={followUp}
           onChange={setFollowUp}
           onSubmit={sendFollowUp}
+          onClear={onClear}
           autoApprove={autoApprove}
           onToggleAutoApprove={toggleAutoApprove}
           autoFocus

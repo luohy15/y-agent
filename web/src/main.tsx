@@ -10,7 +10,7 @@ createRoot(document.getElementById("root")!).render(
     <Routes>
       <Route path="/s/:shareId" element={<ShareView />} />
       <Route path="/share/:shareId" element={<ShareView />} />
-      <Route path="/:chatId?" element={<App />} />
+      <Route path="/*" element={<App />} />
     </Routes>
   </BrowserRouter>
 );

@@ -23,11 +23,12 @@ class Tool(ABC):
         }
 
     async def run_cmd(self, cmd: list[str], stdin: str | None = None, timeout: float = 30) -> str:
-        if self.vm_config is None:
+        work_dir = self.vm_config.work_dir if self.vm_config else None
+        if not self.vm_config or not self.vm_config.api_token:
             from agent.tools.local_exec import local_exec
-            return await local_exec(cmd, stdin, timeout)
+            return await local_exec(cmd, stdin, timeout, cwd=work_dir)
         from agent.tools.sprites_exec import sprites_exec
-        return await sprites_exec(self.vm_config, cmd, stdin, timeout=timeout)
+        return await sprites_exec(self.vm_config, cmd, stdin, dir=work_dir or None, timeout=timeout)
 
     @abstractmethod
     async def execute(self, arguments: Dict) -> str:

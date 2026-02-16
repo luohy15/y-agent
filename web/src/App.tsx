@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Header from "./components/Header";
 import ChatList from "./components/ChatList";
@@ -8,18 +7,27 @@ import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
 
+
 export default function App() {
   const auth = useAuth();
-  const { chatId: urlChatId } = useParams<{ chatId: string }>();
-  const navigate = useNavigate();
-  const selectedChatId = urlChatId || null;
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
+
+  useEffect(() => {
+    if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId);
+    else localStorage.removeItem("selectedChatId");
+  }, [selectedChatId]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatListOpen, setChatListOpen] = useState(false);
-  const [openFiles, setOpenFiles] = useState<string[]>([]);
-  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [openFiles, setOpenFiles] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("openFiles") || "[]"); } catch { return []; }
+  });
+  const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
   const [chatMaximize, setChatMaximize] = useState(() => localStorage.getItem("chatMaximize") === "true");
   const [chatHide, setChatHide] = useState(() => localStorage.getItem("chatHide") === "true");
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+
+  useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
+  useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
 
   const handleOpenFile = useCallback((path: string) => {
     setOpenFiles((files) => files.includes(path) ? files : [...files, path]);
@@ -56,6 +64,8 @@ export default function App() {
         setFileSearchOpen(true);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+        const el = document.activeElement;
+        if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
         e.preventDefault();
         if (activeFileRef.current) handleCloseFile(activeFileRef.current);
       }
@@ -65,21 +75,25 @@ export default function App() {
   }, [handleCloseFile]);
 
   const handleSelectChat = useCallback((id: string | null) => {
-    navigate(id ? `/${id}` : "/");
+    setSelectedChatId(id);
     setSidebarOpen(false);
     setChatListOpen(false);
-  }, [navigate]);
+  }, []);
 
   const handleChatCreated = useCallback((chatId: string) => {
-    navigate(`/${chatId}`);
+    setSelectedChatId(chatId);
     setSidebarOpen(false);
     setChatListOpen(false);
-  }, [navigate]);
+  }, []);
+
+  const handleClear = useCallback(() => {
+    setSelectedChatId(null);
+  }, []);
 
   const handleLogout = useCallback(() => {
     auth.logout();
-    navigate("/");
-  }, [auth, navigate]);
+    setSelectedChatId(null);
+  }, [auth]);
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
@@ -175,6 +189,7 @@ export default function App() {
               <ChatView
                 chatId={selectedChatId}
                 onChatCreated={handleChatCreated}
+                onClear={handleClear}
                 isLoggedIn={auth.isLoggedIn}
               />
             </div>
