@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -41,7 +41,7 @@ const statusColor: Record<string, string> = {
 
 function TodoCard({ t, onClose }: { t: Todo; onClose?: () => void }) {
   return (
-    <div className="bg-sol-base02 rounded p-2 border border-sol-base01/20 relative">
+    <div className="bg-sol-base02 rounded p-2 border border-sol-base01/20 relative" data-todo-card>
       {onClose && (
         <button onClick={onClose} className="absolute top-1 right-1 text-sol-base01 hover:text-sol-base1 cursor-pointer text-xs">&times;</button>
       )}
@@ -76,7 +76,7 @@ function TodoCard({ t, onClose }: { t: Todo; onClose?: () => void }) {
         ))}
       </div>
       {t.history && t.history.length > 0 && (
-        <div className="border-t border-sol-base01/20 pt-1 mt-1 space-y-0.5 max-h-20 overflow-y-auto">
+        <div className="border-t border-sol-base01/20 pt-1 mt-1 space-y-0.5">
           {[...t.history].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((h, i) => (
             <div key={i} className="text-xs text-sol-base01 flex gap-1.5">
               <span className="shrink-0">{new Date(h.timestamp).toLocaleDateString()}</span>
@@ -129,7 +129,7 @@ export default function TodoViewer() {
     return saved === "all" ? "all" : "pending";
   });
   useEffect(() => { localStorage.setItem("todoFilter", bottomFilter); }, [bottomFilter]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sortState, setSortState] = useState<Record<BottomFilter, { key: SortKey; dir: SortDir }>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("todoSortState") || "");
@@ -141,25 +141,6 @@ export default function TodoViewer() {
   useEffect(() => { localStorage.setItem("todoSortState", JSON.stringify(sortState)); }, [sortState]);
   const sortKey = sortState[bottomFilter].key;
   const sortDir = sortState[bottomFilter].dir;
-  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleRowClick = (todoId: string, e: React.MouseEvent<HTMLTableRowElement>) => {
-    if (selectedId === todoId) {
-      setSelectedId(null);
-      setPopupPos(null);
-    } else {
-      setSelectedId(todoId);
-      if (containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const rowRect = e.currentTarget.getBoundingClientRect();
-        setPopupPos({
-          top: rowRect.bottom - containerRect.top,
-          left: rowRect.left - containerRect.left,
-        });
-      }
-    }
-  };
 
   const { data: activeTodos } = useSWR<Todo[]>(
     `${API}/api/todo/list?status=active`,
@@ -176,7 +157,6 @@ export default function TodoViewer() {
   const activeCards = (activeTodos || []).slice(0, 3);
   const filteredTodos = bottomTodos?.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
   const sortedTodos = filteredTodos ? sortTodos(filteredTodos, sortKey, sortDir) : undefined;
-  const selectedTodo = selectedId ? bottomTodos?.find((t) => t.todo_id === selectedId) : null;
 
   const handleSort = (key: SortKey) => {
     setSortState((prev) => ({
@@ -187,8 +167,10 @@ export default function TodoViewer() {
     }));
   };
 
+  const colCount = 7;
+
   return (
-    <div className="h-full overflow-auto bg-sol-base03 text-xs relative" ref={containerRef}>
+    <div className="h-full overflow-auto bg-sol-base03 text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
       {/* Active tasks as cards */}
       {activeCards.length > 0 && (
         <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
@@ -206,7 +188,7 @@ export default function TodoViewer() {
           {(["pending", "all"] as const).map((f) => (
             <button
               key={f}
-              onClick={() => { setBottomFilter(f); setSelectedId(null); setPopupPos(null); }}
+              onClick={() => { setBottomFilter(f); setExpandedId(null); }}
               className={`px-2 py-0.5 rounded text-xs cursor-pointer ${
                 bottomFilter === f
                   ? "bg-sol-blue text-sol-base03"
@@ -248,55 +230,51 @@ export default function TodoViewer() {
             </thead>
             <tbody>
               {sortedTodos.map((t) => (
-                <tr
-                  key={t.todo_id}
-                  className={`border-b border-sol-base02 ${selectedId === t.todo_id ? "bg-sol-base02/50" : ""}`}
-                >
-                  <td
-                    className="py-1 px-1.5 text-sol-base01 cursor-pointer hover:text-sol-blue"
-                    onClick={() => { navigator.clipboard.writeText(t.todo_id); }}
-                    title="Copy ID"
-                  >#{t.todo_id}</td>
-                  <td className="py-1 px-1.5 text-sol-base01">{t.due_date || "-"}</td>
-                  <td
-                    className="py-1 px-1.5 text-sol-base0 cursor-pointer hover:text-sol-blue"
-                    onClick={(e) => handleRowClick(t.todo_id, e as unknown as React.MouseEvent<HTMLTableRowElement>)}
-                  >{t.name}</td>
-                  <td className="py-1 px-1.5">
-                    <span className={`px-2 py-0.5 rounded text-xs ${statusColor[t.status] || "bg-sol-base02 text-sol-base0"}`}>
-                      {t.status}
-                    </span>
-                  </td>
-                  <td className={`py-1 px-1.5 ${priorityColor[t.priority || ""] || "text-sol-base0"}`}>
-                    {t.priority || "-"}
-                  </td>
-                  <td className="py-1 px-1.5 text-sol-base01">{t.updated_at ? new Date(t.updated_at).toLocaleString() : "-"}</td>
-                  <td className="py-1 px-1.5">
-                    {t.tags?.map((tag) => (
-                      <span key={tag} className="inline-block bg-sol-base02 text-sol-base0 text-xs px-1.5 py-0.5 rounded mr-1">
-                        {tag}
+                <>
+                  <tr
+                    key={t.todo_id}
+                    className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""}`}
+                  >
+                    <td
+                      className="py-1 px-1.5 text-sol-base01 cursor-pointer hover:text-sol-blue"
+                      onClick={() => { navigator.clipboard.writeText(t.todo_id); }}
+                      title="Copy ID"
+                    >#{t.todo_id}</td>
+                    <td className="py-1 px-1.5 text-sol-base01">{t.due_date || "-"}</td>
+                    <td
+                      className="py-1 px-1.5 text-sol-base0 cursor-pointer hover:text-sol-blue"
+                      onClick={() => setExpandedId(expandedId === t.todo_id ? null : t.todo_id)}
+                    >{t.name}</td>
+                    <td className="py-1 px-1.5">
+                      <span className={`px-2 py-0.5 rounded text-xs ${statusColor[t.status] || "bg-sol-base02 text-sol-base0"}`}>
+                        {t.status}
                       </span>
-                    ))}
-                  </td>
-                </tr>
+                    </td>
+                    <td className={`py-1 px-1.5 ${priorityColor[t.priority || ""] || "text-sol-base0"}`}>
+                      {t.priority || "-"}
+                    </td>
+                    <td className="py-1 px-1.5 text-sol-base01">{t.updated_at ? new Date(t.updated_at).toLocaleString() : "-"}</td>
+                    <td className="py-1 px-1.5">
+                      {t.tags?.map((tag) => (
+                        <span key={tag} className="inline-block bg-sol-base02 text-sol-base0 text-xs px-1.5 py-0.5 rounded mr-1">
+                          {tag}
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                  {expandedId === t.todo_id && (
+                    <tr key={`${t.todo_id}-expand`} className="border-b border-sol-base02">
+                      <td colSpan={colCount} className="p-2">
+                        <TodoCard t={t} onClose={() => setExpandedId(null)} />
+                      </td>
+                    </tr>
+                  )}
+                </>
               ))}
             </tbody>
           </table>
         )}
       </div>
-
-      {/* Popup modal near clicked row */}
-      {selectedTodo && popupPos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => { setSelectedId(null); setPopupPos(null); }} />
-          <div
-            className="absolute z-50 w-[90%] max-w-md shadow-lg"
-            style={{ top: popupPos.top, left: popupPos.left }}
-          >
-            <TodoCard t={selectedTodo} onClose={() => { setSelectedId(null); setPopupPos(null); }} />
-          </div>
-        </>
-      )}
     </div>
   );
 }
