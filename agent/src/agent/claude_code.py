@@ -16,7 +16,6 @@ y-agent stores messages as:
 import asyncio
 import json
 import os
-import signal
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
@@ -287,7 +286,7 @@ async def _run_claude_process(
             line = line_bytes.decode("utf-8", errors="replace")
 
             if check_interrupted_fn and check_interrupted_fn():
-                proc.send_signal(signal.SIGTERM)
+                proc.kill()
                 await proc.wait()
                 stderr_task.cancel()
                 return ClaudeCodeResult(status="interrupted", session_id=session_id)
@@ -534,6 +533,8 @@ async def _run_claude_ssh(
         stdin, stdout, stderr = client.exec_command(shell_cmd)
         stdin.close()
 
+        channel = stdout.channel
+
         # Stream stdout line by line in a thread to avoid blocking the event loop
         def _read_lines():
             nonlocal result_data, session_id
@@ -543,7 +544,8 @@ async def _run_claude_ssh(
                     continue
 
                 if check_interrupted_fn and check_interrupted_fn():
-                    logger.info("ssh claude-code interrupted")
+                    logger.info("ssh claude-code interrupted, closing channel")
+                    channel.close()
                     return "interrupted"
 
                 obj = parse_stream_line(line)
