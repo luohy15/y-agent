@@ -26,15 +26,15 @@ function formatToolCall(toolName: string, args?: Record<string, unknown>, approv
   const nameLower = toolName.toLowerCase();
   if (nameLower === "file_read" || nameLower === "read") {
     const prefix = approved ? "$" : "#";
-    return `${prefix} cat ${args.path || ""}`;
+    return `${prefix} cat ${args.path || args.file_path || ""}`;
   }
   if (nameLower === "file_write" || nameLower === "write") {
     const prefix = approved ? "$" : "#";
-    return `${prefix} tee ${args.path || ""}`;
+    return `${prefix} tee ${args.path || args.file_path || ""}`;
   }
   if (nameLower === "file_edit" || nameLower === "edit") {
     const prefix = approved ? "$" : "#";
-    return `${prefix} edit ${args.path || ""}`;
+    return `${prefix} edit ${args.path || args.file_path || ""}`;
   }
   try {
     const argsStr = JSON.stringify(args, null, 0);
