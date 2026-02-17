@@ -241,9 +241,12 @@ async def _run_claude_process(
     last_message_id: Optional[str],
     message_callback: Optional[Callable[[Message], None]],
     check_interrupted_fn: Optional[Callable[[], bool]],
+    env: Optional[Dict[str, str]] = None,
 ) -> ClaudeCodeResult:
     """Spawn claude -p, stream output, convert messages, return result."""
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    proc_env = dict(os.environ)
+    if env:
+        proc_env.update(env)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -251,7 +254,8 @@ async def _run_claude_process(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
-        env=env,
+        env=proc_env,
+        limit=10 * 1024 * 1024,  # 10MB line limit for large JSON output
     )
 
     converter = StreamConverter(last_message_id=last_message_id)
@@ -377,6 +381,7 @@ async def _run_claude_sprites(
     message_callback: Optional[Callable[[Message], None]],
     check_interrupted_fn: Optional[Callable[[], bool]],
     vm_config: "VmConfig",
+    env: Optional[Dict[str, str]] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p on a remote Sprites VM via WebSocket streaming."""
     from sprites import SpritesClient
@@ -408,13 +413,15 @@ async def _run_claude_sprites(
                 message_callback(msg)
 
     line_buf = _LineBuffer(_on_line)
+    stderr_buf = _LineBuffer(lambda line: logger.warning("sprites stderr: {}", line))
 
     try:
         client = SpritesClient(token=vm_config.api_token, timeout=600)
         sprite = client.get_sprite(vm_config.vm_name)
 
-        sprite_cmd = sprite.command(*full_cmd, cwd=cwd, timeout=600)
+        sprite_cmd = sprite.command(*full_cmd, cwd=cwd, timeout=600, env=env)
         sprite_cmd.stdout = line_buf
+        sprite_cmd.stderr = stderr_buf
 
         # Run via websocket in a thread (SDK uses _run_sync internally)
         ws_cmd = WSCommand(sprite_cmd)
@@ -431,6 +438,7 @@ async def _run_claude_sprites(
 
         await ws_cmd.wait()
         line_buf.flush_remaining()
+        stderr_buf.flush_remaining()
 
         exit_code = ws_cmd.exit_code
         logger.info("sprites claude-code ws done exit_code={}", exit_code)
@@ -440,6 +448,7 @@ async def _run_claude_sprites(
     except Exception as e:
         logger.error("sprites claude-code ws error: {} {}", type(e).__name__, e)
         line_buf.flush_remaining()
+        stderr_buf.flush_remaining()
         return ClaudeCodeResult(status="error", session_id=session_id)
 
     if result_data:
@@ -455,6 +464,142 @@ async def _run_claude_sprites(
         )
 
     return ClaudeCodeResult(status="completed", session_id=session_id)
+
+
+# ---------------------------------------------------------------------------
+# SSH helper
+# ---------------------------------------------------------------------------
+
+def _parse_ssh_target(vm_name: str) -> tuple:
+    """Parse 'ssh:user@host:port' or 'ssh:host' into (user, host, port)."""
+    raw = vm_name[len("ssh:"):]
+    user = None
+    port = 22
+    if "@" in raw:
+        user, raw = raw.split("@", 1)
+    if ":" in raw:
+        host, port_str = raw.rsplit(":", 1)
+        port = int(port_str)
+    else:
+        host = raw
+    return user, host, port
+
+
+# ---------------------------------------------------------------------------
+# Remote SSH runner
+# ---------------------------------------------------------------------------
+
+async def _run_claude_ssh(
+    cmd: List[str],
+    prompt: str,
+    cwd: Optional[str],
+    last_message_id: Optional[str],
+    message_callback: Optional[Callable[[Message], None]],
+    check_interrupted_fn: Optional[Callable[[], bool]],
+    vm_config: "VmConfig",
+    env: Optional[Dict[str, str]] = None,
+) -> ClaudeCodeResult:
+    """Run claude -p on a remote host via SSH (paramiko) with real-time stdout streaming."""
+    import io
+    import paramiko
+
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+
+    # Load private key from string
+    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+
+    full_cmd = cmd + [prompt]
+
+    # Build shell command string
+    parts = []
+    if env:
+        for k, v in env.items():
+            parts.append(f"export {k}={_shell_quote(v)};")
+    if cwd:
+        parts.append(f"cd {_shell_quote(cwd)} &&")
+    parts.append(" ".join(_shell_quote(c) for c in full_cmd))
+    shell_cmd = " ".join(parts)
+
+    logger.info("ssh claude-code exec host={} port={} user={}", host, port, user)
+
+    converter = StreamConverter(last_message_id=last_message_id)
+    result_data: Optional[Dict] = None
+    session_id: Optional[str] = None
+
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(host, port=port, username=user, pkey=key)
+
+        stdin, stdout, stderr = client.exec_command(shell_cmd)
+        stdin.close()
+
+        # Stream stdout line by line in a thread to avoid blocking the event loop
+        def _read_lines():
+            nonlocal result_data, session_id
+            for raw_line in stdout:
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                if check_interrupted_fn and check_interrupted_fn():
+                    logger.info("ssh claude-code interrupted")
+                    return "interrupted"
+
+                obj = parse_stream_line(line)
+                if not obj:
+                    continue
+
+                if obj.get("type") == "system":
+                    session_id = obj.get("session_id")
+                    continue
+                if obj.get("type") == "result":
+                    result_data = obj
+                    continue
+
+                if message_callback:
+                    for msg in converter.process_line(line):
+                        message_callback(msg)
+            return None
+
+        loop = asyncio.get_event_loop()
+        interrupted = await loop.run_in_executor(None, _read_lines)
+
+        if interrupted == "interrupted":
+            client.close()
+            return ClaudeCodeResult(status="interrupted", session_id=session_id)
+
+        stderr_text = stderr.read().decode("utf-8", errors="replace").strip()
+        exit_code = stdout.channel.recv_exit_status()
+        logger.info("ssh claude-code done exit_code={}", exit_code)
+        client.close()
+
+    except Exception as e:
+        logger.error("ssh claude-code error: {} {}", type(e).__name__, e)
+        return ClaudeCodeResult(status="error", session_id=session_id)
+
+    if result_data:
+        status = "completed" if not result_data.get("is_error") else "error"
+        if status == "error":
+            logger.error("ssh claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
+        return ClaudeCodeResult(
+            status=status,
+            session_id=result_data.get("session_id") or session_id,
+            result_text=result_data.get("result"),
+            cost_usd=result_data.get("total_cost_usd"),
+            num_turns=result_data.get("num_turns"),
+        )
+
+    if exit_code != 0:
+        logger.error("ssh claude-code exited with code {} stderr={}", exit_code, stderr_text)
+        return ClaudeCodeResult(status="error", session_id=session_id)
+
+    return ClaudeCodeResult(status="completed", session_id=session_id)
+
+
+def _shell_quote(s: str) -> str:
+    """Shell-quote a string for safe use in a remote command."""
+    return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +619,8 @@ async def run_claude_code(
     system_prompt: Optional[str] = None,
     allowed_tools: Optional[List[str]] = None,
     vm_config: Optional[VmConfig] = None,
+    api_base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
 
@@ -507,6 +654,27 @@ async def run_claude_code(
     if allowed_tools:
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
 
+    # Build env vars for API configuration
+    env: Optional[Dict[str, str]] = None
+    if api_base_url or api_key:
+        env = {}
+        if api_base_url:
+            env["ANTHROPIC_BASE_URL"] = api_base_url
+        if api_key:
+            env["ANTHROPIC_AUTH_TOKEN"] = api_key
+
+    if vm_config and vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
+        return await _run_claude_ssh(
+            cmd=cmd,
+            prompt=prompt,
+            cwd=cwd or (vm_config.work_dir if vm_config else None),
+            last_message_id=last_message_id,
+            message_callback=message_callback,
+            check_interrupted_fn=check_interrupted_fn,
+            vm_config=vm_config,
+            env=env,
+        )
+
     if vm_config and vm_config.api_token:
         return await _run_claude_sprites(
             cmd=cmd,
@@ -516,6 +684,7 @@ async def run_claude_code(
             message_callback=message_callback,
             check_interrupted_fn=check_interrupted_fn,
             vm_config=vm_config,
+            env=env,
         )
 
     return await _run_claude_process(
@@ -525,4 +694,5 @@ async def run_claude_code(
         last_message_id=last_message_id,
         message_callback=message_callback,
         check_interrupted_fn=check_interrupted_fn,
+        env=env,
     )

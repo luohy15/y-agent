@@ -87,13 +87,16 @@ done
 
 async def _discover_skills_remote(search_dirs: List[str], vm_config: VmConfig) -> List[SkillMeta]:
     """Discover skills from remote VM with a single request."""
-    from agent.tools.sprites_exec import sprites_exec
+    from agent.tool_base import Tool
 
     dirs_str = " ".join(f'"{d}"' for d in search_dirs)
     script = _FIND_SKILLS_SCRIPT.format(dirs=dirs_str)
 
+    tool = Tool.__new__(Tool)
+    tool.vm_config = vm_config
+
     try:
-        output = await sprites_exec(vm_config, ["bash", "-c", script])
+        output = await tool.run_cmd(["bash", "-c", script])
     except Exception as e:
         logger.warning(f"Failed to discover remote skills: {e}")
         return []

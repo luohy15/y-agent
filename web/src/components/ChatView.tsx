@@ -233,6 +233,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
           value={newPrompt}
           onChange={setNewPrompt}
           onSubmit={createChat}
+          onClear={onClear}
           autoApprove={autoApprove}
           onToggleAutoApprove={toggleAutoApprove}
           sending={sending}

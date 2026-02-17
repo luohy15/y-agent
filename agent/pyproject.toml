@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml",
     "httpx>=0.26.0",
     "sprites-py>=0.0.1a1",
+    "paramiko>=4.0.0",
 ]
 
 [tool.uv.sources]
