@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from agent.config import resolve_vm_config
-from agent.tools.local_exec import local_exec
+from agent.tool_base import Tool
 
 router = APIRouter(prefix="/file")
 
@@ -16,12 +16,17 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
+class _CmdRunner(Tool):
+    name = "_cmd_runner"
+    description = ""
+    parameters = {}
+    async def execute(self, arguments):
+        pass
+
 async def _exec(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None) -> str:
     vm_config = resolve_vm_config(user_id, vm_name)
-    if not vm_config.api_token:
-        return await local_exec(cmd, timeout=timeout, cwd=vm_config.work_dir or None)
-    from agent.tools.sprites_exec import sprites_exec
-    return await sprites_exec(vm_config, cmd, dir=vm_config.work_dir or None, timeout=timeout)
+    runner = _CmdRunner(vm_config)
+    return await runner.run_cmd(cmd, timeout=timeout)
 
 
 @router.get("/list")

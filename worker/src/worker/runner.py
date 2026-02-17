@@ -133,6 +133,8 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         check_interrupted_fn=interrupted_fn,
         model=model,
         vm_config=vm_config,
+        api_base_url=bot_config.base_url if bot_config.base_url else None,
+        api_key=bot_config.api_key if bot_config.api_key else None,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 

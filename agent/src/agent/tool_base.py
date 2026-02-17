@@ -27,6 +27,9 @@ class Tool(ABC):
         if not self.vm_config or not self.vm_config.api_token:
             from agent.tools.local_exec import local_exec
             return await local_exec(cmd, stdin, timeout, cwd=work_dir)
+        if self.vm_config.vm_name and self.vm_config.vm_name.startswith("ssh:"):
+            from agent.tools.ssh_exec import ssh_exec
+            return await ssh_exec(self.vm_config, cmd, stdin, dir=work_dir or None, timeout=timeout)
         from agent.tools.sprites_exec import sprites_exec
         return await sprites_exec(self.vm_config, cmd, stdin, dir=work_dir or None, timeout=timeout)
 
