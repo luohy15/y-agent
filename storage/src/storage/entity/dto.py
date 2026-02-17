@@ -47,6 +47,7 @@ class BotConfig:
 
 @dataclass
 class VmConfig:
+    name: str = "default"
     api_token: str = ""
     vm_name: str = ""
     work_dir: str = ""

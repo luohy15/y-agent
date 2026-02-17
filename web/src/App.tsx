@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
+import { API, authFetch } from "./api";
 import Header from "./components/Header";
 import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
@@ -7,11 +8,18 @@ import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
 
+interface VmConfigItem {
+  name: string;
+  vm_name: string;
+  work_dir: string;
+}
 
 export default function App() {
   const auth = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
+  const [vmList, setVmList] = useState<VmConfigItem[]>([]);
+  const [selectedVM, setSelectedVM] = useState<string | null>(() => localStorage.getItem("selectedVM") || null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("sidebarWidth");
     return saved ? parseInt(saved, 10) : 384;
@@ -60,6 +68,11 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
+  useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
+  useEffect(() => {
+    if (!auth.isLoggedIn) { setVmList([]); return; }
+    authFetch(`${API}/api/vm-config/list`).then(r => r.json()).then(data => setVmList(data || [])).catch(() => setVmList([]));
+  }, [auth.isLoggedIn]);
 
   const activeFileRef = useRef(activeFile);
   activeFileRef.current = activeFile;
@@ -144,7 +157,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleSidebar={() => {
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleSidebar={() => {
         // Mobile: toggle overlay; Desktop: toggle persistent sidebar
         const isMobile = window.innerWidth < 768;
         if (isMobile) setSidebarOpen((v) => !v);
@@ -164,7 +177,7 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} />
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={vmList.find(v => v.name === (selectedVM || "default"))?.work_dir} />
           <div
             className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
             onPointerDown={handleResizeStart}
@@ -175,7 +188,7 @@ export default function App() {
           {/* Right top: FileViewer (always takes half, hidden content when no file) */}
           {(!chatMaximize || chatHide) && (
             <div className={`${chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} />
+              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} />
             </div>
           )}
           {/* Toolbar (always visible) */}
@@ -248,7 +261,7 @@ export default function App() {
           <div className={`flex flex-col min-h-0 ${chatMaximize ? "flex-1" : "h-3/5"} ${chatHide ? "hidden" : ""}`}>
             <div className="flex flex-1 min-h-0 relative">
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-                <ChatView isLoggedIn={auth.isLoggedIn} chatId={selectedChatId} onChatCreated={handleChatCreated} />
+                <ChatView isLoggedIn={auth.isLoggedIn} chatId={selectedChatId} onChatCreated={handleChatCreated} vmName={selectedVM} />
               </div>
               {/* Mobile: drawer backdrop */}
               {chatListOpen && (
@@ -274,7 +287,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} />
+      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} />
     </div>
   );
 }

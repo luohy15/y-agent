@@ -1,4 +1,5 @@
 import httpx
+from loguru import logger
 
 from storage.entity.dto import VmConfig
 
@@ -12,13 +13,16 @@ async def sprites_exec(vm_config: VmConfig, cmd: list[str], stdin: str | None = 
         params.append(("dir", dir))
     if stdin is not None:
         params.append(("stdin", "true"))
+    url = f"{api_url}/v1/sprites/{vm_config.vm_name}/exec"
+    logger.info("sprites_exec POST {} params={} timeout={}", url, params, timeout)
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{api_url}/v1/sprites/{vm_config.vm_name}/exec",
+            url,
             params=params,
             headers={"Authorization": f"Bearer {vm_config.api_token}"},
             content=stdin.encode() if stdin else None,
             timeout=timeout,
         )
+        logger.info("sprites_exec response status={} length={}", resp.status_code, len(resp.text))
         resp.raise_for_status()
         return resp.text

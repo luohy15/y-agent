@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional
 
 from loguru import logger
 
-from storage.entity.dto import Message
+from storage.entity.dto import Message, VmConfig
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 
@@ -257,12 +257,23 @@ async def _run_claude_process(
     converter = StreamConverter(last_message_id=last_message_id)
     result_data: Optional[Dict] = None
     session_id: Optional[str] = None
+    stderr_chunks: List[bytes] = []
+
+    async def _drain_stderr():
+        """Drain stderr concurrently to prevent pipe buffer deadlock."""
+        while proc.stderr:
+            chunk = await proc.stderr.read(4096)
+            if not chunk:
+                break
+            stderr_chunks.append(chunk)
 
     try:
         if proc.stdin:
             proc.stdin.write(prompt.encode("utf-8"))
             await proc.stdin.drain()
             proc.stdin.close()
+
+        stderr_task = asyncio.create_task(_drain_stderr())
 
         while proc.stdout:
             line_bytes = await proc.stdout.readline()
@@ -274,6 +285,7 @@ async def _run_claude_process(
             if check_interrupted_fn and check_interrupted_fn():
                 proc.send_signal(signal.SIGTERM)
                 await proc.wait()
+                stderr_task.cancel()
                 return ClaudeCodeResult(status="interrupted", session_id=session_id)
 
             obj = parse_stream_line(line)
@@ -293,6 +305,8 @@ async def _run_claude_process(
                 for msg in converter.process_line(line):
                     message_callback(msg)
 
+        await stderr_task
+
     except Exception as e:
         logger.error("claude-code process exception: {}", e)
         try:
@@ -300,17 +314,14 @@ async def _run_claude_process(
         except ProcessLookupError:
             pass
         await proc.wait()
-        stderr_bytes = await proc.stderr.read() if proc.stderr else b""
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+        stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
         if stderr_text:
             logger.error("claude-code stderr: {}", stderr_text)
         return ClaudeCodeResult(status="error", session_id=session_id)
 
     await proc.wait()
 
-    # Read stderr for diagnostics
-    stderr_bytes = await proc.stderr.read() if proc.stderr else b""
-    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
 
     if result_data:
         status = "completed" if not result_data.get("is_error") else "error"
@@ -332,6 +343,121 @@ async def _run_claude_process(
 
 
 # ---------------------------------------------------------------------------
+# Remote Sprites runner
+# ---------------------------------------------------------------------------
+
+class _LineBuffer:
+    """BinaryIO adapter that buffers stdout and calls a line callback for each complete line."""
+
+    def __init__(self, line_callback: Callable[[str], None]):
+        self._cb = line_callback
+        self._buf = b""
+
+    def write(self, data: bytes) -> int:
+        self._buf += data
+        while b"\n" in self._buf:
+            line, self._buf = self._buf.split(b"\n", 1)
+            self._cb(line.decode("utf-8", errors="replace"))
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def flush_remaining(self) -> None:
+        if self._buf:
+            self._cb(self._buf.decode("utf-8", errors="replace"))
+            self._buf = b""
+
+
+async def _run_claude_sprites(
+    cmd: List[str],
+    prompt: str,
+    cwd: Optional[str],
+    last_message_id: Optional[str],
+    message_callback: Optional[Callable[[Message], None]],
+    check_interrupted_fn: Optional[Callable[[], bool]],
+    vm_config: "VmConfig",
+) -> ClaudeCodeResult:
+    """Run claude -p on a remote Sprites VM via WebSocket streaming."""
+    from sprites import SpritesClient
+    from sprites.websocket import WSCommand
+
+    full_cmd = cmd + [prompt]
+    logger.info("sprites claude-code ws exec cmd={}", full_cmd)
+
+    converter = StreamConverter(last_message_id=last_message_id)
+    result_data: Optional[Dict] = None
+    session_id: Optional[str] = None
+
+    def _on_line(line: str):
+        nonlocal result_data, session_id
+        obj = parse_stream_line(line)
+        if not obj:
+            return
+
+        if obj.get("type") == "system":
+            session_id = obj.get("session_id")
+            return
+
+        if obj.get("type") == "result":
+            result_data = obj
+            return
+
+        if message_callback:
+            for msg in converter.process_line(line):
+                message_callback(msg)
+
+    line_buf = _LineBuffer(_on_line)
+
+    try:
+        client = SpritesClient(token=vm_config.api_token, timeout=600)
+        sprite = client.get_sprite(vm_config.vm_name)
+
+        sprite_cmd = sprite.command(*full_cmd, cwd=cwd, timeout=600)
+        sprite_cmd.stdout = line_buf
+
+        # Run via websocket in a thread (SDK uses _run_sync internally)
+        ws_cmd = WSCommand(sprite_cmd)
+        await ws_cmd.start()
+
+        # Poll for interruption while waiting
+        io_task = ws_cmd._io_task
+        while io_task and not io_task.done():
+            if check_interrupted_fn and check_interrupted_fn():
+                logger.info("sprites claude-code interrupted, closing ws")
+                await ws_cmd.close()
+                return ClaudeCodeResult(status="interrupted", session_id=session_id)
+            await asyncio.sleep(1)
+
+        await ws_cmd.wait()
+        line_buf.flush_remaining()
+
+        exit_code = ws_cmd.exit_code
+        logger.info("sprites claude-code ws done exit_code={}", exit_code)
+        await ws_cmd.close()
+        client.close()
+
+    except Exception as e:
+        logger.error("sprites claude-code ws error: {} {}", type(e).__name__, e)
+        line_buf.flush_remaining()
+        return ClaudeCodeResult(status="error", session_id=session_id)
+
+    if result_data:
+        status = "completed" if not result_data.get("is_error") else "error"
+        if status == "error":
+            logger.error("sprites claude-code result error: result={}", result_data.get("result"))
+        return ClaudeCodeResult(
+            status=status,
+            session_id=result_data.get("session_id") or session_id,
+            result_text=result_data.get("result"),
+            cost_usd=result_data.get("total_cost_usd"),
+            num_turns=result_data.get("num_turns"),
+        )
+
+    return ClaudeCodeResult(status="completed", session_id=session_id)
+
+
+# ---------------------------------------------------------------------------
 # Public API — stateful session resume
 # ---------------------------------------------------------------------------
 
@@ -347,6 +473,7 @@ async def run_claude_code(
     max_turns: Optional[int] = None,
     system_prompt: Optional[str] = None,
     allowed_tools: Optional[List[str]] = None,
+    vm_config: Optional[VmConfig] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
 
@@ -379,6 +506,17 @@ async def run_claude_code(
         cmd.extend(["--system-prompt", system_prompt])
     if allowed_tools:
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
+
+    if vm_config and vm_config.api_token:
+        return await _run_claude_sprites(
+            cmd=cmd,
+            prompt=prompt,
+            cwd=cwd,
+            last_message_id=last_message_id,
+            message_callback=message_callback,
+            check_interrupted_fn=check_interrupted_fn,
+            vm_config=vm_config,
+        )
 
     return await _run_claude_process(
         cmd=cmd,

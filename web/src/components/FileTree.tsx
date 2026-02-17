@@ -35,12 +35,13 @@ interface FileTreeNodeProps {
   visiblePathsRef: MutableRefObject<string[]>;
   collapseVersion: number;
   onContextMenu: (e: React.MouseEvent, path: string) => void;
+  vmQuery: string;
 }
 
 function FileTreeNode({
   name, path, type, depth, onSelectFile,
   selected, selection, selectedPaths, dirRefreshMap, visiblePathsRef, collapseVersion,
-  onContextMenu: onCtxMenu,
+  onContextMenu: onCtxMenu, vmQuery,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -60,7 +61,7 @@ function FileTreeNode({
   const loadChildren = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authFetch(`${API}/api/file/list?path=${encodeURIComponent(path)}`);
+      const res = await authFetch(`${API}/api/file/list?path=${encodeURIComponent(path)}${vmQuery}`);
       const data = await res.json();
       const sorted = (data.entries as FileEntry[]).sort((a, b) => {
         if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
@@ -72,7 +73,7 @@ function FileTreeNode({
     } finally {
       setLoading(false);
     }
-  }, [path]);
+  }, [path, vmQuery]);
 
   const refresh = useCallback(() => {
     if (expanded) {
@@ -153,7 +154,7 @@ function FileTreeNode({
       const sources: string[] = JSON.parse(e.dataTransfer.getData("application/json"));
       const valid = sources.filter(s => s !== path && !destDir.startsWith(s + "/"));
       if (valid.length === 0) return;
-      await authFetch(`${API}/api/file/move`, {
+      await authFetch(`${API}/api/file/move${vmQuery ? `?${vmQuery.slice(1)}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sources: valid, dest_dir: destDir }),
@@ -206,6 +207,7 @@ function FileTreeNode({
           visiblePathsRef={visiblePathsRef}
           collapseVersion={collapseVersion}
           onContextMenu={onCtxMenu}
+          vmQuery={vmQuery}
         />
       ))}
     </div>
@@ -215,9 +217,12 @@ function FileTreeNode({
 interface FileTreeProps {
   isLoggedIn: boolean;
   onSelectFile?: (path: string) => void;
+  vmName?: string | null;
+  workDir?: string;
 }
 
-export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
+export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: FileTreeProps) {
+  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapseVersion, setCollapseVersion] = useState(0);
@@ -234,7 +239,7 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
   const loadRoot = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authFetch(`${API}/api/file/list?path=${encodeURIComponent(rootPath)}`);
+      const res = await authFetch(`${API}/api/file/list?path=${encodeURIComponent(rootPath)}${vmQuery}`);
       const data = await res.json();
       const sorted = (data.entries as FileEntry[]).sort((a, b) => {
         if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
@@ -246,7 +251,7 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
     } finally {
       setLoading(false);
     }
-  }, [rootPath]);
+  }, [rootPath, vmQuery]);
 
   useEffect(() => {
     dirRefreshMapRef.current.set(rootPath, loadRoot);
@@ -292,6 +297,13 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
 
   const selection: SelectionHandlers = { onPlainSelect, onPointSelect, onRangeSelect };
 
+  // Reload when vmName changes
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadRoot();
+    }
+  }, [vmQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (isLoggedIn && roots === null && !loading) {
     loadRoot();
   }
@@ -327,7 +339,9 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
-      <div className="flex items-center justify-end gap-3 px-2 py-1 border-b border-sol-base02 shrink-0">
+      <div className="flex items-center gap-3 px-2 py-1 border-b border-sol-base02 shrink-0">
+        {workDir && <span className="text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
+        {!workDir && <span className="flex-1" />}
         <button
           onClick={() => { if (dirRefreshMapRef.current.size > 5) { setCollapseVersion(v => v + 1); loadRoot(); } else { for (const refresh of dirRefreshMapRef.current.values()) refresh(); } }}
           className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-4 h-4 flex items-center justify-center"
@@ -370,6 +384,7 @@ export default function FileTree({ isLoggedIn, onSelectFile }: FileTreeProps) {
               visiblePathsRef={visiblePathsRef}
               collapseVersion={collapseVersion}
               onContextMenu={handleNodeContextMenu}
+              vmQuery={vmQuery}
             />
           ))
         ) : null}
