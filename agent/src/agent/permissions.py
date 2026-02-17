@@ -41,7 +41,7 @@ class PermissionManager:
 
     def __init__(self, config_path: Optional[str] = None):
         if config_path is None:
-            home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+            home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
             config_path = os.path.join(home, "permissions.json")
         self.config_path = config_path
         self.allow_patterns: List[str] = []

@@ -180,7 +180,7 @@ function FileTreeNode({
         onDrop={handleDrop}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1 px-2 py-0.5 text-xs truncate cursor-pointer hover:bg-sol-base02 ${
+        className={`flex items-center gap-1 px-2 py-0.5 text-sm truncate cursor-pointer hover:bg-sol-base02 ${
           isDir ? "" : "text-sol-base0"
         } ${selected ? "bg-sol-base02 text-sol-base1" : ""} ${
           dragOver ? "bg-sol-base02 outline outline-1 outline-sol-blue" : ""

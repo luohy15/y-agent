@@ -9,7 +9,7 @@ def load_config():
     """Load configuration from environment variables."""
     load_dotenv()
 
-    home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+    home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
     os.makedirs(home, exist_ok=True)
 
     database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))

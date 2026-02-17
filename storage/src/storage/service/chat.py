@@ -126,7 +126,7 @@ async def delete_chat(user_id: int, chat_id: str) -> bool:
 
 
 async def generate_share_html(chat_id: str) -> str:
-    home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+    home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
     tmp_dir = os.path.join(home, "tmp")
     chat = await chat_repo.get_chat_by_id(chat_id)
     if not chat:

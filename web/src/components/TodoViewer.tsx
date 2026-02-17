@@ -188,10 +188,11 @@ export default function TodoViewer() {
     }));
   };
 
+  const extraColClass = "hidden md:table-cell";
   const colCount = 7;
 
   return (
-    <div className="h-full overflow-auto bg-sol-base03 text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-sol-base03 text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
       {/* Active tasks as cards */}
       {activeCards.length > 0 && (
         <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
@@ -238,10 +239,10 @@ export default function TodoViewer() {
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-sol-base03">
               <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
-                {([["todo_id", "ID"], ["due_date", "Due"], ["name", "Name"], ["status", "Status"], ["priority", "Priority"], ["updated_at", "Updated"], ["tags", "Tags"]] as const).map(([key, label]) => (
+                {([["todo_id", "ID", false], ["due_date", "Due", false], ["name", "Name", false], ["status", "Status", false], ["priority", "Priority", true], ["updated_at", "Updated", true], ["tags", "Tags", true]] as [SortKey, string, boolean][]).map(([key, label, extra]) => (
                   <th
                     key={key}
-                    className="py-1 px-1.5 cursor-pointer select-none hover:text-sol-base1"
+                    className={`py-1 px-1.5 cursor-pointer select-none hover:text-sol-base1 ${extra ? extraColClass : ""}`}
                     onClick={() => handleSort(key)}
                   >
                     {label}{sortKey === key ? (sortDir === "asc" ? " \u2191" : " \u2193") : ""}
@@ -271,11 +272,11 @@ export default function TodoViewer() {
                         {t.status}
                       </span>
                     </td>
-                    <td className={`py-1 px-1.5 ${priorityColor[t.priority || ""] || "text-sol-base0"}`}>
+                    <td className={`py-1 px-1.5 ${priorityColor[t.priority || ""] || "text-sol-base0"} ${extraColClass}`}>
                       {t.priority || "-"}
                     </td>
-                    <td className="py-1 px-1.5 text-sol-base01">{t.updated_at ? new Date(t.updated_at).toLocaleString() : "-"}</td>
-                    <td className="py-1 px-1.5">
+                    <td className={`py-1 px-1.5 text-sol-base01 ${extraColClass}`}>{t.updated_at ? new Date(t.updated_at).toLocaleString() : "-"}</td>
+                    <td className={`py-1 px-1.5 ${extraColClass}`}>
                       {t.tags?.map((tag) => (
                         <span key={tag} className="inline-block bg-sol-base02 text-sol-base0 text-xs px-1.5 py-0.5 rounded mr-1">
                           {tag}

@@ -7,7 +7,7 @@ from storage.entity.dto import Todo
 
 
 def _agent_home() -> str:
-    return os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+    return os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
 def update_dashboard(user_id: int):

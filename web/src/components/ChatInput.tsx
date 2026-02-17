@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
+import { type ReactNode, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
 
 interface ChatInputProps {
   value: string;
@@ -9,6 +9,7 @@ interface ChatInputProps {
   onToggleAutoApprove: () => void;
   sending?: boolean;
   autoFocus?: boolean;
+  extraButtons?: ReactNode;
 }
 
 export interface ChatInputHandle {
@@ -16,7 +17,7 @@ export interface ChatInputHandle {
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus }, ref) => {
+  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus, extraButtons }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
@@ -112,8 +113,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             </div>
           </div>
         </div>
-        <div className="px-2 pt-1 pb-1 text-xs select-none">
+        <div className="px-2 pt-1 pb-1 text-xs select-none flex items-center gap-2">
           <button onClick={onToggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button><span className="hidden sm:inline"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span> <span className="text-sol-base01">(shift+tab to cycle)</span></span>{sending && " · sending..."}
+          {extraButtons}
         </div>
       </div>
     );

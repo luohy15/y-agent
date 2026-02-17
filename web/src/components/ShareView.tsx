@@ -48,6 +48,8 @@ export default function ShareView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
+  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
   const isLoggedIn = !!getToken();
 
   useEffect(() => {
@@ -89,8 +91,30 @@ export default function ShareView() {
           <span className="text-xs text-sol-base01">Shared conversation</span>
         </div>
       </div>
-      <MessageList messages={messages} centered />
-      <div className="px-6 py-3 border-t border-sol-base02 shrink-0 flex items-center justify-center gap-3">
+      <MessageList messages={messages} centered showProcess={showProcess} showDetail={showDetail} />
+      <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-1 flex items-center justify-center gap-2 text-xs select-none">
+        <button
+          onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
+          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+        >
+          {showProcess ? "process ●" : "process ○"}
+        </button>
+        {showProcess && (
+          <button
+            onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
+            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+          >
+            {showDetail ? "detail ●" : "detail ○"}
+          </button>
+        )}
+        <button
+          onClick={() => { navigator.clipboard.writeText(window.location.href); }}
+          className="font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01"
+        >
+          share
+        </button>
+      </div>
+      <div className="px-6 py-3 shrink-0 flex items-center justify-center gap-3">
         <button
           onClick={() => navigate(isLoggedIn ? "/" : "/")}
           className="px-4 py-2 bg-sol-blue text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"

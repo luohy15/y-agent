@@ -8,7 +8,7 @@ from storage.service.user import get_cli_user_id
 
 def print_config_info():
     """Print configuration information and available settings."""
-    home = os.environ.get("Y_AGENT_HOME", "~/.y-agent")
+    home = os.getenv("Y_AGENT_HOME", "~/.y-agent")
     click.echo(f"\n{click.style('Y_AGENT_HOME:', fg='green')}\n{click.style(home, fg='cyan')}")
     click.echo(f"{click.style('Database:', fg='green')}\n{click.style(config['database_url'], fg='cyan')}")
 
