@@ -1,7 +1,6 @@
 import click
 from storage.service import calendar_event as cal_service
 from storage.service.user import get_cli_user_id
-from .dashboard import update_dashboard
 
 
 @click.command('add')
@@ -21,4 +20,3 @@ def calendar_add(summary, start, end, desc, todo_id, all_day, source):
         todo_id=todo_id, all_day=all_day, source=source,
     )
     click.echo(f"Created event '{event.summary}' ({event.event_id})")
-    update_dashboard(user_id)

@@ -2,7 +2,6 @@ import os
 import click
 from storage.service import calendar_event as cal_service
 from storage.service.user import get_cli_user_id
-from .dashboard import update_dashboard
 
 
 @click.command('import')
@@ -20,4 +19,3 @@ def calendar_import(ics_dir):
     user_id = get_cli_user_id()
     count = cal_service.import_ics(user_id, ics_dir)
     click.echo(f"Imported {count} events from {ics_dir}")
-    update_dashboard(user_id)

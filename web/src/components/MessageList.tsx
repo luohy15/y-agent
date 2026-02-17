@@ -42,15 +42,20 @@ function isToolMessage(m: Message): boolean {
   return m.role === "tool_pending" || m.role === "tool_result" || m.role === "tool_denied";
 }
 
-function isFileReadResult(m: Message): boolean {
-  return (m.role === "tool_result" || m.role === "tool_denied") && m.toolName === "file_read";
+function fileToolKind(m: Message): string | null {
+  if (m.role !== "tool_result" && m.role !== "tool_denied") return null;
+  const name = m.toolName?.toLowerCase();
+  if (name === "file_read" || name === "read") return "Read";
+  if (name === "file_write" || name === "write") return "Write";
+  if (name === "file_edit" || name === "edit") return "Edit";
+  return null;
 }
 
 // Display items for rendering
 type DisplayItem =
   | { type: "message"; message: Message; index: number }
   | { type: "tool_summary"; count: number; index: number }
-  | { type: "file_reads"; messages: Message[]; startIndex: number };
+  | { type: "file_tools"; kind: string; messages: Message[]; startIndex: number };
 
 // Level 0: user + last assistant per round (between user messages)
 function filterLevel0(messages: Message[]): DisplayItem[] {
@@ -113,20 +118,21 @@ function filterLevel1(messages: Message[]): DisplayItem[] {
   return items;
 }
 
-// Level 2: all messages with file_read grouping
+// Level 2: all messages with file tool grouping (same kind grouped together)
 function filterLevel2(messages: Message[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   let i = 0;
   while (i < messages.length) {
-    if (isFileReadResult(messages[i])) {
+    const kind = fileToolKind(messages[i]);
+    if (kind) {
       const batch: Message[] = [];
       const startIndex = i;
-      while (i < messages.length && isFileReadResult(messages[i])) {
+      while (i < messages.length && fileToolKind(messages[i]) === kind) {
         batch.push(messages[i]);
         i++;
       }
       if (batch.length >= 2) {
-        items.push({ type: "file_reads", messages: batch, startIndex });
+        items.push({ type: "file_tools", kind, messages: batch, startIndex });
       } else {
         items.push({ type: "message", message: batch[0], index: startIndex });
       }
@@ -138,16 +144,16 @@ function filterLevel2(messages: Message[]): DisplayItem[] {
   return items;
 }
 
-function FileReadGroup({ messages, startIndex }: { messages: Message[]; startIndex: number }) {
+function FileToolGroup({ kind, messages, startIndex }: { kind: string; messages: Message[]; startIndex: number }) {
   const [expanded, setExpanded] = useState(false);
-  const paths = messages.map((m) => String(m.arguments?.path || "")).filter(Boolean);
+  const paths = messages.map((m) => String(m.arguments?.path || m.arguments?.file_path || "")).filter(Boolean);
   return (
     <div>
       <div
         className="text-[0.8rem] font-mono text-sol-cyan cursor-pointer flex items-center gap-1"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span>$ Read {messages.length} files</span>
+        <span>$ {kind} {messages.length} files</span>
         <span className="text-sol-base01 text-[0.65rem]">{expanded ? "▲" : "▼"}</span>
       </div>
       {!expanded && paths.length > 0 && (
@@ -200,8 +206,8 @@ export default function MessageList({ messages, running, centered, showProcess, 
         if (item.type === "tool_summary") {
           return <ToolSummary key={`ts-${item.index}`} count={item.count} />;
         }
-        if (item.type === "file_reads") {
-          return <FileReadGroup key={`fr-${item.startIndex}`} messages={item.messages} startIndex={item.startIndex} />;
+        if (item.type === "file_tools") {
+          return <FileToolGroup key={`fr-${item.startIndex}`} kind={item.kind} messages={item.messages} startIndex={item.startIndex} />;
         }
         return (
           <MessageBubble key={item.index} role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} />

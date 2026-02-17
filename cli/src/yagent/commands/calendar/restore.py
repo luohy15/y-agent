@@ -1,7 +1,6 @@
 import click
 from storage.service import calendar_event as cal_service
 from storage.service.user import get_cli_user_id
-from .dashboard import update_dashboard
 
 
 @click.command('restore')
@@ -14,4 +13,3 @@ def calendar_restore(event_id):
         click.echo(f"Event '{event_id}' not found or not deleted")
         return
     click.echo(f"Restored event '{event.summary}' ({event.event_id})")
-    update_dashboard(user_id)
