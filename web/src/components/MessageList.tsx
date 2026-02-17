@@ -38,14 +38,84 @@ export function extractContent(content?: string | ContentPart[]): string {
   return stripInvisible(String(content));
 }
 
+function isToolMessage(m: Message): boolean {
+  return m.role === "tool_pending" || m.role === "tool_result" || m.role === "tool_denied";
+}
+
 function isFileReadResult(m: Message): boolean {
   return (m.role === "tool_result" || m.role === "tool_denied") && m.toolName === "file_read";
 }
 
-type MessageGroup = { type: "single"; message: Message; index: number } | { type: "file_reads"; messages: Message[]; startIndex: number };
+// Display items for rendering
+type DisplayItem =
+  | { type: "message"; message: Message; index: number }
+  | { type: "tool_summary"; count: number; index: number }
+  | { type: "file_reads"; messages: Message[]; startIndex: number };
 
-function groupMessages(messages: Message[]): MessageGroup[] {
-  const groups: MessageGroup[] = [];
+// Level 0: user + last assistant per round (between user messages)
+function filterLevel0(messages: Message[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  // Split into rounds: each round starts at a user message
+  const roundStarts: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "user") roundStarts.push(i);
+  }
+  // Handle messages before first user message
+  if (roundStarts.length === 0 || roundStarts[0] > 0) {
+    const end = roundStarts.length > 0 ? roundStarts[0] : messages.length;
+    const lastAssistantIdx = findLastAssistant(messages, 0, end);
+    if (lastAssistantIdx >= 0) {
+      items.push({ type: "message", message: messages[lastAssistantIdx], index: lastAssistantIdx });
+    }
+  }
+  for (let r = 0; r < roundStarts.length; r++) {
+    const start = roundStarts[r];
+    const end = r + 1 < roundStarts.length ? roundStarts[r + 1] : messages.length;
+    // Add user message
+    items.push({ type: "message", message: messages[start], index: start });
+    // Add last assistant in this round
+    const lastAssistantIdx = findLastAssistant(messages, start + 1, end);
+    if (lastAssistantIdx >= 0) {
+      items.push({ type: "message", message: messages[lastAssistantIdx], index: lastAssistantIdx });
+    }
+  }
+  return items;
+}
+
+function findLastAssistant(messages: Message[], from: number, to: number): number {
+  for (let i = to - 1; i >= from; i--) {
+    if (messages[i].role === "assistant") return i;
+  }
+  return -1;
+}
+
+// Level 1: user + all assistants + tool summaries (consecutive tools → "N tools")
+function filterLevel1(messages: Message[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  let toolCount = 0;
+  let toolStartIdx = 0;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (isToolMessage(m)) {
+      if (toolCount === 0) toolStartIdx = i;
+      toolCount++;
+    } else {
+      if (toolCount > 0) {
+        items.push({ type: "tool_summary", count: toolCount, index: toolStartIdx });
+        toolCount = 0;
+      }
+      items.push({ type: "message", message: m, index: i });
+    }
+  }
+  if (toolCount > 0) {
+    items.push({ type: "tool_summary", count: toolCount, index: toolStartIdx });
+  }
+  return items;
+}
+
+// Level 2: all messages with file_read grouping
+function filterLevel2(messages: Message[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
   let i = 0;
   while (i < messages.length) {
     if (isFileReadResult(messages[i])) {
@@ -56,16 +126,16 @@ function groupMessages(messages: Message[]): MessageGroup[] {
         i++;
       }
       if (batch.length >= 2) {
-        groups.push({ type: "file_reads", messages: batch, startIndex });
+        items.push({ type: "file_reads", messages: batch, startIndex });
       } else {
-        groups.push({ type: "single", message: batch[0], index: startIndex });
+        items.push({ type: "message", message: batch[0], index: startIndex });
       }
     } else {
-      groups.push({ type: "single", message: messages[i], index: i });
+      items.push({ type: "message", message: messages[i], index: i });
       i++;
     }
   }
-  return groups;
+  return items;
 }
 
 function FileReadGroup({ messages, startIndex }: { messages: Message[]; startIndex: number }) {
@@ -94,13 +164,24 @@ function FileReadGroup({ messages, startIndex }: { messages: Message[]; startInd
   );
 }
 
+function ToolSummary({ count }: { count: number }) {
+  return (
+    <div className="text-[0.775rem] font-mono text-sol-base01">
+      called {count} tool{count > 1 ? "s" : ""}
+    </div>
+  );
+}
+
 interface MessageListProps {
   messages: Message[];
   running?: boolean;
+  centered?: boolean;
 }
 
-export default function MessageList({ messages, running }: MessageListProps) {
+export default function MessageList({ messages, running, centered }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
+  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
 
   useEffect(() => {
     if (containerRef.current) {
@@ -108,22 +189,46 @@ export default function MessageList({ messages, running }: MessageListProps) {
     }
   }, [messages]);
 
-  const groups = groupMessages(messages);
+  const items = showDetail ? filterLevel2(messages) : showProcess ? filterLevel1(messages) : filterLevel0(messages);
+
+  const innerClass = centered ? "max-w-3xl mx-auto w-full flex flex-col gap-3" : "flex flex-col gap-3";
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 text-xs">
-      {groups.map((g) =>
-        g.type === "file_reads" ? (
-          <FileReadGroup key={`fr-${g.startIndex}`} messages={g.messages} startIndex={g.startIndex} />
-        ) : (
-          <MessageBubble key={g.index} role={g.message.role} content={g.message.content} toolName={g.message.toolName} arguments={g.message.arguments} timestamp={g.message.timestamp} />
-        )
-      )}
+    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
+      <div className={innerClass}>
+      <div className="sticky top-0 z-10 flex items-center gap-2 pb-1">
+        <button
+          onClick={() => { setShowProcess((v) => { const next = !v; localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } return next; }); }}
+          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+        >
+          {showProcess ? "process ●" : "process ○"}
+        </button>
+        {showProcess && (
+          <button
+            onClick={() => setShowDetail((v) => { const next = !v; localStorage.setItem("showDetail", String(next)); return next; })}
+            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+          >
+            {showDetail ? "detail ●" : "detail ○"}
+          </button>
+        )}
+      </div>
+      {items.map((item) => {
+        if (item.type === "tool_summary") {
+          return <ToolSummary key={`ts-${item.index}`} count={item.count} />;
+        }
+        if (item.type === "file_reads") {
+          return <FileReadGroup key={`fr-${item.startIndex}`} messages={item.messages} startIndex={item.startIndex} />;
+        }
+        return (
+          <MessageBubble key={item.index} role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} />
+        );
+      })}
       {running && (
         <div className="flex">
           <span className="inline-block w-2.5 h-5 bg-sol-base1" />
         </div>
       )}
+      </div>
     </div>
   );
 }
