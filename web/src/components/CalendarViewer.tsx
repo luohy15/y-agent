@@ -192,6 +192,19 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   }, [events]);
 
   const today = new Date();
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const id = setInterval(tick, 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Find which day column index today falls on (if in current week)
+  const todayColIdx = days.findIndex((d) => isSameDay(d, now));
+  const nowTop = todayColIdx >= 0
+    ? ((now.getHours() + now.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT
+    : null;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -312,6 +325,21 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                 {/* Day columns */}
                 {days.map((_, dayIdx) => (
                   <div key={dayIdx} className="relative border-r border-sol-base02">
+                    {/* Current time ticker */}
+                    {nowTop !== null && dayIdx === todayColIdx && (
+                      <div
+                        className="absolute left-0 right-0 z-10 pointer-events-none"
+                        style={{ top: nowTop }}
+                      >
+                        <div className="relative flex items-center">
+                          <div className="w-2 h-2 rounded-full bg-sol-red shrink-0 -ml-1" />
+                          <div className="flex-1 h-px bg-sol-red" />
+                          <span className="text-sol-red text-xs px-1 bg-sol-base03 shrink-0">
+                            {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {/* Hour grid lines */}
                     {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
                       <div
