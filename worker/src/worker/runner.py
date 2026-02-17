@@ -38,8 +38,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
         logger.error("Chat {} not found", chat_id)
         return
 
-    # Reset interrupted flag so it doesn't persist across runs
+    # Reset interrupted flag and mark as running
     chat.interrupted = False
+    chat.running = True
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
@@ -47,10 +48,17 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
     # Route to Claude Code worker or agent loop based on api_type
-    if bot_config.api_type == "claude-code":
-        await _run_chat_claude_code(chat, chat_id, bot_config)
-    else:
-        await _run_chat_agent_loop(chat, chat_id, user_id, bot_config)
+    try:
+        if bot_config.api_type == "claude-code":
+            await _run_chat_claude_code(chat, chat_id, bot_config)
+        else:
+            await _run_chat_agent_loop(chat, chat_id, user_id, bot_config)
+    finally:
+        # Mark chat as no longer running
+        fresh = await chat_service.get_chat_by_id(chat_id)
+        if fresh:
+            fresh.running = False
+            await chat_repo.save_chat_by_id(fresh)
 
 
 async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config) -> None:

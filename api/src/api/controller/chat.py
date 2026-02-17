@@ -329,7 +329,7 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
                         "data": json.dumps({"tool_calls": pending_calls}),
                     }
 
-            elif last_msg and last_msg.role == "assistant" and not last_msg.tool_calls:
+            elif last_msg and last_msg.role == "assistant" and not last_msg.tool_calls and not chat.running:
                 yield {"event": "done", "data": json.dumps({"status": "completed"})}
                 return
 

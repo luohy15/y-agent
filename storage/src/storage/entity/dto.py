@@ -176,6 +176,7 @@ class Chat:
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
     auto_approve: bool = False
     interrupted: bool = False
+    running: bool = False
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -194,6 +195,7 @@ class Chat:
             selected_message_id=data.get('selected_message_id'),
             auto_approve=data.get('auto_approve', False),
             interrupted=data.get('interrupted', False),
+            running=data.get('running', False),
         )
 
     def to_dict(self) -> Dict:
@@ -217,6 +219,8 @@ class Chat:
             result['auto_approve'] = self.auto_approve
         if self.interrupted:
             result['interrupted'] = self.interrupted
+        if self.running:
+            result['running'] = self.running
         return result
 
     def update_messages(self, messages: List[Message]) -> None:
