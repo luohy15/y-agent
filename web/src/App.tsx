@@ -144,7 +144,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onToggleSidebar={() => {
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleSidebar={() => {
         // Mobile: toggle overlay; Desktop: toggle persistent sidebar
         const isMobile = window.innerWidth < 768;
         if (isMobile) setSidebarOpen((v) => !v);
