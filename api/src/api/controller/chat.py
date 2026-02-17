@@ -41,7 +41,7 @@ def _get_celery_app():
     return app
 
 
-def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None):
+def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -52,6 +52,8 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None):
         payload["bot_name"] = bot_name
     if user_id is not None:
         payload["user_id"] = user_id
+    if vm_name:
+        payload["vm_name"] = vm_name
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
@@ -63,7 +65,7 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None):
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name})
 
 
 class CreateChatRequest(BaseModel):
@@ -71,6 +73,7 @@ class CreateChatRequest(BaseModel):
     bot_name: Optional[str] = None
     chat_id: Optional[str] = None
     auto_approve: bool = False
+    vm_name: Optional[str] = None
 
 
 class CreateChatResponse(BaseModel):
@@ -81,6 +84,7 @@ class SendMessageRequest(BaseModel):
     chat_id: str
     prompt: str
     bot_name: Optional[str] = None
+    vm_name: Optional[str] = None
 
 
 class AutoApproveRequest(BaseModel):
@@ -138,7 +142,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         auto_approve=req.auto_approve,
     )
 
-    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id)
+    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -164,7 +168,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id)
+    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name)
     return {"ok": True}
 
 

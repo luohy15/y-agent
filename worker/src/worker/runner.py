@@ -28,9 +28,9 @@ def check_interrupted(chat_id: str) -> bool:
     return c.interrupted if c else False
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
-    """Execute a chat round. bot_name and user_id are passed from the queue message."""
-    logger.info("run_chat start chat_id={} bot_name={} user_id={}", chat_id, bot_name, user_id)
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None) -> None:
+    """Execute a chat round. bot_name, user_id, and vm_name are passed from the queue message."""
+    logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={}", chat_id, bot_name, user_id, vm_name)
 
     # Load chat from DB (with user_id access check)
     chat = await chat_service.get_chat(user_id, chat_id)
@@ -50,9 +50,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     # Route to Claude Code worker or agent loop based on api_type
     try:
         if bot_config.api_type == "claude-code":
-            await _run_chat_claude_code(chat, chat_id, bot_config)
+            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name)
         else:
-            await _run_chat_agent_loop(chat, chat_id, user_id, bot_config)
+            await _run_chat_agent_loop(chat, chat_id, user_id, bot_config, vm_name=vm_name)
     finally:
         # Mark chat as no longer running
         fresh = await chat_service.get_chat_by_id(chat_id)
@@ -61,11 +61,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
             await chat_repo.save_chat_by_id(fresh)
 
 
-async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config) -> None:
+async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None) -> None:
     """Run chat through the custom agent loop."""
     provider = agent_config.make_provider(bot_config)
 
-    vm_config = agent_config.resolve_vm_config(user_id)
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name)
     tools_map = get_tools_map(vm_config)
     openai_tools = get_openai_tools(vm_config)
     system_prompt = await agent_config.build_system_prompt(vm_config)
@@ -88,7 +88,7 @@ async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config) -> 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
 
 
-async def _run_chat_claude_code(chat, chat_id: str, bot_config) -> None:
+async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None) -> None:
     """Run chat through Claude Code CLI with stateful session resume.
 
     First message creates a new session. Subsequent messages resume via
@@ -110,9 +110,11 @@ async def _run_chat_claude_code(chat, chat_id: str, bot_config) -> None:
         logger.error("No user message found in chat {}", chat_id)
         return
 
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name)
     last_message_id = messages[-1].id if messages else None
-    cwd = os.path.expanduser(os.environ.get("VM_WORK_DIR_LOCAL") or os.getcwd())
-    model = bot_config.model if bot_config.model else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None  # treat empty string as None
     cb = lambda msg: message_callback(chat_id, msg)
     interrupted_fn = lambda: check_interrupted(chat_id)
 
@@ -130,6 +132,7 @@ async def _run_chat_claude_code(chat, chat_id: str, bot_config) -> None:
         last_message_id=last_message_id,
         check_interrupted_fn=interrupted_fn,
         model=model,
+        vm_config=vm_config,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 

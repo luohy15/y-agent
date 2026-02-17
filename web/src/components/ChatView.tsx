@@ -10,9 +10,10 @@ interface ChatViewProps {
   onChatCreated?: (chatId: string) => void;
   onClear?: () => void;
   isLoggedIn: boolean;
+  vmName?: string | null;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, vmName }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -193,14 +194,14 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
       await authFetch(`${API}/api/chat/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, prompt: text }),
+        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}) }),
       });
       setFollowUp("");
       connectSSE(chatId, idxRef.current);
     } finally {
       setSending(false);
     }
-  }, [followUp, sending, chatId, connectSSE]);
+  }, [followUp, sending, chatId, vmName, connectSSE]);
 
   const createChat = useCallback(async () => {
     const text = newPrompt.trim();
@@ -210,7 +211,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
       const res = await authFetch(`${API}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, auto_approve: autoApprove }),
+        body: JSON.stringify({ prompt: text, auto_approve: autoApprove, ...(vmName ? { vm_name: vmName } : {}) }),
       });
       const data = await res.json();
       mutate(`${API}/api/chat/list`);
@@ -219,7 +220,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
     } finally {
       setSending(false);
     }
-  }, [newPrompt, sending, autoApprove, mutate, onChatCreated]);
+  }, [newPrompt, sending, autoApprove, vmName, mutate, onChatCreated]);
 
   if (!chatId) {
     if (!isLoggedIn) {

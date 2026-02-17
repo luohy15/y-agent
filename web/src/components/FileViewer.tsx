@@ -12,6 +12,7 @@ interface FileViewerProps {
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
+  vmName?: string | null;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -38,7 +39,8 @@ interface FileCache {
   error?: string;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
+  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
@@ -60,7 +62,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     setCache((prev) => ({ ...prev, [activeFile]: { loading: true } }));
 
     if (isBinary) {
-      authFetch(`${API}/api/file/raw?path=${encodeURIComponent(activeFile)}`)
+      authFetch(`${API}/api/file/raw?path=${encodeURIComponent(activeFile)}${vmQuery}`)
         .then(async (res) => {
           if (!res.ok) throw new Error("Failed to read file");
           const blob = await res.blob();
@@ -70,7 +72,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     } else {
-      authFetch(`${API}/api/file/read?path=${encodeURIComponent(activeFile)}`)
+      authFetch(`${API}/api/file/read?path=${encodeURIComponent(activeFile)}${vmQuery}`)
         .then(async (res) => {
           if (!res.ok) throw new Error("Failed to read file");
           const data = await res.json();
@@ -78,7 +80,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache]);
+  }, [activeFile, cache, vmQuery]);
 
   // Clean up blob URLs and cache for closed files
   useEffect(() => {

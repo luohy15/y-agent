@@ -1,10 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, PrimaryKeyConstraint, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
 from .base import Base, BaseEntity
 
 
 class BotConfigEntity(Base, BaseEntity):
     __tablename__ = "bot_config"
 
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
     base_url = Column(String, nullable=False, default="https://openrouter.ai/api/v1")
@@ -18,5 +19,5 @@ class BotConfigEntity(Base, BaseEntity):
     custom_api_path = Column(String, nullable=True)
 
     __table_args__ = (
-        PrimaryKeyConstraint("user_id", "name"),
+        UniqueConstraint("user_id", "name"),
     )

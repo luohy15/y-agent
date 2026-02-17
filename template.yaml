@@ -28,10 +28,6 @@ Parameters:
     Description: Google OAuth Client ID
     Default: ""
 
-  VmBackend:
-    Type: String
-    Description: VM backend mode (local or remote)
-    Default: "remote"
 
 Globals:
   Function:
@@ -204,7 +200,6 @@ Resources:
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
-          VM_BACKEND: !Ref VmBackend
           PORT: "8000"
       Layers:
         # Lambda Web Adapter for response streaming
@@ -233,7 +228,6 @@ Resources:
           DATABASE_URL: !Ref DatabaseUrl
           DYNAMODB_TABLE: !Ref CacheTable
           SQS_QUEUE_URL: !Ref JobQueue
-          VM_BACKEND: !Ref VmBackend
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer

@@ -57,7 +57,7 @@ add_param "JwtSecretKey" "JWT_SECRET_KEY"
 add_param "DomainName" "DOMAIN_NAME"
 add_param "CertificateArn" "CERTIFICATE_ARN"
 add_param "GoogleClientId" "GOOGLE_CLIENT_ID"
-add_param "VmBackend" "VM_BACKEND"
+
 
 # ============================================================================
 # SAM Deploy

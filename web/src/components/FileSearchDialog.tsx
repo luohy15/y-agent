@@ -5,9 +5,11 @@ interface FileSearchDialogProps {
   open: boolean;
   onClose: () => void;
   onSelectFile: (path: string) => void;
+  vmName?: string | null;
 }
 
-export default function FileSearchDialog({ open, onClose, onSelectFile }: FileSearchDialogProps) {
+export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }: FileSearchDialogProps) {
+  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -33,7 +35,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile }: FileSe
     }
     setLoading(true);
     try {
-      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}`);
+      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}${vmQuery}`);
       const data = await res.json();
       setResults(data.files || []);
       setSelectedIndex(0);
@@ -42,7 +44,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile }: FileSe
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [vmQuery]);
 
   const handleInputChange = (value: string) => {
     setQuery(value);
