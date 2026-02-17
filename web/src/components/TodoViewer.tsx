@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -90,7 +90,7 @@ function TodoCard({ t, onClose }: { t: Todo; onClose?: () => void }) {
   );
 }
 
-type BottomFilter = "pending" | "all";
+type BottomFilter = "pending" | "completed" | "all";
 
 type SortKey = "todo_id" | "due_date" | "name" | "status" | "priority" | "updated_at" | "tags";
 type SortDir = "asc" | "desc";
@@ -126,7 +126,7 @@ function sortTodos(todos: Todo[], key: SortKey, dir: SortDir): Todo[] {
 export default function TodoViewer() {
   const [bottomFilter, setBottomFilter] = useState<BottomFilter>(() => {
     const saved = localStorage.getItem("todoFilter");
-    return saved === "all" ? "all" : "pending";
+    return saved === "all" ? "all" : saved === "completed" ? "completed" : "pending";
   });
   useEffect(() => { localStorage.setItem("todoFilter", bottomFilter); }, [bottomFilter]);
   const scrollToId = useRef<string | null>(null);
@@ -141,11 +141,12 @@ export default function TodoViewer() {
     return null;
   });
   const [sortState, setSortState] = useState<Record<BottomFilter, { key: SortKey; dir: SortDir }>>(() => {
+    const defaults = { pending: { key: "due_date" as SortKey, dir: "asc" as SortDir }, completed: { key: "updated_at" as SortKey, dir: "desc" as SortDir }, all: { key: "updated_at" as SortKey, dir: "desc" as SortDir } };
     try {
       const saved = JSON.parse(localStorage.getItem("todoSortState") || "");
-      return saved;
+      return { ...defaults, ...saved };
     } catch {
-      return { pending: { key: "due_date", dir: "asc" }, all: { key: "updated_at", dir: "desc" } };
+      return defaults;
     }
   });
   useEffect(() => { localStorage.setItem("todoSortState", JSON.stringify(sortState)); }, [sortState]);
@@ -157,7 +158,7 @@ export default function TodoViewer() {
     fetcher,
   );
 
-  const bottomParam = bottomFilter === "all" ? "" : "?status=pending";
+  const bottomParam = bottomFilter === "all" ? "" : `?status=${bottomFilter}`;
   const { data: bottomTodos, isLoading, error } = useSWR<Todo[]>(
     `${API}/api/todo/list${bottomParam}`,
     fetcher,
@@ -205,7 +206,7 @@ export default function TodoViewer() {
       {/* Pending / All table */}
       <div className="px-3 pt-2">
         <div className="flex items-center gap-1.5 mb-1">
-          {(["pending", "all"] as const).map((f) => (
+          {(["pending", "completed", "all"] as const).map((f) => (
             <button
               key={f}
               onClick={() => { setBottomFilter(f); setExpandedId(null); }}
@@ -250,9 +251,8 @@ export default function TodoViewer() {
             </thead>
             <tbody>
               {sortedTodos.map((t) => (
-                <>
+                <Fragment key={t.todo_id}>
                   <tr
-                    key={t.todo_id}
                     id={`todo-row-${t.todo_id}`}
                     className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""}`}
                   >
@@ -290,7 +290,7 @@ export default function TodoViewer() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
