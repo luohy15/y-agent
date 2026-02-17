@@ -1,12 +1,12 @@
 """Run a single chat through the agent loop, writing messages to DB."""
 
+import os
 from typing import List
 
 from loguru import logger
 
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
-from storage.util import backfill_tool_results
 
 import agent.config as agent_config
 from agent.loop import run_agent_loop
@@ -45,6 +45,16 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
 
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
+
+    # Route to Claude Code worker or agent loop based on api_type
+    if bot_config.api_type == "claude-code":
+        await _run_chat_claude_code(chat, chat_id, bot_config)
+    else:
+        await _run_chat_agent_loop(chat, chat_id, user_id, bot_config)
+
+
+async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config) -> None:
+    """Run chat through the custom agent loop."""
     provider = agent_config.make_provider(bot_config)
 
     vm_config = agent_config.resolve_vm_config(user_id)
@@ -68,3 +78,59 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None) -> None:
     )
 
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
+
+
+async def _run_chat_claude_code(chat, chat_id: str, bot_config) -> None:
+    """Run chat through Claude Code CLI with stateful session resume.
+
+    First message creates a new session. Subsequent messages resume via
+    session_id stored in chat.external_id.
+    """
+    from agent.claude_code import run_claude_code
+
+    messages: List[Message] = list(chat.messages)
+    logger.info("Loaded {} messages from chat {}", len(messages), chat_id)
+
+    # Extract the latest user message as the prompt
+    user_prompt = ""
+    for msg in reversed(messages):
+        if msg.role == "user":
+            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
+            break
+
+    if not user_prompt:
+        logger.error("No user message found in chat {}", chat_id)
+        return
+
+    last_message_id = messages[-1].id if messages else None
+    cwd = os.path.expanduser(os.environ.get("VM_WORK_DIR_LOCAL") or os.getcwd())
+    model = bot_config.model if bot_config.model else None
+    cb = lambda msg: message_callback(chat_id, msg)
+    interrupted_fn = lambda: check_interrupted(chat_id)
+
+    # Resume existing session or start new one
+    session_id = chat.external_id
+    resume = bool(session_id)
+    logger.info("claude-code start chat_id={} session_id={} resume={}", chat_id, session_id, resume)
+
+    result = await run_claude_code(
+        prompt=user_prompt,
+        message_callback=cb,
+        cwd=cwd,
+        session_id=session_id,
+        resume=resume,
+        last_message_id=last_message_id,
+        check_interrupted_fn=interrupted_fn,
+        model=model,
+    )
+    logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
+
+    # Save session_id to chat.external_id for future resume
+    # Reload fresh chat from DB to avoid overwriting messages appended via callback
+    if result.session_id:
+        fresh_chat = await chat_service.get_chat_by_id(chat_id)
+        if fresh_chat:
+            fresh_chat.external_id = result.session_id
+            from storage.repository import chat as chat_repo
+            await chat_repo.save_chat_by_id(fresh_chat)
+

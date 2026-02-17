@@ -1,4 +1,4 @@
-"""Generate calendar.md dashboard at $Y_AGENT_HOME/calendar/calendar.md."""
+"""Generate calendar.md dashboard at $Y_AGENT_HOME/calendar.md."""
 
 import os
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ from storage.service.calendar_event import _utc_to_local
 
 
 def _agent_home() -> str:
-    return os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+    return os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
 def update_dashboard(user_id: int) -> str:

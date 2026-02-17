@@ -22,6 +22,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
   const [newPrompt, setNewPrompt] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
+  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
+  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
@@ -158,6 +160,20 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
     setPendingToolCalls([]);
   }, [chatId]);
 
+  const shareChat = useCallback(async () => {
+    if (!chatId) return;
+    const res = await authFetch(`${API}/api/chat/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const url = `${window.location.origin}/s/${data.share_id}`;
+      await navigator.clipboard.writeText(url);
+    }
+  }, [chatId]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (((e.ctrlKey && e.key === "c") || e.key === "Escape") && !completed) {
@@ -227,7 +243,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
-      <MessageList messages={messages} running={!completed} />
+      <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} />
       <ApprovalModal
         chatId={chatId}
         toolCalls={pendingToolCalls}
@@ -254,12 +270,26 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
           <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
           <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
           <button
+            onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
+            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+          >
+            {showProcess ? "process ●" : "process ○"}
+          </button>
+          {showProcess && (
+            <button
+              onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
+              className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+            >
+              {showDetail ? "detail ●" : "detail ○"}
+            </button>
+          )}
+          <button
             onClick={stopChat}
-            className="sm:hidden ml-auto px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
+            className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
           >
             Stop
           </button>
-          <span className="hidden sm:inline ml-auto text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
+          <span className="hidden sm:inline text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
         </div>
       )}
       {completed && (
@@ -272,6 +302,23 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn }:
           autoApprove={autoApprove}
           onToggleAutoApprove={toggleAutoApprove}
           autoFocus
+          extraButtons={<>
+            <button
+              onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
+              className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+            >
+              {showProcess ? "process ●" : "process ○"}
+            </button>
+            {showProcess && (
+              <button
+                onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
+                className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+              >
+                {showDetail ? "detail ●" : "detail ○"}
+              </button>
+            )}
+            <button onClick={shareChat} className="ml-auto font-mono cursor-pointer px-3 py-1 rounded text-xs font-semibold bg-sol-base02 text-sol-base01">share</button>
+          </>}
         />
       )}
     </div>

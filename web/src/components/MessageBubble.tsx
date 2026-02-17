@@ -19,19 +19,20 @@ function truncate(s: string, n: number): string {
 
 function formatToolCall(toolName: string, args?: Record<string, unknown>, approved = true): string {
   if (!args) return toolName;
-  if (toolName === "bash") {
+  if (toolName.toLowerCase() === "bash") {
     const prefix = approved ? "$" : "#";
     return `${prefix} ${truncate(args.command as string || "", 200)}`;
   }
-  if (toolName === "file_read") {
+  const nameLower = toolName.toLowerCase();
+  if (nameLower === "file_read" || nameLower === "read") {
     const prefix = approved ? "$" : "#";
     return `${prefix} cat ${args.path || ""}`;
   }
-  if (toolName === "file_write") {
+  if (nameLower === "file_write" || nameLower === "write") {
     const prefix = approved ? "$" : "#";
     return `${prefix} tee ${args.path || ""}`;
   }
-  if (toolName === "file_edit") {
+  if (nameLower === "file_edit" || nameLower === "edit") {
     const prefix = approved ? "$" : "#";
     return `${prefix} edit ${args.path || ""}`;
   }

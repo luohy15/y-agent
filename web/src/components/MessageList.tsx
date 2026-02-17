@@ -176,12 +176,12 @@ interface MessageListProps {
   messages: Message[];
   running?: boolean;
   centered?: boolean;
+  showProcess: boolean;
+  showDetail: boolean;
 }
 
-export default function MessageList({ messages, running, centered }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProcess, showDetail }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
-  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
 
   useEffect(() => {
     if (containerRef.current) {
@@ -196,22 +196,6 @@ export default function MessageList({ messages, running, centered }: MessageList
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
       <div className={innerClass}>
-      <div className="sticky top-0 z-10 flex items-center gap-2 pb-1">
-        <button
-          onClick={() => { setShowProcess((v) => { const next = !v; localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } return next; }); }}
-          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-        >
-          {showProcess ? "process ●" : "process ○"}
-        </button>
-        {showProcess && (
-          <button
-            onClick={() => setShowDetail((v) => { const next = !v; localStorage.setItem("showDetail", String(next)); return next; })}
-            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-          >
-            {showDetail ? "detail ●" : "detail ○"}
-          </button>
-        )}
-      </div>
       {items.map((item) => {
         if (item.type === "tool_summary") {
           return <ToolSummary key={`ts-${item.index}`} count={item.count} />;

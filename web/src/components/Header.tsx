@@ -23,7 +23,7 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
     <header className="px-4 md:px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
       <div className="flex items-center gap-2">
         {onToggleSidebar && (
-          <button onClick={onToggleSidebar} className="md:hidden p-1 text-sol-base1 hover:text-sol-blue cursor-pointer">
+          <button onClick={onToggleSidebar} className="p-1 text-sol-base1 hover:text-sol-blue cursor-pointer">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
         )}

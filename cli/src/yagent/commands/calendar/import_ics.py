@@ -6,11 +6,11 @@ from .dashboard import update_dashboard
 
 
 @click.command('import')
-@click.option('--dir', '-d', 'ics_dir', default=None, help='Directory containing .ics files (default: $Y_AGENT_HOME/calendar/ics)')
+@click.option('--dir', '-d', 'ics_dir', default=None, help='Directory containing .ics files (default: $Y_AGENT_HOME/assets/calendar/ics)')
 def calendar_import(ics_dir):
     """Import events from ICS files."""
     if not ics_dir:
-        agent_home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+        agent_home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
         ics_dir = os.path.join(agent_home, "assets", "calendar", "ics")
 
     if not os.path.isdir(ics_dir):

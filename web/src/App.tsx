@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
 import Header from "./components/Header";
-import ChatList from "./components/ChatList";
 import ChatView from "./components/ChatView";
+import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
@@ -10,14 +10,13 @@ import FileSearchDialog from "./components/FileSearchDialog";
 
 export default function App() {
   const auth = useAuth();
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
-
-  useEffect(() => {
-    if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId);
-    else localStorage.removeItem("selectedChatId");
-  }, [selectedChatId]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [chatListOpen, setChatListOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem("sidebarWidth");
+    return saved ? parseInt(saved, 10) : 384;
+  });
+  const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("openFiles") || "[]"); } catch { return []; }
   });
@@ -25,6 +24,13 @@ export default function App() {
   const [chatMaximize, setChatMaximize] = useState(() => localStorage.getItem("chatMaximize") === "true");
   const [chatHide, setChatHide] = useState(() => localStorage.getItem("chatHide") === "true");
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
+  const [chatListOpen, setChatListOpen] = useState(() => localStorage.getItem("chatListOpen") !== "false");
+  const [chatListWidth, setChatListWidth] = useState(() => {
+    const saved = localStorage.getItem("chatListWidth");
+    return saved ? parseInt(saved, 10) : 220;
+  });
+  const chatListResizingRef = useRef(false);
 
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
@@ -32,7 +38,8 @@ export default function App() {
   const handleOpenFile = useCallback((path: string) => {
     setOpenFiles((files) => files.includes(path) ? files : [...files, path]);
     setActiveFile(path);
-  }, []);
+    if (!chatHide) setChatMaximize(false);
+  }, [chatHide]);
 
   const handleCloseFile = useCallback((path: string) => {
     setOpenFiles((files) => {
@@ -49,6 +56,10 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("chatMaximize", String(chatMaximize)); }, [chatMaximize]);
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
+  useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
+  useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
+  useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
+  useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
 
   const activeFileRef = useRef(activeFile);
   activeFileRef.current = activeFile;
@@ -74,41 +85,90 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleCloseFile]);
 
-  const handleSelectChat = useCallback((id: string | null) => {
-    setSelectedChatId(id);
-    setSidebarOpen(false);
-    setChatListOpen(false);
-  }, []);
+  useEffect(() => {
+    localStorage.setItem("sidebarWidth", String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const handleResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMove = (ev: PointerEvent) => {
+      const newWidth = Math.max(200, Math.min(600, startWidth + ev.clientX - startX));
+      setSidebarWidth(newWidth);
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [sidebarWidth]);
+
+  const handleChatListResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    chatListResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = chatListWidth;
+    const onMove = (ev: PointerEvent) => {
+      const newWidth = Math.max(150, Math.min(400, startWidth - (ev.clientX - startX)));
+      setChatListWidth(newWidth);
+    };
+    const onUp = () => {
+      chatListResizingRef.current = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [chatListWidth]);
 
   const handleChatCreated = useCallback((chatId: string) => {
     setSelectedChatId(chatId);
-    setSidebarOpen(false);
-    setChatListOpen(false);
-  }, []);
-
-  const handleClear = useCallback(() => {
-    setSelectedChatId(null);
   }, []);
 
   const handleLogout = useCallback(() => {
     auth.logout();
-    setSelectedChatId(null);
   }, [auth]);
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onToggleSidebar={() => setSidebarOpen((v) => !v)} onClickLogo={() => handleSelectChat(null)} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onToggleSidebar={() => {
+        // Mobile: toggle overlay; Desktop: toggle persistent sidebar
+        const isMobile = window.innerWidth < 768;
+        if (isMobile) setSidebarOpen((v) => !v);
+        else setDesktopSidebarOpen((v) => !v);
+      }} />
       <div className="flex flex-1 min-h-0">
         {/* Mobile overlay backdrop */}
-        {(sidebarOpen || chatListOpen) && (
-          <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => { setSidebarOpen(false); setChatListOpen(false); }} />
+        {sidebarOpen && (
+          <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
         {/* Left: FileTree */}
-        <div className={`
-          fixed inset-y-0 left-0 z-30 w-80 transform transition-transform duration-200 md:relative md:translate-x-0 md:z-auto shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-hidden
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        `}>
+        <div
+          className={`
+            fixed inset-y-0 left-0 z-30 transform transition-transform duration-200 md:relative md:z-auto shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-hidden
+            ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+            ${desktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full md:hidden"}
+          `}
+          style={{ width: sidebarWidth }}
+        >
           <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} />
+          <div
+            className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+            onPointerDown={handleResizeStart}
+          />
         </div>
         {/* Right */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
@@ -121,48 +181,50 @@ export default function App() {
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1 px-3 py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
             {!chatHide && (
-              <button
-                onClick={() => handleSelectChat(null)}
-                className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-                title="New task"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <line x1="7" y1="2" x2="7" y2="12" />
-                  <line x1="2" y1="7" x2="12" y2="7" />
-                </svg>
-              </button>
-            )}
-            {!chatHide && (
-              <button
-                onClick={() => setChatMaximize((v) => !v)}
-                className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-                title={chatMaximize ? "Restore chat" : "Maximize chat"}
-              >
-                {chatMaximize ? (
+              <>
+                <button
+                  onClick={() => { setSelectedChatId(null); }}
+                  className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                  title="New chat"
+                >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <polyline points="1,5 5,5 5,1" />
-                    <polyline points="13,5 9,5 9,1" />
-                    <polyline points="1,9 5,9 5,13" />
-                    <polyline points="13,9 9,9 9,13" />
+                    <line x1="7" y1="2" x2="7" y2="12" />
+                    <line x1="2" y1="7" x2="12" y2="7" />
                   </svg>
-                ) : (
+                </button>
+                <button
+                  onClick={() => setChatListOpen((v) => !v)}
+                  className={`md:hidden p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer ${chatListOpen ? "text-sol-blue" : ""}`}
+                  title={chatListOpen ? "Hide chat list" : "Show chat list"}
+                >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <polyline points="5,1 1,1 1,5" />
-                    <polyline points="9,1 13,1 13,5" />
-                    <polyline points="1,9 1,13 5,13" />
-                    <polyline points="13,9 13,13 9,13" />
+                    <line x1="2" y1="3" x2="12" y2="3" />
+                    <line x1="2" y1="7" x2="12" y2="7" />
+                    <line x1="2" y1="11" x2="12" y2="11" />
                   </svg>
-                )}
-              </button>
-            )}
-            {!chatHide && (
-              <button
-                onClick={() => setChatListOpen((v) => !v)}
-                className="md:hidden p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-                title="Toggle task list"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              </button>
+                </button>
+                <button
+                  onClick={() => setChatMaximize((v) => !v)}
+                  className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                  title={chatMaximize ? "Restore chat" : "Maximize chat"}
+                >
+                  {chatMaximize ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <polyline points="1,5 5,5 5,1" />
+                      <polyline points="13,5 9,5 9,1" />
+                      <polyline points="1,9 5,9 5,13" />
+                      <polyline points="13,9 9,9 9,13" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <polyline points="5,1 1,1 1,5" />
+                      <polyline points="9,1 13,1 13,5" />
+                      <polyline points="1,9 1,13 5,13" />
+                      <polyline points="13,9 13,13 9,13" />
+                    </svg>
+                  )}
+                </button>
+              </>
             )}
             <button
               onClick={() => setChatHide((v) => !v)}
@@ -184,26 +246,30 @@ export default function App() {
           </div>
           {/* Right bottom: ChatView + ChatList */}
           <div className={`flex flex-col min-h-0 ${chatMaximize ? "flex-1" : "h-3/5"} ${chatHide ? "hidden" : ""}`}>
-            <div className="flex flex-1 min-h-0">
-            <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-              <ChatView
-                chatId={selectedChatId}
-                onChatCreated={handleChatCreated}
-                onClear={handleClear}
-                isLoggedIn={auth.isLoggedIn}
-              />
-            </div>
-            {/* Mobile chat list overlay */}
-            <div className={`
-              fixed inset-y-0 right-0 z-30 w-80 transform transition-transform duration-200 md:relative md:translate-x-0 md:z-auto shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
-              ${chatListOpen ? "translate-x-0" : "translate-x-full"}
-            `}>
-              <ChatList
-                isLoggedIn={auth.isLoggedIn}
-                selectedChatId={selectedChatId}
-                onSelectChat={handleSelectChat}
-              />
-            </div>
+            <div className="flex flex-1 min-h-0 relative">
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+                <ChatView isLoggedIn={auth.isLoggedIn} chatId={selectedChatId} onChatCreated={handleChatCreated} />
+              </div>
+              {/* Mobile: drawer backdrop */}
+              {chatListOpen && (
+                <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
+              )}
+              {/* Desktop: always visible panel. Mobile: slide-in drawer from right */}
+              <div
+                className={`
+                  fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
+                  md:relative md:translate-x-0 md:z-auto
+                  shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
+                  ${chatListOpen ? "translate-x-0" : "translate-x-full"}
+                `}
+                style={{ width: chatListWidth }}
+              >
+                <div
+                  className="hidden md:block absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+                  onPointerDown={handleChatListResizeStart}
+                />
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
+              </div>
             </div>
           </div>
         </div>
