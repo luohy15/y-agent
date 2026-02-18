@@ -150,6 +150,13 @@ export default function TodoViewer() {
     }
   });
   useEffect(() => { localStorage.setItem("todoSortState", JSON.stringify(sortState)); }, [sortState]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpandedId(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const sortKey = sortState[bottomFilter].key;
   const sortDir = sortState[bottomFilter].dir;
 
