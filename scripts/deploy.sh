@@ -1,8 +1,12 @@
 #!/bin/bash
 
 # Manual AWS SAM deployment script for y-agent (API + Worker + Admin)
+# Usage: ./scripts/deploy.sh [branch-name]
+#   If branch-name is provided, deploys a preview stack y-agent-{sanitized-branch}
+
 AWS_PROFILE=${AWS_PROFILE:-default}
 AWS_REGION=${AWS_REGION:-us-east-1}
+BRANCH_NAME="${1:-}"
 
 # Load environment variables from .env if it exists
 if [ -f ".env" ]; then
@@ -12,7 +16,17 @@ fi
 
 set -e
 
-echo "Starting deployment of y-agent..."
+# ============================================================================
+# Branch name sanitization
+# ============================================================================
+if [ -n "$BRANCH_NAME" ]; then
+    SANITIZED=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-28)
+    STACK_NAME="y-agent-${SANITIZED}"
+    echo "Preview deployment: branch=$BRANCH_NAME sanitized=$SANITIZED stack=$STACK_NAME"
+else
+    STACK_NAME=""
+    echo "Starting deployment of y-agent (main)..."
+fi
 
 # ============================================================================
 # Export dependencies as requirements.txt for SAM
@@ -58,20 +72,46 @@ add_param "DomainName" "DOMAIN_NAME"
 add_param "CertificateArn" "CERTIFICATE_ARN"
 add_param "GoogleClientId" "GOOGLE_CLIENT_ID"
 
-
 # ============================================================================
 # SAM Deploy
 # ============================================================================
-if [ -f "samconfig.toml" ]; then
-    echo "Using existing configuration..."
-    if [ -n "$PARAM_OVERRIDES" ]; then
-        sam deploy --profile $AWS_PROFILE --parameter-overrides $PARAM_OVERRIDES
-    else
-        sam deploy --profile $AWS_PROFILE
-    fi
+if [ -n "$STACK_NAME" ]; then
+    # Branch preview deployment — bypass samconfig.toml
+    LAMBDA_ROLE_NAME="${LAMBDA_ROLE_NAME:-y-agent-lambda-role}"
+    add_param "BranchName" "SANITIZED"
+    add_param "LambdaRoleName" "LAMBDA_ROLE_NAME"
+
+    echo "Deploying preview stack: $STACK_NAME"
+    sam deploy \
+        --stack-name "$STACK_NAME" \
+        --resolve-s3 \
+        --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+        --region "$AWS_REGION" \
+        --no-confirm-changeset \
+        --no-fail-on-empty-changeset \
+        --parameter-overrides $PARAM_OVERRIDES
+
+    # Print stack outputs for downstream scripts
+    echo ""
+    echo "=== Stack Outputs ==="
+    aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query "Stacks[0].Outputs" \
+        --output table
 else
-    echo "Running guided deployment (first time)..."
-    sam deploy --guided --profile $AWS_PROFILE
+    # Main stack deployment — use samconfig.toml
+    if [ -f "samconfig.toml" ]; then
+        echo "Using existing configuration..."
+        if [ -n "$PARAM_OVERRIDES" ]; then
+            sam deploy --profile $AWS_PROFILE --parameter-overrides $PARAM_OVERRIDES
+        else
+            sam deploy --profile $AWS_PROFILE
+        fi
+    else
+        echo "Running guided deployment (first time)..."
+        sam deploy --guided --profile $AWS_PROFILE
+    fi
 fi
 
 echo ""

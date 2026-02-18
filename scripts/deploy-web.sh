@@ -7,10 +7,16 @@ if [ -n "$AWS_PROFILE" ]; then
     PROFILE_FLAG="--profile $AWS_PROFILE"
 fi
 
-# Load environment variables from .env if it exists
+# Load environment variables from .env if it exists (don't override existing vars)
 if [ -f ".env" ]; then
     echo "Loading environment variables from .env..."
-    export $(grep -v '^#' .env | xargs)
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [ -n "$key" ] && [ -z "${!key}" ]; then
+            export "$key=$value"
+        fi
+    done < <(grep -v '^#' .env | grep -v '^$')
 fi
 
 # Build the web app

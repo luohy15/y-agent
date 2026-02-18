@@ -28,6 +28,18 @@ Parameters:
     Description: Google OAuth Client ID
     Default: ""
 
+  BranchName:
+    Type: String
+    Description: Branch name for preview deployments (empty = main stack)
+    Default: ""
+
+  LambdaRoleName:
+    Type: String
+    Description: IAM role name for Lambda functions
+    Default: y-agent-lambda-role
+
+Conditions:
+  IsMainStack: !Equals [!Ref BranchName, ""]
 
 Globals:
   Function:
@@ -111,7 +123,10 @@ Resources:
     Properties:
       DistributionConfig:
         Aliases:
-          - !Ref DomainName
+          - !If
+            - IsMainStack
+            - !Ref DomainName
+            - !Sub "${BranchName}.${DomainName}"
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: allow-all
@@ -190,7 +205,7 @@ Resources:
       Runtime: python3.13
       Timeout: 900
       MemorySize: 512
-      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}-lambda-role
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
@@ -222,7 +237,7 @@ Resources:
       Runtime: python3.13
       Timeout: 900
       MemorySize: 1024
-      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}-lambda-role
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
@@ -251,7 +266,7 @@ Resources:
       Runtime: python3.13
       Timeout: 300
       MemorySize: 512
-      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}-lambda-role
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
+import { isPreview, MAIN_DOMAIN } from "../hooks/useAuth";
 import ApprovalModal from "./ApprovalBar";
 import MessageList, { type Message, extractContent } from "./MessageList";
 import ChatInput, { type ChatInputHandle } from "./ChatInput";
@@ -227,6 +228,19 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   if (!chatId) {
     if (!isLoggedIn) {
+      if (isPreview) {
+        const loginUrl = `https://${MAIN_DOMAIN}?auth_redirect=${encodeURIComponent(window.location.origin)}`;
+        return (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4">
+            <a
+              href={loginUrl}
+              className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded-md text-sm font-semibold cursor-pointer hover:bg-sol-base01 hover:text-sol-base2"
+            >
+              Sign in with Google
+            </a>
+          </div>
+        );
+      }
       const signinRef: RefCallback<HTMLDivElement> = (node) => {
         if (!node || !gsiReady) return;
         (window as any).google.accounts.id.renderButton(node, {
