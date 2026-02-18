@@ -44,7 +44,7 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
     return () => document.removeEventListener("mousedown", handler);
   }, [vmDropdownOpen]);
 
-  const showVmSelector = isLoggedIn && vmList && vmList.length > 0 && onSelectVM;
+  const showVmSelector = isLoggedIn && onSelectVM;
   const currentWorkDir = vmList?.find((vm) => selectedVM ? vm.name === selectedVM : vm.name === "default")?.work_dir;
 
   return (
@@ -76,7 +76,7 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
                 >
                   default
                 </button>
-                {vmList.filter((vm) => vm.name !== "default").map((vm) => (
+                {(vmList || []).filter((vm) => vm.name !== "default").map((vm) => (
                   <button
                     key={vm.name}
                     onClick={() => { onSelectVM(vm.name); setVmDropdownOpen(false); }}
