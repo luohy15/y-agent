@@ -46,7 +46,7 @@ function TodoCard({ t, onClose }: { t: Todo; onClose?: () => void }) {
         <button onClick={onClose} className="absolute top-1 right-1 text-sol-base01 hover:text-sol-base1 cursor-pointer text-xs">&times;</button>
       )}
       <div className="flex items-start justify-between pr-3">
-        <span className="text-sol-base1 text-xs font-medium leading-tight">
+        <span className="text-sol-base1 text-sm sm:text-xs font-medium leading-tight">
           <span className="text-sol-base01 mr-1">#{t.todo_id}</span>
           {t.name}
         </span>
@@ -192,7 +192,7 @@ export default function TodoViewer() {
   const colCount = 7;
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden bg-sol-base03 text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-sol-base03 text-sm sm:text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
       {/* Active tasks as cards */}
       {activeCards.length > 0 && (
         <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
@@ -211,7 +211,7 @@ export default function TodoViewer() {
             <button
               key={f}
               onClick={() => { setBottomFilter(f); setExpandedId(null); }}
-              className={`px-2 py-0.5 rounded text-xs cursor-pointer ${
+              className={`px-2.5 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs cursor-pointer ${
                 bottomFilter === f
                   ? "bg-sol-blue text-sol-base03"
                   : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"

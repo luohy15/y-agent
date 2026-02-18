@@ -37,7 +37,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
   };
 
   return (
-    <div className="h-full bg-sol-base03 flex flex-col text-[0.65rem]">
+    <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
         <input
           type="text"
@@ -71,7 +71,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
                 }`}
               >
                 <span className="flex-1 truncate">{c.title || ""}</span>
-                <span className="text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
+                <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
               </div>
             );
           })

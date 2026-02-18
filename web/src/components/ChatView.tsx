@@ -161,6 +161,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
     setPendingToolCalls([]);
   }, [chatId]);
 
+  const [shareLabel, setShareLabel] = useState("share");
   const shareChat = useCallback(async () => {
     if (!chatId) return;
     const res = await authFetch(`${API}/api/chat/share`, {
@@ -172,6 +173,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
       const data = await res.json();
       const url = `${window.location.origin}/s/${data.share_id}`;
       await navigator.clipboard.writeText(url);
+      setShareLabel("copied!");
+      setTimeout(() => setShareLabel("share"), 1500);
     }
   }, [chatId]);
 
@@ -268,26 +271,26 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
         </div>
       )}
       {!completed && (
-        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-xs select-none">
-          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
+        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
+          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
           <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
           <button
             onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+            className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
           >
             {showProcess ? "process ●" : "process ○"}
           </button>
           {showProcess && (
             <button
               onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-              className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+              className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
             >
               {showDetail ? "detail ●" : "detail ○"}
             </button>
           )}
           <button
             onClick={stopChat}
-            className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer"
+            className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer"
           >
             Stop
           </button>
@@ -307,19 +310,19 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
           extraButtons={<>
             <button
               onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-              className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+              className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
             >
               {showProcess ? "process ●" : "process ○"}
             </button>
             {showProcess && (
               <button
                 onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-                className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+                className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
               >
                 {showDetail ? "detail ●" : "detail ○"}
               </button>
             )}
-            <button onClick={shareChat} className="ml-auto font-mono cursor-pointer px-3 py-1 rounded text-xs font-semibold bg-sol-base02 text-sol-base01">share</button>
+            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
           </>}
         />
       )}

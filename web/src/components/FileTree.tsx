@@ -339,24 +339,24 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
-      <div className="flex items-center gap-3 px-2 py-1 border-b border-sol-base02 shrink-0">
-        {workDir && <span className="text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
+      <div className="flex items-center gap-3 px-2 py-1.5 sm:py-1 border-b border-sol-base02 shrink-0">
+        {workDir && <span className="text-sm sm:text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
         {!workDir && <span className="flex-1" />}
         <button
           onClick={() => { if (dirRefreshMapRef.current.size > 5) { setCollapseVersion(v => v + 1); loadRoot(); } else { for (const refresh of dirRefreshMapRef.current.values()) refresh(); } }}
-          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-4 h-4 flex items-center justify-center"
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center"
           title="Refresh file tree"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <svg className={`w-5 h-5 sm:w-3.5 sm:h-3.5 ${loading ? "animate-spin" : ""}`} viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V5L4.5 2 8 -1v2zm0 14a7 7 0 0 1-7-7h1.5A5.5 5.5 0 0 0 8 13.5V11l3.5 3L8 17v-2z" />
           </svg>
         </button>
         <button
           onClick={() => setCollapseVersion(v => v + 1)}
-          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-4 h-4 flex items-center justify-center"
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center"
           title="Collapse all folders"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
             <path d="M1 3.5h14v1H1zM3 7h10v1H3zM5 10.5h6v1H5z" />
           </svg>
         </button>

@@ -59,7 +59,7 @@ function formatDateTime(ts?: string): string {
 function TimestampLine({ timestamp }: { timestamp?: string }) {
   const formatted = formatDateTime(timestamp);
   if (!formatted) return null;
-  return <div className="text-[0.65rem] text-sol-base01 mb-1">{formatted}</div>;
+  return <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1">{formatted}</div>;
 }
 
 function ExpandableResult({ content, color }: { content: string; color: string }) {
@@ -69,10 +69,10 @@ function ExpandableResult({ content, color }: { content: string; color: string }
 
   return (
     <div
-      className={`text-[0.75rem] font-mono break-all ${color} ${isLong ? "cursor-pointer" : ""}`}
+      className={`text-sm sm:text-[0.75rem] font-mono break-all ${color} ${isLong ? "cursor-pointer" : ""}`}
       onClick={() => isLong && setExpanded((v) => !v)}
     >
-      <span>{oneLine}{isLong && "..."}{isLong && <span className="text-sol-base01 text-[0.65rem] ml-1">{expanded ? "▲" : "▼"}</span>}</span>
+      <span>{oneLine}{isLong && "..."}{isLong && <span className="text-sol-base01 text-xs sm:text-[0.65rem] ml-1">{expanded ? "▲" : "▼"}</span>}</span>
       {expanded && <pre className="whitespace-pre-wrap break-all">{content}</pre>}
     </div>
   );
@@ -80,13 +80,13 @@ function ExpandableResult({ content, color }: { content: string; color: string }
 
 export default function MessageBubble({ role, content, toolName, arguments: args, timestamp }: MessageBubbleProps) {
   if (role === "system") {
-    return <div className="self-center text-sol-base01 text-[0.7rem] py-1">{content}</div>;
+    return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
 
   // Tool pending: show tool call with # prefix (blue) + pulsing dot
   if (role === "tool_pending" && toolName) {
     return (
-      <div className="text-[0.775rem] font-mono text-sol-blue flex items-center gap-2 break-all">
+      <div className="text-sm sm:text-[0.775rem] font-mono text-sol-blue flex items-center gap-2 break-all">
         <span className="min-w-0">{formatToolCall(toolName, args, false)}</span>
         <span className="animate-pulse">●</span>
       </div>
@@ -97,7 +97,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_denied" && toolName) {
     return (
       <div>
-        <div className="text-[0.775rem] font-mono text-sol-base01 break-all">
+        <div className="text-sm sm:text-[0.775rem] font-mono text-sol-base01 break-all">
           {formatToolCall(toolName, args, false)}
         </div>
         <ExpandableResult content={content} color="text-sol-base01" />
@@ -109,7 +109,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   if (role === "tool_result" && toolName) {
     return (
       <div>
-        <div className="text-[0.775rem] font-mono text-sol-cyan break-all">
+        <div className="text-sm sm:text-[0.775rem] font-mono text-sol-cyan break-all">
           {formatToolCall(toolName, args)}
         </div>
         <ExpandableResult content={content} color="text-sol-blue" />
@@ -124,8 +124,8 @@ export default function MessageBubble({ role, content, toolName, arguments: args
         <TimestampLine timestamp={timestamp} />
         <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
           <div className="flex items-baseline">
-            <span className="text-sol-base01 font-mono text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
-            <div className="text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0">
+            <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
+            <div className="text-sm sm:text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0">
               {content}
             </div>
           </div>
@@ -138,7 +138,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   return (
     <div>
       <TimestampLine timestamp={timestamp} />
-      <div className="text-[0.775rem] text-sol-base0 prose prose-sm max-w-none">
+      <div className="text-sm sm:text-[0.775rem] text-sol-base0 prose prose-sm max-w-none">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     </div>

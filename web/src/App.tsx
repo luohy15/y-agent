@@ -192,25 +192,25 @@ export default function App() {
             </div>
           )}
           {/* Toolbar (always visible) */}
-          <div className="flex items-center justify-end gap-1 px-3 py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
+          <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
             {!chatHide && (
               <>
                 <button
                   onClick={() => { setSelectedChatId(null); }}
-                  className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                  className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                   title="New chat"
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <line x1="7" y1="2" x2="7" y2="12" />
                     <line x1="2" y1="7" x2="12" y2="7" />
                   </svg>
                 </button>
                 <button
                   onClick={() => setChatListOpen((v) => !v)}
-                  className={`md:hidden p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer ${chatListOpen ? "text-sol-blue" : ""}`}
+                  className={`md:hidden p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer ${chatListOpen ? "text-sol-blue" : ""}`}
                   title={chatListOpen ? "Hide chat list" : "Show chat list"}
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <line x1="2" y1="3" x2="12" y2="3" />
                     <line x1="2" y1="7" x2="12" y2="7" />
                     <line x1="2" y1="11" x2="12" y2="11" />
@@ -218,18 +218,18 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setChatMaximize((v) => !v)}
-                  className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                  className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                   title={chatMaximize ? "Restore chat" : "Maximize chat"}
                 >
                   {chatMaximize ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <polyline points="1,5 5,5 5,1" />
                       <polyline points="13,5 9,5 9,1" />
                       <polyline points="1,9 5,9 5,13" />
                       <polyline points="13,9 9,9 9,13" />
                     </svg>
                   ) : (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <polyline points="5,1 1,1 1,5" />
                       <polyline points="9,1 13,1 13,5" />
                       <polyline points="1,9 1,13 5,13" />
@@ -241,16 +241,16 @@ export default function App() {
             )}
             <button
               onClick={() => setChatHide((v) => !v)}
-              className="p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+              className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
               title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
             >
               {chatHide ? (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <polyline points="2,4 6,7 2,10" />
                   <line x1="7" y1="11" x2="12" y2="11" />
                 </svg>
               ) : (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <line x1="3" y1="3" x2="11" y2="11" />
                   <line x1="11" y1="3" x2="3" y2="11" />
                 </svg>
