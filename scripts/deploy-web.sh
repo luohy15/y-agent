@@ -21,10 +21,8 @@ fi
 
 # Build the web app
 echo "Building web app..."
-cd web
-npm ci
-VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID npm run build
-cd ..
+npm install --prefix web
+VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID npm run build --prefix web
 
 STATIC_DIR="web/dist"
 

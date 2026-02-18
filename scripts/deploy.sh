@@ -46,7 +46,7 @@ fi
 # SAM Build
 # ============================================================================
 echo "Building SAM application..."
-sam build
+sam build --build-dir ~/.cache/y-agent/.aws-sam --cached
 
 # ============================================================================
 # Parameter Override Setup
@@ -88,6 +88,7 @@ if [ -n "$STACK_NAME" ]; then
     echo "Deploying preview stack: $STACK_NAME"
     sam deploy \
         --stack-name "$STACK_NAME" \
+        --template-file ~/.cache/y-agent/.aws-sam/template.yaml \
         --resolve-s3 \
         --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
         --region "$AWS_REGION" \
@@ -109,9 +110,9 @@ else
     if [ -f "samconfig.toml" ]; then
         echo "Using existing configuration..."
         if [ -n "$PARAM_OVERRIDES" ]; then
-            sam deploy --profile $AWS_PROFILE --parameter-overrides $PARAM_OVERRIDES
+            sam deploy --profile $AWS_PROFILE --template-file ~/.cache/y-agent/.aws-sam/template.yaml --parameter-overrides $PARAM_OVERRIDES
         else
-            sam deploy --profile $AWS_PROFILE
+            sam deploy --profile $AWS_PROFILE --template-file ~/.cache/y-agent/.aws-sam/template.yaml
         fi
     else
         echo "Running guided deployment (first time)..."

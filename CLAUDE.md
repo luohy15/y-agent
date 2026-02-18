@@ -5,11 +5,12 @@
 
 When creating a new worktree, symlink build artifacts to avoid rebuilds:
 
+`.venv` and `web/node_modules` live in local xfs (`~/.cache/`, not JuiceFS) to avoid FUSE performance issues with many small files. `.aws-sam` is handled by `deploy.sh` directly via `~/.cache/y-agent/.aws-sam`.
+
 ```bash
 git worktree add -b <branch> <path> main
 cd <path>
-ln -s ../y-agent/.venv .venv
-ln -s ../y-agent/node_modules node_modules
-ln -s ../y-agent/.aws-sam .aws-sam
-ln -s ../y-agent/.env .env
+ln -s ~/.cache/y-agent/.venv .venv
+ln -s ~/.cache/y-agent/node_modules web/node_modules
+ln -s ../.env .env
 ```
