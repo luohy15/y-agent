@@ -253,27 +253,38 @@ export default function App() {
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
                 <ChatView isLoggedIn={auth.isLoggedIn} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} />
               </div>
-              {/* Mobile: drawer backdrop */}
-              {chatListOpen && (
-                <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
-              )}
-              {/* Desktop: always visible panel. Mobile: slide-in drawer from right */}
-              <div
-                className={`
-                  fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
-                  md:relative md:translate-x-0 md:z-auto
-                  shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
-                  ${chatListOpen ? "translate-x-0" : "translate-x-full"}
-                `}
-                style={{ width: chatListWidth }}
-              >
+              {/* Desktop: chat list panel (hidden with chat) */}
+              {!chatHide && (
                 <div
-                  className="hidden md:block absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
-                  onPointerDown={handleChatListResizeStart}
-                />
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
-              </div>
+                  className={`
+                    hidden md:block
+                    shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative
+                  `}
+                  style={{ width: chatListWidth }}
+                >
+                  <div
+                    className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+                    onPointerDown={handleChatListResizeStart}
+                  />
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
+                </div>
+              )}
             </div>
+          </div>
+          {/* Mobile: chat list drawer (visible even when chat is hidden) */}
+          {chatListOpen && (
+            <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
+          )}
+          <div
+            className={`
+              fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
+              md:hidden
+              shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
+              ${chatListOpen ? "translate-x-0" : "translate-x-full"}
+            `}
+            style={{ width: chatListWidth }}
+          >
+            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
           </div>
         </div>
       </div>
