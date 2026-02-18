@@ -75,18 +75,32 @@ async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10, vm_name
 @router.get("/search")
 async def search_files(request: Request, q: str = Query(...), path: str = Query("."), vm_name: str = Query(None)):
     user_id = _get_user_id(request)
-    # find files matching the query pattern, limit to 50 results, ignore errors
-    output = await _exec(
-        user_id,
-        ["find", path, "-maxdepth", "8", "-type", "f", "-iname", f"*{q}*"],
-        timeout=10,
-        vm_name=vm_name,
-    )
+    # Use git ls-files to respect .gitignore, fall back to find if not a git repo
+    try:
+        output = await _exec(
+            user_id,
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", path],
+            timeout=10,
+            vm_name=vm_name,
+        )
+    except Exception:
+        output = ""
+    q_lower = q.lower()
     files = []
     for line in output.strip().splitlines():
-        if line and len(files) < 50:
-            # Strip leading "./" from find output
+        if line and q_lower in line.lower() and len(files) < 50:
             files.append(line.removeprefix("./"))
+    # Fall back to find if git ls-files returned nothing (not a git repo)
+    if not files and not output.strip():
+        output = await _exec(
+            user_id,
+            ["find", path, "-maxdepth", "8", "-type", "f", "-iname", f"*{q}*"],
+            timeout=10,
+            vm_name=vm_name,
+        )
+        for line in output.strip().splitlines():
+            if line and len(files) < 50:
+                files.append(line.removeprefix("./"))
     return {"query": q, "files": files}
 
 
