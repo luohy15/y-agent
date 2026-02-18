@@ -76,7 +76,7 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-sol-base03 border border-sol-base01 rounded-lg shadow-lg w-full max-w-xl mx-4 p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm text-sol-yellow font-semibold">Tool Approval</div>
+          <div className="text-base sm:text-sm text-sol-yellow font-semibold">Tool Approval</div>
           {onClose && (
             <button
               onClick={onClose}
@@ -88,12 +88,12 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
         </div>
         {toolCalls.map((tc) => (
           <div key={tc.id} className="flex items-center gap-2">
-            <span className="text-[0.8rem] font-mono text-sol-cyan flex-1 truncate">
+            <span className="text-sm sm:text-[0.8rem] font-mono text-sol-cyan flex-1 truncate">
               {formatToolCall(tc)}
             </span>
             <button
               onClick={() => setDecision(tc.id, true)}
-              className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-2 sm:py-1 rounded text-sm sm:text-xs font-semibold cursor-pointer ${
                 decisions[tc.id] === true
                   ? "bg-sol-green text-sol-base03"
                   : "border border-sol-green text-sol-green"
@@ -103,7 +103,7 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
             </button>
             <button
               onClick={() => setDecision(tc.id, false)}
-              className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-2 sm:py-1 rounded text-sm sm:text-xs font-semibold cursor-pointer ${
                 decisions[tc.id] === false
                   ? "bg-sol-red text-sol-base03"
                   : "border border-sol-red text-sol-red"
@@ -116,19 +116,19 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
         <div className="flex items-center gap-2 pt-2 border-t border-sol-base02">
           <button
             onClick={() => submitAll(true)}
-            className="px-2 py-1 bg-sol-green text-sol-base03 rounded text-xs font-semibold cursor-pointer"
+            className="px-3 py-1.5 sm:px-2 sm:py-1 bg-sol-green text-sol-base03 rounded text-sm sm:text-xs font-semibold cursor-pointer"
           >
             Approve All
           </button>
           <button
             onClick={() => submitAll(false)}
-            className="px-2 py-1 bg-sol-red text-sol-base03 rounded text-xs font-semibold cursor-pointer"
+            className="px-3 py-1.5 sm:px-2 sm:py-1 bg-sol-red text-sol-base03 rounded text-sm sm:text-xs font-semibold cursor-pointer"
           >
             Deny All
           </button>
           <button
             onClick={() => setShowDenyMessage((v) => !v)}
-            className="px-2 py-1 border border-sol-orange text-sol-orange rounded text-xs font-semibold cursor-pointer"
+            className="px-3 py-1.5 sm:px-2 sm:py-1 border border-sol-orange text-sol-orange rounded text-sm sm:text-xs font-semibold cursor-pointer"
           >
             Deny with Message
           </button>
@@ -136,7 +136,7 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
           {allDecided && (
             <button
               onClick={() => submit()}
-              className="px-3 py-1 bg-sol-blue text-sol-base03 rounded text-xs font-semibold cursor-pointer"
+              className="px-4 py-1.5 sm:px-3 sm:py-1 bg-sol-blue text-sol-base03 rounded text-sm sm:text-xs font-semibold cursor-pointer"
             >
               Submit
             </button>
@@ -150,12 +150,12 @@ export default function ApprovalModal({ chatId, toolCalls, visible, onApproved, 
               onChange={(e) => setDenyMessage(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") submitDenyWithMessage(); }}
               placeholder="Enter message..."
-              className="flex-1 bg-sol-base02 text-sol-base1 text-xs px-2 py-1 rounded border border-sol-base01 outline-none focus:border-sol-orange"
+              className="flex-1 bg-sol-base02 text-sol-base1 text-sm sm:text-xs px-3 py-1.5 sm:px-2 sm:py-1 rounded border border-sol-base01 outline-none focus:border-sol-orange"
               autoFocus
             />
             <button
               onClick={submitDenyWithMessage}
-              className="px-3 py-1 bg-sol-orange text-sol-base03 rounded text-xs font-semibold cursor-pointer"
+              className="px-4 py-1.5 sm:px-3 sm:py-1 bg-sol-orange text-sol-base03 rounded text-sm sm:text-xs font-semibold cursor-pointer"
             >
               Send
             </button>
