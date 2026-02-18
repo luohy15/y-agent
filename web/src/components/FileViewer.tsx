@@ -13,7 +13,6 @@ interface FileViewerProps {
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
   vmName?: string | null;
-  currentDir?: string | null;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -40,16 +39,13 @@ interface FileCache {
   error?: string;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, currentDir }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isTodo = activeFileName === "todo.md";
   const isCalendar = activeFileName === "calendar.md";
@@ -112,35 +108,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   // Reset zoom when switching files (null = auto fit)
   useEffect(() => { setZoom(0); }, [activeFile]);
 
-  // Upload handler
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    // Determine upload dir from active file or currentDir
-    let dir = currentDir || ".";
-    if (activeFile) {
-      const slash = activeFile.lastIndexOf("/");
-      dir = slash > 0 ? activeFile.slice(0, slash) : ".";
-    }
-    setUploading(true);
-    setUploadError(null);
-    try {
-      for (const file of Array.from(files)) {
-        const form = new FormData();
-        form.append("file", file);
-        const dirQuery = encodeURIComponent(dir);
-        const res = await authFetch(`${API}/api/file/upload?dir=${dirQuery}${vmQuery}`, { method: "POST", body: form });
-        if (!res.ok) throw new Error("Upload failed");
-        const data = await res.json();
-        onSelectFile(data.path);
-      }
-    } catch (e: unknown) {
-      setUploadError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploading(false);
-      if (uploadInputRef.current) uploadInputRef.current.value = "";
-    }
-  };
-
   const activeData = activeFile ? cache[activeFile] : undefined;
   const ext = activeFile ? getExt(activeFile) : "";
   const isImage = IMAGE_EXTS.has(ext);
@@ -163,32 +130,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const lineCount = activeData?.content ? activeData.content.split("\n").length : 0;
 
   if (openFiles.length === 0) {
-    return (
-      <div className="h-full border-b border-sol-base02 bg-sol-base03 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => handleUpload(e.target.files)}
-          />
-          <button
-            onClick={() => uploadInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-2 px-3 py-1.5 rounded bg-sol-base02 hover:bg-sol-base01/20 text-sol-base01 hover:text-sol-base1 text-sm cursor-pointer disabled:opacity-50"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M7 10V2M3 6l4-4 4 4" />
-              <path d="M1 12h12" />
-            </svg>
-            {uploading ? "Uploading..." : "Upload image"}
-          </button>
-          {uploadError && <span className="text-sol-red text-xs">{uploadError}</span>}
-        </div>
-      </div>
-    );
+    return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;
   }
 
   return (
@@ -245,44 +187,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       </div>
       {/* Breadcrumb */}
       {activeFile && (
-        <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto gap-2">
-          <div className="flex items-center flex-1 min-w-0">
-            {getBreadcrumb(activeFile).map((part, i, arr) => (
-              <span key={i} className="flex items-center shrink-0">
-                {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
-                <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
-              </span>
-            ))}
-          </div>
-          {/* Hidden inputs */}
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => handleUpload(e.target.files)}
-          />
-          {/* Upload from file */}
-          <button
-            onClick={() => uploadInputRef.current?.click()}
-            disabled={uploading}
-            className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-sol-base02 hover:bg-sol-base01/20 text-sol-base1 cursor-pointer disabled:opacity-50"
-            title="Upload image"
-          >
-            {uploading ? (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="animate-spin">
-                <circle cx="6" cy="6" r="5" strokeDasharray="20" strokeDashoffset="10" />
-              </svg>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M6 8V2M3 5l3-3 3 3" />
-                <path d="M1 10h10" />
-              </svg>
-            )}
-            <span className="hidden sm:inline">Upload</span>
-          </button>
-          {uploadError && <span className="text-sol-red shrink-0">{uploadError}</span>}
+        <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
+          {getBreadcrumb(activeFile).map((part, i, arr) => (
+            <span key={i} className="flex items-center shrink-0">
+              {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
+              <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
+            </span>
+          ))}
         </div>
       )}
       {/* Content */}
