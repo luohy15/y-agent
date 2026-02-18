@@ -3,8 +3,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from storage.service import calendar_event as event_service
-from storage.database.base import get_db
-from storage.entity.todo import TodoEntity
 
 router = APIRouter(prefix="/calendar")
 
@@ -20,7 +18,7 @@ async def list_events(
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
-    todo_id: Optional[int] = Query(None),
+    todo_id: Optional[str] = Query(None),
     include_deleted: bool = Query(False),
     limit: int = Query(200),
 ):
@@ -30,17 +28,7 @@ async def list_events(
         source=source, todo_id=todo_id,
         include_deleted=include_deleted, limit=limit,
     )
-    results = [e.to_dict() for e in events]
-    # Resolve todo PK ids to todo_id strings
-    todo_pks = {e.todo_id for e in events if e.todo_id is not None}
-    if todo_pks:
-        with get_db() as session:
-            rows = session.query(TodoEntity.id, TodoEntity.todo_id).filter(TodoEntity.id.in_(todo_pks)).all()
-            pk_to_tid = {row.id: row.todo_id for row in rows}
-        for r in results:
-            if r.get("todo_id") in pk_to_tid:
-                r["linked_todo_id"] = pk_to_tid[r["todo_id"]]
-    return results
+    return [e.to_dict() for e in events]
 
 
 @router.get("/detail")

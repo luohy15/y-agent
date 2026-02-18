@@ -343,7 +343,7 @@ class CalendarEvent:
     all_day: bool = False
     status: str = "CONFIRMED"
     source: Optional[str] = None
-    todo_id: Optional[int] = None
+    todo_id: Optional[str] = None
     deleted_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

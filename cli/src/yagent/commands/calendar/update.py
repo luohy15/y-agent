@@ -9,7 +9,7 @@ from storage.service.user import get_cli_user_id
 @click.option('--start', default=None, help='New start time (local)')
 @click.option('--end', default=None, help='New end time (local)')
 @click.option('--desc', default=None, help='New description')
-@click.option('--todo-id', default=None, type=int, help='Link to todo ID')
+@click.option('--todo-id', default=None, type=str, help='Link to todo ID')
 def calendar_update(event_id, summary, start, end, desc, todo_id):
     """Update a calendar event."""
     user_id = get_cli_user_id()
@@ -29,7 +29,10 @@ def calendar_update(event_id, summary, start, end, desc, todo_id):
         click.echo("No fields to update")
         return
 
-    event = cal_service.update_event(user_id, event_id, **fields)
+    try:
+        event = cal_service.update_event(user_id, event_id, **fields)
+    except ValueError as e:
+        raise click.ClickException(str(e))
     if not event:
         click.echo(f"Event '{event_id}' not found")
         return
