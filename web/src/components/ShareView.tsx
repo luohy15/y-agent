@@ -50,6 +50,7 @@ export default function ShareView() {
   const [error, setError] = useState<string | null>(null);
   const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
   const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
+  const [shareLabel, setShareLabel] = useState("share");
   const isLoggedIn = !!getToken();
 
   useEffect(() => {
@@ -108,10 +109,10 @@ export default function ShareView() {
           </button>
         )}
         <button
-          onClick={() => { navigator.clipboard.writeText(window.location.href); }}
-          className="font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01"
+          onClick={() => { navigator.clipboard.writeText(window.location.href); setShareLabel("copied!"); setTimeout(() => setShareLabel("share"), 1500); }}
+          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
         >
-          share
+          {shareLabel}
         </button>
       </div>
       <div className="px-6 py-3 shrink-0 flex items-center justify-center gap-3">
