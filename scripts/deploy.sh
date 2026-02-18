@@ -81,6 +81,10 @@ if [ -n "$STACK_NAME" ]; then
     add_param "BranchName" "SANITIZED"
     add_param "LambdaRoleName" "LAMBDA_ROLE_NAME"
 
+    # Tag with git info for slot tracking
+    GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
     echo "Deploying preview stack: $STACK_NAME"
     sam deploy \
         --stack-name "$STACK_NAME" \
@@ -89,7 +93,8 @@ if [ -n "$STACK_NAME" ]; then
         --region "$AWS_REGION" \
         --no-confirm-changeset \
         --no-fail-on-empty-changeset \
-        --parameter-overrides $PARAM_OVERRIDES
+        --parameter-overrides $PARAM_OVERRIDES \
+        --tags "GitBranch=$GIT_BRANCH GitCommit=$GIT_COMMIT"
 
     # Print stack outputs for downstream scripts
     echo ""
