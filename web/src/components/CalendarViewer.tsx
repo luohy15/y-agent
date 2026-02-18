@@ -11,8 +11,7 @@ interface CalendarEvent {
   all_day: boolean;
   status: string;
   source?: string;
-  todo_id?: number;
-  linked_todo_id?: string;
+  todo_id?: string;
 }
 
 const fetcher = async (url: string) => {
@@ -263,14 +262,14 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                   {selectedEvent.source && (
                     <span className="text-sol-cyan mt-0.5 inline-block">Source: {selectedEvent.source}</span>
                   )}
-                  {selectedEvent.linked_todo_id && (
+                  {selectedEvent.todo_id && (
                     <span
                       className="text-sol-green mt-0.5 inline-block ml-2 cursor-pointer hover:underline"
                       onClick={() => {
-                        localStorage.setItem("todoExpandId", selectedEvent.linked_todo_id!);
+                        localStorage.setItem("todoExpandId", selectedEvent.todo_id!);
                         onOpenFile?.("todo.md");
                       }}
-                    >Todo: #{selectedEvent.linked_todo_id}</span>
+                    >Todo: #{selectedEvent.todo_id}</span>
                   )}
                 </div>
                 <button
