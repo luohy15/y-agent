@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import ApprovalModal from "./ApprovalBar";
@@ -10,10 +10,11 @@ interface ChatViewProps {
   onChatCreated?: (chatId: string) => void;
   onClear?: () => void;
   isLoggedIn: boolean;
+  gsiReady?: boolean;
   vmName?: string | null;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, vmName }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -227,7 +228,30 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, v
 
   if (!chatId) {
     if (!isLoggedIn) {
-      return <div className="flex-1" />;
+      const signinRef: RefCallback<HTMLDivElement> = (node) => {
+        if (!node || !gsiReady) return;
+        (window as any).google.accounts.id.renderButton(node, {
+          theme: "filled_black",
+          size: "large",
+          shape: "pill",
+        });
+      };
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <a
+            href="/s/425162"
+            className="px-4 py-2 bg-sol-cyan text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
+          >
+            Demo
+          </a>
+          <div className="relative inline-flex items-center justify-center">
+            <span className="px-5 py-2.5 bg-sol-base02 border border-sol-base021 text-sol-base1 rounded-md text-sm font-semibold pointer-events-none">
+              Sign in with Google
+            </span>
+            <div ref={signinRef} className="absolute inset-0 opacity-[0.01] overflow-hidden [&_iframe]{min-width:100%!important;min-height:100%!important}" />
+          </div>
+        </div>
+      );
     }
     return (
       <div className="flex-1 flex flex-col min-h-0">
