@@ -16,7 +16,7 @@ class CalendarEventEntity(Base, BaseEntity):
     all_day = Column(Boolean, nullable=False, default=False)
     status = Column(String, nullable=False, default="CONFIRMED")
     source = Column(String, nullable=True)
-    todo_id = Column(Integer, ForeignKey('todo.id', ondelete='SET NULL'), nullable=True)
+    todo_id = Column(String, nullable=True)
     deleted_at = Column(String, nullable=True)
 
     __table_args__ = (

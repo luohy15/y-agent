@@ -32,7 +32,7 @@ def list_events(
     start: Optional[str] = None,
     end: Optional[str] = None,
     source: Optional[str] = None,
-    todo_id: Optional[int] = None,
+    todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
 ) -> List[CalendarEvent]:

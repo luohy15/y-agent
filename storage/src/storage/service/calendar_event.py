@@ -6,7 +6,18 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from storage.entity.dto import CalendarEvent
 from storage.repository import calendar_event as event_repo
+from storage.repository import todo as todo_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
+
+
+def _resolve_todo_id(user_id: int, todo_id: Optional[str]) -> Optional[str]:
+    """Validate todo_id exists and return it. Raises ValueError if not found."""
+    if todo_id is None:
+        return None
+    todo = todo_repo.get_todo(user_id, todo_id)
+    if not todo:
+        raise ValueError(f"Todo '{todo_id}' not found")
+    return todo_id
 
 
 def _local_to_utc(local_str: str) -> str:
@@ -46,19 +57,20 @@ def add_event(
     start_time: str,
     end_time: Optional[str] = None,
     description: Optional[str] = None,
-    todo_id: Optional[int] = None,
+    todo_id: Optional[str] = None,
     all_day: bool = False,
     source: Optional[str] = None,
 ) -> CalendarEvent:
     utc_start = _local_to_utc(start_time)
     utc_end = _local_to_utc(end_time) if end_time else None
+    resolved_todo_id = _resolve_todo_id(user_id, todo_id)
     event = CalendarEvent(
         event_id=generate_id(),
         summary=summary,
         start_time=utc_start,
         end_time=utc_end,
         description=description,
-        todo_id=todo_id,
+        todo_id=resolved_todo_id,
         all_day=all_day,
         source=source,
     )
@@ -72,6 +84,8 @@ def update_event(user_id: int, event_id: str, **fields) -> Optional[CalendarEven
     for key, value in fields.items():
         if key in ("start_time", "end_time") and value is not None:
             value = _local_to_utc(value)
+        elif key == "todo_id":
+            value = _resolve_todo_id(user_id, value)
         if hasattr(event, key):
             setattr(event, key, value)
     return event_repo.save_event(user_id, event)
@@ -103,7 +117,7 @@ def list_events(
     start: Optional[str] = None,
     end: Optional[str] = None,
     source: Optional[str] = None,
-    todo_id: Optional[int] = None,
+    todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
 ) -> List[CalendarEvent]:
