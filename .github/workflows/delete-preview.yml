@@ -1,0 +1,44 @@
+name: Delete Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Branch name of the preview to delete'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  delete-preview:
+    runs-on: ubuntu-latest
+    environment: preview
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Parse config
+        run: |
+          CONFIG='${{ secrets.CONFIG }}'
+          echo "$CONFIG" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
+          echo "$CONFIG" | jq -r '.[]' | while read -r value; do
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done
+
+      - name: Delete preview
+        run: |
+          chmod +x scripts/delete-preview.sh scripts/upsert-dns.sh
+          ./scripts/delete-preview.sh "${{ inputs.branch_name }}"
