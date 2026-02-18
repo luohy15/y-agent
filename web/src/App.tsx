@@ -7,9 +7,6 @@ import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
-import ShareView from "./components/ShareView";
-
-const DEFAULT_SHARE_ID = "425162";
 
 interface VmConfigItem {
   name: string;
@@ -158,15 +155,6 @@ export default function App() {
     auth.logout();
   }, [auth]);
 
-  if (!auth.isLoggedIn && DEFAULT_SHARE_ID) {
-    return (
-      <div className="h-dvh flex flex-col overflow-hidden">
-        <Header key="landing" email={null} isLoggedIn={false} gsiReady={auth.gsiReady} onLogout={() => {}} />
-        <ShareView shareId={DEFAULT_SHARE_ID} />
-      </div>
-    );
-  }
-
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
       <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleSidebar={() => {
@@ -200,7 +188,7 @@ export default function App() {
           {/* Right top: FileViewer (always takes half, hidden content when no file) */}
           {(!chatMaximize || chatHide) && (
             <div className={`${chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={handleOpenFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} />
+              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} />
             </div>
           )}
           {/* Toolbar (always visible) */}
