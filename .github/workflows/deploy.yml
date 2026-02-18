@@ -8,6 +8,7 @@ on:
       - 'web/**'
       - 'scripts/deploy-web.sh'
       - '.github/workflows/deploy-web.yml'
+      - '**.md'
   workflow_dispatch:
     inputs:
       environment:
