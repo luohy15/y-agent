@@ -163,20 +163,19 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   }, [chatId]);
 
   const [shareLabel, setShareLabel] = useState("share");
-  const shareChat = useCallback(async () => {
+  const shareChat = useCallback(() => {
     if (!chatId) return;
-    const res = await authFetch(`${API}/api/chat/share`, {
+    const textPromise = authFetch(`${API}/api/chat/share`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const url = `${window.location.origin}/s/${data.share_id}`;
-      await navigator.clipboard.writeText(url);
+    })
+      .then((res) => res.json())
+      .then((data) => new Blob([`${window.location.origin}/s/${data.share_id}`], { type: "text/plain" }));
+    navigator.clipboard.write([new ClipboardItem({ "text/plain": textPromise })]).then(() => {
       setShareLabel("copied!");
       setTimeout(() => setShareLabel("share"), 1500);
-    }
+    });
   }, [chatId]);
 
   useEffect(() => {
