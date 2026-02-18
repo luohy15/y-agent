@@ -60,6 +60,18 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       return () => document.removeEventListener("keydown", handler);
     }, [handleSubmit, onToggleAutoApprove]);
 
+    // Auto-resize textarea on mobile
+    const autoResize = useCallback(() => {
+      const textarea = inputRef.current;
+      if (!textarea) return;
+      textarea.style.height = "auto";
+      textarea.style.height = textarea.scrollHeight + "px";
+    }, []);
+
+    useEffect(() => {
+      autoResize();
+    }, [value, autoResize]);
+
     const handleBashKeys = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (!e.ctrlKey) return;
       const input = e.currentTarget;
@@ -106,7 +118,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               }}
               autoFocus={autoFocus}
               rows={1}
-              className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1"
+              className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto"
             />
             {/* Desktop: custom cursor display */}
             <div className="hidden sm:block text-[0.775rem] font-mono text-sol-base0 whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em]">
