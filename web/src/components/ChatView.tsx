@@ -267,7 +267,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       );
     }
     return (
-      <div className="flex-1 flex flex-col min-h-0 justify-end">
+      <div className="flex-1 flex flex-col min-h-0 justify-end sm:justify-start">
         <ChatInput
           ref={inputRef}
           value={newPrompt}
