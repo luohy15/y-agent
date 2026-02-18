@@ -2,7 +2,7 @@ import asyncio
 import mimetypes
 import os
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -108,3 +108,27 @@ async def raw_file(request: Request, path: str = Query(...), vm_name: str = Quer
     data = await _exec_bytes(user_id, ["cat", path], timeout=30, vm_name=vm_name)
     mime, _ = mimetypes.guess_type(path)
     return Response(content=data, media_type=mime or "application/octet-stream")
+
+
+@router.post("/upload")
+async def upload_file(request: Request, dir: str = Query("."), vm_name: str = Query(None), file: UploadFile = File(...)):
+    user_id = _get_user_id(request)
+    vm_config = resolve_vm_config(user_id, vm_name)
+    data = await file.read()
+    filename = os.path.basename(file.filename or "upload")
+    # Sanitize filename
+    filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
+    if not filename:
+        filename = "upload"
+    dest = os.path.join(dir, filename)
+    if not vm_config.api_token:
+        work_dir = os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else os.getcwd()
+        full_path = os.path.join(work_dir, dest) if not os.path.isabs(dest) else dest
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as f:
+            f.write(data)
+    else:
+        import base64
+        b64 = base64.b64encode(data).decode()
+        await _exec(user_id, ["bash", "-c", f"echo '{b64}' | base64 -d > {dest}"], timeout=30, vm_name=vm_name)
+    return {"path": dest, "filename": filename, "size": len(data)}
