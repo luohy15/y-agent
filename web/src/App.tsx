@@ -4,7 +4,7 @@ import { API, authFetch } from "./api";
 import Header from "./components/Header";
 import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
-import FileTree, { FileTreeHandle } from "./components/FileTree";
+import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
 
@@ -39,7 +39,6 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 220;
   });
   const chatListResizingRef = useRef(false);
-  const fileTreeRef = useRef<FileTreeHandle>(null);
 
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
@@ -153,13 +152,6 @@ export default function App() {
     setSelectedChatId(chatId);
   }, []);
 
-  const handleLocateFile = useCallback((path: string) => {
-    fileTreeRef.current?.revealFile(path);
-    // Ensure sidebar is visible
-    if (window.innerWidth < 768) setSidebarOpen(true);
-    else setDesktopSidebarOpen(true);
-  }, []);
-
   const handleLogout = useCallback(() => {
     auth.logout();
   }, [auth]);
@@ -186,7 +178,7 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          <FileTree ref={fileTreeRef} isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={vmList.find(v => v.name === (selectedVM || "default"))?.work_dir} />
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={vmList.find(v => v.name === (selectedVM || "default"))?.work_dir} />
           <div
             className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
             onPointerDown={handleResizeStart}
@@ -197,7 +189,7 @@ export default function App() {
           {/* Right top: FileViewer (always takes half, hidden content when no file) */}
           {(!chatMaximize || chatHide) && (
             <div className={`${chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} onLocateFile={handleLocateFile} vmName={selectedVM} />
+              <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} />
             </div>
           )}
           {/* Toolbar (always visible) */}

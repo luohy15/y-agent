@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef, MutableRefObject } from "react";
+import { useState, useCallback, useRef, useEffect, MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { API, authFetch } from "../api";
 
@@ -36,15 +36,13 @@ interface FileTreeNodeProps {
   collapseVersion: number;
   onContextMenu: (e: React.MouseEvent, path: string) => void;
   vmQuery: string;
-  revealPath?: string | null;
 }
 
 function FileTreeNode({
   name, path, type, depth, onSelectFile,
   selected, selection, selectedPaths, dirRefreshMap, visiblePathsRef, collapseVersion,
-  onContextMenu: onCtxMenu, vmQuery, revealPath,
+  onContextMenu: onCtxMenu, vmQuery,
 }: FileTreeNodeProps) {
-  const nodeRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
 
   // Collapse all folders when collapseVersion changes
@@ -107,27 +105,6 @@ function FileTreeNode({
     }
     setExpanded(true);
   }, [isDir, expanded, children, path, onSelectFile, loadChildren]);
-
-  // Auto-expand directories along the reveal path
-  useEffect(() => {
-    if (!revealPath || !isDir) return;
-    if (revealPath === path || revealPath.startsWith(path + "/")) {
-      if (!expanded) {
-        if (children === null) {
-          loadChildren().then(() => setExpanded(true));
-        } else {
-          setExpanded(true);
-        }
-      }
-    }
-  }, [revealPath, path, isDir, expanded, children, loadChildren]);
-
-  // Scroll into view when this is the reveal target
-  useEffect(() => {
-    if (revealPath && revealPath === path && nodeRef.current) {
-      nodeRef.current.scrollIntoView({ block: "center", behavior: "instant" });
-    }
-  }, [revealPath, path]);
 
   const icon = isDir ? (expanded ? "\u25BE" : "\u25B8") : " ";
 
@@ -197,7 +174,6 @@ function FileTreeNode({
   return (
     <div>
       <div
-        ref={nodeRef}
         draggable
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
@@ -232,15 +208,10 @@ function FileTreeNode({
           collapseVersion={collapseVersion}
           onContextMenu={onCtxMenu}
           vmQuery={vmQuery}
-          revealPath={revealPath}
         />
       ))}
     </div>
   );
-}
-
-export interface FileTreeHandle {
-  revealFile: (path: string) => void;
 }
 
 interface FileTreeProps {
@@ -250,7 +221,7 @@ interface FileTreeProps {
   workDir?: string;
 }
 
-const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }, ref) {
+export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: FileTreeProps) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -261,21 +232,6 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({ i
   const anchorRef = useRef<string | null>(null);
   const visiblePathsRef = useRef<string[]>([]);
   const rootPath = ".";
-  const [revealPath, setRevealPath] = useState<string | null>(null);
-
-  useImperativeHandle(ref, () => ({
-    revealFile: (path: string) => {
-      // Normalize path to match tree paths (e.g. "./foo/bar")
-      const normalized = path.startsWith("./") ? path : "./" + path.replace(/^\//, "");
-      setRevealPath(normalized);
-      // Select the file in the tree
-      setSelectedPaths(new Set([normalized]));
-      anchorRef.current = normalized;
-      // Clear revealPath after a delay to allow re-triggering
-      setTimeout(() => setRevealPath(null), 2000);
-    },
-  }), []);
-
   // Clear visible paths at the start of each render so nodes re-register
   visiblePathsRef.current = [];
 
@@ -428,8 +384,7 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({ i
               collapseVersion={collapseVersion}
               onContextMenu={handleNodeContextMenu}
               vmQuery={vmQuery}
-              revealPath={revealPath}
-            />
+                />
           ))
         ) : null}
       </div>
@@ -452,6 +407,4 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({ i
       )}
     </div>
   );
-});
-
-export default FileTree;
+}

@@ -1,6 +1,10 @@
 import asyncio
+import fnmatch
+import json
 import mimetypes
 import os
+
+from loguru import logger
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
@@ -29,9 +33,21 @@ async def _exec(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str 
     return await runner.run_cmd(cmd, timeout=timeout)
 
 
+async def _get_vscode_excludes(user_id: int, vm_name: str, key: str) -> list[str]:
+    try:
+        raw = await _exec(user_id, ["cat", ".vscode/settings.json"], vm_name=vm_name)
+        settings = json.loads(raw)
+        excludes = settings.get(key, {})
+        return [pat.removeprefix("**/") for pat, enabled in excludes.items() if enabled is True]
+    except Exception:
+        return []
+
+
 @router.get("/list")
 async def list_files(request: Request, path: str = Query("."), vm_name: str = Query(None)):
     user_id = _get_user_id(request)
+    excludes = await _get_vscode_excludes(user_id, vm_name, "files.exclude")
+    logger.info("list_files excludes: {}", excludes)
     # ls -1apL: one per line, show dirs with /, show hidden, dereference symlinks
     output = await _exec(user_id, ["ls", "-1apL", path], vm_name=vm_name)
     entries = []
@@ -41,10 +57,13 @@ async def list_files(request: Request, path: str = Query("."), vm_name: str = Qu
         # Skip entries with control characters (non-printable)
         if any(c < ' ' or c == '\x7f' for c in line.rstrip("/")):
             continue
+        name = line[:-1] if line.endswith("/") else line
+        if any(fnmatch.fnmatch(name, pat) for pat in excludes):
+            continue
         if line.endswith("/"):
-            entries.append({"name": line[:-1], "type": "directory"})
+            entries.append({"name": name, "type": "directory"})
         else:
-            entries.append({"name": line, "type": "file"})
+            entries.append({"name": name, "type": "file"})
     return {"path": path, "entries": entries}
 
 
@@ -75,32 +94,22 @@ async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10, vm_name
 @router.get("/search")
 async def search_files(request: Request, q: str = Query(...), path: str = Query("."), vm_name: str = Query(None)):
     user_id = _get_user_id(request)
-    # Use git ls-files to respect .gitignore, fall back to find if not a git repo
-    try:
-        output = await _exec(
-            user_id,
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", path],
-            timeout=10,
-            vm_name=vm_name,
-        )
-    except Exception:
-        output = ""
-    q_lower = q.lower()
+    excludes = await _get_vscode_excludes(user_id, vm_name, "search.exclude")
+    # Build find command with exclude args from vscode settings
+    find_cmd = ["find", path, "-maxdepth", "8", "-type", "f"]
+    for pat in excludes:
+        find_cmd += ["-not", "-path", f"*/{pat}/*" if not pat.startswith("*") else pat]
+    find_cmd += ["-iname", f"*{q}*"]
+    logger.info("search_files cmd: {}", find_cmd)
+    output = await _exec(user_id, find_cmd, timeout=10, vm_name=vm_name)
     files = []
     for line in output.strip().splitlines():
-        if line and q_lower in line.lower() and len(files) < 50:
-            files.append(line.removeprefix("./"))
-    # Fall back to find if git ls-files returned nothing (not a git repo)
-    if not files and not output.strip():
-        output = await _exec(
-            user_id,
-            ["find", path, "-maxdepth", "8", "-type", "f", "-iname", f"*{q}*"],
-            timeout=10,
-            vm_name=vm_name,
-        )
-        for line in output.strip().splitlines():
-            if line and len(files) < 50:
-                files.append(line.removeprefix("./"))
+        if not line or len(files) >= 50:
+            continue
+        rel = line.removeprefix("./")
+        if any(fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(os.path.basename(rel), pat) for pat in excludes):
+            continue
+        files.append(rel)
     return {"query": q, "files": files}
 
 

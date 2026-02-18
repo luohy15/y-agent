@@ -12,7 +12,6 @@ interface FileViewerProps {
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
-  onLocateFile?: (path: string) => void;
   vmName?: string | null;
 }
 
@@ -40,7 +39,7 @@ interface FileCache {
   error?: string;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, onLocateFile, vmName }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
@@ -218,19 +217,18 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V5L4.5 2 8 -1v2zm0 14a7 7 0 0 1-7-7h1.5A5.5 5.5 0 0 0 8 13.5V11l3.5 3L8 17v-2z" />
             </svg>
           </button>
-          {onLocateFile && (
-            <button
-              onClick={() => onLocateFile(activeFile)}
-              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-1 shrink-0"
-              title="Locate file in tree"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z" />
-                <circle cx="8" cy="7" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                <line x1="10" y1="9" x2="13" y2="12" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(activeFile.replace(/^\.\//, ""));
+            }}
+            className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-1 shrink-0"
+            title="Copy path"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6z" />
+              <path d="M2 4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h1v1H2z" />
+            </svg>
+          </button>
         </div>
       )}
       {/* Content */}
