@@ -60,10 +60,10 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+      setSelectedIndex((i) => (i + 1) % results.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
+      setSelectedIndex((i) => (i - 1 + results.length) % results.length);
     } else if (e.key === "Enter" && results.length > 0) {
       e.preventDefault();
       handleSelect(results[selectedIndex]);
