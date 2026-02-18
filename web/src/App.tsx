@@ -29,11 +29,11 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("openFiles") || "[]"); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
-  const [chatMaximize, setChatMaximize] = useState(() => localStorage.getItem("chatMaximize") === "true");
-  const [chatHide, setChatHide] = useState(() => localStorage.getItem("chatHide") === "true");
+  const [chatMaximize, setChatMaximize] = useState(() => { const v = localStorage.getItem("chatMaximize"); return v === null ? true : v === "true"; });
+  const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
-  const [chatListOpen, setChatListOpen] = useState(() => localStorage.getItem("chatListOpen") !== "false");
+  const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [chatListWidth, setChatListWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -47,6 +47,7 @@ export default function App() {
     setOpenFiles((files) => files.includes(path) ? files : [...files, path]);
     setActiveFile(path);
     if (!chatHide) setChatMaximize(false);
+    if (window.innerWidth < 768) setSidebarOpen(false);
   }, [chatHide]);
 
   const handleCloseFile = useCallback((path: string) => {
@@ -157,7 +158,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleSidebar={() => {
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleSidebar={() => {
         // Mobile: toggle overlay; Desktop: toggle persistent sidebar
         const isMobile = window.innerWidth < 768;
         if (isMobile) setSidebarOpen((v) => !v);
@@ -205,18 +206,7 @@ export default function App() {
                     <line x1="2" y1="7" x2="12" y2="7" />
                   </svg>
                 </button>
-                <button
-                  onClick={() => setChatListOpen((v) => !v)}
-                  className={`md:hidden p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer ${chatListOpen ? "text-sol-blue" : ""}`}
-                  title={chatListOpen ? "Hide chat list" : "Show chat list"}
-                >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <line x1="2" y1="3" x2="12" y2="3" />
-                    <line x1="2" y1="7" x2="12" y2="7" />
-                    <line x1="2" y1="11" x2="12" y2="11" />
-                  </svg>
-                </button>
-                <button
+<button
                   onClick={() => setChatMaximize((v) => !v)}
                   className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                   title={chatMaximize ? "Restore chat" : "Maximize chat"}
