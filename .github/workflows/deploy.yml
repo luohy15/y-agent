@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'web/**'
+      - 'scripts/deploy-web.sh'
+      - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
     inputs:
       environment:
