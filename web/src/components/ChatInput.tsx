@@ -41,7 +41,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         const textarea = inputRef.current;
         if (!textarea) return;
         // Redirect printable keys, Enter, Backspace, and ctrl shortcuts
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === "Enter" && !e.shiftKey && !(e as KeyboardEvent).isComposing) {
           e.preventDefault();
           handleSubmit();
           return;
@@ -113,7 +113,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); onToggleAutoApprove(); }
-                else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+                else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSubmit(); }
                 else handleBashKeys(e);
               }}
               autoFocus={autoFocus}
