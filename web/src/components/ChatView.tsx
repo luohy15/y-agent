@@ -326,26 +326,32 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           </button>
         </div>
       )}
-      <ChatInput
-        ref={inputRef}
-        value={completed ? followUp : ""}
-        onChange={completed ? setFollowUp : () => {}}
-        onSubmit={completed ? sendFollowUp : () => {}}
-        onClear={onClear}
-        autoApprove={autoApprove}
-        onToggleAutoApprove={toggleAutoApprove}
-        sending={sending}
-        disabled={!completed}
-        autoFocus={completed}
-        extraButtons={completed ? <>
-          {processDetailButtons}
-          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-        </> : <>
+      {!completed && (
+        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
+          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
+          <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
           {processDetailButtons}
           <button onClick={stopChat} className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
           <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
-        </>}
-      />
+        </div>
+      )}
+      {completed && (
+        <ChatInput
+          ref={inputRef}
+          value={followUp}
+          onChange={setFollowUp}
+          onSubmit={sendFollowUp}
+          onClear={onClear}
+          autoApprove={autoApprove}
+          onToggleAutoApprove={toggleAutoApprove}
+          sending={sending}
+          autoFocus
+          extraButtons={<>
+            {processDetailButtons}
+            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+          </>}
+        />
+      )}
     </div>
   );
 }
