@@ -283,6 +283,25 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     );
   }
 
+  const processDetailButtons = (
+    <>
+      <button
+        onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
+        className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+      >
+        {showProcess ? "process ●" : "process ○"}
+      </button>
+      {showProcess && (
+        <button
+          onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
+          className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+        >
+          {showDetail ? "detail ●" : "detail ○"}
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} />
@@ -307,62 +326,26 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           </button>
         </div>
       )}
-      {!completed && (
-        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
-          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
-          <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
-          <button
-            onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-            className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-          >
-            {showProcess ? "process ●" : "process ○"}
-          </button>
-          {showProcess && (
-            <button
-              onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-              className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-            >
-              {showDetail ? "detail ●" : "detail ○"}
-            </button>
-          )}
-          <button
-            onClick={stopChat}
-            className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer"
-          >
-            Stop
-          </button>
-          <span className="hidden sm:inline text-sol-base01 font-mono">Esc / Ctrl+C to stop</span>
-        </div>
-      )}
-      {completed && (
-        <ChatInput
-          ref={inputRef}
-          value={followUp}
-          onChange={setFollowUp}
-          onSubmit={sendFollowUp}
-          onClear={onClear}
-          autoApprove={autoApprove}
-          onToggleAutoApprove={toggleAutoApprove}
-          autoFocus
-          extraButtons={<>
-            <button
-              onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-              className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-            >
-              {showProcess ? "process ●" : "process ○"}
-            </button>
-            {showProcess && (
-              <button
-                onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-                className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-              >
-                {showDetail ? "detail ●" : "detail ○"}
-              </button>
-            )}
-            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-          </>}
-        />
-      )}
+      <ChatInput
+        ref={inputRef}
+        value={completed ? followUp : ""}
+        onChange={completed ? setFollowUp : () => {}}
+        onSubmit={completed ? sendFollowUp : () => {}}
+        onClear={onClear}
+        autoApprove={autoApprove}
+        onToggleAutoApprove={toggleAutoApprove}
+        sending={sending}
+        disabled={!completed}
+        autoFocus={completed}
+        extraButtons={completed ? <>
+          {processDetailButtons}
+          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+        </> : <>
+          {processDetailButtons}
+          <button onClick={stopChat} className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
+          <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
+        </>}
+      />
     </div>
   );
 }
