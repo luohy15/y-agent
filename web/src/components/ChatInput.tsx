@@ -8,6 +8,7 @@ interface ChatInputProps {
   autoApprove: boolean;
   onToggleAutoApprove: () => void;
   sending?: boolean;
+  disabled?: boolean;
   autoFocus?: boolean;
   extraButtons?: ReactNode;
 }
@@ -17,7 +18,7 @@ export interface ChatInputHandle {
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus, extraButtons }, ref) => {
+  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, disabled, autoFocus, extraButtons }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
@@ -117,13 +118,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 else handleBashKeys(e);
               }}
               autoFocus={autoFocus}
+              disabled={disabled}
               rows={1}
-              className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto"
+              className={`sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto ${disabled ? "text-sol-base01 cursor-not-allowed" : "text-sol-base0"}`}
             />
             {/* Desktop: custom cursor display */}
-            <div className="hidden sm:block text-[0.775rem] font-mono text-sol-base0 whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em]">
-              {value}
-              <span className="inline-block w-[0.6em] h-[1em] bg-sol-base1 align-text-bottom" />
+            <div className={`hidden sm:block text-[0.775rem] font-mono whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em] ${disabled ? "text-sol-base01" : "text-sol-base0"}`}>
+              {disabled ? <span className="italic">running…</span> : value}
+              {!disabled && <span className="inline-block w-[0.6em] h-[1em] bg-sol-base1 align-text-bottom" />}
             </div>
           </div>
         </div>
