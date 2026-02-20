@@ -118,8 +118,11 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
     cb = lambda msg: message_callback(chat_id, msg)
     interrupted_fn = lambda: check_interrupted(chat_id)
 
-    # Resume existing session or start new one
+    # Resume existing session only if work_dir matches (session files are path-specific)
     session_id = chat.external_id
+    if session_id and chat.work_dir != cwd:
+        logger.info("claude-code work_dir mismatch (was {}, now {}), aborting", chat.work_dir, cwd)
+        return
     resume = bool(session_id)
     logger.info("claude-code start chat_id={} session_id={} resume={}", chat_id, session_id, resume)
 
@@ -138,12 +141,13 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 
-    # Save session_id to chat.external_id for future resume
+    # Save session_id and work_dir for future resume
     # Reload fresh chat from DB to avoid overwriting messages appended via callback
     if result.session_id:
         fresh_chat = await chat_service.get_chat_by_id(chat_id)
         if fresh_chat:
             fresh_chat.external_id = result.session_id
+            fresh_chat.work_dir = cwd
             from storage.repository import chat as chat_repo
             await chat_repo.save_chat_by_id(fresh_chat)
 
