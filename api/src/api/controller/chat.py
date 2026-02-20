@@ -107,9 +107,9 @@ def _get_user_id(request: Request) -> int:
 
 
 @router.get("/list")
-async def get_chats(request: Request, query: Optional[str] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+async def get_chats(request: Request, query: Optional[str] = Query(None)):
     user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset)
+    chats = await chat_service.list_chats(user_id, query=query)
     return [
         {
             "chat_id": c.chat_id,
@@ -284,13 +284,10 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     chat = await chat_service.get_chat(user_id, chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
-    result = {
+    return {
         "chat_id": chat.id,
         "auto_approve": chat.auto_approve,
     }
-    if chat.work_dir:
-        result["work_dir"] = chat.work_dir
-    return result
 
 
 @router.get("/messages")
