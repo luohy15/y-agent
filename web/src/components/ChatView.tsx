@@ -13,18 +13,15 @@ interface ChatViewProps {
   isLoggedIn: boolean;
   gsiReady?: boolean;
   vmName?: string | null;
-  vmWorkDir?: string;
-  onWorkDirChange?: (workDir: string | null) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
   const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; function: { name: string; arguments: string }; status?: string }>>([]);
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem("autoApprove") === "true");
   const [completed, setCompleted] = useState(false);
-  const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [newPrompt, setNewPrompt] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
@@ -63,12 +60,9 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       .then((r) => r.json())
       .then((data) => {
         if (data.auto_approve !== undefined) setAutoApprove(data.auto_approve);
-        const wd = data.work_dir ?? null;
-        setChatWorkDir(wd);
-        onWorkDirChange?.(wd);
       })
       .catch(() => {});
-  }, [chatId, onWorkDirChange]);
+  }, [chatId]);
 
   const connectSSE = useCallback((chatId: string, fromIndex: number) => {
     if (esRef.current) esRef.current.close();
@@ -341,7 +335,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
         </div>
       )}
-      {completed && chatWorkDir && vmWorkDir && chatWorkDir === vmWorkDir ? (
+      {completed && (
         <ChatInput
           ref={inputRef}
           value={followUp}
@@ -357,12 +351,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
             <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
           </>}
         />
-      ) : completed ? (
-        <div className="mx-4 border-t border-sol-base02 shrink-0 px-4 py-3 flex items-center gap-3 text-sm sm:text-xs text-sol-base01">
-          {processDetailButtons}
-          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
