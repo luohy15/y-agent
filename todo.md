@@ -1,0 +1,1 @@
+- [ ] backfill historical chats: existing chats with `external_id` (session_id) are missing `work_dir` field, need to populate it
