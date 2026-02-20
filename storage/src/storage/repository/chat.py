@@ -24,7 +24,7 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return Chat.from_dict(json.loads(entity.json_content))
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -32,6 +32,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None)
         if query:
             q = q.filter(ChatEntity.title.ilike(f"%{query}%"))
         rows = (q.order_by(ChatEntity.updated_at.desc())
+                 .offset(offset)
                  .limit(limit)
                  .all())
         return [
