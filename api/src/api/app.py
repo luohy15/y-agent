@@ -1,4 +1,5 @@
 import json
+import os
 import uvicorn
 from typing import Any
 from fastapi import APIRouter, FastAPI
@@ -38,7 +39,8 @@ api_router.include_router(vm_config_router)
 app.include_router(api_router)
 
 def main():
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("API_PORT", 8001))
+    uvicorn.run("api.app:app", host="0.0.0.0", port=port, reload=True)
 
 
 if __name__ == "__main__":

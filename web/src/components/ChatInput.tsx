@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from "react";
+import { type ReactNode, useRef, useCallback, useEffect, useImperativeHandle, forwardRef, useState } from "react";
 
 interface ChatInputProps {
   value: string;
@@ -19,6 +19,12 @@ export interface ChatInputHandle {
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus, extraButtons }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
+    const [cursorPos, setCursorPos] = useState<number>(0);
+
+    const updateCursor = useCallback(() => {
+      const el = inputRef.current;
+      if (el) setCursorPos(el.selectionStart ?? el.value.length);
+    }, []);
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
 
@@ -110,20 +116,25 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             <textarea
               ref={inputRef}
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={(e) => { onChange(e.target.value); updateCursor(); }}
               onKeyDown={(e) => {
                 if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); onToggleAutoApprove(); }
                 else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSubmit(); }
                 else handleBashKeys(e);
+                requestAnimationFrame(updateCursor);
               }}
+              onKeyUp={updateCursor}
+              onClick={updateCursor}
+              onSelect={updateCursor}
               autoFocus={autoFocus}
               rows={1}
               className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto"
             />
             {/* Desktop: custom cursor display */}
             <div className="hidden sm:block text-[0.775rem] font-mono text-sol-base0 whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em]">
-              {value}
-              <span className="inline-block w-[0.6em] h-[1em] bg-sol-base1 align-text-bottom" />
+              {value.slice(0, cursorPos)}
+              <span className="bg-sol-base0 text-sol-base03">{value[cursorPos] ?? " "}</span>
+              {value.slice(cursorPos + 1)}
             </div>
           </div>
         </div>
