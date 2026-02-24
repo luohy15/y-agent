@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect, MutableRefObject } from "reac
 import { createPortal } from "react-dom";
 import { API, authFetch } from "../api";
 
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 interface FileEntry {
   name: string;
   type: "file" | "directory";
@@ -307,6 +309,33 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
     loadRoot();
   }
 
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    // Upload into the root directory by default
+    const destDir = ".";
+
+    for (const file of files) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        alert(`${file.name} exceeds 50 MB limit`);
+        continue;
+      }
+      const form = new FormData();
+      form.append("file", file);
+      form.append("dest_dir", destDir);
+      if (vmName) form.append("vm_name", vmName);
+      await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
+    }
+
+    // Refresh affected directories
+    const refresh = dirRefreshMapRef.current.get(destDir) ?? dirRefreshMapRef.current.get(".");
+    if (refresh) refresh();
+  }, [vmName]);
+
   const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
       setSelectedPaths(new Set());
@@ -341,6 +370,16 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
       <div className="flex items-center gap-3 px-2 py-1.5 sm:py-1 border-b border-sol-base02 shrink-0">
         {workDir && <span className="text-sm sm:text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
         {!workDir && <span className="flex-1" />}
+        <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
+        <button
+          onClick={() => uploadInputRef.current?.click()}
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center"
+          title="Upload file(s)"
+        >
+          <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1l4 4H9v5H7V5H4L8 1zM2 13h12v1.5H2V13z" />
+          </svg>
+        </button>
         <button
           onClick={() => { if (dirRefreshMapRef.current.size > 5) { setCollapseVersion(v => v + 1); loadRoot(); } else { for (const refresh of dirRefreshMapRef.current.values()) refresh(); } }}
           className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center"

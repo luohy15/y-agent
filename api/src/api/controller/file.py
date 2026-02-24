@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import fnmatch
 import json
 import mimetypes
@@ -6,7 +7,7 @@ import os
 
 from loguru import logger
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -123,6 +124,42 @@ async def move_files(request: Request, body: MoveRequest, vm_name: str = Query(N
     user_id = _get_user_id(request)
     await _exec(user_id, ["mv", *body.sources, body.dest_dir], vm_name=vm_name)
     return {"sources": body.sources, "dest_dir": body.dest_dir, "success": True}
+
+
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+@router.post("/upload")
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    dest_dir: str = Form(...),
+    vm_name: str = Form(None),
+):
+    user_id = _get_user_id(request)
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+
+    filename = os.path.basename(file.filename or "upload")
+    dest_path = f"{dest_dir}/{filename}"
+
+    vm_config = resolve_vm_config(user_id, vm_name)
+    if not vm_config.api_token:
+        # Local: write directly to disk
+        work_dir = os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else "."
+        full_path = os.path.normpath(os.path.join(work_dir, dest_path))
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as f:
+            f.write(content)
+    else:
+        # Remote: pipe base64-encoded content through stdin and decode on target
+        import shlex
+        b64 = base64.b64encode(content).decode("ascii")
+        runner = _CmdRunner(vm_config)
+        await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(dest_path)}"], stdin=b64)
+
+    return {"path": dest_path, "size": len(content), "success": True}
 
 
 @router.get("/raw")
