@@ -17,6 +17,7 @@ dependencies = [
     "google-auth>=2.29.0",
     "requests>=2.31.0",
     "celery>=5.3.0",
+    "python-multipart>=0.0.22",
 ]
 
 [tool.hatch.build.targets.wheel]
