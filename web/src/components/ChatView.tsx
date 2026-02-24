@@ -16,9 +16,10 @@ interface ChatViewProps {
   vmWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
   onComplete?: () => void;
+  onOpenFile?: (path: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange, onComplete }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange, onComplete, onOpenFile }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -320,7 +321,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
-      <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} />
+      <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} />
       <ApprovalModal
         chatId={chatId}
         toolCalls={pendingToolCalls}

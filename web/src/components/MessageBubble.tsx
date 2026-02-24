@@ -10,11 +10,27 @@ interface MessageBubbleProps {
   toolName?: string;
   arguments?: Record<string, unknown>;
   timestamp?: string;
+  onOpenFile?: (path: string) => void;
 }
 
 function truncate(s: string, n: number): string {
   if (!s) return "";
   return s.length > n ? s.slice(0, n) + "..." : s;
+}
+
+function getFilePath(toolName: string, args?: Record<string, unknown>): string | null {
+  const nameLower = toolName.toLowerCase();
+  if (["file_read", "read", "file_write", "write", "file_edit", "edit"].includes(nameLower)) {
+    const p = String(args?.path || args?.file_path || "");
+    return p || null;
+  }
+  return null;
+}
+
+function looksLikeFilePath(s: string): boolean {
+  if (s.includes(" ") || s.includes("\n")) return false;
+  if (s.startsWith("http://") || s.startsWith("https://")) return false;
+  return s.includes("/");
 }
 
 function formatToolCall(toolName: string, args?: Record<string, unknown>, approved = true): string {
@@ -78,16 +94,20 @@ function ExpandableResult({ content, color }: { content: string; color: string }
   );
 }
 
-export default function MessageBubble({ role, content, toolName, arguments: args, timestamp }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, onOpenFile }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
 
   // Tool pending: show tool call with # prefix (blue) + pulsing dot
   if (role === "tool_pending" && toolName) {
+    const filePath = getFilePath(toolName, args);
     return (
       <div className="text-sm sm:text-[0.775rem] font-mono text-sol-blue flex items-center gap-2 break-all">
-        <span className="min-w-0">{formatToolCall(toolName, args, false)}</span>
+        <span
+          className={`min-w-0${filePath && onOpenFile ? " cursor-pointer hover:underline" : ""}`}
+          onClick={filePath && onOpenFile ? () => onOpenFile(filePath) : undefined}
+        >{formatToolCall(toolName, args, false)}</span>
         <span className="animate-pulse">●</span>
       </div>
     );
@@ -95,9 +115,13 @@ export default function MessageBubble({ role, content, toolName, arguments: args
 
   // Tool denied: show tool call with # prefix (grey) + expandable denied result
   if (role === "tool_denied" && toolName) {
+    const filePath = getFilePath(toolName, args);
     return (
       <div>
-        <div className="text-sm sm:text-[0.775rem] font-mono text-sol-base01 break-all">
+        <div
+          className={`text-sm sm:text-[0.775rem] font-mono text-sol-base01 break-all${filePath && onOpenFile ? " cursor-pointer hover:underline" : ""}`}
+          onClick={filePath && onOpenFile ? () => onOpenFile(filePath) : undefined}
+        >
           {formatToolCall(toolName, args, false)}
         </div>
         <ExpandableResult content={content} color="text-sol-base01" />
@@ -107,9 +131,13 @@ export default function MessageBubble({ role, content, toolName, arguments: args
 
   // Tool result: tool name + args on first line, expandable result on second line
   if (role === "tool_result" && toolName) {
+    const filePath = getFilePath(toolName, args);
     return (
       <div>
-        <div className="text-sm sm:text-[0.775rem] font-mono text-sol-cyan break-all">
+        <div
+          className={`text-sm sm:text-[0.775rem] font-mono text-sol-cyan break-all${filePath && onOpenFile ? " cursor-pointer hover:underline" : ""}`}
+          onClick={filePath && onOpenFile ? () => onOpenFile(filePath) : undefined}
+        >
           {formatToolCall(toolName, args)}
         </div>
         <ExpandableResult content={content} color="text-sol-blue" />
@@ -139,7 +167,27 @@ export default function MessageBubble({ role, content, toolName, arguments: args
     <div>
       <TimestampLine timestamp={timestamp} />
       <div className="text-sm sm:text-[0.775rem] text-sol-base0 prose prose-sm max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code({ children, className, ...props }) {
+              const text = String(children).replace(/\n$/, "");
+              const isInline = !className;
+              if (isInline && onOpenFile && looksLikeFilePath(text)) {
+                return (
+                  <code
+                    {...props}
+                    className="cursor-pointer text-sol-cyan hover:underline"
+                    onClick={() => onOpenFile(text)}
+                  >
+                    {children}
+                  </code>
+                );
+              }
+              return <code className={className} {...props}>{children}</code>;
+            },
+          }}
+        >{content}</ReactMarkdown>
       </div>
     </div>
   );
