@@ -39,9 +39,9 @@ const statusColor: Record<string, string> = {
   completed: "bg-sol-green text-sol-base03",
 };
 
-function TodoCard({ t, onClose }: { t: Todo; onClose?: () => void }) {
+function TodoCard({ t, onClose, className }: { t: Todo; onClose?: () => void; className?: string }) {
   return (
-    <div className="bg-sol-base02 rounded p-2 border border-sol-base01/20 relative" data-todo-card>
+    <div className={`bg-sol-base02 rounded p-2 border border-sol-base01/20 relative ${className || ""}`} data-todo-card>
       {onClose && (
         <button onClick={onClose} className="absolute top-1 right-1 text-sol-base01 hover:text-sol-base1 cursor-pointer text-xs">&times;</button>
       )}
@@ -203,9 +203,11 @@ export default function TodoViewer() {
       {/* Active tasks as cards */}
       {activeCards.length > 0 && (
         <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             {activeCards.map((t) => (
-              <TodoCard key={t.todo_id} t={t} />
+              <div key={t.todo_id} className="sm:w-52 sm:shrink-0">
+                <TodoCard t={t} className="h-full" />
+              </div>
             ))}
           </div>
         </div>
