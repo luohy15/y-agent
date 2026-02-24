@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
@@ -40,6 +41,7 @@ interface FileCache {
 }
 
 export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
+  const { mutate } = useSWRConfig();
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [zoom, setZoom] = useState(100);
@@ -110,6 +112,14 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const handleRefresh = useCallback(() => {
     if (!activeFile) return;
+    if (isTodo) {
+      mutate((key) => typeof key === "string" && key.includes("/api/todo/"));
+      return;
+    }
+    if (isCalendar) {
+      mutate((key) => typeof key === "string" && key.includes("/api/calendar/"));
+      return;
+    }
     // Clear cache entry so useEffect re-fetches
     setCache((prev) => {
       const next = { ...prev };
@@ -120,7 +130,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile]);
+  }, [activeFile, isTodo, isCalendar, mutate]);
 
   const activeData = activeFile ? cache[activeFile] : undefined;
   const ext = activeFile ? getExt(activeFile) : "";

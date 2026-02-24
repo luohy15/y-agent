@@ -110,14 +110,14 @@ function compareTodos(a: Todo, b: Todo, key: SortKey): number {
 }
 
 function sortTodos(todos: Todo[], key: SortKey, dir: SortDir): Todo[] {
-  const tiebreakers: SortKey[] = ["due_date", "priority", "todo_id"];
+  const tiebreakers: SortKey[] = ["due_date", "priority", "updated_at"];
   return [...todos].sort((a, b) => {
     const primary = compareTodos(a, b, key);
     if (primary !== 0) return dir === "asc" ? primary : -primary;
     for (const tk of tiebreakers) {
       if (tk === key) continue;
       const cmp = compareTodos(a, b, tk);
-      if (cmp !== 0) return cmp;
+      if (cmp !== 0) return tk === "updated_at" ? -cmp : cmp;
     }
     return 0;
   });
