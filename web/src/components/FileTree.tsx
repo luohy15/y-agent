@@ -56,6 +56,7 @@ function FileTreeNode({
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [moving, setMoving] = useState(false);
 
   // Register this path in visible order during render
   visiblePathsRef.current.push(path);
@@ -156,6 +157,7 @@ function FileTreeNode({
       const sources: string[] = JSON.parse(e.dataTransfer.getData("application/json"));
       const valid = sources.filter(s => s !== path && !destDir.startsWith(s + "/"));
       if (valid.length === 0) return;
+      setMoving(true);
       await authFetch(`${API}/api/file/move${vmQuery ? `?${vmQuery.slice(1)}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -170,6 +172,8 @@ function FileTreeNode({
       }
     } catch (err) {
       console.error("Move failed:", err);
+    } finally {
+      setMoving(false);
     }
   }, [path, destDir, dirRefreshMap]);
 
@@ -192,7 +196,7 @@ function FileTreeNode({
       >
         <span className="w-3 text-center text-sol-base01 text-xs shrink-0">{icon}</span>
         <span className="truncate">{name}</span>
-        {loading && <span className="text-sol-base01 text-xs ml-1">...</span>}
+        {(loading || moving) && <span className="text-sol-base01 text-xs ml-1">...</span>}
       </div>
       {expanded && children && children.map((child) => (
         <FileTreeNode
@@ -227,6 +231,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
@@ -319,16 +324,21 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
     // Upload into the root directory by default
     const destDir = ".";
 
-    for (const file of files) {
-      if (file.size > MAX_UPLOAD_BYTES) {
-        alert(`${file.name} exceeds 50 MB limit`);
-        continue;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        if (file.size > MAX_UPLOAD_BYTES) {
+          alert(`${file.name} exceeds 50 MB limit`);
+          continue;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        form.append("dest_dir", destDir);
+        if (vmName) form.append("vm_name", vmName);
+        await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
       }
-      const form = new FormData();
-      form.append("file", file);
-      form.append("dest_dir", destDir);
-      if (vmName) form.append("vm_name", vmName);
-      await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
+    } finally {
+      setUploading(false);
     }
 
     // Refresh affected directories
@@ -373,10 +383,11 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
         <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
         <button
           onClick={() => uploadInputRef.current?.click()}
-          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center"
+          disabled={uploading}
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           title="Upload file(s)"
         >
-          <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+          <svg className={`w-5 h-5 sm:w-3.5 sm:h-3.5 ${uploading ? "animate-bounce" : ""}`} viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1l4 4H9v5H7V5H4L8 1zM2 13h12v1.5H2V13z" />
           </svg>
         </button>
