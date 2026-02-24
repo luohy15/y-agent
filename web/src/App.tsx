@@ -256,7 +256,7 @@ export default function App() {
           <div className={`flex flex-col min-h-0 ${chatMaximize ? "flex-1" : "h-3/5"} ${chatHide ? "hidden" : ""}`}>
             <div className="flex flex-1 min-h-0 relative">
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-                <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} vmWorkDir={currentVmWorkDir} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} />
+                <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} vmWorkDir={currentVmWorkDir} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
               {!chatHide && (

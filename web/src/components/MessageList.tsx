@@ -144,7 +144,7 @@ function filterLevel2(messages: Message[]): DisplayItem[] {
   return items;
 }
 
-function FileToolGroup({ kind, messages, startIndex }: { kind: string; messages: Message[]; startIndex: number }) {
+function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const paths = messages.map((m) => String(m.arguments?.path || m.arguments?.file_path || "")).filter(Boolean);
   return (
@@ -162,7 +162,7 @@ function FileToolGroup({ kind, messages, startIndex }: { kind: string; messages:
       {expanded && (
         <div className="flex flex-col gap-2 mt-1">
           {messages.map((m, j) => (
-            <MessageBubble key={startIndex + j} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} />
+            <MessageBubble key={startIndex + j} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} />
           ))}
         </div>
       )}
@@ -184,9 +184,10 @@ interface MessageListProps {
   centered?: boolean;
   showProcess: boolean;
   showDetail: boolean;
+  onOpenFile?: (path: string) => void;
 }
 
-export default function MessageList({ messages, running, centered, showProcess, showDetail }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -207,10 +208,10 @@ export default function MessageList({ messages, running, centered, showProcess, 
           return <ToolSummary key={`ts-${item.index}`} count={item.count} />;
         }
         if (item.type === "file_tools") {
-          return <FileToolGroup key={`fr-${item.startIndex}`} kind={item.kind} messages={item.messages} startIndex={item.startIndex} />;
+          return <FileToolGroup key={`fr-${item.startIndex}`} kind={item.kind} messages={item.messages} startIndex={item.startIndex} onOpenFile={onOpenFile} />;
         }
         return (
-          <MessageBubble key={item.index} role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} />
+          <MessageBubble key={item.index} role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} />
         );
       })}
       {running && (
