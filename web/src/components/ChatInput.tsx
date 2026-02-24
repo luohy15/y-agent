@@ -58,6 +58,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           return;
         }
         if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
+          // Don't steal focus if user has text selected (e.g., to copy)
+          const sel = window.getSelection();
+          if (sel && sel.toString().length > 0) return;
           textarea.focus();
           // The native event will replay in the now-focused textarea
         }
