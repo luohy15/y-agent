@@ -15,9 +15,10 @@ interface ChatViewProps {
   vmName?: string | null;
   vmWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
+  onComplete?: () => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange, onComplete }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [showApproval, setShowApproval] = useState(false);
@@ -56,7 +57,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     ));
   }, []);
 
-  // Fetch chat detail (auto_approve, etc.) when chatId changes
+  // Fetch chat detail (auto_approve, work_dir) when chatId changes or chat completes
   useEffect(() => {
     if (!chatId) return;
     authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`)
@@ -68,7 +69,10 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         onWorkDirChange?.(wd);
       })
       .catch(() => {});
-  }, [chatId, onWorkDirChange]);
+  }, [chatId, completed, onWorkDirChange]);
+
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   const connectSSE = useCallback((chatId: string, fromIndex: number) => {
     if (esRef.current) esRef.current.close();
@@ -135,7 +139,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       setCompleted(true);
       es.close();
       esRef.current = null;
-      mutate(`${API}/api/chat/list`);
+      onCompleteRef.current?.();
     });
     es.addEventListener("error", () => {});
   }, [addMessage, updateToolMessage, mutate]);
@@ -224,7 +228,13 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         body: JSON.stringify({ prompt: text, auto_approve: autoApprove, ...(vmName ? { vm_name: vmName } : {}) }),
       });
       const data = await res.json();
-      mutate(`${API}/api/chat/list`);
+      const now = new Date().toISOString();
+      const newChat = { chat_id: data.chat_id, title: text, created_at: now, updated_at: now };
+      mutate(
+        (key: unknown) => typeof key === "string" && key.startsWith(`${API}/api/chat/list`) && key.includes("offset=0"),
+        (current: unknown) => [newChat, ...((current as unknown[]) || [])],
+        { revalidate: true },
+      );
       setNewPrompt("");
       onChatCreated(data.chat_id);
     } finally {
@@ -318,7 +328,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         onApproved={() => {
           setShowApproval(false);
           setPendingToolCalls([]);
-          mutate(`${API}/api/chat/list`);
+          mutate((key) => typeof key === "string" && key.startsWith(`${API}/api/chat/list`));
         }}
         onClose={() => setShowApproval(false)}
       />

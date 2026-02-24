@@ -13,6 +13,7 @@ interface ChatListProps {
   isLoggedIn: boolean;
   selectedChatId: string | null;
   onSelectChat: (id: string | null) => void;
+  refreshKey?: number;
 }
 
 const PAGE_SIZE = 50;
@@ -26,7 +27,7 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey }: ChatListProps) {
   const [search, setSearch] = useState("");
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
 
@@ -36,7 +37,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
     return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}`;
   };
 
-  const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<Chat[]>(getKey, fetcher);
+  const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
 
   const chats = data ? data.flat() : [];
   const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
@@ -62,6 +63,12 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat }: C
   useEffect(() => {
     setSize(1);
   }, [search, setSize]);
+
+  // Revalidate when parent signals a chat completed
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    mutate();
+  }, [refreshKey, mutate]);
 
   const handleClick = (id: string) => {
     onSelectChat(selectedChatId === id ? null : id);
