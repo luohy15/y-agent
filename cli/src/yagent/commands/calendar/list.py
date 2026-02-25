@@ -7,8 +7,8 @@ from storage.service.user import get_cli_user_id
 
 @click.command('list')
 @click.option('--date', '-d', default=None, help='Filter by date (YYYY-MM-DD)')
-@click.option('--start', default=None, help='Filter start >= this time')
-@click.option('--end', default=None, help='Filter start <= this time')
+@click.option('--start', default=None, help='Filter start >= this time (local, e.g. 2026-02-25T08:00)')
+@click.option('--end', default=None, help='Filter start <= this time (local, e.g. 2026-02-25T20:00)')
 @click.option('--limit', '-n', default=50, help='Max results')
 @click.option('--source', default=None, help='Filter by source')
 @click.option('--todo-id', default=None, type=int, help='Filter by linked todo')
