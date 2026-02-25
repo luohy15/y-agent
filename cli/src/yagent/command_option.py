@@ -1,3 +1,4 @@
+import os
 import click
 from dotenv import load_dotenv
 
@@ -11,7 +12,8 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 @click.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     """Personal command-line toolkit."""
-    load_dotenv()
+    home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
+    load_dotenv(os.path.join(home, ".env"))
 
 
 # Register commands
