@@ -9,6 +9,8 @@ class ChatEntity(Base, BaseEntity):
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
     chat_id = Column(String, nullable=False)
     title = Column(String, nullable=True)
+    external_id = Column(String, nullable=True, index=True)
+    backend = Column(String, nullable=True)
     origin_chat_id = Column(String, nullable=True, index=True)
     json_content = Column(Text, nullable=False)
 

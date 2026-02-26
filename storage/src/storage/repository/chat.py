@@ -1,7 +1,7 @@
 """Chat repository using SQLAlchemy ORM."""
 
 import json
-from typing import List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 
 from sqlalchemy.orm import defer
@@ -79,6 +79,10 @@ def _extract_title(chat: Chat) -> str:
     for m in chat.messages:
         if m.role == 'user':
             return m.content[:100] if isinstance(m.content, str) else ""
+    # Fallback to first assistant message if no user message found
+    for m in chat.messages:
+        if m.role == 'assistant' and isinstance(m.content, str) and m.content.strip():
+            return m.content.strip()[:100]
     return ""
 
 
@@ -94,11 +98,15 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.json_content = content
             entity.title = title
             entity.origin_chat_id = chat.origin_chat_id
+            entity.external_id = chat.external_id
+            entity.backend = chat.backend
         else:
             entity = ChatEntity(
                 user_id=user_id,
                 chat_id=chat.id,
                 title=title,
+                external_id=chat.external_id,
+                backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
                 json_content=content,
             )
@@ -142,6 +150,16 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
 
 async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     return _get_chat_by_id_sync(chat_id)
+
+
+def find_external_id_map(user_id: int, backend: str) -> Dict[str, str]:
+    """Return {external_id: chat_id} for all chats with the given backend."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity.external_id, ChatEntity.chat_id)
+                .filter_by(user_id=user_id, backend=backend)
+                .filter(ChatEntity.external_id.isnot(None))
+                .all())
+        return {r.external_id: r.chat_id for r in rows}
 
 
 async def find_chat_by_origin(user_id: int, origin_chat_id: str) -> List[Chat]:

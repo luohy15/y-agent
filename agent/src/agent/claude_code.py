@@ -16,8 +16,9 @@ y-agent stores messages as:
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -153,46 +154,179 @@ def convert_stream_messages(stream_lines: List[str]) -> List[Message]:
     return messages
 
 
-def convert_jsonl_session(jsonl_lines: List[str]) -> List[Message]:
-    """Convert Claude Code session JSONL lines into y-agent Messages."""
+
+def convert_history_session(jsonl_lines: List[str]) -> Tuple[List[Message], Optional[str], Optional[str]]:
+    """Convert Claude Code history JSONL (from ~/.claude/projects/) into y-agent Messages.
+
+    History JSONL differs from stream-json: each line has exactly ONE content block,
+    so consecutive assistant lines must be merged into a single Message.
+
+    Returns (messages, session_id, work_dir).
+    """
     messages: List[Message] = []
     tool_use_index: Dict[str, Dict] = {}
+    session_id: Optional[str] = None
+    work_dir: Optional[str] = None
+
+    # Accumulator for merging consecutive assistant lines
+    pending_assistant_blocks: List[Dict] = []
+    pending_assistant_model: Optional[str] = None
+    pending_assistant_uuid: Optional[str] = None
+    pending_assistant_ts: Optional[str] = None
+
+    def _flush_assistant():
+        """Flush accumulated assistant blocks into a single Message."""
+        nonlocal pending_assistant_blocks, pending_assistant_model, pending_assistant_uuid, pending_assistant_ts
+        if not pending_assistant_blocks:
+            return
+
+        text_parts = []
+        thinking_parts = []
+        tool_calls = []
+
+        for block in pending_assistant_blocks:
+            block_type = block.get("type")
+            if block_type == "text":
+                text_parts.append(block.get("text", ""))
+            elif block_type == "thinking":
+                thinking_parts.append(block.get("thinking", ""))
+            elif block_type == "tool_use":
+                tool_id = block.get("id")
+                tool_name = block.get("name")
+                tool_input = block.get("input", {})
+                tool_use_index[tool_id] = {"name": tool_name, "input": tool_input}
+                tool_calls.append({
+                    "id": tool_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": json.dumps(tool_input),
+                    },
+                    "status": "approved",
+                })
+
+        content = "\n".join(text_parts)
+        reasoning = "\n".join(thinking_parts) if thinking_parts else None
+        ts = pending_assistant_ts or get_utc_iso8601_timestamp()
+
+        messages.append(Message.from_dict({
+            "role": "assistant",
+            "content": content,
+            "reasoning_content": reasoning,
+            "timestamp": ts,
+            "unix_timestamp": _iso_to_unix_ms(ts),
+            "id": pending_assistant_uuid or generate_message_id(),
+            "model": pending_assistant_model,
+            "provider": "claude-code",
+            "tool_calls": tool_calls if tool_calls else None,
+        }))
+
+        pending_assistant_blocks = []
+        pending_assistant_model = None
+        pending_assistant_uuid = None
+        pending_assistant_ts = None
 
     for line in jsonl_lines:
         obj = parse_stream_line(line)
         if not obj:
             continue
+
         msg_type = obj.get("type")
 
+        # Skip non-message types
+        if msg_type in ("file-history-snapshot", "progress", "system"):
+            continue
+        if obj.get("isMeta") or obj.get("isSidechain"):
+            continue
+
+        # Extract metadata from first real line
+        if session_id is None:
+            session_id = obj.get("sessionId")
+        if work_dir is None:
+            work_dir = obj.get("cwd")
+
         if msg_type == "assistant":
-            messages.append(_convert_assistant(obj, tool_use_index))
+            message = obj.get("message", {})
+            content_blocks = message.get("content", [])
+            # Set model/uuid/ts from first assistant line in a group
+            if not pending_assistant_blocks:
+                pending_assistant_model = message.get("model")
+                pending_assistant_uuid = obj.get("uuid")
+                pending_assistant_ts = obj.get("timestamp")
+            pending_assistant_blocks.extend(content_blocks)
+
         elif msg_type == "user":
+            # Flush any pending assistant before processing user
+            _flush_assistant()
+
             message = obj.get("message", {})
             content = message.get("content", "")
+            ts = obj.get("timestamp", get_utc_iso8601_timestamp())
 
-            if obj.get("isMeta"):
-                continue
+            # Skip command/system user messages
             if isinstance(content, str) and (
-                content.startswith("<command-name>") or content.startswith("<local-command")
+                content.startswith("<command-name>") or content.startswith("<command-message>")
+                or content.startswith("<local-command")
             ):
                 continue
 
             if isinstance(content, list) and any(
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in content
             ):
-                messages.extend(_convert_user_tool_results(obj, tool_use_index))
+                tool_msgs = _convert_user_tool_results(obj, tool_use_index)
+                # Override timestamps from JSONL (the helper uses current time)
+                unix_ts = _iso_to_unix_ms(ts)
+                for tm in tool_msgs:
+                    tm.timestamp = ts
+                    tm.unix_timestamp = unix_ts
+                messages.extend(tool_msgs)
             elif isinstance(content, str) and content.strip():
-                messages.append(Message.from_dict({
-                    "role": "user",
-                    "content": content,
-                    "timestamp": obj.get("timestamp", get_utc_iso8601_timestamp()),
-                    "unix_timestamp": get_unix_timestamp(),
-                    "id": obj.get("uuid") or generate_message_id(),
-                }))
+                # Strip system-injected XML tags
+                cleaned = _strip_system_xml(content)
+                if cleaned.strip():
+                    messages.append(Message.from_dict({
+                        "role": "user",
+                        "content": cleaned,
+                        "timestamp": ts,
+                        "unix_timestamp": _iso_to_unix_ms(ts),
+                        "id": obj.get("uuid") or generate_message_id(),
+                    }))
 
+    # Flush any trailing assistant blocks
+    _flush_assistant()
+
+    # Link parent_ids
     for i in range(1, len(messages)):
         messages[i].parent_id = messages[i - 1].id
-    return messages
+
+    return messages, session_id, work_dir
+
+
+def _iso_to_unix_ms(iso_str: str) -> int:
+    """Convert ISO 8601 timestamp to unix milliseconds."""
+    from datetime import datetime, timezone
+    try:
+        # Handle 'Z' suffix
+        s = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return int(dt.timestamp() * 1000)
+    except (ValueError, AttributeError):
+        return get_unix_timestamp()
+
+
+# Regex to strip system-injected XML blocks from user content
+_SYSTEM_XML_RE = re.compile(
+    r"<(?:system-reminder|context|environment_details|search_results|"
+    r"relevant_files|claude-md|fast_mode_info|currentDate)[^>]*>[\s\S]*?"
+    r"</(?:system-reminder|context|environment_details|search_results|"
+    r"relevant_files|claude-md|fast_mode_info|currentDate)>",
+    re.DOTALL,
+)
+
+
+def _strip_system_xml(content: str) -> str:
+    """Remove system-injected XML blocks from user message content."""
+    return _SYSTEM_XML_RE.sub("", content).strip()
 
 
 # ---------------------------------------------------------------------------

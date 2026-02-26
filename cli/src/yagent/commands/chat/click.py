@@ -65,7 +65,9 @@ def chat_group(ctx, chat_id: Optional[str], latest: bool, model: Optional[str], 
 from .list import list_chats
 from .share import share
 from .import_chat import import_chats
+from .import_claude import import_claude
 
 chat_group.add_command(list_chats)
 chat_group.add_command(share)
 chat_group.add_command(import_chats)
+chat_group.add_command(import_claude)
