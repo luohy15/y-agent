@@ -68,22 +68,30 @@ def _ensure_columns():
         if "backend" not in columns:
             session.execute(text("ALTER TABLE chat ADD COLUMN backend VARCHAR"))
             click.echo("Added backend column to chat table")
-        # Mark rows containing \u0000 so the backfill query won't touch them
-        bad = session.execute(text(
-            "UPDATE chat SET external_id = '', backend = ''"
-            r" WHERE json_content LIKE '%\u0000%'"
-            " AND (external_id IS NULL OR backend IS NULL)"
-        )).rowcount
-        if bad:
-            click.echo(f"Skipped {bad} chats with invalid json_content (null bytes)")
-        # Backfill external_id/backend from json_content for existing worker chats
-        count = session.execute(text(
-            "UPDATE chat SET"
-            " external_id = json_content::json->>'external_id',"
-            " backend = 'claude_code'"
-            " WHERE json_content::json->>'external_id' IS NOT NULL"
-            " AND (external_id IS NULL OR backend IS NULL)"
-        )).rowcount
+        # Backfill external_id/backend from json_content (Python-side to handle malformed JSON)
+        rows = session.execute(text(
+            "SELECT chat_id, json_content FROM chat"
+            " WHERE external_id IS NULL OR backend IS NULL"
+        )).fetchall()
+        count = 0
+        skipped = 0
+        for chat_id, jc in rows:
+            try:
+                eid = json.loads(jc).get("external_id")
+            except Exception:
+                skipped += 1
+                session.execute(text(
+                    "UPDATE chat SET external_id = '', backend = '' WHERE chat_id = :cid"
+                ), {"cid": chat_id})
+                continue
+            if eid:
+                session.execute(text(
+                    "UPDATE chat SET external_id = :eid, backend = 'claude_code'"
+                    " WHERE chat_id = :cid"
+                ), {"eid": eid, "cid": chat_id})
+                count += 1
+        if skipped:
+            click.echo(f"Skipped {skipped} chats with malformed json_content")
         if count:
             click.echo(f"Backfilled {count} existing chats with external_id/backend")
 
