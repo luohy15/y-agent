@@ -40,6 +40,44 @@ interface FileCache {
   error?: string;
 }
 
+function FileContentTable({ filePath, content }: { filePath: string; content: string }) {
+  const highlightedHtml = useMemo(() => {
+    const lang = getExt(filePath);
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(content, { language: lang }).value;
+      }
+      return hljs.highlightAuto(content).value;
+    } catch {
+      return null;
+    }
+  }, [content, filePath]);
+
+  const lines = content.split("\n");
+  const highlightedLines = highlightedHtml?.split("\n");
+
+  return (
+    <table className="text-sm font-mono leading-relaxed w-full border-collapse">
+      <tbody>
+        {lines.map((line, i) => (
+          <tr key={i}>
+            <td className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 align-top bg-sol-base03 sticky left-0 w-[1%]">
+              {i + 1}
+            </td>
+            {highlightedLines ? (
+              <td className="pl-4 pr-3 whitespace-pre-wrap break-all hljs" dangerouslySetInnerHTML={{ __html: highlightedLines[i] ?? "" }} />
+            ) : (
+              <td className="pl-4 pr-3 text-sol-base0 whitespace-pre-wrap break-all">
+                {line}
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
@@ -132,26 +170,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     });
   }, [activeFile, isTodo, isCalendar, mutate]);
 
-  const activeData = activeFile ? cache[activeFile] : undefined;
-  const ext = activeFile ? getExt(activeFile) : "";
-  const isImage = IMAGE_EXTS.has(ext);
-  const isPdf = PDF_EXTS.has(ext);
-
-  // Syntax highlight
-  const highlightedHtml = useMemo(() => {
-    if (!activeData?.content || !activeFile) return null;
-    const lang = getExt(activeFile);
-    try {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(activeData.content, { language: lang }).value;
-      }
-      return hljs.highlightAuto(activeData.content).value;
-    } catch {
-      return null;
-    }
-  }, [activeData?.content, activeFile]);
-
-  const lineCount = activeData?.content ? activeData.content.split("\n").length : 0;
 
   if (openFiles.length === 0) {
     return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;
@@ -241,54 +259,55 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           </button>
         </div>
       )}
-      {/* Content */}
-      <div className={`flex-1 min-h-0 bg-sol-base03 ${isTodo || isCalendar ? "overflow-hidden" : "overflow-auto"}`}>
-        {isTodo ? (
-          <TodoViewer />
-        ) : isCalendar ? (
-          <CalendarViewer onOpenFile={onSelectFile} />
-        ) : !activeData || activeData.loading ? (
-          <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
-        ) : activeData.error ? (
-          <p className="text-sol-red text-sm p-3">{activeData.error}</p>
-        ) : isImage && activeData.blobUrl ? (
-          <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-auto p-3">
-              <img
-                src={activeData.blobUrl}
-                alt={activeFile!}
-                style={zoom ? { width: `${zoom}%`, maxWidth: "none" } : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                onWheel={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    e.preventDefault();
-                    setZoom((z) => Math.min(500, Math.max(10, (z || 100) + (e.deltaY < 0 ? 10 : -10))));
-                  }
-                }}
-              />
+      {/* Content - render all open files, show/hide to preserve scroll */}
+      <div className="flex-1 min-h-0 bg-sol-base03 relative">
+        {openFiles.map((filePath) => {
+          const fileName = filePath.replace(/^\.\//, "");
+          const fileTodo = fileName === "todo.md";
+          const fileCalendar = fileName === "calendar.md";
+          const isActive = filePath === activeFile;
+          const fileData = cache[filePath];
+          const fileExt = getExt(filePath);
+          const fileIsImage = IMAGE_EXTS.has(fileExt);
+          const fileIsPdf = PDF_EXTS.has(fileExt);
+
+          return (
+            <div
+              key={filePath}
+              className={`absolute inset-0 ${fileTodo || fileCalendar ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+            >
+              {fileTodo ? (
+                <TodoViewer />
+              ) : fileCalendar ? (
+                <CalendarViewer onOpenFile={onSelectFile} />
+              ) : !fileData || fileData.loading ? (
+                <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
+              ) : fileData.error ? (
+                <p className="text-sol-red text-sm p-3">{fileData.error}</p>
+              ) : fileIsImage && fileData.blobUrl ? (
+                <div className="flex flex-col h-full">
+                  <div className="flex-1 overflow-auto p-3">
+                    <img
+                      src={fileData.blobUrl}
+                      alt={filePath}
+                      style={zoom ? { width: `${zoom}%`, maxWidth: "none" } : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                      onWheel={(e) => {
+                        if (e.ctrlKey || e.metaKey) {
+                          e.preventDefault();
+                          setZoom((z) => Math.min(500, Math.max(10, (z || 100) + (e.deltaY < 0 ? 10 : -10))));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : fileIsPdf && fileData.blobUrl ? (
+                <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
+              ) : fileData.content !== undefined ? (
+                <FileContentTable filePath={filePath} content={fileData.content} />
+              ) : null}
             </div>
-          </div>
-        ) : isPdf && activeData.blobUrl ? (
-          <iframe src={activeData.blobUrl} className="w-full h-full border-0" title={activeFile!} />
-        ) : activeData.content !== undefined ? (
-          <table className="text-sm font-mono leading-relaxed w-full border-collapse">
-            <tbody>
-              {(activeData.content).split("\n").map((line, i) => (
-                <tr key={i}>
-                  <td className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 align-top bg-sol-base03 sticky left-0 w-[1%]">
-                    {i + 1}
-                  </td>
-                  {highlightedHtml ? (
-                    <td className="pl-4 pr-3 whitespace-pre-wrap break-all hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml.split("\n")[i] ?? "" }} />
-                  ) : (
-                    <td className="pl-4 pr-3 text-sol-base0 whitespace-pre-wrap break-all">
-                      {line}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : null}
+          );
+        })}
       </div>
     </div>
   );
