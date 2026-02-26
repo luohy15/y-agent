@@ -68,6 +68,14 @@ def _ensure_columns():
         if "backend" not in columns:
             session.execute(text("ALTER TABLE chat ADD COLUMN backend VARCHAR"))
             click.echo("Added backend column to chat table")
+        # Mark rows containing \u0000 so the backfill query won't touch them
+        bad = session.execute(text(
+            "UPDATE chat SET external_id = '', backend = ''"
+            r" WHERE json_content LIKE '%\u0000%'"
+            " AND (external_id IS NULL OR backend IS NULL)"
+        )).rowcount
+        if bad:
+            click.echo(f"Skipped {bad} chats with invalid json_content (null bytes)")
         # Backfill external_id/backend from json_content for existing worker chats
         count = session.execute(text(
             "UPDATE chat SET"
