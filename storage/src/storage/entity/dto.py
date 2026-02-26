@@ -171,6 +171,7 @@ class Chat:
     update_time: str
     messages: List[Message]
     external_id: Optional[str] = None
+    backend: Optional[str] = None  # "llm" or "claude_code"
     content_hash: Optional[str] = None
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
@@ -191,6 +192,7 @@ class Chat:
                 key=lambda x: (x.unix_timestamp)
             ),
             external_id=data.get('external_id'),
+            backend=data.get('backend'),
             content_hash=data.get('content_hash'),
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
@@ -210,6 +212,8 @@ class Chat:
         }
         if self.external_id is not None:
             result['external_id'] = self.external_id
+        if self.backend is not None:
+            result['backend'] = self.backend
         if self.content_hash is not None:
             result['content_hash'] = self.content_hash
         if self.origin_chat_id is not None:
