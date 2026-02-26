@@ -16,7 +16,7 @@ from agent.claude_code import convert_history_session, _iso_to_unix_ms
 from yagent.config import config  # noqa: F401 - triggers DB init
 
 
-def _upsert_import_chat(user_id: int, chat: Chat, existing_chat_id: str | None = None):
+def _upsert_import_chat(user_id: int, chat: Chat, existing_chat_id: str | None = None, file_mtime_ms: int | None = None):
     """Insert or update an imported chat, preserving session timestamps.
 
     Uses raw SQL to bypass SQLAlchemy's default/onupdate hooks.
@@ -30,7 +30,7 @@ def _upsert_import_chat(user_id: int, chat: Chat, existing_chat_id: str | None =
         "ca": chat.create_time,
         "ua": chat.update_time,
         "cau": _iso_to_unix_ms(chat.create_time),
-        "uau": _iso_to_unix_ms(chat.update_time),
+        "uau": file_mtime_ms or _iso_to_unix_ms(chat.update_time),
     }
     with get_db() as session:
         if existing_chat_id:
@@ -134,7 +134,7 @@ def import_claude(source: str, project: str | None, verbose: bool):
     if verbose:
         click.echo(f"Found {len(jsonl_files)} JSONL files across {len(projects)} project(s)")
 
-    # Build dedup map: external_id -> chat_id
+    # Build dedup map: external_id -> (chat_id, updated_at_unix)
     existing_map = find_external_id_map(user_id, "claude_code")
     if verbose:
         click.echo(f"Existing imported sessions: {len(existing_map)}")
@@ -150,6 +150,18 @@ def import_claude(source: str, project: str | None, verbose: bool):
         external_id = session_uuid
 
         try:
+            existing_entry = existing_map.get(external_id)
+            existing_chat_id = existing_entry[0] if existing_entry else None
+            file_mtime_ms = int(os.path.getmtime(filepath) * 1000)
+
+            # Skip files not modified since last import
+            if existing_entry and existing_entry[1]:
+                if file_mtime_ms <= existing_entry[1]:
+                    skip_count += 1
+                    if verbose:
+                        click.echo(f"  skip (unchanged): {proj_name}/{fname}")
+                    continue
+
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
 
@@ -163,7 +175,6 @@ def import_claude(source: str, project: str | None, verbose: bool):
 
             first_ts = messages[0].timestamp
             last_ts = messages[-1].timestamp
-            existing_chat_id = existing_map.get(external_id)
 
             chat = Chat(
                 id=existing_chat_id or generate_id(),
@@ -175,14 +186,14 @@ def import_claude(source: str, project: str | None, verbose: bool):
                 work_dir=work_dir,
             )
 
-            _upsert_import_chat(user_id, chat, existing_chat_id)
+            _upsert_import_chat(user_id, chat, existing_chat_id, file_mtime_ms)
 
             if existing_chat_id:
                 updated_count += 1
                 if verbose:
                     click.echo(f"  updated: {proj_name}/{fname} -> {existing_chat_id} ({len(messages)} msgs)")
             else:
-                existing_map[external_id] = chat.id
+                existing_map[external_id] = (chat.id, None)
                 new_count += 1
                 if verbose:
                     title = ""

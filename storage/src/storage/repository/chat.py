@@ -152,14 +152,14 @@ async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     return _get_chat_by_id_sync(chat_id)
 
 
-def find_external_id_map(user_id: int, backend: str) -> Dict[str, str]:
-    """Return {external_id: chat_id} for all chats with the given backend."""
+def find_external_id_map(user_id: int, backend: str) -> Dict[str, tuple]:
+    """Return {external_id: (chat_id, updated_at_unix)} for all chats with the given backend."""
     with get_db() as session:
-        rows = (session.query(ChatEntity.external_id, ChatEntity.chat_id)
+        rows = (session.query(ChatEntity.external_id, ChatEntity.chat_id, ChatEntity.updated_at_unix)
                 .filter_by(user_id=user_id, backend=backend)
                 .filter(ChatEntity.external_id.isnot(None))
                 .all())
-        return {r.external_id: r.chat_id for r in rows}
+        return {r.external_id: (r.chat_id, r.updated_at_unix) for r in rows}
 
 
 async def find_chat_by_origin(user_id: int, origin_chat_id: str) -> List[Chat]:
