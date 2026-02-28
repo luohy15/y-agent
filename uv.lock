@@ -1543,9 +1543,11 @@ version = "0.4.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "click" },
+    { name = "httpx" },
     { name = "loguru" },
     { name = "prompt-toolkit" },
     { name = "pyperclip" },
+    { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "tabulate" },
@@ -1557,9 +1559,11 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pyperclip", specifier = ">=1.9.0" },
+    { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "tabulate", specifier = ">=0.9.0" },

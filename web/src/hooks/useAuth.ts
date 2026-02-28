@@ -30,7 +30,16 @@ export function useAuth() {
       // If we came from a preview auth redirect, send token back
       const params = new URLSearchParams(window.location.search);
       const authRedirect = params.get("auth_redirect");
-      if (authRedirect) {
+      if (authRedirect === "manual") {
+        // CLI manual mode: display token for user to copy
+        document.title = "CLI Login Token";
+        document.body.innerHTML = `<div style="font-family:monospace;max-width:600px;margin:40px auto;padding:20px">
+          <h2>CLI Login Token</h2>
+          <p>Copy the token below and paste it into your terminal:</p>
+          <pre style="background:#f0f0f0;padding:12px;word-break:break-all;user-select:all">${data.token}</pre>
+          <p>Email: <strong>${data.email}</strong></p>
+        </div>`;
+      } else if (authRedirect) {
         const url = new URL(authRedirect);
         url.searchParams.set("auth_token", data.token);
         url.searchParams.set("auth_email", data.email);
@@ -69,10 +78,21 @@ export function useAuth() {
     // Main domain: if already logged in and auth_redirect is present, redirect back immediately
     const authRedirect = params.get("auth_redirect");
     if (authRedirect && getToken() && getStoredEmail()) {
-      const url = new URL(authRedirect);
-      url.searchParams.set("auth_token", getToken()!);
-      url.searchParams.set("auth_email", getStoredEmail()!);
-      window.location.href = url.toString();
+      if (authRedirect === "manual") {
+        // CLI manual mode: display token for user to copy
+        document.title = "CLI Login Token";
+        document.body.innerHTML = `<div style="font-family:monospace;max-width:600px;margin:40px auto;padding:20px">
+          <h2>CLI Login Token</h2>
+          <p>Copy the token below and paste it into your terminal:</p>
+          <pre style="background:#f0f0f0;padding:12px;word-break:break-all;user-select:all">${getToken()}</pre>
+          <p>Email: <strong>${getStoredEmail()}</strong></p>
+        </div>`;
+      } else {
+        const url = new URL(authRedirect);
+        url.searchParams.set("auth_token", getToken()!);
+        url.searchParams.set("auth_email", getStoredEmail()!);
+        window.location.href = url.toString();
+      }
     }
   }, []);
 
