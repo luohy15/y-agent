@@ -28,6 +28,16 @@ Parameters:
     Description: Google OAuth Client ID
     Default: ""
 
+  SubnetIds:
+    Type: CommaDelimitedList
+    Description: Comma-delimited list of subnet IDs for Lambda VPC configuration
+    Default: ""
+
+  LambdaSecurityGroupId:
+    Type: String
+    Description: Security Group ID for Lambda functions to access RDS
+    Default: ""
+
   BranchName:
     Type: String
     Description: Branch name for preview deployments (empty = main stack)
@@ -41,6 +51,7 @@ Parameters:
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
+  HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
 
 Globals:
   Function:
@@ -211,6 +222,12 @@ Resources:
       Timeout: 900
       MemorySize: 512
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
+      VpcConfig: !If
+        - HasVpc
+        - SecurityGroupIds:
+            - !Ref LambdaSecurityGroupId
+          SubnetIds: !Ref SubnetIds
+        - !Ref AWS::NoValue
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
@@ -243,6 +260,12 @@ Resources:
       Timeout: 900
       MemorySize: 1024
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
+      VpcConfig: !If
+        - HasVpc
+        - SecurityGroupIds:
+            - !Ref LambdaSecurityGroupId
+          SubnetIds: !Ref SubnetIds
+        - !Ref AWS::NoValue
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
@@ -272,6 +295,12 @@ Resources:
       Timeout: 300
       MemorySize: 512
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
+      VpcConfig: !If
+        - HasVpc
+        - SecurityGroupIds:
+            - !Ref LambdaSecurityGroupId
+          SubnetIds: !Ref SubnetIds
+        - !Ref AWS::NoValue
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
