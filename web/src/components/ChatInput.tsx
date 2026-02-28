@@ -30,7 +30,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
     const handleSubmit = useCallback(() => {
       const trimmed = value.trim();
-      if (onClear && (trimmed === "/cl" || trimmed === "/clear")) {
+      if (onClear && (trimmed === "/cl" || trimmed === "/cle" || trimmed === "/clear")) {
         onChange("");
         onClear();
         return;
