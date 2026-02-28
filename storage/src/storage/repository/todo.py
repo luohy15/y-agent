@@ -42,11 +42,12 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
             query = query.filter_by(status=status)
         if priority:
             query = query.filter_by(priority=priority)
-        if status == "completed":
-            query = query.order_by(TodoEntity.updated_at.desc(), TodoEntity.due_date.asc().nullslast(), _PRIORITY_ORDER.asc())
-        else:
-            # pending, active, no filter: due_date asc, priority asc, updated_at desc
+        if status in ("active", "pending"):
+            # active/pending: due_date asc, priority asc, updated_at desc
             query = query.order_by(TodoEntity.due_date.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
+        else:
+            # completed or no filter: updated_at desc
+            query = query.order_by(TodoEntity.updated_at.desc())
         query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]
 
