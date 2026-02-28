@@ -3,6 +3,8 @@ import click
 from dotenv import load_dotenv
 
 from yagent.commands.init import init
+from yagent.commands.login import login
+from yagent.commands.logout import logout
 from yagent.commands.chat.click import chat_group
 from yagent.commands.bot.click import bot_group
 from yagent.commands.todo.click import todo_group
@@ -18,6 +20,8 @@ def cli():
 
 # Register commands
 cli.add_command(init)
+cli.add_command(login)
+cli.add_command(logout)
 cli.add_command(chat_group)
 cli.add_command(bot_group)
 cli.add_command(todo_group)

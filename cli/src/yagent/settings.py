@@ -13,12 +13,6 @@ def load_config():
     os.makedirs(home, exist_ok=True)
 
     database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))
-    if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL environment variable is required. "
-            "Set it to a PostgreSQL connection string, e.g. "
-            "DATABASE_URL=postgresql://localhost/yagent"
-        )
 
     cfg = {
         # Storage

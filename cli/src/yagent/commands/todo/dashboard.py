@@ -2,59 +2,59 @@
 
 import os
 from datetime import datetime, timedelta
-from typing import List
-from storage.entity.dto import Todo
+
+from yagent.api_client import api_request
 
 
 def _agent_home() -> str:
     return os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
-def update_dashboard(user_id: int):
+def update_dashboard():
     """Regenerate todo.md dashboard. Called after each todo operation."""
     home = _agent_home()
 
-    from storage.service import todo as todo_service
-
     # Fetch all non-deleted todos
-    all_todos = todo_service.list_todos(user_id, limit=500)
+    resp = api_request("GET", "/api/todo/list", params={"limit": 500})
+    all_todos = resp.json()
 
     # Active task (current)
-    active = [t for t in all_todos if t.status == "active"]
+    active = [t for t in all_todos if t["status"] == "active"]
 
     # Urgent: due within 2 weeks
     today = datetime.now().date()
     two_weeks = today + timedelta(days=14)
     urgent = []
     for t in all_todos:
-        if t.due_date and t.status in ("pending", "active"):
+        if t.get("due_date") and t["status"] in ("pending", "active"):
             try:
-                due = datetime.strptime(t.due_date, "%Y-%m-%d").date()
+                due = datetime.strptime(t["due_date"], "%Y-%m-%d").date()
                 if due <= two_weeks:
                     urgent.append(t)
             except ValueError:
                 pass
-    urgent.sort(key=lambda t: t.due_date)
+    urgent.sort(key=lambda t: t["due_date"])
 
     # Important: high priority, not completed/deleted
-    important = [t for t in all_todos if t.priority == "high" and t.status in ("pending", "active")]
+    important = [t for t in all_todos if t.get("priority") == "high" and t["status"] in ("pending", "active")]
 
     # Recent operations: collect from history across all todos (including completed)
-    all_with_completed = todo_service.list_todos(user_id, limit=500)
-    completed = todo_service.list_todos(user_id, status="completed", limit=100)
+    resp_completed = api_request("GET", "/api/todo/list", params={"status": "completed", "limit": 100})
+    completed = resp_completed.json()
+    all_with_completed = list(all_todos)
     all_with_completed.extend(completed)
     seen_ids = set()
     deduped = []
     for t in all_with_completed:
-        if t.todo_id not in seen_ids:
-            seen_ids.add(t.todo_id)
+        if t["todo_id"] not in seen_ids:
+            seen_ids.add(t["todo_id"])
             deduped.append(t)
 
     recent_ops = []
     for t in deduped:
-        if t.history:
-            for h in t.history:
-                recent_ops.append((h.timestamp, h.action, t.name, t.todo_id, h.note))
+        if t.get("history"):
+            for h in t["history"]:
+                recent_ops.append((h["timestamp"], h["action"], t["name"], t["todo_id"], h.get("note")))
     recent_ops.sort(key=lambda x: x[0], reverse=True)
     recent_ops = recent_ops[:10]
 
@@ -79,7 +79,7 @@ def update_dashboard(user_id: int):
         lines.append("| Name | Due | Priority | ID |")
         lines.append("|------|-----|----------|----|")
         for t in urgent:
-            lines.append(f"| {t.name} | {t.due_date} | {t.priority or '-'} | {t.todo_id} |")
+            lines.append(f"| {t['name']} | {t['due_date']} | {t.get('priority') or '-'} | {t['todo_id']} |")
     else:
         lines.append("")
         lines.append("_No urgent tasks._")
@@ -92,7 +92,7 @@ def update_dashboard(user_id: int):
         lines.append("| Name | Status | Due | ID |")
         lines.append("|------|--------|-----|----|")
         for t in important:
-            lines.append(f"| {t.name} | {t.status} | {t.due_date or '-'} | {t.todo_id} |")
+            lines.append(f"| {t['name']} | {t['status']} | {t.get('due_date') or '-'} | {t['todo_id']} |")
     else:
         lines.append("")
         lines.append("_No high-priority tasks._")
@@ -117,15 +117,15 @@ def update_dashboard(user_id: int):
         f.write("\n".join(lines))
 
 
-def _append_todo_detail(lines: List[str], t: Todo):
-    lines.append(f"**{t.name}** (`{t.todo_id}`)")
-    if t.desc:
-        lines.append(f"- Description: {t.desc}")
-    if t.priority:
-        lines.append(f"- Priority: {t.priority}")
-    if t.due_date:
-        lines.append(f"- Due: {t.due_date}")
-    if t.tags:
-        lines.append(f"- Tags: {', '.join(t.tags)}")
-    if t.progress:
-        lines.append(f"- Progress: {t.progress}")
+def _append_todo_detail(lines: list, t: dict):
+    lines.append(f"**{t['name']}** (`{t['todo_id']}`)")
+    if t.get('desc'):
+        lines.append(f"- Description: {t['desc']}")
+    if t.get('priority'):
+        lines.append(f"- Priority: {t['priority']}")
+    if t.get('due_date'):
+        lines.append(f"- Due: {t['due_date']}")
+    if t.get('tags'):
+        lines.append(f"- Tags: {', '.join(t['tags'])}")
+    if t.get('progress'):
+        lines.append(f"- Progress: {t['progress']}")

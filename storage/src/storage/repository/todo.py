@@ -1,9 +1,18 @@
 """Function-based todo repository using SQLAlchemy sessions."""
 
 from typing import List, Optional
+from sqlalchemy import case
 from storage.entity.todo import TodoEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
+
+# Match web UI sort: high=0, medium=1, low=2, other=3
+_PRIORITY_ORDER = case(
+    (TodoEntity.priority == "high", 0),
+    (TodoEntity.priority == "medium", 1),
+    (TodoEntity.priority == "low", 2),
+    else_=3,
+)
 
 
 def _entity_to_dto(entity: TodoEntity) -> Todo:
@@ -33,12 +42,11 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
             query = query.filter_by(status=status)
         if priority:
             query = query.filter_by(priority=priority)
-        if status == "pending":
-            query = query.order_by(TodoEntity.due_date.asc().nullslast(), TodoEntity.created_at.desc())
-        elif not status:
-            query = query.order_by(TodoEntity.updated_at.desc())
+        if status == "completed":
+            query = query.order_by(TodoEntity.updated_at.desc(), TodoEntity.due_date.asc().nullslast(), _PRIORITY_ORDER.asc())
         else:
-            query = query.order_by(TodoEntity.created_at.desc())
+            # pending, active, no filter: due_date asc, priority asc, updated_at desc
+            query = query.order_by(TodoEntity.due_date.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
         query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]
 
