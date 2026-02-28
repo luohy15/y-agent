@@ -1,7 +1,7 @@
 """Function-based todo repository using SQLAlchemy sessions."""
 
 from typing import List, Optional
-from sqlalchemy import case
+from sqlalchemy import case, func
 from storage.entity.todo import TodoEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
@@ -44,7 +44,9 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
             query = query.filter_by(priority=priority)
         if status in ("active", "pending"):
             # active/pending: due_date asc, priority asc, updated_at desc
-            query = query.order_by(TodoEntity.due_date.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
+            # Treat empty string as NULL so items without due_date sort last
+            due_date_sort = func.nullif(TodoEntity.due_date, "")
+            query = query.order_by(due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
         else:
             # completed or no filter: updated_at desc
             query = query.order_by(TodoEntity.updated_at.desc())
