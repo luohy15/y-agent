@@ -48,9 +48,29 @@ def _find_free_port() -> int:
 
 
 @click.command("login")
-def login():
+@click.option("--token", help="Directly provide auth token (for non-interactive use).")
+@click.option("--email", help="Email associated with the token.")
+@click.option("--no-browser", is_flag=True, help="Manual login for headless servers — shows URL and prompts for token.")
+def login(token, email, no_browser):
     """Authenticate with Google via the web app."""
     api_url = os.environ.get("Y_AGENT_API_URL", DEFAULT_API_URL)
+
+    if token:
+        if not email:
+            email = click.prompt("Enter your email")
+        save_auth(token.strip(), email.strip(), api_url)
+        click.echo(f"Logged in as {email.strip()}")
+        return
+
+    if no_browser:
+        login_url = f"{api_url}?auth_redirect=manual"
+        click.echo(f"Visit this URL to login:\n\n  {login_url}\n")
+        token = click.prompt("Paste your token here")
+        email = click.prompt("Enter your email")
+        save_auth(token.strip(), email.strip(), api_url)
+        click.echo(f"Logged in as {email.strip()}")
+        return
+
     port = _find_free_port()
     callback_url = f"http://localhost:{port}/callback"
 
