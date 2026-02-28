@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 
 from yagent.api_client import api_request
-from yagent.time_util import utc_to_local
+from yagent.time_util import utc_to_local, local_to_utc, local_date_to_utc_range
 
 
 def _agent_home() -> str:
@@ -17,13 +17,14 @@ def update_dashboard() -> str:
 
     # Today's events
     today = datetime.now().strftime("%Y-%m-%d")
-    resp = api_request("GET", "/api/calendar/list", params={"date": today, "limit": 100})
+    today_start, today_end = local_date_to_utc_range(today)
+    resp = api_request("GET", "/api/calendar/list", params={"start": today_start, "end": today_end, "limit": 100})
     today_events = resp.json()
 
     # Upcoming 7 days
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT00:00")
     week_end = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%dT23:59")
-    resp = api_request("GET", "/api/calendar/list", params={"start": tomorrow, "end": week_end, "limit": 100})
+    resp = api_request("GET", "/api/calendar/list", params={"start": local_to_utc(tomorrow), "end": local_to_utc(week_end), "limit": 100})
     upcoming = resp.json()
 
     # Build markdown
