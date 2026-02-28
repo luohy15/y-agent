@@ -1,8 +1,7 @@
 import click
 from tabulate import tabulate
-from storage.service import calendar_event as cal_service
-from storage.service.calendar_event import _utc_to_local
-from storage.service.user import get_cli_user_id
+from yagent.api_client import api_request
+from yagent.time_util import utc_to_local
 
 
 @click.command('list')
@@ -15,26 +14,36 @@ from storage.service.user import get_cli_user_id
 @click.option('--include-deleted', is_flag=True, default=False, help='Include deleted events')
 def calendar_list(date, start, end, limit, source, todo_id, include_deleted):
     """List calendar events."""
-    user_id = get_cli_user_id()
-    events = cal_service.list_events(
-        user_id, date=date, start=start, end=end,
-        source=source, todo_id=todo_id,
-        include_deleted=include_deleted, limit=limit,
-    )
+    params = {"limit": limit}
+    if date is not None:
+        params["date"] = date
+    if start is not None:
+        params["start"] = start
+    if end is not None:
+        params["end"] = end
+    if source is not None:
+        params["source"] = source
+    if todo_id is not None:
+        params["todo_id"] = todo_id
+    if include_deleted:
+        params["include_deleted"] = True
+
+    resp = api_request("GET", "/api/calendar/list", params=params)
+    events = resp.json()
     if not events:
         click.echo("No events found")
         return
 
     table = []
     for e in events:
-        local_start = _utc_to_local(e.start_time)
-        local_end = _utc_to_local(e.end_time) if e.end_time else "-"
+        local_start = utc_to_local(e["start_time"])
+        local_end = utc_to_local(e["end_time"]) if e.get("end_time") else "-"
         table.append([
-            e.event_id,
-            e.summary,
+            e["event_id"],
+            e["summary"],
             local_start,
             local_end,
-            "Yes" if e.all_day else "No",
-            e.status,
+            "Yes" if e.get("all_day") else "No",
+            e.get("status", ""),
         ])
     click.echo(tabulate(table, headers=["ID", "Summary", "Start", "End", "All Day", "Status"], tablefmt="simple"))

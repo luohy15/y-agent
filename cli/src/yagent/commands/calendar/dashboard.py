@@ -2,27 +2,29 @@
 
 import os
 from datetime import datetime, timedelta
-from storage.service.calendar_event import _utc_to_local
+
+from yagent.api_client import api_request
+from yagent.time_util import utc_to_local
 
 
 def _agent_home() -> str:
     return os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
-def update_dashboard(user_id: int) -> str:
+def update_dashboard() -> str:
     """Regenerate calendar.md dashboard. Returns the file path."""
     home = _agent_home()
 
-    from storage.service import calendar_event as cal_service
-
     # Today's events
     today = datetime.now().strftime("%Y-%m-%d")
-    today_events = cal_service.list_events(user_id, date=today, limit=100)
+    resp = api_request("GET", "/api/calendar/list", params={"date": today, "limit": 100})
+    today_events = resp.json()
 
     # Upcoming 7 days
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
-    week_end = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%dT23:59:59.999Z")
-    upcoming = cal_service.list_events(user_id, start=tomorrow, end=week_end, limit=100)
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT00:00")
+    week_end = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%dT23:59")
+    resp = api_request("GET", "/api/calendar/list", params={"start": tomorrow, "end": week_end, "limit": 100})
+    upcoming = resp.json()
 
     # Build markdown
     lines = ["# Calendar Dashboard", ""]
@@ -34,8 +36,8 @@ def update_dashboard(user_id: int) -> str:
         lines.append("| Time | Summary | Status |")
         lines.append("|------|---------|--------|")
         for e in today_events:
-            time_str = _utc_to_local(e.start_time) if not e.all_day else "All Day"
-            lines.append(f"| {time_str} | {e.summary} | {e.status} |")
+            time_str = utc_to_local(e["start_time"]) if not e.get("all_day") else "All Day"
+            lines.append(f"| {time_str} | {e['summary']} | {e.get('status', '')} |")
     else:
         lines.append("")
         lines.append("_No events today._")
@@ -48,8 +50,8 @@ def update_dashboard(user_id: int) -> str:
         lines.append("| Date | Time | Summary |")
         lines.append("|------|------|---------|")
         for e in upcoming:
-            local = _utc_to_local(e.start_time)
-            lines.append(f"| {local} | {local} | {e.summary} |")
+            local = utc_to_local(e["start_time"])
+            lines.append(f"| {local} | {local} | {e['summary']} |")
     else:
         lines.append("")
         lines.append("_No upcoming events._")

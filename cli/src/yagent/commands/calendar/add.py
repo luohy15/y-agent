@@ -1,6 +1,5 @@
 import click
-from storage.service import calendar_event as cal_service
-from storage.service.user import get_cli_user_id
+from yagent.api_client import api_request
 
 
 @click.command('add')
@@ -13,13 +12,18 @@ from storage.service.user import get_cli_user_id
 @click.option('--source', default=None, help='Event source')
 def calendar_add(summary, start, end, desc, todo_id, all_day, source):
     """Add a new calendar event."""
-    user_id = get_cli_user_id()
-    try:
-        event = cal_service.add_event(
-            user_id, summary, start,
-            end_time=end, description=desc,
-            todo_id=todo_id, all_day=all_day, source=source,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    click.echo(f"Created event '{event.summary}' ({event.event_id})")
+    body = {"summary": summary, "start": start}
+    if end is not None:
+        body["end"] = end
+    if desc is not None:
+        body["description"] = desc
+    if todo_id is not None:
+        body["todo_id"] = todo_id
+    if all_day:
+        body["all_day"] = True
+    if source is not None:
+        body["source"] = source
+
+    resp = api_request("POST", "/api/calendar", json=body)
+    event = resp.json()
+    click.echo(f"Created event '{event['summary']}' ({event['event_id']})")

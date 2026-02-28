@@ -1,6 +1,5 @@
 import click
-from storage.service import calendar_event as cal_service
-from storage.service.user import get_cli_user_id
+from yagent.api_client import api_request
 
 
 @click.command('update')
@@ -12,28 +11,22 @@ from storage.service.user import get_cli_user_id
 @click.option('--todo-id', default=None, type=str, help='Link to todo ID')
 def calendar_update(event_id, summary, start, end, desc, todo_id):
     """Update a calendar event."""
-    user_id = get_cli_user_id()
-    fields = {}
+    body = {"event_id": event_id}
     if summary is not None:
-        fields['summary'] = summary
+        body["summary"] = summary
     if start is not None:
-        fields['start_time'] = start
+        body["start_time"] = start
     if end is not None:
-        fields['end_time'] = end
+        body["end_time"] = end
     if desc is not None:
-        fields['description'] = desc
+        body["description"] = desc
     if todo_id is not None:
-        fields['todo_id'] = todo_id
+        body["todo_id"] = todo_id
 
-    if not fields:
+    if len(body) == 1:
         click.echo("No fields to update")
         return
 
-    try:
-        event = cal_service.update_event(user_id, event_id, **fields)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    if not event:
-        click.echo(f"Event '{event_id}' not found")
-        return
-    click.echo(f"Updated event '{event.summary}' ({event.event_id})")
+    resp = api_request("POST", "/api/calendar/update", json=body)
+    event = resp.json()
+    click.echo(f"Updated event '{event['summary']}' ({event['event_id']})")
