@@ -78,7 +78,8 @@ jobs:
           [ -n "$DOMAIN_NAME" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES DomainName=$DOMAIN_NAME"
           [ -n "$CERTIFICATE_ARN" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES CertificateArn=$CERTIFICATE_ARN"
           [ -n "$GOOGLE_CLIENT_ID" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES GoogleClientId=$GOOGLE_CLIENT_ID"
-
+          [ -n "$SUBNET_IDS" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES SubnetIds=$SUBNET_IDS"
+          [ -n "$LAMBDA_SECURITY_GROUP_ID" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES LambdaSecurityGroupId=$LAMBDA_SECURITY_GROUP_ID"
 
           if [ -n "$PARAM_OVERRIDES" ]; then
             sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides $PARAM_OVERRIDES
