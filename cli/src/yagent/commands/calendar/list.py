@@ -1,7 +1,7 @@
 import click
 from tabulate import tabulate
 from yagent.api_client import api_request
-from yagent.time_util import utc_to_local
+from yagent.time_util import utc_to_local, local_to_utc, local_date_to_utc_range
 
 
 @click.command('list')
@@ -16,11 +16,13 @@ def calendar_list(date, start, end, limit, source, todo_id, include_deleted):
     """List calendar events."""
     params = {"limit": limit}
     if date is not None:
-        params["date"] = date
+        utc_start, utc_end = local_date_to_utc_range(date)
+        params["start"] = utc_start
+        params["end"] = utc_end
     if start is not None:
-        params["start"] = start
+        params["start"] = local_to_utc(start)
     if end is not None:
-        params["end"] = end
+        params["end"] = local_to_utc(end)
     if source is not None:
         params["source"] = source
     if todo_id is not None:

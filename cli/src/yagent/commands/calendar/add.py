@@ -1,5 +1,6 @@
 import click
 from yagent.api_client import api_request
+from yagent.time_util import local_to_utc
 
 
 @click.command('add')
@@ -12,9 +13,9 @@ from yagent.api_client import api_request
 @click.option('--source', default=None, help='Event source')
 def calendar_add(summary, start, end, desc, todo_id, all_day, source):
     """Add a new calendar event."""
-    body = {"summary": summary, "start": start}
+    body = {"summary": summary, "start": local_to_utc(start)}
     if end is not None:
-        body["end"] = end
+        body["end"] = local_to_utc(end)
     if desc is not None:
         body["description"] = desc
     if todo_id is not None:

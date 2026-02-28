@@ -1,5 +1,6 @@
 import click
 from yagent.api_client import api_request
+from yagent.time_util import local_to_utc
 
 
 @click.command('update')
@@ -15,9 +16,9 @@ def calendar_update(event_id, summary, start, end, desc, todo_id):
     if summary is not None:
         body["summary"] = summary
     if start is not None:
-        body["start_time"] = start
+        body["start_time"] = local_to_utc(start)
     if end is not None:
-        body["end_time"] = end
+        body["end_time"] = local_to_utc(end)
     if desc is not None:
         body["description"] = desc
     if todo_id is not None:
