@@ -1,6 +1,5 @@
 import click
-from storage.service import todo as todo_service
-from storage.service.user import get_cli_user_id
+from yagent.api_client import api_request
 
 
 @click.command('update')
@@ -13,27 +12,24 @@ from storage.service.user import get_cli_user_id
 @click.option('--progress', default=None, help='Progress note')
 def todo_update(todo_id, name, desc, due, priority, tags, progress):
     """Update a todo."""
-    user_id = get_cli_user_id()
-    fields = {}
+    body = {"todo_id": todo_id}
     if name is not None:
-        fields['name'] = name
+        body["name"] = name
     if desc is not None:
-        fields['desc'] = desc
+        body["desc"] = desc
     if due is not None:
-        fields['due_date'] = due
+        body["due_date"] = due
     if priority is not None:
-        fields['priority'] = priority
+        body["priority"] = priority
     if tags is not None:
-        fields['tags'] = [t.strip() for t in tags.split(',')]
+        body["tags"] = [t.strip() for t in tags.split(',')]
     if progress is not None:
-        fields['progress'] = progress
+        body["progress"] = progress
 
-    if not fields:
+    if len(body) == 1:
         click.echo("No fields to update")
         return
 
-    todo = todo_service.update_todo(user_id, todo_id, **fields)
-    if not todo:
-        click.echo(f"Todo '{todo_id}' not found")
-        return
-    click.echo(f"Updated todo '{todo.name}' ({todo.todo_id})")
+    resp = api_request("POST", "/api/todo/update", json=body)
+    todo = resp.json()
+    click.echo(f"Updated todo '{todo['name']}' ({todo['todo_id']})")

@@ -1,7 +1,6 @@
 import click
 from tabulate import tabulate
-from storage.service import todo as todo_service
-from storage.service.user import get_cli_user_id
+from yagent.api_client import api_request
 
 
 @click.command('list')
@@ -10,8 +9,14 @@ from storage.service.user import get_cli_user_id
 @click.option('--limit', '-l', default=50, help='Max results')
 def todo_list(status, priority, limit):
     """List todos."""
-    user_id = get_cli_user_id()
-    todos = todo_service.list_todos(user_id, status=status, priority=priority, limit=limit)
+    params = {"limit": limit}
+    if status is not None:
+        params["status"] = status
+    if priority is not None:
+        params["priority"] = priority
+
+    resp = api_request("GET", "/api/todo/list", params=params)
+    todos = resp.json()
     if not todos:
         click.echo("No todos found")
         return
@@ -19,11 +24,11 @@ def todo_list(status, priority, limit):
     table = []
     for t in todos:
         table.append([
-            t.todo_id,
-            t.name,
-            t.status,
-            t.priority or "-",
-            t.due_date or "-",
-            ",".join(t.tags) if t.tags else "-",
+            t["todo_id"],
+            t["name"],
+            t["status"],
+            t.get("priority") or "-",
+            t.get("due_date") or "-",
+            ",".join(t["tags"]) if t.get("tags") else "-",
         ])
     click.echo(tabulate(table, headers=["ID", "Name", "Status", "Priority", "Due", "Tags"], tablefmt="simple"))
