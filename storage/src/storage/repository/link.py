@@ -189,27 +189,66 @@ def _batch_generate_long_ids(n: int, existing: Set[str] = set()) -> List[str]:
 
 def save_links_batch(user_id: int, links: List[dict]) -> int:
     """Batch upsert links and insert activities. Returns count of activities created."""
-    count = 0
-    activity_ids = _batch_generate_long_ids(len(links))
+    if not links:
+        return 0
+
     with get_db() as session:
-        for i, item in enumerate(links):
-            link = _upsert_link(session, item['url'], item.get('title'))
-            # Dedup: skip if same user+timestamp already exists
-            existing = session.query(LinkActivityEntity).filter_by(
-                user_id=user_id, timestamp=item['timestamp'],
-            ).first()
-            if existing:
-                continue
+        # 1. Collect all base_urls and timestamps
+        base_url_map: dict[str, dict] = {}  # base_url -> latest item (for title update)
+        for item in links:
+            base_url = _strip_query(item['url'])
+            # Keep latest title per base_url
+            existing = base_url_map.get(base_url)
+            if existing is None or item['timestamp'] > existing['timestamp']:
+                base_url_map[base_url] = item
+            item['_base_url'] = base_url
+
+        timestamps = [item['timestamp'] for item in links]
+
+        # 2. Batch load existing links by base_url
+        existing_links = session.query(LinkEntity).filter(
+            LinkEntity.base_url.in_(list(base_url_map.keys()))
+        ).all()
+        link_by_base_url: dict[str, LinkEntity] = {l.base_url: l for l in existing_links}
+
+        # 3. Batch load existing activities by user+timestamp for dedup
+        existing_activities = session.query(LinkActivityEntity.timestamp).filter(
+            LinkActivityEntity.user_id == user_id,
+            LinkActivityEntity.timestamp.in_(timestamps),
+        ).all()
+        existing_ts: Set[int] = {row.timestamp for row in existing_activities}
+
+        # 4. Upsert links (only new ones need insert, existing get title updated)
+        for base_url, item in base_url_map.items():
+            entity = link_by_base_url.get(base_url)
+            if entity:
+                title = item.get('title')
+                if title is not None:
+                    entity.title = title
+            else:
+                link_id = generate_id()
+                entity = LinkEntity(link_id=link_id, base_url=base_url, title=item.get('title'))
+                session.add(entity)
+                link_by_base_url[base_url] = entity
+        session.flush()  # get IDs for new links
+
+        # 5. Bulk insert new activities
+        count = 0
+        new_items = [item for item in links if item['timestamp'] not in existing_ts]
+        activity_ids = _batch_generate_long_ids(len(new_items))
+        for i, item in enumerate(new_items):
+            link_entity = link_by_base_url[item['_base_url']]
             activity = LinkActivityEntity(
                 user_id=user_id,
                 activity_id=activity_ids[i],
-                link_id=link.id,
+                link_id=link_entity.id,
                 url=item['url'],
                 title=item.get('title'),
                 timestamp=item['timestamp'],
             )
             session.add(activity)
             count += 1
+
     return count
 
 
