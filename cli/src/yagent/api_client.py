@@ -41,9 +41,18 @@ def api_request(method: str, path: str, **kwargs) -> httpx.Response:
         path: API path (e.g. /api/todo/list)
         **kwargs: passed to httpx.request (params, json, etc.)
     """
-    auth = load_auth()
-    api_url = auth.get("api_url", DEFAULT_API_URL)
-    token = auth["token"]
+    api_url = os.getenv("Y_API_BASE")
+    if api_url:
+        user_id = os.getenv("Y_USER_ID")
+        if user_id:
+            import jwt as pyjwt
+            token = pyjwt.encode({"user_id": int(user_id)}, os.environ["JWT_SECRET_KEY"], algorithm="HS256")
+        else:
+            token = load_auth().get("token", "")
+    else:
+        auth = load_auth()
+        api_url = auth.get("api_url", DEFAULT_API_URL)
+        token = auth["token"]
 
     url = f"{api_url}{path}"
     headers = {"Authorization": f"Bearer {token}"}

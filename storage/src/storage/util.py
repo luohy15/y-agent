@@ -16,9 +16,20 @@ def get_utc_iso8601_timestamp() -> str:
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 def generate_id() -> str:
-    """Generate a unique ID (6 characters)"""
+    """Generate a unique ID (6 hex characters)."""
     import uuid
     return uuid.uuid4().hex[:6]
+
+_BASE62_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+def generate_long_id(length: int = 22) -> str:
+    """Generate a URL-safe base62 ID.
+
+    Uses base62 characters (a-z, A-Z, 0-9) for compact, readable IDs.
+    22 characters provides ~131 bits of entropy (62^22 ≈ 2^131).
+    """
+    import secrets
+    return ''.join(secrets.choice(_BASE62_CHARS) for _ in range(length))
 
 def generate_message_id() -> str:
     """Generate a unique message ID in format msg_{timestamp}_{random8chars}"""

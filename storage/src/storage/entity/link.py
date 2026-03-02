@@ -1,0 +1,28 @@
+from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, UniqueConstraint
+from .base import Base, BaseEntity
+
+
+class LinkEntity(Base, BaseEntity):
+    __tablename__ = "link"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    link_id = Column(String, nullable=False, unique=True)
+    base_url = Column(String, nullable=False, unique=True)  # URL without query params
+    title = Column(String, nullable=True)
+
+
+class LinkActivityEntity(Base, BaseEntity):
+    __tablename__ = "link_activity"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    activity_id = Column(String, nullable=False)
+    link_id = Column(Integer, ForeignKey('link.id', ondelete='CASCADE'), nullable=False, index=True)
+    url = Column(String, nullable=False)        # full URL for this visit
+    title = Column(String, nullable=True)
+    timestamp = Column(BigInteger, nullable=False, index=True)  # unix ms from browser
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "activity_id"),
+        UniqueConstraint("user_id", "timestamp"),
+    )
