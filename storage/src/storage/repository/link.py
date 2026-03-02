@@ -232,9 +232,14 @@ def save_links_batch(user_id: int, links: List[dict]) -> int:
                 link_by_base_url[base_url] = entity
         session.flush()  # get IDs for new links
 
-        # 5. Bulk insert new activities
+        # 5. Bulk insert new activities (dedup within batch by timestamp too)
         count = 0
-        new_items = [item for item in links if item['timestamp'] not in existing_ts]
+        seen_ts: Set[int] = set()
+        new_items: List[dict] = []
+        for item in links:
+            if item['timestamp'] not in existing_ts and item['timestamp'] not in seen_ts:
+                seen_ts.add(item['timestamp'])
+                new_items.append(item)
         activity_ids = _batch_generate_long_ids(len(new_items))
         for i, item in enumerate(new_items):
             link_entity = link_by_base_url[item['_base_url']]
