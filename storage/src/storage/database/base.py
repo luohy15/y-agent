@@ -47,7 +47,11 @@ def init_db(database_url: str):
 def init_tables():
     """Create all database tables defined in the entity models."""
     if _engine is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
+        database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))
+        if database_url:
+            init_db(database_url)
+        else:
+            raise RuntimeError("Database not initialized. Set DATABASE_URL_DEV or DATABASE_URL, or call init_db() first.")
 
     # Import all entities to register them with Base
     import storage.entity.user  # noqa: F401
@@ -57,6 +61,7 @@ def init_tables():
     import storage.entity.todo  # noqa: F401
     import storage.entity.calendar_event  # noqa: F401
     import storage.entity.link  # noqa: F401
+    import storage.entity.email  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 
