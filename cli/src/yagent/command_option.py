@@ -10,6 +10,7 @@ from yagent.commands.bot.click import bot_group
 from yagent.commands.todo.click import todo_group
 from yagent.commands.calendar.click import calendar_group
 from yagent.commands.link.click import link_group
+from yagent.commands.email.click import email_group
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(context_settings=CONTEXT_SETTINGS)
@@ -28,3 +29,4 @@ cli.add_command(bot_group)
 cli.add_command(todo_group)
 cli.add_command(calendar_group)
 cli.add_command(link_group)
+cli.add_command(email_group)
