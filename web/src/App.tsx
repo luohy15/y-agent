@@ -7,6 +7,7 @@ import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import FileSearchDialog from "./components/FileSearchDialog";
+import TerminalView from "./components/TerminalView";
 
 interface VmConfigItem {
   name: string;
@@ -34,6 +35,7 @@ export default function App() {
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
+  const [bottomTab, setBottomTab] = useState<"chat" | "terminal">(() => (localStorage.getItem("bottomTab") as "chat" | "terminal") || "chat");
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
@@ -73,6 +75,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
+  useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
   useEffect(() => {
     if (!auth.isLoggedIn) { setVmList([]); return; }
@@ -199,6 +202,27 @@ export default function App() {
             {!chatHide && <span className={`font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 ${workDirMismatch ? "text-sol-yellow" : "text-sol-base01"}`} title={(selectedChatId ? chatWorkDir : currentVmWorkDir) || ""}><svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{selectedChatId ? chatWorkDir : currentVmWorkDir}</span>{workDirMismatch && <span className="sm:hidden">!</span>}{workDirMismatch && <span className="hidden sm:inline">(mismatch)</span>}</span>}
             {!chatHide && (
               <>
+                {/* Tab switcher */}
+                <button
+                  onClick={() => setBottomTab("chat")}
+                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "chat" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  title="Chat"
+                >
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setBottomTab("terminal")}
+                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "terminal" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  title="Terminal"
+                >
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <polyline points="2,4 6,7 2,10" />
+                    <line x1="7" y1="11" x2="12" y2="11" />
+                  </svg>
+                </button>
+                <div className="w-px h-4 bg-sol-base02 mx-0.5" />
                 <button
                   onClick={() => { setSelectedChatId(null); }}
                   className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
@@ -250,14 +274,21 @@ export default function App() {
               )}
             </button>
           </div>
-          {/* Right bottom: ChatView + ChatList */}
+          {/* Right bottom: ChatView / TerminalView + ChatList */}
           <div className={`flex flex-col min-h-0 ${chatMaximize ? "flex-1" : "h-3/5"} ${chatHide ? "hidden" : ""}`}>
             <div className="flex flex-1 min-h-0 relative">
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-                <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} vmWorkDir={currentVmWorkDir} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
+                {/* Chat (kept mounted, toggled via CSS) */}
+                <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
+                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} vmWorkDir={currentVmWorkDir} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+                </div>
+                {/* Terminal (kept mounted, toggled via CSS) */}
+                <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
+                  <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} />
+                </div>
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
-              {!chatHide && (
+              {!chatHide && bottomTab === "chat" && (
                 <div
                   className={`
                     hidden md:block
