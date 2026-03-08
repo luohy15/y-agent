@@ -111,3 +111,16 @@ def convert_tree(node, price_map, target_currency, date=None):
 
 # re-export click for convert_balance error
 import click  # noqa: E402
+
+
+def save_and_echo(name: str, result):
+    """Save result to ~/.y-agent/finance/{name}.json and echo it."""
+    import json
+    import os
+
+    home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
+    output_path = os.path.join(home, "finance", f"{name}.json")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(result, f, indent=2)
+    click.echo(json.dumps(result))

@@ -3,7 +3,14 @@ import os
 import click
 
 from .balance_sheet import balance_sheet
+from .holdings import holdings
 from .income_statement import income_statement
+from .invest_plan import invest_plan
+from .position import position
+
+from .target_holdings import target_holdings
+from .target_position import target_position
+from .update_market_data import update_market_data
 
 
 @click.group("beancount")
@@ -14,6 +21,12 @@ from .income_statement import income_statement
 @click.pass_context
 def beancount_group(ctx, time: str, history: bool, granularity: str, convert: str):
     """Beancount financial reporting commands."""
+    ctx.ensure_object(dict)
+
+    # Skip beancount loading for commands that don't need it
+    if ctx.invoked_subcommand in ("update-market-data", "target-position"):
+        return
+
     from beancount import loader
     from beancount.core import prices
     from fava.util.date import parse_date
@@ -31,7 +44,6 @@ def beancount_group(ctx, time: str, history: bool, granularity: str, convert: st
     entries, _errors, options = loader.load_file(path)
     price_map = prices.build_price_map(entries) if convert else None
 
-    ctx.ensure_object(dict)
     ctx.obj["entries"] = entries
     ctx.obj["options"] = options
     ctx.obj["price_map"] = price_map
@@ -42,5 +54,11 @@ def beancount_group(ctx, time: str, history: bool, granularity: str, convert: st
     ctx.obj["convert"] = convert
 
 
-beancount_group.add_command(balance_sheet)
 beancount_group.add_command(income_statement)
+beancount_group.add_command(update_market_data)
+beancount_group.add_command(balance_sheet)
+beancount_group.add_command(holdings)
+beancount_group.add_command(invest_plan)
+beancount_group.add_command(position)
+beancount_group.add_command(target_holdings)
+beancount_group.add_command(target_position)
