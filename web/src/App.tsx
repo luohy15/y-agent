@@ -50,8 +50,9 @@ export default function App() {
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
 
   const handleOpenFile = useCallback((path: string) => {
-    setOpenFiles((files) => files.includes(path) ? files : [...files, path]);
-    setActiveFile(path);
+    const p = path.replace(/^\.\//, "");
+    setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
+    setActiveFile(p);
     if (!chatHide) setChatMaximize(false);
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [chatHide]);
@@ -165,7 +166,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleSidebar={() => {
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} onToggleSidebar={() => {
         // Mobile: toggle overlay; Desktop: toggle persistent sidebar
         const isMobile = window.innerWidth < 768;
         if (isMobile) setSidebarOpen((v) => !v);
@@ -322,7 +323,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} />
+      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} openFiles={openFiles} />
     </div>
   );
 }
