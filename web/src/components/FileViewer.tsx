@@ -90,11 +90,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
-  const isTodo = activeFileName === "todo.md";
-  const isCalendar = activeFileName === "calendar.md";
-  const isLink = activeFileName === "links.md";
-  const isFinance = activeFileName === "finance.bean";
-  const isEmail = activeFileName === "emails.md";
+  const isTodo = activeFileName.endsWith("todo.md");
+  const isCalendar = activeFileName.endsWith("calendar.md");
+  const isLink = activeFileName.endsWith("links.md");
+  const isFinance = activeFileName.endsWith("finance.bean");
+  const isEmail = activeFileName.endsWith("emails.md");
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
@@ -281,11 +281,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       <div className="flex-1 min-h-0 bg-sol-base03 relative">
         {openFiles.map((filePath) => {
           const fileName = filePath.replace(/^\.\//, "");
-          const fileTodo = fileName === "todo.md";
-          const fileCalendar = fileName === "calendar.md";
-          const fileLink = fileName === "links.md";
-          const fileFinance = fileName === "finance.bean";
-          const fileEmail = fileName === "emails.md";
+          const fileTodo = fileName.endsWith("todo.md");
+          const fileCalendar = fileName.endsWith("calendar.md");
+          const fileLink = fileName.endsWith("links.md");
+          const fileFinance = fileName.endsWith("finance.bean");
+          const fileEmail = fileName.endsWith("emails.md");
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
           const fileExt = getExt(filePath);
