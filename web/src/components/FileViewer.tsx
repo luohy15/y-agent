@@ -8,6 +8,8 @@ import CalendarViewer from "./CalendarViewer";
 import LinkViewer from "./LinkViewer";
 import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 
 interface FileViewerProps {
@@ -81,10 +83,96 @@ function FileContentTable({ filePath, content }: { filePath: string; content: st
   );
 }
 
+function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: string }[]; onSelect?: () => void }) {
+  return (
+    <ul className="space-y-1">
+      {headings.map((h) => (
+        <li key={h.id}>
+          <a
+            href={`#${h.id}`}
+            onClick={onSelect}
+            className="text-xs text-sol-base0 hover:text-sol-blue no-underline block truncate"
+          >
+            {h.text}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  const [tocOpen, setTocOpen] = useState(false);
+  const headings = useMemo(() => {
+    const lines = content.split("\n");
+    const result: { text: string; id: string }[] = [];
+    for (const line of lines) {
+      const m = line.match(/^## (.+)/);
+      if (m) {
+        const text = m[1].trim();
+        const id = text.toLowerCase().replace(/[^\w]+/g, "-").replace(/(^-|-$)/g, "");
+        result.push({ text, id });
+      }
+    }
+    return result;
+  }, [content]);
+
+  return (
+    <div className="flex h-full">
+      <div className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h2: ({ children, ...props }) => {
+              const text = String(children).trim();
+              const id = text.toLowerCase().replace(/[^\w]+/g, "-").replace(/(^-|-$)/g, "");
+              return <h2 id={id} {...props}>{children}</h2>;
+            },
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+      {/* Desktop: sidebar TOC */}
+      {headings.length > 0 && (
+        <nav className="hidden md:block w-48 shrink-0 overflow-y-auto border-l border-sol-base02 p-3">
+          <div className="text-xs text-sol-base01 mb-2">Contents</div>
+          <MarkdownToc headings={headings} />
+        </nav>
+      )}
+      {/* Mobile: FAB + popover TOC */}
+      {headings.length > 0 && (
+        <div className="md:hidden">
+          <button
+            onClick={() => setTocOpen((v) => !v)}
+            className="fixed right-4 bottom-14 z-40 w-10 h-10 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-lg cursor-pointer"
+            title="Table of contents"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+          </button>
+          {tocOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
+              <nav className="fixed right-4 bottom-26 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
+                <div className="text-xs text-sol-base01 mb-2">Contents</div>
+                <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
+              </nav>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [cache, setCache] = useState<Record<string, FileCache>>({});
+  const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
@@ -254,6 +342,15 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
             </span>
           ))}
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isLink && !isEmail && (
+            <button
+              onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
+            >
+              {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
+            </button>
+          )}
           <button
             onClick={handleRefresh}
             className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
@@ -330,7 +427,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileIsPdf && fileData.blobUrl ? (
                 <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
               ) : fileData.content !== undefined ? (
-                <FileContentTable filePath={filePath} content={fileData.content} />
+                getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
+                  <MarkdownPreview content={fileData.content} />
+                ) : (
+                  <FileContentTable filePath={filePath} content={fileData.content} />
+                )
               ) : null}
             </div>
           );

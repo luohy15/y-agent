@@ -6,16 +6,17 @@ interface FileSearchDialogProps {
   onClose: () => void;
   onSelectFile: (path: string) => void;
   vmName?: string | null;
+  openFiles?: string[];
 }
 
-export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }: FileSearchDialogProps) {
+export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, openFiles = [] }: FileSearchDialogProps) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const timerRef = useRef<number | null>(null);
+  const [searched, setSearched] = useState(false);
 
   // Focus input when opened
   useEffect(() => {
@@ -23,17 +24,18 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }
       setQuery("");
       setResults([]);
       setSelectedIndex(0);
+      setSearched(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
-  // Debounced search
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
       setResults([]);
       return;
     }
     setLoading(true);
+    setSearched(true);
     try {
       const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}${vmQuery}`);
       const data = await res.json();
@@ -46,27 +48,32 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }
     }
   }, [vmQuery]);
 
-  const handleInputChange = (value: string) => {
-    setQuery(value);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => doSearch(value), 200);
-  };
-
   const handleSelect = (path: string) => {
     onSelectFile(path);
     onClose();
   };
 
+  // Filter open files by query (before submit)
+  const filteredOpenFiles = query.trim()
+    ? openFiles.filter((f) => f.toLowerCase().includes(query.trim().toLowerCase()))
+    : openFiles;
+  const showOpenFiles = !searched && filteredOpenFiles.length > 0;
+  const displayList = showOpenFiles ? filteredOpenFiles : results;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => (i + 1) % results.length);
+      setSelectedIndex((i) => (i + 1) % (displayList.length || 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((i) => (i - 1 + results.length) % results.length);
-    } else if (e.key === "Enter" && results.length > 0) {
+      setSelectedIndex((i) => (i - 1 + (displayList.length || 1)) % (displayList.length || 1));
+    } else if (e.key === "Enter") {
       e.preventDefault();
-      handleSelect(results[selectedIndex]);
+      if (displayList.length > 0) {
+        handleSelect(displayList[selectedIndex]);
+      } else {
+        doSearch(query);
+      }
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -85,16 +92,26 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => handleInputChange(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search files by name..."
             className="flex-1 bg-transparent text-sm text-sol-base1 outline-none placeholder:text-sol-base01"
           />
           {loading && <span className="text-sol-base01 text-xs ml-2">...</span>}
+          <button
+            onClick={() => doSearch(query)}
+            className="text-sol-base01 hover:text-sol-base1 cursor-pointer ml-2 shrink-0"
+            title="Search"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z" />
+            </svg>
+          </button>
         </div>
-        {results.length > 0 && (
+        {displayList.length > 0 && (
           <div className="max-h-64 overflow-y-auto py-1">
-            {results.map((file, i) => (
+            {showOpenFiles && <div className="px-3 py-1 text-xs text-sol-base01">Open files</div>}
+            {displayList.map((file, i) => (
               <div
                 key={file}
                 onClick={() => handleSelect(file)}
@@ -107,7 +124,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName }
             ))}
           </div>
         )}
-        {query && !loading && results.length === 0 && (
+        {searched && query && !loading && results.length === 0 && (
           <div className="px-3 py-3 text-xs text-sol-base01 italic">No files found</div>
         )}
       </div>
