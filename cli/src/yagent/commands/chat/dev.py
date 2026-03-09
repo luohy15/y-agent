@@ -34,14 +34,31 @@ def _stream_and_handle(chat_id: str, display_manager: DisplayManager, last_index
     return last_index, True
 
 
-def _build_prompt(todo: dict) -> str:
+def _build_prompt(todo: dict, mode: str | None = None) -> str:
     parts = [f"Task: {todo['name']}"]
     if todo.get('desc'):
         parts.append(todo['desc'])
-    if todo.get('progress'):
-        parts.append(todo['progress'])
-    parts.append("\nWhen finishing a plan, always include the plan file path in your response so the user can review it.")
+    if mode == 'plan':
+        parts.append("\nYou are in plan mode. Create a detailed implementation plan but do NOT write any code.")
+        parts.append("When finishing a plan, always include the plan file path in your response so the user can review it.")
+    elif mode == 'implement':
+        if todo.get('progress'):
+            parts.append(f"\nImplementation plan: {todo['progress']}")
+        parts.append("\nYou are in implement mode. Follow the plan and implement the changes.")
+    else:
+        if todo.get('progress'):
+            parts.append(todo['progress'])
+        parts.append("\nWhen finishing a plan, always include the plan file path in your response so the user can review it.")
     return "\n".join(parts)
+
+
+def _build_post_hooks(todo: dict, todo_id: str, mode: str | None, no_worktree: bool) -> list | None:
+    hooks = []
+    if mode == 'plan':
+        hooks.append({"type": "save_plan_to_todo", "todo_id": todo_id})
+    if not no_worktree:
+        hooks.append({"type": "commit_and_pr", "todo_id": todo_id, "todo_name": todo['name'], "todo_desc": todo.get('desc', '')})
+    return hooks or None
 
 
 def _git_root() -> str:
@@ -83,37 +100,6 @@ def _apply_symlinks(git_root: str, worktree_path: str):
                 os.symlink(src, target)
 
 
-def _commit_and_pr(work_dir: str, todo: dict, todo_id: str):
-    """Stage, commit, push, and create PR for worktree changes."""
-    branch = f"worktree-{todo_id}"
-    git = ["git", "-C", work_dir]
-
-    # Check for changes
-    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
-    if not status.stdout.strip():
-        click.echo("No changes to commit.")
-        return
-
-    # Stage, commit, push
-    subprocess.check_call(git + ["add", "-A"])
-    subprocess.check_call(git + ["commit", "-m", todo["name"]])
-    click.echo("Committed changes.")
-
-    subprocess.check_call(git + ["push", "-u", "origin", branch])
-    click.echo(f"Pushed branch {branch}.")
-
-    # Create PR (may already exist)
-    desc = todo.get("desc") or ""
-    result = subprocess.run(
-        ["gh", "pr", "create", "--head", branch, "--title", todo["name"], "--body", desc],
-        cwd=work_dir, capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        click.echo(f"PR created: {result.stdout.strip()}")
-    else:
-        click.echo(f"PR creation skipped: {result.stderr.strip()}")
-
-
 def _remove_worktree(git_root: str, todo_id: str):
     repo_name = os.path.basename(git_root)
     path = os.path.join(os.path.dirname(git_root), f"{repo_name}-{todo_id}")
@@ -133,9 +119,10 @@ def _remove_worktree(git_root: str, todo_id: str):
 @click.option('--no-worktree', is_flag=True, help='Skip worktree creation, use cwd')
 @click.option('--clean', is_flag=True, help='Remove worktree and exit')
 @click.option('--message', '-m', default=None, help='Continue message (default: "Continue working on this task.")')
+@click.option('--mode', type=click.Choice(['plan', 'implement']), default=None, help='Plan or implement mode')
 @click.option('--bot', '-b', default='claude-code', help='Bot name')
 @click.option('--vm', default='default', help='VM name')
-def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: bool, message: str, bot: str, vm: str):
+def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: bool, message: str, mode: str, bot: str, vm: str):
     """Start a dev chat session linked to a todo item."""
     # Handle --clean: remove worktree and exit
     if clean:
@@ -163,18 +150,21 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
 
     # 3. Resume vs new chat
     chat_ids = todo.get('chat_ids') or []
+    post_hooks = _build_post_hooks(todo, todo_id, mode, no_worktree)
 
     if chat_ids and not clear:
         chat_id = chat_ids[-1]
         prompt = message or "Continue working on this task."
         api_request("POST", "/api/chat/message", json={
             "chat_id": chat_id, "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         click.echo(f"Resumed chat {chat_id}")
     else:
-        prompt = _build_prompt(todo)
+        prompt = _build_prompt(todo, mode)
         resp = api_request("POST", "/api/chat", json={
             "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         chat_id = resp.json()["chat_id"]
 
@@ -217,10 +207,3 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
         if interrupted:
             break
-
-    # 5. Auto commit and PR (worktree only)
-    if not no_worktree:
-        try:
-            _commit_and_pr(work_dir, todo, todo_id)
-        except Exception as e:
-            click.echo(f"Auto commit/PR failed: {e}", err=True)
