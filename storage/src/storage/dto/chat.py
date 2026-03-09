@@ -130,6 +130,7 @@ class Chat:
     work_dir: Optional[str] = None
     interrupted: bool = False
     running: bool = False
+    post_hooks: Optional[List[Dict]] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -150,6 +151,7 @@ class Chat:
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
+            post_hooks=data.get('post_hooks'),
         )
 
     def to_dict(self) -> Dict:
@@ -177,6 +179,8 @@ class Chat:
             result['interrupted'] = self.interrupted
         if self.running:
             result['running'] = self.running
+        if self.post_hooks:
+            result['post_hooks'] = self.post_hooks
         return result
 
     def update_messages(self, messages: List[Message]) -> None:

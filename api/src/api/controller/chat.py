@@ -76,6 +76,7 @@ class CreateChatRequest(BaseModel):
     chat_id: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
+    post_hooks: Optional[list] = None
 
 
 class CreateChatResponse(BaseModel):
@@ -88,6 +89,7 @@ class SendMessageRequest(BaseModel):
     bot_name: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
+    post_hooks: Optional[list] = None
 
 
 class StopChatRequest(BaseModel):
@@ -127,11 +129,16 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         "id": generate_message_id(),
     })
 
-    await chat_service.create_chat(
+    chat = await chat_service.create_chat(
         user_id,
         messages=[user_msg],
         chat_id=chat_id,
     )
+
+    if req.post_hooks:
+        chat.post_hooks = req.post_hooks
+        from storage.repository import chat as chat_repo
+        await chat_repo.save_chat_by_id(chat)
 
     _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir)
     return CreateChatResponse(chat_id=chat_id)
@@ -155,6 +162,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     })
     chat.messages.append(user_msg)
     chat.interrupted = False
+    if req.post_hooks is not None:
+        chat.post_hooks = req.post_hooks
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)

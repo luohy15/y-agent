@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 import sys
 import click
@@ -53,6 +52,15 @@ def _build_prompt(todo: dict, mode: str | None = None) -> str:
     return "\n".join(parts)
 
 
+def _build_post_hooks(todo: dict, todo_id: str, mode: str | None, no_worktree: bool) -> list | None:
+    hooks = []
+    if mode == 'plan':
+        hooks.append({"type": "save_plan_to_todo", "todo_id": todo_id})
+    if not no_worktree:
+        hooks.append({"type": "commit_and_pr", "todo_id": todo_id, "todo_name": todo['name'], "todo_desc": todo.get('desc', '')})
+    return hooks or None
+
+
 def _git_root() -> str:
     return subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
 
@@ -90,37 +98,6 @@ def _apply_symlinks(git_root: str, worktree_path: str):
             if not os.path.exists(target):
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 os.symlink(src, target)
-
-
-def _commit_and_pr(work_dir: str, todo: dict, todo_id: str):
-    """Stage, commit, push, and create PR for worktree changes."""
-    branch = f"worktree-{todo_id}"
-    git = ["git", "-C", work_dir]
-
-    # Check for changes
-    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
-    if not status.stdout.strip():
-        click.echo("No changes to commit.")
-        return
-
-    # Stage, commit, push
-    subprocess.check_call(git + ["add", "-A"])
-    subprocess.check_call(git + ["commit", "-m", todo["name"]])
-    click.echo("Committed changes.")
-
-    subprocess.check_call(git + ["push", "-u", "origin", branch])
-    click.echo(f"Pushed branch {branch}.")
-
-    # Create PR (may already exist)
-    desc = todo.get("desc") or ""
-    result = subprocess.run(
-        ["gh", "pr", "create", "--head", branch, "--title", todo["name"], "--body", desc],
-        cwd=work_dir, capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        click.echo(f"PR created: {result.stdout.strip()}")
-    else:
-        click.echo(f"PR creation skipped: {result.stderr.strip()}")
 
 
 def _remove_worktree(git_root: str, todo_id: str):
@@ -173,18 +150,21 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
 
     # 3. Resume vs new chat
     chat_ids = todo.get('chat_ids') or []
+    post_hooks = _build_post_hooks(todo, todo_id, mode, no_worktree)
 
     if chat_ids and not clear:
         chat_id = chat_ids[-1]
         prompt = message or "Continue working on this task."
         api_request("POST", "/api/chat/message", json={
             "chat_id": chat_id, "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         click.echo(f"Resumed chat {chat_id}")
     else:
         prompt = _build_prompt(todo, mode)
         resp = api_request("POST", "/api/chat", json={
             "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         chat_id = resp.json()["chat_id"]
 
@@ -227,34 +207,3 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
         if interrupted:
             break
-
-    # 5. Plan mode: update todo with plan file path from last assistant message
-    if mode == 'plan':
-        try:
-            resp = api_request("GET", "/api/chat/detail", params={"chat_id": chat_id})
-            messages = resp.json().get("messages", [])
-            # Find plan file path from last assistant message
-            plan_path = None
-            for msg in reversed(messages):
-                if msg.get("role") == "assistant":
-                    content = msg.get("content", "")
-                    # Look for file path in the message
-                    paths = re.findall(r'(/[^\s\n`"\']+\.md)', content)
-                    if paths:
-                        plan_path = paths[-1]
-                    break
-            if plan_path:
-                api_request("POST", "/api/todo/update", json={
-                    "todo_id": todo_id, "progress": plan_path,
-                })
-                click.echo(f"Plan saved to todo progress: {plan_path}")
-        except Exception as e:
-            click.echo(f"Failed to update todo with plan: {e}", err=True)
-        return
-
-    # 6. Auto commit and PR (worktree only)
-    if not no_worktree:
-        try:
-            _commit_and_pr(work_dir, todo, todo_id)
-        except Exception as e:
-            click.echo(f"Auto commit/PR failed: {e}", err=True)
