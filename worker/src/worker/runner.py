@@ -1,6 +1,8 @@
 """Run a single chat through the agent loop, writing messages to DB."""
 
 import os
+import re
+import subprocess
 from typing import List
 
 from loguru import logger
@@ -21,6 +23,74 @@ def message_callback(chat_id: str, message: Message):
 def check_interrupted(chat_id: str) -> bool:
     c = chat_service.get_chat_by_id_sync(chat_id)
     return c.interrupted if c else False
+
+
+def _run_post_hooks(chat, user_id: int) -> None:
+    """Execute post-completion hooks stored on the chat."""
+    for hook in chat.post_hooks:
+        hook_type = hook.get("type")
+        try:
+            if hook_type == "commit_and_pr":
+                _hook_commit_and_pr(chat.work_dir, hook)
+            elif hook_type == "save_plan_to_todo":
+                _hook_save_plan_to_todo(chat, hook, user_id)
+            else:
+                logger.warning("Unknown post_hook type: {}", hook_type)
+        except Exception as e:
+            logger.exception("Post hook {} failed: {}", hook_type, e)
+
+
+def _hook_commit_and_pr(work_dir: str, hook: dict) -> None:
+    """Stage, commit, push, and create PR."""
+    todo_name = hook.get("todo_name", "auto commit")
+    todo_desc = hook.get("todo_desc", "")
+    todo_id = hook.get("todo_id", "")
+    branch = f"worktree-{todo_id}" if todo_id else None
+
+    git = ["git", "-C", work_dir]
+
+    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
+    if not status.stdout.strip():
+        logger.info("commit_and_pr: no changes to commit")
+        return
+
+    subprocess.check_call(git + ["add", "-A"])
+    subprocess.check_call(git + ["commit", "-m", todo_name])
+    logger.info("commit_and_pr: committed")
+
+    if branch:
+        subprocess.check_call(git + ["push", "-u", "origin", branch])
+        logger.info("commit_and_pr: pushed branch {}", branch)
+
+        result = subprocess.run(
+            ["gh", "pr", "create", "--head", branch, "--title", todo_name, "--body", todo_desc],
+            cwd=work_dir, capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            logger.info("commit_and_pr: PR created: {}", result.stdout.strip())
+        else:
+            logger.info("commit_and_pr: PR skipped: {}", result.stderr.strip())
+
+
+def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
+    """Extract plan file path from last assistant message and save to todo progress."""
+    from storage.service import todo as todo_service
+    todo_id = hook.get("todo_id")
+    if not todo_id:
+        return
+
+    plan_path = None
+    for msg in reversed(chat.messages):
+        if msg.role == "assistant":
+            content = msg.content if isinstance(msg.content, str) else ""
+            paths = re.findall(r'(/[^\s\n`"\']+\.md)', content)
+            if paths:
+                plan_path = paths[-1]
+            break
+
+    if plan_path:
+        todo_service.update_todo(user_id, todo_id, progress=plan_path)
+        logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None) -> None:
@@ -54,6 +124,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         if fresh:
             fresh.running = False
             await chat_repo.save_chat_by_id(fresh)
+            # Execute post hooks if chat completed (not interrupted)
+            if not fresh.interrupted and fresh.post_hooks:
+                _run_post_hooks(fresh, user_id)
 
 
 async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:
