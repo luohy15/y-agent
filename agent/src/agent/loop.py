@@ -4,7 +4,6 @@ from typing import Callable, Dict, List, Optional
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.permissions import PermissionManager
 
 
 class ClientError(Exception):
@@ -113,17 +112,13 @@ async def run_agent_loop(
     tools_map: Dict,
     openai_tools: List[Dict],
     max_iterations: int = 50,
-    permission_manager: Optional[PermissionManager] = None,
     message_callback: Optional[Callable[[Message], None]] = None,
-    auto_approve_fn: Optional[Callable[[], bool]] = None,
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
 ) -> LoopResult:
     """Run the agent loop: call LLM, execute tool calls, repeat until plain text.
 
     Returns a LoopResult indicating how the loop exited.
     """
-    if permission_manager is None:
-        permission_manager = PermissionManager()
     if message_callback is None:
         message_callback = _default_display
 
@@ -168,22 +163,9 @@ async def run_agent_loop(
                 messages.append(assistant_message)
                 return LoopResult("completed")
 
-            # Has tool calls — check permissions and set statuses
-            for tc_index, tc in enumerate(tool_calls):
-                func = tc["function"]
-                tool_name = func["name"]
-                try:
-                    tool_args = json.loads(func["arguments"])
-                except (json.JSONDecodeError, TypeError):
-                    tool_args = {}
-
-                auto = auto_approve_fn() if auto_approve_fn else False
-                if tools_map.get(tool_name) and not auto and not permission_manager.is_allowed(tool_name, tool_args):
-                    for remaining_tc in tool_calls[tc_index:]:
-                        remaining_tc["status"] = "pending"
-                    break
-                else:
-                    tc["status"] = "approved"
+            # Has tool calls — set statuses
+            for tc in tool_calls:
+                tc["status"] = "approved"
 
             assistant_message = Message.from_dict({
                 "role": "assistant",

@@ -5,8 +5,6 @@ interface ChatInputProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onClear?: () => void;
-  autoApprove: boolean;
-  onToggleAutoApprove: () => void;
   sending?: boolean;
   autoFocus?: boolean;
   extraButtons?: ReactNode;
@@ -17,7 +15,7 @@ export interface ChatInputHandle {
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ value, onChange, onSubmit, onClear, autoApprove, onToggleAutoApprove, sending, autoFocus, extraButtons }, ref) => {
+  ({ value, onChange, onSubmit, onClear, sending, autoFocus, extraButtons }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const [cursorPos, setCursorPos] = useState<number>(0);
 
@@ -52,11 +50,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           handleSubmit();
           return;
         }
-        if (e.key === "Tab" && e.shiftKey) {
-          e.preventDefault();
-          onToggleAutoApprove();
-          return;
-        }
         if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
           // Don't steal focus if user has text selected (e.g., to copy)
           const sel = window.getSelection();
@@ -67,7 +60,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       };
       document.addEventListener("keydown", handler);
       return () => document.removeEventListener("keydown", handler);
-    }, [handleSubmit, onToggleAutoApprove]);
+    }, [handleSubmit]);
 
     // Auto-resize textarea on mobile
     const autoResize = useCallback(() => {
@@ -121,8 +114,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               value={value}
               onChange={(e) => { onChange(e.target.value); updateCursor(); }}
               onKeyDown={(e) => {
-                if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); onToggleAutoApprove(); }
-                else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSubmit(); }
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSubmit(); }
                 else handleBashKeys(e);
                 requestAnimationFrame(updateCursor);
               }}
@@ -142,7 +134,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           </div>
         </div>
         <div className="px-2 pt-1 pb-1 text-sm sm:text-xs select-none flex items-center gap-2">
-          <button onClick={onToggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button><span className="hidden sm:inline"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span> <span className="text-sol-base01">(shift+tab to cycle)</span></span>{sending && " · sending..."}
+          {sending && <span className="text-sol-base01">sending...</span>}
           {extraButtons}
         </div>
       </div>

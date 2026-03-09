@@ -18,7 +18,7 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
     return await chat_repo.get_chat(user_id, chat_id)
 
 
-async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None, auto_approve: bool = False) -> Chat:
+async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None) -> Chat:
     timestamp = get_utc_iso8601_timestamp()
     chat = Chat(
         id=chat_id if chat_id else generate_id(),
@@ -26,7 +26,6 @@ async def create_chat(user_id: int, messages: List[Message], external_id: Option
         update_time=timestamp,
         messages=[msg for msg in messages if msg.role != 'system'],
         external_id=external_id,
-        auto_approve=auto_approve,
     )
     return await chat_repo.add_chat(user_id, chat)
 

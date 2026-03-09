@@ -17,5 +17,9 @@ def set_config(user_id: int, config: VmConfig) -> VmConfig:
     return vm_repo.set_config(user_id, config)
 
 
+def get_config_by_work_dir(user_id: int, work_dir: str) -> Optional[VmConfig]:
+    return vm_repo.get_config_by_work_dir(user_id, work_dir)
+
+
 def delete_config(user_id: int, name: str = "default") -> bool:
     return vm_repo.delete_config(user_id, name)

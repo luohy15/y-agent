@@ -26,8 +26,9 @@ def lambda_handler(event, context):
     bot_name = body.get("bot_name")
     user_id = body.get("user_id")
     vm_name = body.get("vm_name")
+    work_dir = body.get("work_dir")
 
-    print(f"[worker] SQS trigger for chat {chat_id} bot_name={bot_name} user_id={user_id} vm_name={vm_name}")
+    print(f"[worker] SQS trigger for chat {chat_id} bot_name={bot_name} user_id={user_id} vm_name={vm_name} work_dir={work_dir}")
 
-    asyncio.run(run_chat(user_id, chat_id, bot_name=bot_name, vm_name=vm_name))
+    asyncio.run(run_chat(user_id, chat_id, bot_name=bot_name, vm_name=vm_name, work_dir=work_dir))
     return {"status": "ok", "chat_id": chat_id}
