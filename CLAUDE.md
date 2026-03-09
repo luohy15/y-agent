@@ -1,1 +1,2 @@
 - CLI install command: uv tool install --force -e ./cli
+- Non-interactive mode: Do not prompt for confirmation (e.g., ExitPlanMode). Stop after planning.

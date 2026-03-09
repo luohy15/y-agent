@@ -83,6 +83,37 @@ def _apply_symlinks(git_root: str, worktree_path: str):
                 os.symlink(src, target)
 
 
+def _commit_and_pr(work_dir: str, todo: dict, todo_id: str):
+    """Stage, commit, push, and create PR for worktree changes."""
+    branch = f"worktree-{todo_id}"
+    git = ["git", "-C", work_dir]
+
+    # Check for changes
+    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
+    if not status.stdout.strip():
+        click.echo("No changes to commit.")
+        return
+
+    # Stage, commit, push
+    subprocess.check_call(git + ["add", "-A"])
+    subprocess.check_call(git + ["commit", "-m", todo["name"]])
+    click.echo("Committed changes.")
+
+    subprocess.check_call(git + ["push", "-u", "origin", branch])
+    click.echo(f"Pushed branch {branch}.")
+
+    # Create PR (may already exist)
+    desc = todo.get("desc") or ""
+    result = subprocess.run(
+        ["gh", "pr", "create", "--head", branch, "--title", todo["name"], "--body", desc],
+        cwd=work_dir, capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        click.echo(f"PR created: {result.stdout.strip()}")
+    else:
+        click.echo(f"PR creation skipped: {result.stderr.strip()}")
+
+
 def _remove_worktree(git_root: str, todo_id: str):
     repo_name = os.path.basename(git_root)
     path = os.path.join(os.path.dirname(git_root), f"{repo_name}-{todo_id}")
@@ -162,10 +193,8 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
     last_index = 0
 
     last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
-    if interrupted:
-        return
 
-    while True:
+    while not interrupted:
         try:
             user_input, is_multiline, num_lines = input_manager.get_input()
         except KeyboardInterrupt:
@@ -188,3 +217,10 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
         if interrupted:
             break
+
+    # 5. Auto commit and PR (worktree only)
+    if not no_worktree:
+        try:
+            _commit_and_pr(work_dir, todo, todo_id)
+        except Exception as e:
+            click.echo(f"Auto commit/PR failed: {e}", err=True)
