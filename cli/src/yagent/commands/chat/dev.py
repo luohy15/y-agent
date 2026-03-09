@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import click
@@ -34,13 +35,21 @@ def _stream_and_handle(chat_id: str, display_manager: DisplayManager, last_index
     return last_index, True
 
 
-def _build_prompt(todo: dict) -> str:
+def _build_prompt(todo: dict, mode: str | None = None) -> str:
     parts = [f"Task: {todo['name']}"]
     if todo.get('desc'):
         parts.append(todo['desc'])
-    if todo.get('progress'):
-        parts.append(todo['progress'])
-    parts.append("\nWhen finishing a plan, always include the plan file path in your response so the user can review it.")
+    if mode == 'plan':
+        parts.append("\nYou are in plan mode. Create a detailed implementation plan but do NOT write any code.")
+        parts.append("When finishing a plan, always include the plan file path in your response so the user can review it.")
+    elif mode == 'implement':
+        if todo.get('progress'):
+            parts.append(f"\nImplementation plan: {todo['progress']}")
+        parts.append("\nYou are in implement mode. Follow the plan and implement the changes.")
+    else:
+        if todo.get('progress'):
+            parts.append(todo['progress'])
+        parts.append("\nWhen finishing a plan, always include the plan file path in your response so the user can review it.")
     return "\n".join(parts)
 
 
@@ -133,9 +142,10 @@ def _remove_worktree(git_root: str, todo_id: str):
 @click.option('--no-worktree', is_flag=True, help='Skip worktree creation, use cwd')
 @click.option('--clean', is_flag=True, help='Remove worktree and exit')
 @click.option('--message', '-m', default=None, help='Continue message (default: "Continue working on this task.")')
+@click.option('--mode', type=click.Choice(['plan', 'implement']), default=None, help='Plan or implement mode')
 @click.option('--bot', '-b', default='claude-code', help='Bot name')
 @click.option('--vm', default='default', help='VM name')
-def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: bool, message: str, bot: str, vm: str):
+def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: bool, message: str, mode: str, bot: str, vm: str):
     """Start a dev chat session linked to a todo item."""
     # Handle --clean: remove worktree and exit
     if clean:
@@ -172,7 +182,7 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         })
         click.echo(f"Resumed chat {chat_id}")
     else:
-        prompt = _build_prompt(todo)
+        prompt = _build_prompt(todo, mode)
         resp = api_request("POST", "/api/chat", json={
             "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
         })
@@ -218,7 +228,31 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         if interrupted:
             break
 
-    # 5. Auto commit and PR (worktree only)
+    # 5. Plan mode: update todo with plan file path from last assistant message
+    if mode == 'plan':
+        try:
+            resp = api_request("GET", "/api/chat/detail", params={"chat_id": chat_id})
+            messages = resp.json().get("messages", [])
+            # Find plan file path from last assistant message
+            plan_path = None
+            for msg in reversed(messages):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "")
+                    # Look for file path in the message
+                    paths = re.findall(r'(/[^\s\n`"\']+\.md)', content)
+                    if paths:
+                        plan_path = paths[-1]
+                    break
+            if plan_path:
+                api_request("POST", "/api/todo/update", json={
+                    "todo_id": todo_id, "progress": plan_path,
+                })
+                click.echo(f"Plan saved to todo progress: {plan_path}")
+        except Exception as e:
+            click.echo(f"Failed to update todo with plan: {e}", err=True)
+        return
+
+    # 6. Auto commit and PR (worktree only)
     if not no_worktree:
         try:
             _commit_and_pr(work_dir, todo, todo_id)
