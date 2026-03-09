@@ -8,7 +8,7 @@ from urllib.parse import urlparse, parse_qs
 
 import click
 
-from yagent.api_client import save_auth, DEFAULT_API_URL
+from yagent.api_client import save_auth, DEFAULT_WEB_URL
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -53,21 +53,21 @@ def _find_free_port() -> int:
 @click.option("--no-browser", is_flag=True, help="Manual login for headless servers — shows URL and prompts for token.")
 def login(token, email, no_browser):
     """Authenticate with Google via the web app."""
-    api_url = os.environ.get("Y_AGENT_API_URL", DEFAULT_API_URL)
+    web_url = os.environ.get("Y_AGENT_WEB_URL", DEFAULT_WEB_URL)
 
     if token:
         if not email:
             email = click.prompt("Enter your email")
-        save_auth(token.strip(), email.strip(), api_url)
+        save_auth(token.strip(), email.strip(), web_url)
         click.echo(f"Logged in as {email.strip()}")
         return
 
     if no_browser:
-        login_url = f"{api_url}?auth_redirect=manual"
+        login_url = f"{web_url}?auth_redirect=manual"
         click.echo(f"Visit this URL to login:\n\n  {login_url}\n")
         token = click.prompt("Paste your token here")
         email = click.prompt("Enter your email")
-        save_auth(token.strip(), email.strip(), api_url)
+        save_auth(token.strip(), email.strip(), web_url)
         click.echo(f"Logged in as {email.strip()}")
         return
 
@@ -80,7 +80,7 @@ def login(token, email, no_browser):
 
     server = HTTPServer(("localhost", port), _CallbackHandler)
 
-    login_url = f"{api_url}?auth_redirect={callback_url}"
+    login_url = f"{web_url}?auth_redirect={callback_url}"
     click.echo(f"Opening browser for login...")
     click.echo(f"If the browser doesn't open, visit: {login_url}")
     webbrowser.open(login_url)
@@ -91,5 +91,5 @@ def login(token, email, no_browser):
 
     server.server_close()
 
-    save_auth(_CallbackHandler.token, _CallbackHandler.email, api_url)
+    save_auth(_CallbackHandler.token, _CallbackHandler.email, web_url)
     click.echo(f"Logged in as {_CallbackHandler.email}")

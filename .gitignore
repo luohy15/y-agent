@@ -1,5 +1,6 @@
 .agents
 .aws-sam/
+.worktrees/
 
 # GitHub Actions config secrets
 .github/config*.json

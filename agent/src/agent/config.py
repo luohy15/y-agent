@@ -54,4 +54,6 @@ def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -
     if not vm_config:
         vm_config = VmConfig()
         vm_config.work_dir = os.environ.get("VM_WORK_DIR_CLI", "")
+    if work_dir:
+        vm_config.work_dir = work_dir
     return vm_config

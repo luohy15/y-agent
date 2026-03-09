@@ -8,7 +8,7 @@ import httpx
 
 
 AUTH_FILE = os.path.join(os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent")), "auth.json")
-DEFAULT_API_URL = "https://yovy.app"
+DEFAULT_WEB_URL = "https://yovy.app"
 
 
 def load_auth() -> dict:
@@ -20,11 +20,11 @@ def load_auth() -> dict:
         return json.load(f)
 
 
-def save_auth(token: str, email: str, api_url: str):
+def save_auth(token: str, email: str, web_url: str):
     """Save auth credentials to auth.json."""
     os.makedirs(os.path.dirname(AUTH_FILE), exist_ok=True)
     with open(AUTH_FILE, "w") as f:
-        json.dump({"token": token, "email": email, "api_url": api_url}, f)
+        json.dump({"token": token, "email": email, "web_url": web_url}, f)
 
 
 def remove_auth():
@@ -51,7 +51,7 @@ def api_request(method: str, path: str, **kwargs) -> httpx.Response:
             token = load_auth().get("token", "")
     else:
         auth = load_auth()
-        api_url = auth.get("api_url", DEFAULT_API_URL)
+        api_url = auth.get("web_url", DEFAULT_WEB_URL)
         token = auth["token"]
 
     url = f"{api_url}{path}"
