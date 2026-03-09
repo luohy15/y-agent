@@ -1,0 +1,4 @@
+# y-agent worktree symlinks
+../y-agent/.venv, .venv
+../y-agent/web/node_modules, web/node_modules
+../y-agent/.env, .env

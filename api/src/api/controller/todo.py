@@ -28,6 +28,7 @@ class UpdateTodoRequest(BaseModel):
     due_date: Optional[str] = None
     priority: Optional[str] = None
     progress: Optional[str] = None
+    chat_ids: Optional[List[str]] = None
 
 
 class TodoIdRequest(BaseModel):
