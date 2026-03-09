@@ -25,9 +25,9 @@ def check_interrupted(chat_id: str) -> bool:
     return c.interrupted if c else False
 
 
-def _run_post_hooks(chat, user_id: int) -> None:
-    """Execute post-completion hooks stored on the chat."""
-    for hook in chat.post_hooks:
+def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
+    """Execute post-completion hooks."""
+    for hook in post_hooks:
         hook_type = hook.get("type")
         try:
             if hook_type == "commit_and_pr":
@@ -93,9 +93,9 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None) -> None:
-    """Execute a chat round. bot_name, user_id, vm_name, and work_dir are passed from the queue message."""
-    logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={}", chat_id, bot_name, user_id, vm_name, work_dir)
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None) -> None:
+    """Execute a chat round. bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message."""
+    logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
     # Load chat from DB (with user_id access check)
     chat = await chat_service.get_chat(user_id, chat_id)
@@ -125,8 +125,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             fresh.running = False
             await chat_repo.save_chat_by_id(fresh)
             # Execute post hooks if chat completed (not interrupted)
-            if not fresh.interrupted and fresh.post_hooks:
-                _run_post_hooks(fresh, user_id)
+            if not fresh.interrupted and post_hooks:
+                logger.info("Running {} post hooks for chat {}", len(post_hooks), chat_id)
+                _run_post_hooks(fresh, user_id, post_hooks)
 
 
 async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:

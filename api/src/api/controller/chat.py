@@ -41,7 +41,7 @@ def _get_celery_app():
     return app
 
 
-def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None):
+def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -56,6 +56,8 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, 
         payload["vm_name"] = vm_name
     if work_dir:
         payload["work_dir"] = work_dir
+    if post_hooks:
+        payload["post_hooks"] = post_hooks
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
@@ -67,7 +69,7 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, 
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks})
 
 
 class CreateChatRequest(BaseModel):
@@ -135,12 +137,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         chat_id=chat_id,
     )
 
-    if req.post_hooks:
-        chat.post_hooks = req.post_hooks
-        from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(chat)
-
-    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir)
+    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -162,13 +159,11 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     })
     chat.messages.append(user_msg)
     chat.interrupted = False
-    if req.post_hooks is not None:
-        chat.post_hooks = req.post_hooks
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir)
+    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return {"ok": True}
 
 
