@@ -128,7 +128,6 @@ class Chat:
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
     work_dir: Optional[str] = None
-    auto_approve: bool = False
     interrupted: bool = False
     running: bool = False
 
@@ -149,7 +148,6 @@ class Chat:
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
             work_dir=data.get('work_dir'),
-            auto_approve=data.get('auto_approve', False),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
         )
@@ -175,8 +173,6 @@ class Chat:
             result['selected_message_id'] = self.selected_message_id
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
-        if self.auto_approve:
-            result['auto_approve'] = self.auto_approve
         if self.interrupted:
             result['interrupted'] = self.interrupted
         if self.running:

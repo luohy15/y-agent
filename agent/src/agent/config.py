@@ -37,9 +37,13 @@ def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
     return bot_config
 
 
-def resolve_vm_config(user_id: int, vm_name: str = None) -> VmConfig:
+def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
     if vm_name:
         vm_config = vm_service.get_config(user_id, vm_name)
+        if vm_config:
+            return vm_config
+    if work_dir:
+        vm_config = vm_service.get_config_by_work_dir(user_id, work_dir)
         if vm_config:
             return vm_config
     vm_config = vm_service.get_config(user_id, "default")

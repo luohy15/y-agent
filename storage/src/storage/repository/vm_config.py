@@ -52,6 +52,14 @@ def set_config(user_id: int, config: VmConfig) -> VmConfig:
         return config
 
 
+def get_config_by_work_dir(user_id: int, work_dir: str) -> Optional[VmConfig]:
+    with get_db() as session:
+        row = session.query(VmConfigEntity).filter_by(user_id=user_id, work_dir=work_dir).first()
+        if row:
+            return _entity_to_dto(row)
+        return None
+
+
 def delete_config(user_id: int, name: str = "default") -> bool:
     with get_db() as session:
         count = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).delete()

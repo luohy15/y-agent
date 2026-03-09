@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, type RefCallback } from "reac
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import { isPreview, MAIN_DOMAIN } from "../hooks/useAuth";
-import ApprovalModal from "./ApprovalBar";
 import MessageList, { type Message, extractContent } from "./MessageList";
 import ChatInput, { type ChatInputHandle } from "./ChatInput";
 
@@ -22,9 +21,6 @@ interface ChatViewProps {
 export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange, onComplete, onOpenFile }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
-  const [showApproval, setShowApproval] = useState(false);
-  const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; function: { name: string; arguments: string }; status?: string }>>([]);
-  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem("autoApprove") === "true");
   const [completed, setCompleted] = useState(false);
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [newPrompt, setNewPrompt] = useState("");
@@ -36,18 +32,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
 
-  const toggleAutoApprove = useCallback(async () => {
-    const next = !autoApprove;
-    setAutoApprove(next);
-    localStorage.setItem("autoApprove", String(next));
-    if (!chatId) return;
-    await authFetch(`${API}/api/chat/auto_approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, auto_approve: next }),
-    });
-  }, [chatId, autoApprove]);
-
   const addMessage = useCallback((msg: Message) => {
     setMessages((prev) => [...prev, msg]);
   }, []);
@@ -58,13 +42,12 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     ));
   }, []);
 
-  // Fetch chat detail (auto_approve, work_dir) when chatId changes or chat completes
+  // Fetch chat detail (work_dir) when chatId changes or chat completes
   useEffect(() => {
     if (!chatId) return;
     authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.auto_approve !== undefined) setAutoApprove(data.auto_approve);
         const wd = data.work_dir ?? null;
         setChatWorkDir(wd);
         onWorkDirChange?.(wd);
@@ -78,8 +61,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const connectSSE = useCallback((chatId: string, fromIndex: number) => {
     if (esRef.current) esRef.current.close();
     setCompleted(false);
-    setShowApproval(false);
-    setPendingToolCalls([]);
 
     const token = getToken();
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
@@ -121,21 +102,10 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       } catch {}
     };
 
-    const handleAsk = (raw: string) => {
-      try {
-        const evt = JSON.parse(raw);
-        const data = evt.data || evt;
-        const toolCalls = data.tool_calls || [];
-        setPendingToolCalls(toolCalls);
-        setShowApproval(true);
-      } catch {}
-    };
-
     es.addEventListener("message", (e) => handleMessage(e.data));
     for (const t of ["text", "tool_use", "tool_result"]) {
       es.addEventListener(t, (e) => handleMessage((e as MessageEvent).data));
     }
-    es.addEventListener("ask", (e) => handleAsk((e as MessageEvent).data));
     es.addEventListener("done", () => {
       setCompleted(true);
       es.close();
@@ -170,8 +140,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       esRef.current = null;
     }
     setCompleted(true);
-    setShowApproval(false);
-    setPendingToolCalls([]);
   }, [chatId]);
 
   const [shareLabel, setShareLabel] = useState("share");
@@ -226,7 +194,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       const res = await authFetch(`${API}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, auto_approve: autoApprove, ...(vmName ? { vm_name: vmName } : {}) }),
+        body: JSON.stringify({ prompt: text, ...(vmName ? { vm_name: vmName } : {}) }),
       });
       const data = await res.json();
       const now = new Date().toISOString();
@@ -241,7 +209,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     } finally {
       setSending(false);
     }
-  }, [newPrompt, sending, autoApprove, vmName, mutate, onChatCreated]);
+  }, [newPrompt, sending, vmName, mutate, onChatCreated]);
 
   if (!chatId) {
     if (!isLoggedIn) {
@@ -291,8 +259,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           onChange={setNewPrompt}
           onSubmit={createChat}
           onClear={onClear}
-          autoApprove={autoApprove}
-          onToggleAutoApprove={toggleAutoApprove}
           sending={sending}
           autoFocus
         />
@@ -322,31 +288,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} />
-      <ApprovalModal
-        chatId={chatId}
-        toolCalls={pendingToolCalls}
-        visible={showApproval}
-        onApproved={() => {
-          setShowApproval(false);
-          setPendingToolCalls([]);
-          mutate((key) => typeof key === "string" && key.startsWith(`${API}/api/chat/list`));
-        }}
-        onClose={() => setShowApproval(false)}
-      />
-      {!completed && !showApproval && pendingToolCalls.length > 0 && (
-        <div className="px-6 py-3 border-t border-sol-base022 shrink-0 flex justify-center">
-          <button
-            onClick={() => setShowApproval(true)}
-            className="px-4 py-2 bg-sol-yellow text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
-          >
-            Need Approve
-          </button>
-        </div>
-      )}
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
-          <button onClick={toggleAutoApprove} className={`sm:hidden font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${autoApprove ? "bg-sol-violet text-sol-base3" : "bg-sol-base02 text-sol-base01"}`}>{autoApprove ? "auto approve on" : "auto approve off"}</button>
-          <span onClick={toggleAutoApprove} className="hidden sm:inline cursor-pointer text-xs"><span className="font-mono">&gt;&gt;</span> <span className={autoApprove ? "text-sol-violet" : "text-sol-base01"}>{autoApprove ? "auto approve on" : "auto approve off"}</span></span>
           {processDetailButtons}
           <button onClick={stopChat} className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
           <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
@@ -359,8 +302,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           onChange={setFollowUp}
           onSubmit={sendFollowUp}
           onClear={onClear}
-          autoApprove={autoApprove}
-          onToggleAutoApprove={toggleAutoApprove}
           sending={sending}
           autoFocus
           extraButtons={<>

@@ -2,6 +2,8 @@ import click
 import shutil
 from tabulate import tabulate
 
+from yagent.api_client import api_request
+
 
 def get_column_widths():
     weights = {"ID": 1, "Title": 5, "Updated": 3}
@@ -14,33 +16,23 @@ def get_column_widths():
 
 @click.command('list')
 @click.option('--limit', '-l', default=10, help='Maximum number of chats to show (default: 10)')
-@click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
-def list_chats(limit: int, verbose: bool = False):
+def list_chats(limit: int):
     """List chat conversations sorted by update time (newest first)."""
-    from yagent.config import config
-    if verbose:
-        click.echo(f"{click.style('Database:', fg='green')}\n{click.style(config['database_url'], fg='cyan')}")
-        click.echo(f"Result limit: {limit}")
-    import asyncio
+    resp = api_request("GET", "/api/chat/list", params={"limit": limit})
+    chats = resp.json()
 
-    from storage.service import chat as chat_service
-    from storage.service.user import get_cli_user_id
-    chats = asyncio.run(chat_service.list_chats(get_cli_user_id(), limit=limit))
     if not chats:
         click.echo("No chats found")
         return
-
-    if verbose:
-        click.echo(f"Found {len(chats)} chat(s)")
 
     widths = get_column_widths()
 
     table_data = []
     for chat in chats:
         table_data.append([
-            chat.chat_id,
-            chat.title,
-            chat.updated_at,
+            chat["chat_id"],
+            chat["title"],
+            chat["updated_at"],
         ])
 
     headers = ["ID", "Title", "Updated"]
