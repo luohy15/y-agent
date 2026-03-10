@@ -1,9 +1,12 @@
 import os
+import logging
 from typing import Optional
 
 import jwt
 import httpx
 from fastapi import APIRouter, Request
+
+logger = logging.getLogger(__name__)
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
@@ -47,8 +50,10 @@ def _get_send_chat_message():
 async def telegram_webhook(request: Request):
     """Handle incoming Telegram updates."""
     body = await request.json()
+    logger.info("telegram webhook body: %s", body)
     message = body.get("message")
     if not message:
+        logger.info("telegram webhook: no message in body")
         return {"ok": True}
 
     telegram_chat_id = message["chat"]["id"]
@@ -56,6 +61,7 @@ async def telegram_webhook(request: Request):
     text = message.get("text", "").strip()
 
     if not text:
+        logger.info("telegram webhook: empty text")
         return {"ok": True}
 
     # Handle /bind command
@@ -143,15 +149,19 @@ async def _handle_new(telegram_chat_id: int, telegram_user_id: int):
 
 
 async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: str):
+    logger.info("_handle_message: telegram_chat_id=%s telegram_user_id=%s text=%s", telegram_chat_id, telegram_user_id, text)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
+        logger.info("_handle_message: no user bound for telegram_user_id=%s", telegram_user_id)
         await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
 
+    logger.info("_handle_message: found user id=%s email=%s", user.id, user.email)
     channel_id = f"telegram:{telegram_chat_id}"
 
     # Find or create chat for this channel
     chat = find_chat_by_channel_sync(user.id, channel_id)
+    logger.info("_handle_message: existing chat=%s", chat.id if chat else None)
     if chat:
         # Append message to existing chat
         user_msg = Message.from_dict({
@@ -189,10 +199,15 @@ async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: st
         await chat_repo.save_chat(user.id, chat)
 
     # Queue for processing with telegram_reply post-hook
-    send_chat_message = _get_send_chat_message()
-    send_chat_message(
-        chat_id,
-        user_id=user.id,
-        post_hooks=[{"type": "telegram_reply", "telegram_chat_id": telegram_chat_id}],
-    )
+    logger.info("_handle_message: queuing chat_id=%s user_id=%s to SQS", chat_id, user.id)
+    try:
+        send_chat_message = _get_send_chat_message()
+        send_chat_message(
+            chat_id,
+            user_id=user.id,
+            post_hooks=[{"type": "telegram_reply", "telegram_chat_id": telegram_chat_id}],
+        )
+        logger.info("_handle_message: queued successfully")
+    except Exception as e:
+        logger.exception("_handle_message: failed to queue message: %s", e)
     return {"ok": True}
