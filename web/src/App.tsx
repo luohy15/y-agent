@@ -6,6 +6,7 @@ import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
+import ActivityBar from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
 
@@ -166,13 +167,21 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} vmList={vmList} selectedVM={selectedVM} onSelectVM={setSelectedVM} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} onToggleSidebar={() => {
-        // Mobile: toggle overlay; Desktop: toggle persistent sidebar
-        const isMobile = window.innerWidth < 768;
-        if (isMobile) setSidebarOpen((v) => !v);
-        else setDesktopSidebarOpen((v) => !v);
-      }} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} />
       <div className="flex flex-1 min-h-0">
+        {/* Left: Activity Bar */}
+        <ActivityBar
+          isLoggedIn={auth.isLoggedIn}
+          vmList={vmList}
+          selectedVM={selectedVM}
+          onSelectVM={setSelectedVM}
+          sidebarOpen={window.innerWidth < 768 ? sidebarOpen : desktopSidebarOpen}
+          onToggleSidebar={() => {
+            const isMobile = window.innerWidth < 768;
+            if (isMobile) setSidebarOpen((v) => !v);
+            else setDesktopSidebarOpen((v) => !v);
+          }}
+        />
         {/* Mobile overlay backdrop */}
         {sidebarOpen && (
           <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />
