@@ -4,7 +4,6 @@ from typing import Optional
 import jwt
 import httpx
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
@@ -197,18 +196,3 @@ async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: st
         post_hooks=[{"type": "telegram_reply", "telegram_chat_id": telegram_chat_id}],
     )
     return {"ok": True}
-
-
-class SetWebhookRequest(BaseModel):
-    url: str
-
-
-@router.post("/set-webhook")
-async def set_webhook(req: SetWebhookRequest):
-    """Set the Telegram webhook URL. Admin use only."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            _bot_api_url("setWebhook"),
-            json={"url": req.url},
-        )
-        return resp.json()
