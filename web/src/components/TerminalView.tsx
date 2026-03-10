@@ -28,6 +28,10 @@ export default function TerminalView({ isLoggedIn, vmName, workDir }: TerminalVi
     const cmd = input.trim();
     if (!cmd || !isLoggedIn) return;
     setInput("");
+    if (cmd === "clear") {
+      setOutput("");
+      return;
+    }
     setOutput((prev) => prev + `$ ${cmd}\n`);
     setRunning(true);
 
@@ -59,6 +63,11 @@ export default function TerminalView({ isLoggedIn, vmName, workDir }: TerminalVi
       const pos = el.selectionStart ?? 0;
       const val = el.value;
       switch (e.key) {
+        case "l": {
+          e.preventDefault();
+          setOutput("");
+          break;
+        }
         case "u": {
           e.preventDefault();
           setInput(val.slice(pos));
