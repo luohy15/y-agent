@@ -228,7 +228,7 @@ interface FileTreeProps {
 }
 
 export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: FileTreeProps) {
-  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
+  const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -335,6 +335,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
         form.append("file", file);
         form.append("dest_dir", destDir);
         if (vmName) form.append("vm_name", vmName);
+        if (workDir) form.append("work_dir", workDir);
         await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
       }
     } finally {
@@ -344,7 +345,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
     // Refresh affected directories
     const refresh = dirRefreshMapRef.current.get(destDir) ?? dirRefreshMapRef.current.get(".");
     if (refresh) refresh();
-  }, [vmName]);
+  }, [vmName, workDir]);
 
   const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {

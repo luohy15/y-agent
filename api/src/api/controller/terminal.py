@@ -1,5 +1,7 @@
 """Terminal endpoint — run commands via local_exec/ssh_exec."""
 
+import dataclasses
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent.config import resolve_vm_config
@@ -17,7 +19,7 @@ async def _run_cmd(vm_config, cmd: list[str], timeout: float = 300) -> str:
 
 
 @router.post("/run")
-async def run_command(request: Request, vm_name: str = Query(None)):
+async def run_command(request: Request, vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = request.state.user_id
     body = await request.json()
     cmd = body.get("command", "").strip()
@@ -25,6 +27,8 @@ async def run_command(request: Request, vm_name: str = Query(None)):
         raise HTTPException(status_code=400, detail="Empty command")
 
     vm_config = resolve_vm_config(user_id, vm_name)
+    if work_dir:
+        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
 
     try:
         result = await _run_cmd(vm_config, ["bash", "-c", cmd])
