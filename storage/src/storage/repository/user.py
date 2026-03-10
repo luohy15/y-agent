@@ -29,6 +29,31 @@ def list_users() -> List[UserEntity]:
         return session.query(UserEntity).filter_by(deleted=False).all()
 
 
+def get_user_by_telegram_id(telegram_id: int) -> Optional[UserEntity]:
+    with get_db() as session:
+        return session.query(UserEntity).filter_by(telegram_id=telegram_id, deleted=False).first()
+
+
+def bind_telegram_id(email: str, telegram_id: int) -> Optional[UserEntity]:
+    with get_db() as session:
+        user = session.query(UserEntity).filter_by(email=email, deleted=False).first()
+        if not user:
+            return None
+        user.telegram_id = telegram_id
+        session.flush()
+        return user
+
+
+def unbind_telegram_id(telegram_id: int) -> Optional[UserEntity]:
+    with get_db() as session:
+        user = session.query(UserEntity).filter_by(telegram_id=telegram_id, deleted=False).first()
+        if not user:
+            return None
+        user.telegram_id = None
+        session.flush()
+        return user
+
+
 def get_or_create_user_by_email(email: str, username: str) -> UserEntity:
     with get_db() as session:
         user = session.query(UserEntity).filter_by(email=email, deleted=False).first()

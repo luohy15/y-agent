@@ -34,6 +34,8 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
                 _hook_commit_and_merge(chat.work_dir, hook)
             elif hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
+            elif hook_type == "telegram_reply":
+                _hook_telegram_reply(chat, hook)
             else:
                 logger.warning("Unknown post_hook type: {}", hook_type)
         except Exception as e:
@@ -85,6 +87,47 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
     if plan_path:
         todo_service.update_todo(user_id, todo_id, progress=plan_path)
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
+
+
+def _hook_telegram_reply(chat, hook: dict) -> None:
+    """Send the last assistant message back to Telegram."""
+    import httpx
+
+    telegram_chat_id = hook.get("telegram_chat_id")
+    if not telegram_chat_id:
+        logger.warning("telegram_reply: missing telegram_chat_id")
+        return
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        logger.warning("telegram_reply: TELEGRAM_BOT_TOKEN not set")
+        return
+
+    # Find last assistant text message
+    reply_text = None
+    for msg in reversed(chat.messages):
+        if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
+            reply_text = msg.content.strip()
+            break
+
+    if not reply_text:
+        logger.info("telegram_reply: no assistant message to send")
+        return
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    MAX_LEN = 4096
+    chunks = [reply_text[i:i + MAX_LEN] for i in range(0, len(reply_text), MAX_LEN)]
+
+    with httpx.Client() as client:
+        for chunk in chunks:
+            payload = {"chat_id": telegram_chat_id, "text": chunk, "parse_mode": "Markdown"}
+            resp = client.post(url, json=payload)
+            # Retry without parse_mode if markdown fails
+            if not resp.is_success:
+                payload.pop("parse_mode")
+                client.post(url, json=payload)
+
+    logger.info("telegram_reply: sent {} chars to telegram chat {}", len(reply_text), telegram_chat_id)
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None) -> None:

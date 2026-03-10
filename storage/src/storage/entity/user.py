@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean
 from .base import Base, BaseEntity
 
 
@@ -11,6 +11,7 @@ class UserEntity(Base, BaseEntity):
     email = Column(String(255), nullable=True, index=True)
     hashed_password = Column(String(255), nullable=True)
     deleted = Column(Boolean, default=False, nullable=False)
+    telegram_id = Column(BigInteger, nullable=True, unique=True, index=True)
 
     def set_password(self, password: str) -> None:
         import bcrypt

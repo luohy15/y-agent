@@ -100,6 +100,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
+            entity.channel_id = chat.channel_id
         else:
             entity = ChatEntity(
                 user_id=user_id,
@@ -108,6 +109,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 external_id=chat.external_id,
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
+                channel_id=chat.channel_id,
                 json_content=content,
             )
             session.add(entity)
@@ -179,3 +181,19 @@ async def find_chat_by_origin(user_id: int, origin_chat_id: str) -> List[Chat]:
 
 async def save_chat_by_id(chat: Chat) -> Chat:
     return _save_chat_by_id_sync(chat)
+
+
+def find_chat_by_channel_sync(user_id: int, channel_id: str) -> Optional[Chat]:
+    """Find the most recent chat for a given channel_id (e.g. 'telegram:123')."""
+    with get_db() as session:
+        row = (session.query(ChatEntity)
+               .filter_by(user_id=user_id, channel_id=channel_id)
+               .order_by(ChatEntity.updated_at_unix.desc())
+               .first())
+        if not row:
+            return None
+        try:
+            return _entity_to_chat(row)
+        except Exception as e:
+            print(f"Error parsing chat JSON: {e}")
+            return None
