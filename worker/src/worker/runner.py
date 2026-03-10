@@ -30,8 +30,8 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
     for hook in post_hooks:
         hook_type = hook.get("type")
         try:
-            if hook_type == "commit_and_pr":
-                _hook_commit_and_pr(chat.work_dir, hook)
+            if hook_type == "commit_and_merge":
+                _hook_commit_and_merge(chat.work_dir, hook)
             elif hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
             else:
@@ -40,36 +40,30 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
             logger.exception("Post hook {} failed: {}", hook_type, e)
 
 
-def _hook_commit_and_pr(work_dir: str, hook: dict) -> None:
-    """Stage, commit, push, and create PR."""
+def _hook_commit_and_merge(work_dir: str, hook: dict) -> None:
+    """Stage, commit, rebase onto main, and fast-forward main."""
     todo_name = hook.get("todo_name", "auto commit")
-    todo_desc = hook.get("todo_desc", "")
     todo_id = hook.get("todo_id", "")
-    branch = f"worktree-{todo_id}" if todo_id else None
 
     git = ["git", "-C", work_dir]
 
     status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
     if not status.stdout.strip():
-        logger.info("commit_and_pr: no changes to commit")
+        logger.info("commit_and_merge: no changes to commit")
         return
 
     subprocess.check_call(git + ["add", "-A"])
     subprocess.check_call(git + ["commit", "-m", todo_name])
-    logger.info("commit_and_pr: committed")
+    logger.info("commit_and_merge: committed")
 
+    # Rebase current branch onto main, then fast-forward main
+    subprocess.check_call(git + ["rebase", "main"])
+    logger.info("commit_and_merge: rebased onto main")
+
+    branch = f"worktree-{todo_id}" if todo_id else None
     if branch:
-        subprocess.check_call(git + ["push", "-u", "origin", branch])
-        logger.info("commit_and_pr: pushed branch {}", branch)
-
-        result = subprocess.run(
-            ["gh", "pr", "create", "--head", branch, "--title", todo_name, "--body", todo_desc],
-            cwd=work_dir, capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            logger.info("commit_and_pr: PR created: {}", result.stdout.strip())
-        else:
-            logger.info("commit_and_pr: PR skipped: {}", result.stderr.strip())
+        subprocess.check_call(git + ["branch", "-f", "main", branch])
+        logger.info("commit_and_merge: fast-forwarded main to {}", branch)
 
 
 def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:

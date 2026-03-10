@@ -34,12 +34,43 @@ def _stream_and_handle(chat_id: str, display_manager: DisplayManager, last_index
     return last_index, True
 
 
-def _build_prompt(todo: dict, mode: str | None = None) -> str:
+def _plans_dir(work_dir: str) -> str:
+    """Return the system Claude plans directory for a given work_dir."""
+    path = os.path.expanduser(work_dir)
+    slug = path.replace("/", "-")
+    return os.path.join(os.path.expanduser("~"), ".claude", "projects", slug, "plans")
+
+
+def _commit_and_merge(work_dir: str, git_root: str, todo_id: str, todo_name: str):
+    """Stage, commit, rebase onto main, and fast-forward main."""
+    git = ["git", "-C", work_dir]
+
+    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
+    if not status.stdout.strip():
+        click.echo("No changes to commit")
+        return
+
+    subprocess.check_call(git + ["add", "-A"])
+    subprocess.check_call(git + ["commit", "-m", todo_name])
+    click.echo("Committed changes")
+
+    subprocess.check_call(git + ["rebase", "main"])
+    click.echo("Rebased onto main")
+
+    # Fast-forward main from the main repo (worktree can't update its own checked-out branch)
+    branch = f"worktree-{todo_id}"
+    subprocess.check_call(["git", "-C", git_root, "merge", "--ff-only", branch])
+    click.echo(f"Fast-forwarded main to {branch}")
+
+
+def _build_prompt(todo: dict, mode: str | None = None, work_dir: str | None = None) -> str:
     parts = [f"Task: {todo['name']}"]
     if todo.get('desc'):
         parts.append(todo['desc'])
     if mode == 'plan':
         parts.append("\nYou are in plan mode. Create a detailed implementation plan but do NOT write any code.")
+        if work_dir:
+            parts.append(f"Write your plan file to: {_plans_dir(work_dir)}/")
         parts.append("When finishing a plan, always include the plan file path in your response so the user can review it.")
     elif mode == 'implement':
         if todo.get('progress'):
@@ -48,16 +79,16 @@ def _build_prompt(todo: dict, mode: str | None = None) -> str:
     else:
         if todo.get('progress'):
             parts.append(todo['progress'])
+        if work_dir:
+            parts.append(f"\nWrite plan files to: {_plans_dir(work_dir)}/")
         parts.append("\nWhen finishing a plan, always include the plan file path in your response so the user can review it.")
     return "\n".join(parts)
 
 
-def _build_post_hooks(todo: dict, todo_id: str, mode: str | None, no_worktree: bool) -> list | None:
+def _build_post_hooks(todo_id: str, mode: str | None) -> list | None:
     hooks = []
     if mode == 'plan':
         hooks.append({"type": "save_plan_to_todo", "todo_id": todo_id})
-    if not no_worktree:
-        hooks.append({"type": "commit_and_pr", "todo_id": todo_id, "todo_name": todo['name'], "todo_desc": todo.get('desc', '')})
     return hooks or None
 
 
@@ -116,13 +147,13 @@ def _remove_worktree(git_root: str, todo_id: str):
 @click.argument('todo_id')
 @click.option('--clear', is_flag=True, help='Start a fresh chat session')
 @click.option('--follow', '-f', is_flag=True, help='Follow output stream after submitting')
-@click.option('--no-worktree', is_flag=True, help='Skip worktree creation, use cwd')
 @click.option('--clean', is_flag=True, help='Remove worktree and exit')
-@click.option('--message', '-m', default=None, help='Continue message (default: "Continue working on this task.")')
-@click.option('--mode', type=click.Choice(['plan', 'implement']), default=None, help='Plan or implement mode')
+@click.option('--merge', is_flag=True, help='Commit, merge to main, and remove worktree')
+@click.option('--message', default=None, help='Continue message (default: "Continue working on this task.")')
+@click.option('--mode', '-m', type=click.Choice(['plan', 'implement']), default=None, help='Plan or implement mode')
 @click.option('--bot', '-b', default='claude-code', help='Bot name')
 @click.option('--vm', default='default', help='VM name')
-def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: bool, message: str, mode: str, bot: str, vm: str):
+def chat_dev(todo_id: str, clear: bool, follow: bool, clean: bool, merge: bool, message: str, mode: str, bot: str, vm: str):
     """Start a dev chat session linked to a todo item."""
     # Handle --clean: remove worktree and exit
     if clean:
@@ -140,17 +171,20 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
 
     click.echo(f"Todo: {todo['name']} [{todo['status']}]")
 
-    # 2. Determine work_dir (worktree or cwd)
-    if no_worktree:
-        work_dir = os.getcwd()
-    else:
-        git_root = _git_root()
-        work_dir = _create_worktree(git_root, todo_id)
-        click.echo(f"Worktree: {work_dir}")
+    # 2. Create worktree
+    git_root = _git_root()
+    work_dir = _create_worktree(git_root, todo_id)
+    click.echo(f"Worktree: {work_dir}")
 
-    # 3. Resume vs new chat
+    # 3. Merge mode: commit, merge, and clean up worktree
+    if merge:
+        _commit_and_merge(work_dir, git_root, todo_id, todo['name'])
+        _remove_worktree(git_root, todo_id)
+        return
+
+    # 4. Resume vs new chat
     chat_ids = todo.get('chat_ids') or []
-    post_hooks = _build_post_hooks(todo, todo_id, mode, no_worktree)
+    post_hooks = _build_post_hooks(todo_id, mode)
 
     if chat_ids and not clear:
         chat_id = chat_ids[-1]
@@ -161,7 +195,7 @@ def chat_dev(todo_id: str, clear: bool, follow: bool, no_worktree: bool, clean: 
         })
         click.echo(f"Resumed chat {chat_id}")
     else:
-        prompt = _build_prompt(todo, mode)
+        prompt = _build_prompt(todo, mode, work_dir)
         resp = api_request("POST", "/api/chat", json={
             "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
             "post_hooks": post_hooks,
