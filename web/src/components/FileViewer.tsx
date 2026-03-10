@@ -19,6 +19,7 @@ interface FileViewerProps {
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
   vmName?: string | null;
+  workDir?: string;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -168,9 +169,9 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir }: FileViewerProps) {
   const { mutate } = useSWRConfig();
-  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
+  const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   const [zoom, setZoom] = useState(100);

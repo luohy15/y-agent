@@ -4,9 +4,10 @@ import { API, authFetch } from "../api";
 interface TerminalViewProps {
   isLoggedIn: boolean;
   vmName: string | null;
+  workDir?: string;
 }
 
-export default function TerminalView({ isLoggedIn, vmName }: TerminalViewProps) {
+export default function TerminalView({ isLoggedIn, vmName, workDir }: TerminalViewProps) {
   const [output, setOutput] = useState("");
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -32,6 +33,7 @@ export default function TerminalView({ isLoggedIn, vmName }: TerminalViewProps) 
 
     const params = new URLSearchParams();
     if (vmName) params.set("vm_name", vmName);
+    if (workDir) params.set("work_dir", workDir);
 
     try {
       const res = await authFetch(`${API}/api/terminal/run?${params}`, {
