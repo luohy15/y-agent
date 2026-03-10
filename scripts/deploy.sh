@@ -73,6 +73,7 @@ add_param "CertificateArn" "CERTIFICATE_ARN"
 add_param "GoogleClientId" "GOOGLE_CLIENT_ID"
 add_param "SubnetIds" "SUBNET_IDS"
 add_param "LambdaSecurityGroupId" "LAMBDA_SECURITY_GROUP_ID"
+add_param "TelegramBotToken" "TELEGRAM_BOT_TOKEN"
 
 # ============================================================================
 # SAM Deploy
