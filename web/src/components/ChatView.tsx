@@ -12,13 +12,12 @@ interface ChatViewProps {
   isLoggedIn: boolean;
   gsiReady?: boolean;
   vmName?: string | null;
-  vmWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
   onComplete?: () => void;
   onOpenFile?: (path: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, vmWorkDir, onWorkDirChange, onComplete, onOpenFile }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onComplete, onOpenFile }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -177,14 +176,14 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       await authFetch(`${API}/api/chat/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}) }),
+        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(chatWorkDir ? { work_dir: chatWorkDir } : {}) }),
       });
       setFollowUp("");
       connectSSE(chatId, idxRef.current);
     } finally {
       setSending(false);
     }
-  }, [followUp, sending, chatId, vmName, connectSSE]);
+  }, [followUp, sending, chatId, vmName, chatWorkDir, connectSSE]);
 
   const createChat = useCallback(async () => {
     const text = newPrompt.trim();
@@ -295,7 +294,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
         </div>
       )}
-      {completed && chatWorkDir && vmWorkDir && chatWorkDir === vmWorkDir ? (
+      {completed ? (
         <ChatInput
           ref={inputRef}
           value={followUp}
@@ -309,11 +308,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
             <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
           </>}
         />
-      ) : completed ? (
-        <div className="mx-4 border-t border-sol-base02 shrink-0 px-4 py-3 flex items-center gap-3 text-sm sm:text-xs text-sol-base01">
-          {processDetailButtons}
-          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-        </div>
       ) : null}
     </div>
   );

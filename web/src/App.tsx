@@ -39,7 +39,7 @@ export default function App() {
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
-  const workDirMismatch = !!(selectedChatId && chatWorkDir && currentVmWorkDir && chatWorkDir !== currentVmWorkDir);
+  const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [chatListWidth, setChatListWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -186,7 +186,7 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={vmList.find(v => v.name === (selectedVM || "default"))?.work_dir} />
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
           <div
             className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
             onPointerDown={handleResizeStart}
@@ -196,11 +196,11 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Right top: FileViewer (kept mounted, hidden via CSS to preserve scroll state) */}
           <div className={`${chatMaximize && !chatHide ? "hidden" : chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} />
+            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} />
           </div>
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
-            {!chatHide && <span className={`font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 ${workDirMismatch ? "text-sol-yellow" : "text-sol-base01"}`} title={(selectedChatId ? chatWorkDir : currentVmWorkDir) || ""}><svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{selectedChatId ? chatWorkDir : currentVmWorkDir}</span>{workDirMismatch && <span className="sm:hidden">!</span>}{workDirMismatch && <span className="hidden sm:inline">(mismatch)</span>}</span>}
+            {!chatHide && <span className="font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 text-sol-base01" title={effectiveWorkDir || ""}><svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{effectiveWorkDir}</span></span>}
             {!chatHide && (
               <>
                 {/* Tab switcher */}
@@ -281,11 +281,11 @@ export default function App() {
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
                 {/* Chat (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
-                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} vmWorkDir={currentVmWorkDir} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
                 </div>
                 {/* Terminal (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
-                  <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} />
+                  <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
                 </div>
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
@@ -323,7 +323,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} openFiles={openFiles} />
+      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} />
     </div>
   );
 }

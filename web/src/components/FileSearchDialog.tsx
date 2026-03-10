@@ -6,11 +6,12 @@ interface FileSearchDialogProps {
   onClose: () => void;
   onSelectFile: (path: string) => void;
   vmName?: string | null;
+  workDir?: string;
   openFiles?: string[];
 }
 
-export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, openFiles = [] }: FileSearchDialogProps) {
-  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
+export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, workDir, openFiles = [] }: FileSearchDialogProps) {
+  const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
