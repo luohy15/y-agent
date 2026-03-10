@@ -127,6 +127,7 @@ class Chat:
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
+    channel_id: Optional[str] = None  # e.g. "telegram:123456789"
     work_dir: Optional[str] = None
     interrupted: bool = False
     running: bool = False
@@ -148,6 +149,7 @@ class Chat:
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
+            channel_id=data.get('channel_id'),
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
@@ -173,6 +175,8 @@ class Chat:
             result['origin_message_id'] = self.origin_message_id
         if self.selected_message_id is not None:
             result['selected_message_id'] = self.selected_message_id
+        if self.channel_id is not None:
+            result['channel_id'] = self.channel_id
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
         if self.interrupted:

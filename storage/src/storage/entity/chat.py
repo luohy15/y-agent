@@ -12,6 +12,7 @@ class ChatEntity(Base, BaseEntity):
     external_id = Column(String, nullable=True, index=True)
     backend = Column(String, nullable=True)
     origin_chat_id = Column(String, nullable=True, index=True)
+    channel_id = Column(String, nullable=True, index=True)
     json_content = Column(Text, nullable=False)
 
     __table_args__ = (

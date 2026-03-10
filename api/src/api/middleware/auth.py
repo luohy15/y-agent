@@ -8,7 +8,7 @@ from starlette.responses import JSONResponse
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
-PUBLIC_PREFIXES = ("/api/auth", "/docs", "/openapi.json")
+PUBLIC_PREFIXES = ("/api/auth", "/api/telegram", "/docs", "/openapi.json")
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
