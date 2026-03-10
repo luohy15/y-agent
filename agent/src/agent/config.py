@@ -38,15 +38,13 @@ def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
 
 
 def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
+    vm_config = None
     if vm_name:
         vm_config = vm_service.get_config(user_id, vm_name)
-        if vm_config:
-            return vm_config
-    if work_dir:
+    if not vm_config and work_dir:
         vm_config = vm_service.get_config_by_work_dir(user_id, work_dir)
-        if vm_config:
-            return vm_config
-    vm_config = vm_service.get_config(user_id, "default")
+    if not vm_config:
+        vm_config = vm_service.get_config(user_id, "default")
     if not vm_config:
         default_user_id = get_default_user_id()
         if default_user_id != user_id:
