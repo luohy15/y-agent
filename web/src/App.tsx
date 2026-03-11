@@ -167,7 +167,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} vmList={vmList} selectedVM={selectedVM} onSelectVM={(name) => { setSelectedVM(name); setSelectedChatId(null); }} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
