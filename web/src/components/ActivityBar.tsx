@@ -33,7 +33,7 @@ export default function ActivityBar({ isLoggedIn, vmList, selectedVM, onSelectVM
   if (!isLoggedIn) return null;
 
   return (
-    <div className="shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex flex-col items-center pt-2 gap-1">
+    <div className="hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1">
       {/* VM selector */}
       {onSelectVM && (
       <div className="relative" ref={vmDropdownRef}>
