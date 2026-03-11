@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import List
 from loguru import logger
@@ -38,6 +39,98 @@ def generate_message_id() -> str:
     chars = string.ascii_lowercase + string.digits
     rand = ''.join(random.choices(chars, k=8))
     return f"msg_{int(time.time() * 1000)}_{rand}"
+
+
+def markdown_to_telegram_html(text: str) -> str:
+    """Convert standard Markdown to Telegram-compatible HTML.
+
+    Telegram HTML supports: <b>, <i>, <s>, <code>, <pre>, <a>.
+    Unsupported elements (headings, lists, tables, etc.) are converted to
+    readable plain-text equivalents using regex.
+    """
+    placeholders = []
+
+    def _add_placeholder(html: str) -> str:
+        idx = len(placeholders)
+        placeholders.append(html)
+        return f"\x00PH{idx}\x00"
+
+    # Fenced code blocks: ```lang\n...\n``` (protect from further processing)
+    def _sub_pre(m):
+        code = m.group(1)
+        escaped = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return _add_placeholder(f"<pre>{escaped}</pre>")
+    text = re.sub(r'```(?:\w*)\n([\s\S]*?)```', _sub_pre, text)
+
+    # Inline code: `...` (protect from further processing)
+    def _sub_code(m):
+        code = m.group(1)
+        escaped = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return _add_placeholder(f"<code>{escaped}</code>")
+    text = re.sub(r'`([^`]+)`', _sub_code, text)
+
+    # --- Line-level syntax (before HTML escaping) ---
+
+    # Tables: header + separator + rows → aligned monospace block via <pre>
+    def _sub_table(m):
+        rows = m.group(0).strip().split('\n')
+        parsed = []
+        for row in rows:
+            if re.match(r'^\|[\s\-:|]+\|$', row):
+                continue
+            cells = [c.strip() for c in row.strip('|').split('|')]
+            parsed.append(cells)
+        if not parsed:
+            return m.group(0)
+        col_count = max(len(r) for r in parsed)
+        widths = [0] * col_count
+        for row in parsed:
+            for i, cell in enumerate(row):
+                if i < col_count:
+                    widths[i] = max(widths[i], len(cell))
+        lines = []
+        for ri, row in enumerate(parsed):
+            parts = [row[i].ljust(widths[i]) if i < len(row) else ' ' * widths[i] for i in range(col_count)]
+            lines.append(' | '.join(parts))
+            if ri == 0:
+                lines.append('-+-'.join('-' * w for w in widths))
+        table_text = '\n'.join(lines)
+        escaped = table_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return _add_placeholder(f"<pre>{escaped}</pre>")
+    text = re.sub(r'(?m)(^\|.+\|$\n?){2,}', _sub_table, text)
+
+    # Headings: # text → **text** (will become <b> later)
+    text = re.sub(r'(?m)^#{1,6}\s+(.+)$', r'**\1**', text)
+
+    # Horizontal rules
+    text = re.sub(r'(?m)^[\s]*([-*_]){3,}\s*$', '—' * 20, text)
+
+    # Checkboxes (before bullet conversion)
+    text = re.sub(r'(?m)^(\s*)[-*]\s+\[x\]\s+', r'\1✅ ', text)
+    text = re.sub(r'(?m)^(\s*)[-*]\s+\[ \]\s+', r'\1⬜ ', text)
+
+    # Bullet lists: - item or * item → • item
+    text = re.sub(r'(?m)^(\s*)[-*]\s+', lambda m: m.group(1) + '• ', text)
+
+    # Blockquotes: > text → ┃ text
+    text = re.sub(r'(?m)^>\s?(.*)$', r'┃ \1', text)
+
+    # --- HTML escape ---
+    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    # --- Inline formatting ---
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'<i>\1</i>', text)
+    text = re.sub(r'(?<!\w)_(.+?)_(?!\w)', r'<i>\1</i>', text)
+    text = re.sub(r'~~(.+?)~~', r'<s>\1</s>', text)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+
+    # Restore placeholders
+    for i, ph in enumerate(placeholders):
+        text = text.replace(f"\x00PH{i}\x00", ph)
+
+    return text
 
 
 def build_message_path(messages: List, message_id: str) -> List:

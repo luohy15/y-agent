@@ -114,18 +114,22 @@ def _hook_telegram_reply(chat, hook: dict) -> None:
         logger.info("telegram_reply: no assistant message to send")
         return
 
+    from storage.util import markdown_to_telegram_html
+    html_text = markdown_to_telegram_html(reply_text)
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     MAX_LEN = 4096
-    chunks = [reply_text[i:i + MAX_LEN] for i in range(0, len(reply_text), MAX_LEN)]
+    html_chunks = [html_text[i:i + MAX_LEN] for i in range(0, len(html_text), MAX_LEN)]
+    plain_chunks = [reply_text[i:i + MAX_LEN] for i in range(0, len(reply_text), MAX_LEN)]
 
     with httpx.Client() as client:
-        for chunk in chunks:
-            payload = {"chat_id": telegram_chat_id, "text": chunk, "parse_mode": "Markdown"}
+        for i, chunk in enumerate(html_chunks):
+            payload = {"chat_id": telegram_chat_id, "text": chunk, "parse_mode": "HTML"}
             resp = client.post(url, json=payload)
-            # Retry without parse_mode if markdown fails
+            # Retry with plain text if HTML formatting fails
             if not resp.is_success:
-                payload.pop("parse_mode")
-                client.post(url, json=payload)
+                fallback = plain_chunks[i] if i < len(plain_chunks) else chunk
+                client.post(url, json={"chat_id": telegram_chat_id, "text": fallback})
 
     logger.info("telegram_reply: sent {} chars to telegram chat {}", len(reply_text), telegram_chat_id)
 

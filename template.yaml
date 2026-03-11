@@ -54,6 +54,12 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  TelegramWebhookSecret:
+    Type: String
+    Description: Secret token for Telegram webhook verification
+    NoEcho: true
+    Default: ""
+
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -242,6 +248,7 @@ Resources:
           JWT_SECRET_KEY: !Ref JwtSecretKey
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
           PORT: "8000"
