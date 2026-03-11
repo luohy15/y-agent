@@ -12,6 +12,7 @@ from yagent.commands.calendar.click import calendar_group
 from yagent.commands.link.click import link_group
 from yagent.commands.email.click import email_group
 from yagent.commands.beancount.click import beancount_group
+from yagent.commands.image.click import image_group
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(context_settings=CONTEXT_SETTINGS)
@@ -32,3 +33,4 @@ cli.add_command(calendar_group)
 cli.add_command(link_group)
 cli.add_command(email_group)
 cli.add_command(beancount_group)
+cli.add_command(image_group)
