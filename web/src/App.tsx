@@ -174,7 +174,7 @@ export default function App() {
           isLoggedIn={auth.isLoggedIn}
           vmList={vmList}
           selectedVM={selectedVM}
-          onSelectVM={setSelectedVM}
+          onSelectVM={!(selectedChatId && chatWorkDir) ? setSelectedVM : undefined}
           sidebarOpen={window.innerWidth < 768 ? sidebarOpen : desktopSidebarOpen}
           onToggleSidebar={() => {
             const isMobile = window.innerWidth < 768;
