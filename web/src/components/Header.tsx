@@ -66,7 +66,6 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
                 <line x1="6" y1="6" x2="6.01" y2="6" />
                 <line x1="6" y1="18" x2="6.01" y2="18" />
               </svg>
-              <span>{selectedVM || "default"}</span>
             </button>
             {vmDropdownOpen && (
               <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
