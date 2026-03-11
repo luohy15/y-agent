@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "y-agent-worker"
 version = "0.4.0"
 description = "Background tasks for y-agent"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "y-agent-storage",
     "y-agent-agent",

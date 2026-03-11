@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "y-agent-admin"
 version = "0.4.0"
 description = "Admin and migration scripts for y-agent"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "y-agent-storage",
     "sqlalchemy>=2.0.0",

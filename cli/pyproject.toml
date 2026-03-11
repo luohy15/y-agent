@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "y-agent-cli"
 version = "0.4.0"
 description = "Personal AI agent toolkit"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "y-agent-storage",
     "y-agent-agent",
@@ -20,6 +20,8 @@ dependencies = [
     "loguru>=0.7.3",
     "python-dotenv>=1.0.0",
     "python-dateutil>=2.8.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
     "beancount>=2.3.0",
     "fava>=1.30.12",
 ]
