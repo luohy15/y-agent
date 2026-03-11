@@ -11,11 +11,12 @@ logger = logging.getLogger(__name__)
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
 from storage.entity.dto import Message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, markdown_to_telegram_html
 
 router = APIRouter(prefix="/telegram")
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
@@ -24,8 +25,10 @@ def _bot_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
 
-async def _send_message(chat_id: int, text: str, parse_mode: Optional[str] = "Markdown"):
+async def _send_message(chat_id: int, text: str, parse_mode: Optional[str] = "HTML"):
     """Send a message to a Telegram chat, splitting if too long."""
+    if parse_mode == "HTML":
+        text = markdown_to_telegram_html(text)
     MAX_LEN = 4096
     chunks = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
     async with httpx.AsyncClient() as client:
@@ -34,9 +37,10 @@ async def _send_message(chat_id: int, text: str, parse_mode: Optional[str] = "Ma
             if parse_mode:
                 payload["parse_mode"] = parse_mode
             resp = await client.post(_bot_api_url("sendMessage"), json=payload)
-            # Retry without parse_mode if markdown fails
+            # Retry without parse_mode if formatting fails
             if not resp.is_success and parse_mode:
                 payload.pop("parse_mode")
+                payload["text"] = chunk  # keep original chunk
                 await client.post(_bot_api_url("sendMessage"), json=payload)
 
 
@@ -49,6 +53,13 @@ def _get_send_chat_message():
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     """Handle incoming Telegram updates."""
+    # Verify the secret token set via setWebhook(secret_token=...)
+    if TELEGRAM_WEBHOOK_SECRET:
+        token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if token != TELEGRAM_WEBHOOK_SECRET:
+            logger.warning("telegram webhook: invalid secret token")
+            return {"ok": False}
+
     body = await request.json()
     logger.info("telegram webhook body: %s", body)
     message = body.get("message")
