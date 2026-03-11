@@ -62,23 +62,15 @@ def markdown_to_telegram_html(text: str) -> str:
         return _add_placeholder(f"<pre>{escaped}</pre>")
     text = re.sub(r'```(?:\w*)\n([\s\S]*?)```', _sub_pre, text)
 
-    # Inline code: `...` (protect from further processing)
-    def _sub_code(m):
-        code = m.group(1)
-        escaped = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        return _add_placeholder(f"<code>{escaped}</code>")
-    text = re.sub(r'`([^`]+)`', _sub_code, text)
-
-    # --- Line-level syntax (before HTML escaping) ---
-
     # Tables: header + separator + rows → aligned monospace block via <pre>
+    # Must run before inline code so backticks in cells are preserved as-is.
     def _sub_table(m):
         rows = m.group(0).strip().split('\n')
         parsed = []
         for row in rows:
             if re.match(r'^\|[\s\-:|]+\|$', row):
                 continue
-            cells = [c.strip() for c in row.strip('|').split('|')]
+            cells = [re.sub(r'`([^`]+)`', r'\1', c.strip()) for c in row.strip('|').split('|')]
             parsed.append(cells)
         if not parsed:
             return m.group(0)
@@ -98,6 +90,15 @@ def markdown_to_telegram_html(text: str) -> str:
         escaped = table_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         return _add_placeholder(f"<pre>{escaped}</pre>")
     text = re.sub(r'(?m)(^\|.+\|$\n?){2,}', _sub_table, text)
+
+    # Inline code: `...` (protect from further processing)
+    def _sub_code(m):
+        code = m.group(1)
+        escaped = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return _add_placeholder(f"<code>{escaped}</code>")
+    text = re.sub(r'`([^`]+)`', _sub_code, text)
+
+    # --- Line-level syntax (before HTML escaping) ---
 
     # Headings: # text → **text** (will become <b> later)
     text = re.sub(r'(?m)^#{1,6}\s+(.+)$', r'**\1**', text)
