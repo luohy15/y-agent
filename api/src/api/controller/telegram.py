@@ -54,11 +54,13 @@ def _get_send_chat_message():
 async def telegram_webhook(request: Request):
     """Handle incoming Telegram updates."""
     # Verify the secret token set via setWebhook(secret_token=...)
-    if TELEGRAM_WEBHOOK_SECRET:
-        token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if token != TELEGRAM_WEBHOOK_SECRET:
-            logger.warning("telegram webhook: invalid secret token")
-            return {"ok": False}
+    if not TELEGRAM_WEBHOOK_SECRET:
+        logger.error("telegram webhook: TELEGRAM_WEBHOOK_SECRET not configured")
+        return {"ok": False}
+    token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if token != TELEGRAM_WEBHOOK_SECRET:
+        logger.warning("telegram webhook: invalid secret token")
+        return {"ok": False}
 
     body = await request.json()
     logger.info("telegram webhook body: %s", body)
