@@ -4,6 +4,7 @@ import json
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
+from sqlalchemy import or_
 from sqlalchemy.orm import defer
 
 from storage.entity.chat import ChatEntity
@@ -30,7 +31,10 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
              .filter_by(user_id=user_id)
              .options(defer(ChatEntity.json_content)))
         if query:
-            q = q.filter(ChatEntity.title.ilike(f"%{query}%"))
+            q = q.filter(or_(
+                ChatEntity.title.ilike(f"%{query}%"),
+                ChatEntity.json_content.ilike(f"%{query}%"),
+            ))
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)
