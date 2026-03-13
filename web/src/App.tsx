@@ -6,9 +6,10 @@ import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
-import ActivityBar from "./components/ActivityBar";
+import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
+import GitPanel from "./components/GitPanel";
 
 interface VmConfigItem {
   name: string;
@@ -37,6 +38,8 @@ export default function App() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [bottomTab, setBottomTab] = useState<"chat" | "terminal">(() => (localStorage.getItem("bottomTab") as "chat" | "terminal") || "chat");
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => (localStorage.getItem("sidebarPanel") as SidebarPanel) || "files");
+  const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
@@ -58,6 +61,12 @@ export default function App() {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [chatHide]);
 
+  const handleOpenDiffFile = useCallback((path: string) => {
+    const diffPath = `diff:${path}`;
+    setDiffFiles((prev) => new Set(prev).add(diffPath));
+    handleOpenFile(diffPath);
+  }, [handleOpenFile]);
+
   const handleCloseFile = useCallback((path: string) => {
     setOpenFiles((files) => {
       const idx = files.indexOf(path);
@@ -69,6 +78,9 @@ export default function App() {
       });
       return next;
     });
+    if (path.startsWith("diff:")) {
+      setDiffFiles((prev) => { const next = new Set(prev); next.delete(path); return next; });
+    }
   }, []);
 
   useEffect(() => { localStorage.setItem("chatMaximize", String(chatMaximize)); }, [chatMaximize]);
@@ -78,6 +90,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
   useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
+  useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
   useEffect(() => {
     if (!auth.isLoggedIn) { setVmList([]); return; }
@@ -181,6 +194,8 @@ export default function App() {
             if (isMobile) setSidebarOpen((v) => !v);
             else setDesktopSidebarOpen((v) => !v);
           }}
+          activePanel={sidebarPanel}
+          onSelectPanel={setSidebarPanel}
         />
         {/* Mobile overlay backdrop */}
         {sidebarOpen && (
@@ -195,7 +210,11 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+          {sidebarPanel === "files" ? (
+            <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+          ) : (
+            <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
+          )}
           <div
             className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
             onPointerDown={handleResizeStart}
@@ -205,7 +224,7 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Right top: FileViewer (kept mounted, hidden via CSS to preserve scroll state) */}
           <div className={`${chatMaximize && !chatHide ? "hidden" : chatHide ? "flex-1" : "h-2/5"} min-h-0 overflow-hidden`}>
-            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} />
+            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} />
           </div>
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
