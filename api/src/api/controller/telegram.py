@@ -1,6 +1,7 @@
+import base64
 import os
 import logging
-from typing import Optional
+from typing import List, Optional
 
 import jwt
 import httpx
@@ -73,6 +74,12 @@ async def telegram_webhook(request: Request):
     telegram_user_id = message["from"]["id"]
     text = message.get("text", "").strip()
 
+    # Handle photo messages
+    images = []
+    if message.get("photo"):
+        text = message.get("caption", "").strip() or "请看这张图片"
+        images = await _download_telegram_photos(message["photo"])
+
     if not text:
         logger.info("telegram webhook: empty text")
         return {"ok": True}
@@ -102,7 +109,40 @@ async def telegram_webhook(request: Request):
         return {"ok": True}
 
     # Regular message — route to chat
-    return await _handle_message(telegram_chat_id, telegram_user_id, text)
+    return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images)
+
+
+async def _download_telegram_photos(photo_sizes: list) -> List[str]:
+    """Download the largest photo from Telegram and return as base64 data URL list."""
+    if not photo_sizes or not TELEGRAM_BOT_TOKEN:
+        return []
+
+    # Telegram sends multiple sizes; last is largest
+    file_id = photo_sizes[-1]["file_id"]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get file path
+            resp = await client.get(_bot_api_url("getFile"), params={"file_id": file_id})
+            if not resp.is_success:
+                logger.error("telegram getFile failed: %s", resp.text)
+                return []
+            file_path = resp.json()["result"]["file_path"]
+
+            # Download file
+            file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+            resp = await client.get(file_url)
+            if not resp.is_success:
+                logger.error("telegram file download failed: %s", resp.status_code)
+                return []
+
+            b64 = base64.b64encode(resp.content).decode("ascii")
+            ext = file_path.rsplit(".", 1)[-1] if "." in file_path else "jpg"
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+            return [f"data:{mime};base64,{b64}"]
+    except Exception as e:
+        logger.exception("telegram photo download error: %s", e)
+        return []
 
 
 async def _handle_bind(telegram_chat_id: int, telegram_user_id: int, text: str):
@@ -161,8 +201,8 @@ async def _handle_new(telegram_chat_id: int, telegram_user_id: int):
     return {"ok": True}
 
 
-async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: str):
-    logger.info("_handle_message: telegram_chat_id=%s telegram_user_id=%s text=%s", telegram_chat_id, telegram_user_id, text)
+async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: str, images: Optional[List[str]] = None):
+    logger.info("_handle_message: telegram_chat_id=%s telegram_user_id=%s text=%s images=%d", telegram_chat_id, telegram_user_id, text, len(images) if images else 0)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         logger.info("_handle_message: no user bound for telegram_user_id=%s", telegram_user_id)
@@ -177,13 +217,16 @@ async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: st
     logger.info("_handle_message: existing chat=%s", chat.id if chat else None)
     if chat:
         # Append message to existing chat
-        user_msg = Message.from_dict({
+        msg_dict = {
             "role": "user",
             "content": text,
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
-        })
+        }
+        if images:
+            msg_dict["images"] = images
+        user_msg = Message.from_dict(msg_dict)
         chat.messages.append(user_msg)
         chat.interrupted = False
         from storage.repository import chat as chat_repo
@@ -192,13 +235,16 @@ async def _handle_message(telegram_chat_id: int, telegram_user_id: int, text: st
     else:
         # Create new chat
         chat_id = generate_id()
-        user_msg = Message.from_dict({
+        msg_dict = {
             "role": "user",
             "content": text,
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
-        })
+        }
+        if images:
+            msg_dict["images"] = images
+        user_msg = Message.from_dict(msg_dict)
         from storage.dto.chat import Chat as ChatDTO
         timestamp = get_utc_iso8601_timestamp()
         chat = ChatDTO(

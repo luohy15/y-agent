@@ -210,9 +210,11 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
 
     # Extract the latest user message as the prompt
     user_prompt = ""
+    user_images = None
     for msg in reversed(messages):
         if msg.role == "user":
             user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
+            user_images = msg.images
             break
 
     if not user_prompt:
@@ -247,6 +249,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         vm_config=vm_config,
         api_base_url=bot_config.base_url if bot_config.base_url else None,
         api_key=bot_config.api_key if bot_config.api_key else None,
+        images=user_images,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 
