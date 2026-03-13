@@ -102,18 +102,17 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
   const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
 
   return (
-    <div className="bg-sol-base02 rounded p-3 border border-sol-base01/20 relative" data-todo-card>
-      <button onClick={onClose} className="absolute top-2 right-2 text-sol-base01 hover:text-sol-base1 cursor-pointer text-xs">&times;</button>
+    <div className="bg-sol-base02 rounded p-3 border border-sol-base01/20 relative flex flex-col h-full" data-todo-card>
 
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-start text-xs">
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-start text-xs shrink-0">
         <label className="text-sol-base01 pt-1">Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 
         <label className="text-sol-base01 pt-1">Desc</label>
-        <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} className={`${inputClass} resize-y`} />
+        <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} className={`${inputClass} resize-none`} style={{ fieldSizing: "content" } as React.CSSProperties} />
 
         <label className="text-sol-base01 pt-1">Progress</label>
-        <textarea value={progress} onChange={(e) => setProgress(e.target.value)} rows={2} className={`${inputClass} resize-y`} />
+        <textarea value={progress} onChange={(e) => setProgress(e.target.value)} rows={2} className={`${inputClass} resize-none`} style={{ fieldSizing: "content" } as React.CSSProperties} />
 
         <label className="text-sol-base01 pt-1">Due</label>
         <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} />
@@ -137,7 +136,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
       </div>
 
       {dirty && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex justify-end shrink-0">
           <button onClick={handleSave} disabled={saving} className="px-3 py-1 rounded text-xs bg-sol-blue text-sol-base03 hover:opacity-90 cursor-pointer disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
@@ -145,12 +144,12 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
       )}
 
       {t.history && t.history.length > 0 && (
-        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-0.5">
+        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
           {[...t.history].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((h, i) => (
             <div key={i} className="text-xs text-sol-base01 flex gap-1.5">
               <span className="shrink-0">{new Date(h.timestamp).toLocaleDateString()}</span>
-              <span className="text-sol-base0">{h.action}</span>
-              {h.note && <span className="text-sol-base01 truncate">{h.note}</span>}
+              <span className="text-sol-base0 shrink-0">{h.action}</span>
+              {h.note && <span className="text-sol-base01">{h.note}</span>}
             </div>
           ))}
         </div>
@@ -303,7 +302,7 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
       {modalTodo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setModalTodo(null)}>
           <div className="absolute inset-0 bg-black/50" />
-          <div className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
             <TodoDetail t={modalTodo} onClose={() => setModalTodo(null)} onSaved={() => { setModalTodo(null); onMoved(); }} />
           </div>
         </div>
@@ -532,7 +531,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
       {modalTodo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setModalTodo(null)}>
           <div className="absolute inset-0 bg-black/50" />
-          <div className="relative w-full max-w-lg max-h-[80vh] overflow-y-auto mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
             <TodoDetail t={modalTodo} onClose={() => setModalTodo(null)} onSaved={() => { setModalTodo(null); revalidateTodos(); }} />
           </div>
         </div>
