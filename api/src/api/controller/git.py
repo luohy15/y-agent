@@ -45,3 +45,20 @@ async def git_diff(request: Request, path: str = Query(...), vm_name: str = Quer
         diff = f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{len(lines)} @@\n"
         diff += "\n".join(f"+{line}" for line in lines)
     return {"path": path, "diff": diff}
+
+
+@router.post("/discard")
+async def git_discard(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    # Check if the file is untracked
+    output = await _exec(user_id, ["git", "status", "--porcelain", "--", path], vm_name=vm_name, work_dir=work_dir)
+    status = output.strip()[:2] if output.strip() else ""
+    if status.strip() == "??":
+        # Untracked file — remove it
+        await _exec(user_id, ["rm", "-f", path], vm_name=vm_name, work_dir=work_dir)
+    else:
+        # Tracked file — restore it
+        await _exec(user_id, ["git", "checkout", "--", path], vm_name=vm_name, work_dir=work_dir)
+        # Also unstage if staged
+        await _exec(user_id, ["git", "reset", "HEAD", "--", path], vm_name=vm_name, work_dir=work_dir)
+    return {"ok": True}

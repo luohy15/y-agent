@@ -41,6 +41,7 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
   const [files, setFiles] = useState<GitFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState<string | null>(null);
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
 
   const refresh = useCallback(() => {
@@ -61,6 +62,20 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
         setLoading(false);
       });
   }, [isLoggedIn, vmQuery]);
+
+  const discard = useCallback((path: string) => {
+    if (!confirm(`Discard changes to ${path}?`)) return;
+    setDiscarding(path);
+    authFetch(`${API}/api/git/discard?path=${encodeURIComponent(path)}${vmQuery}`, { method: "POST" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to discard");
+        setDiscarding(null);
+        refresh();
+      })
+      .catch(() => {
+        setDiscarding(null);
+      });
+  }, [vmQuery, refresh]);
 
   useEffect(() => {
     refresh();
@@ -114,6 +129,19 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
                   {dir}
                 </span>
               )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  discard(file.path);
+                }}
+                disabled={discarding === file.path}
+                className="shrink-0 ml-auto text-sol-base01 hover:text-sol-red opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-0.5"
+                title={`Discard changes to ${file.path}`}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22z" />
+                </svg>
+              </button>
             </button>
           );
         })}
