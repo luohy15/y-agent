@@ -14,9 +14,11 @@ y-agent stores messages as:
 """
 
 import asyncio
+import base64
 import json
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -619,6 +621,90 @@ def _shell_quote(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Image materialization helpers
+# ---------------------------------------------------------------------------
+
+def _decode_data_url(data_url: str) -> tuple:
+    """Decode a data URL into (bytes, extension). Returns (None, None) on failure."""
+    try:
+        # data:image/jpeg;base64,/9j/4AAQ...
+        header, b64_data = data_url.split(",", 1)
+        mime = header.split(":")[1].split(";")[0]  # e.g. image/jpeg
+        ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(mime, "jpg")
+        return base64.b64decode(b64_data), ext
+    except Exception:
+        return None, None
+
+
+def _materialize_images_local(images: List[str], cwd: str) -> List[str]:
+    """Decode base64 data URLs and write to local files. Returns list of file paths."""
+    img_dir = os.path.join(cwd, ".y-agent-images")
+    os.makedirs(img_dir, exist_ok=True)
+
+    paths = []
+    for data_url in images:
+        img_bytes, ext = _decode_data_url(data_url)
+        if img_bytes is None:
+            continue
+        filename = f"img_{uuid.uuid4().hex[:8]}.{ext}"
+        filepath = os.path.join(img_dir, filename)
+        with open(filepath, "wb") as f:
+            f.write(img_bytes)
+        paths.append(filepath)
+        logger.info("Materialized image: {} ({} bytes)", filepath, len(img_bytes))
+
+    return paths
+
+
+def _materialize_images_ssh(images: List[str], cwd: str, vm_config: "VmConfig") -> List[str]:
+    """Upload base64 data URLs to remote host via SFTP. Returns list of remote file paths."""
+    import io
+    import paramiko
+
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+
+    paths = []
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(host, port=port, username=user, pkey=key)
+
+        sftp = client.open_sftp()
+        img_dir = f"{cwd}/.y-agent-images"
+        try:
+            sftp.mkdir(img_dir)
+        except IOError:
+            pass  # directory already exists
+
+        for data_url in images:
+            img_bytes, ext = _decode_data_url(data_url)
+            if img_bytes is None:
+                continue
+            filename = f"img_{uuid.uuid4().hex[:8]}.{ext}"
+            filepath = f"{img_dir}/{filename}"
+            with sftp.open(filepath, "wb") as f:
+                f.write(img_bytes)
+            paths.append(filepath)
+            logger.info("SFTP uploaded image: {} ({} bytes)", filepath, len(img_bytes))
+
+        sftp.close()
+        client.close()
+    except Exception as e:
+        logger.error("SFTP image upload failed: {} {}", type(e).__name__, e)
+
+    return paths
+
+
+def _prepend_image_paths(prompt: str, image_paths: List[str]) -> str:
+    """Prepend image file paths to the prompt text."""
+    if not image_paths:
+        return prompt
+    lines = [f"[Attached image: {p}]" for p in image_paths]
+    return "\n".join(lines) + "\n\n" + prompt
+
+
+# ---------------------------------------------------------------------------
 # Public API — stateful session resume
 # ---------------------------------------------------------------------------
 
@@ -637,6 +723,7 @@ async def run_claude_code(
     vm_config: Optional[VmConfig] = None,
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    images: Optional[List[str]] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
 
@@ -678,6 +765,16 @@ async def run_claude_code(
             env["ANTHROPIC_BASE_URL"] = api_base_url
         if api_key:
             env["ANTHROPIC_AUTH_TOKEN"] = api_key
+
+    # Materialize images as files and prepend paths to prompt
+    effective_cwd = cwd or (vm_config.work_dir if vm_config else None) or os.getcwd()
+    if images:
+        is_ssh = vm_config and vm_config.vm_name and vm_config.vm_name.startswith("ssh:")
+        if is_ssh:
+            image_paths = _materialize_images_ssh(images, effective_cwd, vm_config)
+        else:
+            image_paths = _materialize_images_local(images, effective_cwd)
+        prompt = _prepend_image_paths(prompt, image_paths)
 
     if vm_config and vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
         return await _run_claude_ssh(
