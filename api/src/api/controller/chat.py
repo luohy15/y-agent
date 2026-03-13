@@ -208,6 +208,20 @@ async def get_share_chat(share_id: str = Query(...)):
     }
 
 
+@router.get("/content")
+async def get_chat_content(chat_id: str = Query(...), request: Request = None):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return {
+        "chat_id": chat.id,
+        "messages": [m.to_dict() for m in chat.messages],
+        "create_time": chat.create_time,
+        "update_time": chat.update_time,
+    }
+
+
 @router.get("/detail")
 async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     user_id = _get_user_id(request)
