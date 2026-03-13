@@ -23,6 +23,7 @@ from api.controller.finance import router as finance_router
 from api.controller.terminal import router as terminal_router
 from api.controller.bot_config import router as bot_config_router
 from api.controller.telegram import router as telegram_router
+from api.controller.git import router as git_router
 from api.middleware.auth import AuthMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
@@ -48,6 +49,7 @@ api_router.include_router(finance_router)
 api_router.include_router(terminal_router)
 api_router.include_router(bot_config_router)
 api_router.include_router(telegram_router)
+api_router.include_router(git_router)
 app.include_router(api_router)
 
 def main():

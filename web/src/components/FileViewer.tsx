@@ -8,6 +8,7 @@ import CalendarViewer from "./CalendarViewer";
 import LinkViewer from "./LinkViewer";
 import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
+import DiffViewer from "./DiffViewer";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -20,6 +21,7 @@ interface FileViewerProps {
   onReorderFiles: (files: string[]) => void;
   vmName?: string | null;
   workDir?: string;
+  diffFiles?: Set<string>;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -169,7 +171,7 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -182,16 +184,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
-  const isTodo = activeFileName.endsWith("todo.md");
-  const isCalendar = activeFileName.endsWith("calendar.md");
-  const isLink = activeFileName.endsWith("links.md");
-  const isFinance = activeFileName.endsWith("finance.bean");
-  const isEmail = activeFileName.endsWith("emails.md");
+  const isDiff = !!(activeFile && diffFiles?.has(activeFile));
+  const isTodo = !isDiff && activeFileName.endsWith("todo.md");
+  const isCalendar = !isDiff && activeFileName.endsWith("calendar.md");
+  const isLink = !isDiff && activeFileName.endsWith("links.md");
+  const isFinance = !isDiff && activeFileName.endsWith("finance.bean");
+  const isEmail = !isDiff && activeFileName.endsWith("emails.md");
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isTodo || isCalendar || isLink || isFinance || isEmail) return;
+    if (isDiff || isTodo || isCalendar || isLink || isFinance || isEmail) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -324,7 +327,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{getFileName(filePath)}</span>
+            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -340,7 +343,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       {/* Breadcrumb */}
       {activeFile && (
         <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
-          {getBreadcrumb(activeFile).map((part, i, arr) => (
+          {isDiff && <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span>}
+          {getBreadcrumb(activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
             <span key={i} className="flex items-center shrink-0">
               {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
@@ -390,24 +394,27 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       {/* Content - render all open files, show/hide to preserve scroll */}
       <div className="flex-1 min-h-0 bg-sol-base03 relative">
         {openFiles.map((filePath) => {
-          const fileName = filePath.replace(/^\.\//, "");
-          const fileTodo = fileName.endsWith("todo.md");
-          const fileCalendar = fileName.endsWith("calendar.md");
-          const fileLink = fileName.endsWith("links.md");
-          const fileFinance = fileName.endsWith("finance.bean");
-          const fileEmail = fileName.endsWith("emails.md");
+          const fileDiff = !!(diffFiles?.has(filePath));
+          const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
+          const fileTodo = !fileDiff && fileName.endsWith("todo.md");
+          const fileCalendar = !fileDiff && fileName.endsWith("calendar.md");
+          const fileLink = !fileDiff && fileName.endsWith("links.md");
+          const fileFinance = !fileDiff && fileName.endsWith("finance.bean");
+          const fileEmail = !fileDiff && fileName.endsWith("emails.md");
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
-          const fileExt = getExt(filePath);
+          const fileExt = getExt(fileName);
           const fileIsImage = IMAGE_EXTS.has(fileExt);
           const fileIsPdf = PDF_EXTS.has(fileExt);
 
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
-              {fileTodo ? (
+              {fileDiff ? (
+                <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
+              ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />

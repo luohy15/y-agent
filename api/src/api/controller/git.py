@@ -1,0 +1,47 @@
+from fastapi import APIRouter, Query, Request
+
+from api.controller.file import _exec
+
+router = APIRouter(prefix="/git")
+
+
+def _get_user_id(request: Request) -> int:
+    return request.state.user_id
+
+
+@router.get("/status")
+async def git_status(request: Request, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    output = await _exec(user_id, ["git", "status", "--porcelain"], vm_name=vm_name, work_dir=work_dir)
+    files = []
+    for line in output.strip().splitlines():
+        if not line or len(line) < 3:
+            continue
+        # Porcelain format: XY<space>path, but _exec may strip leading spaces
+        # so split on first space to reliably extract path
+        status_part = line[:2]
+        rest = line[2:].lstrip(" ")
+        status = status_part.strip()
+        if not status or not rest:
+            continue
+        # Handle renames: "R  old -> new"
+        if " -> " in rest:
+            rest = rest.split(" -> ")[-1]
+        files.append({"status": status, "path": rest})
+    return {"files": files}
+
+
+@router.get("/diff")
+async def git_diff(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    # Try staged diff first, fall back to unstaged, then show new file
+    diff = await _exec(user_id, ["git", "diff", "--cached", "--", path], vm_name=vm_name, work_dir=work_dir)
+    if not diff.strip():
+        diff = await _exec(user_id, ["git", "diff", "--", path], vm_name=vm_name, work_dir=work_dir)
+    if not diff.strip():
+        # Untracked file — show full content as added
+        content = await _exec(user_id, ["cat", path], vm_name=vm_name, work_dir=work_dir)
+        lines = content.split("\n")
+        diff = f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{len(lines)} @@\n"
+        diff += "\n".join(f"+{line}" for line in lines)
+    return {"path": path, "diff": diff}
