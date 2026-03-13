@@ -174,6 +174,9 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
+  const [todoViewMode, setTodoViewMode] = useState<"table" | "kanban">(() => {
+    return (localStorage.getItem("todoViewMode") as "table" | "kanban") || "table";
+  });
   const [zoom, setZoom] = useState(100);
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
@@ -343,6 +346,15 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
             </span>
           ))}
+          {isTodo && (
+            <button
+              onClick={() => setTodoViewMode((v) => { const next = v === "table" ? "kanban" : "table"; localStorage.setItem("todoViewMode", next); return next; })}
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title={todoViewMode === "table" ? "Switch to kanban" : "Switch to table"}
+            >
+              {todoViewMode === "table" ? "Kanban" : "Table"}
+            </button>
+          )}
           {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isLink && !isEmail && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
@@ -396,7 +408,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileTodo ? (
-                <TodoViewer />
+                <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />
               ) : fileLink ? (
