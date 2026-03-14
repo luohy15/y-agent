@@ -1,11 +1,13 @@
 import click
 from datetime import datetime, timedelta
 from yagent.api_client import api_request
+from yagent.time_util import _get_configured_tz
 
 
 def _parse_time(value):
     """Parse a time string to unix ms. Supports 'today', 'yesterday', 'Nd' (N days ago), or YYYY-MM-DD."""
-    now = datetime.now()
+    local_tz = _get_configured_tz()
+    now = datetime.now(tz=local_tz)
     v = value.strip().lower()
     if v == "today":
         return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
@@ -16,7 +18,8 @@ def _parse_time(value):
         d = now - timedelta(days=int(v[:-1]))
         return int(d.timestamp() * 1000)
     # YYYY-MM-DD
-    return int(datetime.strptime(v, "%Y-%m-%d").timestamp() * 1000)
+    dt = datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=local_tz)
+    return int(dt.timestamp() * 1000)
 
 
 @click.command('list')
@@ -41,6 +44,7 @@ def link_list(query, start, end, limit):
         return
 
     for l in links:
-        time = datetime.fromtimestamp(l["timestamp"] / 1000).strftime("%H:%M")
+        local_tz = _get_configured_tz()
+        time = datetime.fromtimestamp(l["timestamp"] / 1000, tz=local_tz).strftime("%H:%M")
         title = l.get("title") or "-"
         click.echo(f"[{time}] {title} {l['base_url']}")
