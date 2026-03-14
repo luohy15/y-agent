@@ -59,8 +59,11 @@ function KanbanCard({ t, className, draggable, onDragStart, onClickName }: { t: 
           </span>
         )}
       </div>
+      {t.due_date && (
+        <span className="text-sol-base01 text-xs mt-1">{t.due_date}</span>
+      )}
       {t.desc && (
-        <p className="text-sol-base01 text-xs mt-1 line-clamp-2">{t.desc}</p>
+        <p className="text-sol-base01 text-xs mt-0.5 line-clamp-2">{t.desc}</p>
       )}
     </div>
   );
