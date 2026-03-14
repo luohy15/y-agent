@@ -413,11 +413,22 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   const extraColClass = "hidden md:table-cell";
   const colCount = 7;
 
+  const filteredKanbanTodos = kanbanTodos.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
+
   if (viewMode === "kanban") {
     return (
       <div className="h-full flex flex-col bg-sol-base03 text-sm sm:text-xs">
+        <div className="px-3 pt-2 pb-1">
+          <input
+            type="text"
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            placeholder="filter by name..."
+            className="px-2 py-0.5 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01"
+          />
+        </div>
         <div className="flex-1 overflow-hidden">
-          <KanbanBoard todos={kanbanTodos} onMoved={revalidateTodos} />
+          <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} />
         </div>
       </div>
     );
