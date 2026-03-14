@@ -222,6 +222,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         return
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    logger.info("Resolved vm config: name={} vm_name={} work_dir={}", vm_config.name, vm_config.vm_name, vm_config.work_dir)
     last_message_id = messages[-1].id if messages else None
     cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
     model = bot_config.model.strip('"').strip() if bot_config.model else None
