@@ -1,7 +1,4 @@
 import click
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
 
 from yagent.api_client import api_request
 
@@ -38,22 +35,30 @@ def _extract_turns(messages: list) -> list:
     return turns
 
 
-@click.command('get')
-@click.argument('chat_id')
-def get_chat(chat_id: str):
-    """Get a chat conversation by ID, showing user/assistant turns."""
+def _print_chat(chat_id: str):
+    """Fetch and print a single chat conversation."""
     resp = api_request("GET", "/api/chat/content", params={"chat_id": chat_id})
     data = resp.json()
 
     turns = _extract_turns(data["messages"])
 
     if not turns:
-        click.echo("No conversation turns found")
+        click.echo(f"[{chat_id}] No conversation turns found")
         return
 
-    console = Console()
-    for i, (user_msg, assistant_msg) in enumerate(turns, 1):
-        console.print(Panel(Markdown(user_msg), title=f"[bold blue]User[/bold blue] ({i})", border_style="blue"))
+    for user_msg, assistant_msg in turns:
+        click.echo(f"user: {user_msg.strip()}")
         if assistant_msg:
-            console.print(Panel(Markdown(assistant_msg), title=f"[bold green]Assistant[/bold green] ({i})", border_style="green"))
-        console.print()
+            click.echo(f"assistant: {assistant_msg.strip()}")
+
+
+@click.command('get')
+@click.argument('chat_ids', nargs=-1, required=True)
+def get_chat(chat_ids: tuple):
+    """Get chat conversations by ID, showing user/assistant turns."""
+    for idx, chat_id in enumerate(chat_ids):
+        if len(chat_ids) > 1:
+            click.echo(f"====== Chat: {chat_id} ======")
+        _print_chat(chat_id)
+        if idx < len(chat_ids) - 1:
+            click.echo()
