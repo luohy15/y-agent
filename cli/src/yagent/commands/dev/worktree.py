@@ -115,7 +115,7 @@ def wt_list():
         click.echo("No worktrees registered")
         return
     for name, entry in registry.items():
-        click.echo(f"  {name}: {entry['worktree_path']}  (project: {entry['project_path']})")
+        click.echo(f"  {name} ({entry['project_path']}) -> {entry['worktree_path']}")
 
 
 wt_group.add_command(wt_add)
