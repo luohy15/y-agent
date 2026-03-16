@@ -11,6 +11,7 @@ from storage.entity.dto import Message
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
+from agent.ec2_wake import ensure_and_touch_vm
 from agent.loop import run_agent_loop
 from agent.tools import get_tools_map, get_openai_tools
 
@@ -23,6 +24,7 @@ def message_callback(chat_id: str, message: Message):
 def check_interrupted(chat_id: str) -> bool:
     c = chat_service.get_chat_by_id_sync(chat_id)
     return c.interrupted if c else False
+
 
 
 def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
@@ -204,6 +206,7 @@ async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_
     provider = agent_config.make_provider(bot_config)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    ensure_and_touch_vm(vm_config)
     tools_map = get_tools_map(vm_config)
     openai_tools = get_openai_tools(vm_config)
     system_prompt = await agent_config.build_system_prompt(vm_config)
@@ -250,6 +253,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         return
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    ensure_and_touch_vm(vm_config)
     logger.info("Resolved vm config: name={} vm_name={} work_dir={}", vm_config.name, vm_config.vm_name, vm_config.work_dir)
     last_message_id = messages[-1].id if messages else None
     cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())

@@ -8,10 +8,14 @@ from storage.database.base import get_db
 
 def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
     return VmConfig(
+        id=entity.id,
         name=entity.name,
         api_token=entity.api_token,
         vm_name=entity.vm_name,
         work_dir=entity.work_dir,
+        ec2_instance_id=entity.ec2_instance_id or "",
+        ec2_region=entity.ec2_region or "",
+        last_up=entity.last_up,
     )
 
 
@@ -21,6 +25,9 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
         api_token=config.api_token,
         vm_name=config.vm_name,
         work_dir=config.work_dir,
+        ec2_instance_id=config.ec2_instance_id,
+        ec2_region=config.ec2_region,
+        last_up=config.last_up,
     )
 
 
@@ -58,6 +65,22 @@ def get_config_by_work_dir(user_id: int, work_dir: str) -> Optional[VmConfig]:
         if row:
             return _entity_to_dto(row)
         return None
+
+
+def update_last_up(user_id: int, name: str, last_up: int) -> None:
+    with get_db() as session:
+        row = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).first()
+        if row:
+            row.last_up = last_up
+            session.flush()
+
+
+def update_last_up_by_id(config_id: int, last_up: int) -> None:
+    with get_db() as session:
+        row = session.query(VmConfigEntity).filter_by(id=config_id).first()
+        if row:
+            row.last_up = last_up
+            session.flush()
 
 
 def delete_config(user_id: int, name: str = "default") -> bool:

@@ -17,6 +17,8 @@ class VmConfigRequest(BaseModel):
     api_token: str = ""
     vm_name: str = ""
     work_dir: str = ""
+    ec2_instance_id: str = ""
+    ec2_region: str = ""
 
 
 @router.get("/list")
@@ -27,7 +29,9 @@ async def list_vm_configs(request: Request):
         default = resolve_vm_config(user_id)
         configs = [default]
     return [
-        {"name": c.name, "vm_name": c.vm_name, "work_dir": c.work_dir}
+        {"name": c.name, "vm_name": c.vm_name, "work_dir": c.work_dir,
+         "ec2_instance_id": c.ec2_instance_id, "ec2_region": c.ec2_region,
+         "last_up": c.last_up}
         for c in configs
     ]
 
@@ -40,6 +44,8 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
         api_token=req.api_token,
         vm_name=req.vm_name,
         work_dir=req.work_dir,
+        ec2_instance_id=req.ec2_instance_id,
+        ec2_region=req.ec2_region,
     )
     vm_service.set_config(user_id, config)
     return {"ok": True}
