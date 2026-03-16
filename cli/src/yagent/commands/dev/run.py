@@ -29,8 +29,9 @@ def _build_prompt_from_todo(todo: dict, work_dir: str) -> str:
 @click.option('--todo', 'todo_id', default=None, help='Use a todo item as input')
 @click.option('--message', '-m', default=None, help='Requirement / prompt message')
 @click.option('--clear', is_flag=True, help='Start a new session instead of continuing')
+@click.option('--commit', is_flag=True, help='Auto commit and merge to main after completion')
 @click.option('--bot', '-b', default='claude-code', help='Bot name')
-def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, bot: str):
+def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit: bool, bot: str):
     """Submit work to a worktree. Provide --todo or --message as input."""
     entry = get_worktree(worktree_name)
     work_dir = entry["worktree_path"]
@@ -66,17 +67,24 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, bot: st
         click.echo("Error: provide --message or --todo as input", err=True)
         raise click.Abort()
 
+    # Build post hooks
+    post_hooks = None
+    if commit:
+        post_hooks = [{"type": "commit_and_merge", "worktree_name": worktree_name}]
+
     # Resume or new session
     if chat_ids and not clear:
         chat_id = chat_ids[-1]
         continue_msg = message or "Continue working on this task."
         api_request("POST", "/api/chat/message", json={
             "chat_id": chat_id, "prompt": continue_msg, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         click.echo(f"Resumed chat {chat_id}")
     else:
         resp = api_request("POST", "/api/chat", json={
             "prompt": prompt, "bot_name": bot, "work_dir": work_dir,
+            "post_hooks": post_hooks,
         })
         chat_id = resp.json()["chat_id"]
         click.echo(f"Created chat {chat_id}")
