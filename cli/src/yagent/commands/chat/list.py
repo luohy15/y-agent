@@ -3,6 +3,7 @@ import shutil
 from tabulate import tabulate
 
 from yagent.api_client import api_request
+from yagent.time_util import utc_to_local
 
 
 def get_column_widths():
@@ -32,7 +33,7 @@ def list_chats(limit: int):
         table_data.append([
             chat["chat_id"],
             chat["title"],
-            chat["updated_at"],
+            utc_to_local(chat["updated_at"]),
         ])
 
     headers = ["ID", "Title", "Updated"]
