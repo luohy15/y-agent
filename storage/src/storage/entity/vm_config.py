@@ -11,6 +11,9 @@ class VmConfigEntity(Base, BaseEntity):
     api_token = Column(String, nullable=False, default="")
     vm_name = Column(String, nullable=False, default="")
     work_dir = Column(String, nullable=False, default="")
+    ec2_instance_id = Column(String, nullable=False, default="")
+    ec2_region = Column(String, nullable=False, default="")
+    last_up = Column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

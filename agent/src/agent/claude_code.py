@@ -526,7 +526,7 @@ async def _run_claude_ssh(
     full_cmd = cmd + [prompt]
 
     # Build shell command string
-    parts = []
+    parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
     if env:
         for k, v in env.items():
             parts.append(f"export {k}={_shell_quote(v)};")

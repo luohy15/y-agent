@@ -5,6 +5,7 @@ import paramiko
 from loguru import logger
 
 from storage.entity.dto import VmConfig
+from agent.ec2_wake import ensure_and_touch_vm
 
 
 def _parse_ssh_target(vm_name: str) -> tuple:
@@ -27,10 +28,11 @@ def _shell_quote(s: str) -> str:
 
 
 async def ssh_exec(vm_config: VmConfig, cmd: list[str], stdin: str | None = None, dir: str | None = None, timeout: float = 30) -> str:
+    ensure_and_touch_vm(vm_config)
     user, host, port = _parse_ssh_target(vm_config.vm_name)
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
-    parts = []
+    parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
     if dir:
         parts.append(f"cd {_shell_quote(dir)} &&")
     parts.append(" ".join(_shell_quote(c) for c in cmd))
