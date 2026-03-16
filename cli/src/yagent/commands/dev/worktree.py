@@ -5,28 +5,6 @@ import click
 from .registry import load_registry, save_registry
 
 
-def _apply_symlinks(git_root: str, worktree_path: str):
-    symlinks_file = os.path.join(git_root, ".symlinks")
-    if not os.path.exists(symlinks_file):
-        return
-    with open(symlinks_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            src, dst = line.split(",", 1)
-            src = src.strip()
-            dst = dst.strip()
-            if not os.path.isabs(src):
-                src = os.path.join(worktree_path, src)
-            else:
-                src = os.path.expanduser(src)
-            target = os.path.join(worktree_path, dst)
-            if not os.path.exists(target):
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                os.symlink(src, target)
-
-
 def _run_post_create(project_path: str, worktree_path: str):
     script = os.path.join(project_path, "worktree", "post-create.sh")
     if not os.path.exists(script):
@@ -72,7 +50,6 @@ def wt_add(project_path: str, name: str):
     subprocess.check_call(["git", "-C", project_path, "worktree", "add", "-b", branch, worktree_path, "HEAD"])
     click.echo(f"Created worktree at {worktree_path}")
 
-    _apply_symlinks(project_path, worktree_path)
     _run_post_create(project_path, worktree_path)
 
     registry[name] = {

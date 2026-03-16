@@ -43,9 +43,31 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
 
 
 def _hook_commit_and_merge(work_dir: str, hook: dict) -> None:
-    """Stage, commit, rebase onto main, and fast-forward main."""
-    todo_name = hook.get("todo_name", "auto commit")
-    todo_id = hook.get("todo_id", "")
+    """Stage, commit, rebase onto main, and fast-forward main.
+
+    Resolves worktree from dev-worktrees.json registry, then commit + merge + cleanup.
+    """
+    import json
+
+    worktree_name = hook.get("worktree_name")
+    if not worktree_name:
+        logger.warning("commit_and_merge: missing worktree_name")
+        return
+
+    registry_path = os.path.join(os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent")), "dev-worktrees.json")
+    if not os.path.exists(registry_path):
+        logger.error("commit_and_merge: registry not found at {}", registry_path)
+        return
+    with open(registry_path) as f:
+        registry = json.load(f)
+    entry = registry.get(worktree_name)
+    if not entry:
+        logger.error("commit_and_merge: worktree '{}' not found in registry", worktree_name)
+        return
+    work_dir = entry["worktree_path"]
+    project_path = entry["project_path"]
+    branch = entry["branch"]
+    commit_msg = worktree_name
 
     git = ["git", "-C", work_dir]
 
@@ -55,17 +77,23 @@ def _hook_commit_and_merge(work_dir: str, hook: dict) -> None:
         return
 
     subprocess.check_call(git + ["add", "-A"])
-    subprocess.check_call(git + ["commit", "-m", todo_name])
+    subprocess.check_call(git + ["commit", "-m", commit_msg])
     logger.info("commit_and_merge: committed")
 
     # Rebase current branch onto main, then fast-forward main
     subprocess.check_call(git + ["rebase", "main"])
     logger.info("commit_and_merge: rebased onto main")
 
-    branch = f"worktree-{todo_id}" if todo_id else None
-    if branch:
-        subprocess.check_call(git + ["branch", "-f", "main", branch])
-        logger.info("commit_and_merge: fast-forwarded main to {}", branch)
+    subprocess.check_call(["git", "-C", project_path, "merge", "--ff-only", branch])
+    logger.info("commit_and_merge: fast-forwarded main to {}", branch)
+    # Clean up worktree and registry
+    subprocess.check_call(["git", "-C", project_path, "worktree", "remove", work_dir])
+    subprocess.call(["git", "-C", project_path, "branch", "-d", branch])
+    logger.info("commit_and_merge: removed worktree and branch {}", branch)
+    del registry[worktree_name]
+    with open(registry_path, "w") as f:
+        json.dump(registry, f, indent=2)
+    logger.info("commit_and_merge: removed '{}' from registry", worktree_name)
 
 
 def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
