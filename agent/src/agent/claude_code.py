@@ -525,21 +525,24 @@ async def _run_claude_ssh(
 
     full_cmd = cmd + [prompt]
 
-    # Build shell command string
-    parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
+    # Build shell command string – wrap with exec so the shell PID *is* the
+    # claude process PID, and echo the PID on the first line so we can kill
+    # it on interrupt.
+    inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
     if env:
         for k, v in env.items():
-            parts.append(f"export {k}={_shell_quote(v)};")
+            inner_parts.append(f"export {k}={_shell_quote(v)};")
     if cwd:
-        parts.append(f"cd {_shell_quote(cwd)} &&")
-    parts.append(" ".join(_shell_quote(c) for c in full_cmd))
-    shell_cmd = " ".join(parts)
+        inner_parts.append(f"cd {_shell_quote(cwd)} &&")
+    inner_parts.append("exec " + " ".join(_shell_quote(c) for c in full_cmd))
+    shell_cmd = "echo $$; " + " ".join(inner_parts)
 
     logger.info("ssh claude-code exec host={} port={} user={}", host, port, user)
 
     converter = StreamConverter(last_message_id=last_message_id)
     result_data: Optional[Dict] = None
     session_id: Optional[str] = None
+    remote_pid: Optional[int] = None
 
     try:
         client = paramiko.SSHClient()
@@ -553,14 +556,28 @@ async def _run_claude_ssh(
 
         # Stream stdout line by line in a thread to avoid blocking the event loop
         def _read_lines():
-            nonlocal result_data, session_id
+            nonlocal result_data, session_id, remote_pid
             for raw_line in stdout:
                 line = raw_line.strip()
                 if not line:
                     continue
 
+                # First line is the PID we echoed
+                if remote_pid is None:
+                    try:
+                        remote_pid = int(line)
+                        continue
+                    except ValueError:
+                        pass
+
                 if check_interrupted_fn and check_interrupted_fn():
-                    logger.info("ssh claude-code interrupted, closing channel")
+                    logger.info("ssh claude-code interrupted, killing remote pid={}", remote_pid)
+                    # Kill the remote process tree before closing
+                    if remote_pid is not None:
+                        try:
+                            client.exec_command(f"kill -9 -{remote_pid} 2>/dev/null; kill -9 {remote_pid} 2>/dev/null")
+                        except Exception:
+                            pass
                     channel.close()
                     return "interrupted"
 
