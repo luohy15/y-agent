@@ -146,21 +146,36 @@ function filterLevel2(messages: Message[]): DisplayItem[] {
 
 function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const paths = messages.map((m) => String(m.arguments?.path || m.arguments?.file_path || "")).filter(Boolean);
+  const shortPath = (p: string) => { const parts = p.split("/"); return parts.length <= 2 ? p : parts.slice(-2).join("/"); };
+  const paths = messages.map((m) => shortPath(String(m.arguments?.path || m.arguments?.file_path || ""))).filter(Boolean);
+
+  const iconMap: Record<string, { icon: string; color: string; bg: string }> = {
+    Read: { icon: "\u2193", color: "text-sol-cyan", bg: "bg-sol-cyan/15" },
+    Write: { icon: "\u2191", color: "text-sol-green", bg: "bg-sol-green/15" },
+    Edit: { icon: "\u0394", color: "text-sol-yellow", bg: "bg-sol-yellow/15" },
+  };
+  const meta = iconMap[kind] || { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
+
   return (
     <div>
       <div
-        className="text-[0.8rem] font-mono text-sol-cyan cursor-pointer flex items-center gap-1"
+        className="font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer flex items-center gap-1.5 select-none"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span>$ {kind} {messages.length} files</span>
-        <span className="text-sol-base01 text-[0.65rem]">{expanded ? "▲" : "▼"}</span>
+        <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[0.65rem] font-bold shrink-0 ${meta.bg} ${meta.color}`}>
+          {meta.icon}
+        </span>
+        <span className={`${meta.color} font-semibold shrink-0`}>{kind}</span>
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base0">
+          {messages.length} files
+        </span>
+        <span className="text-sol-base01 text-[0.6rem] ml-auto">{expanded ? "\u25B2" : "\u25BC"}</span>
       </div>
       {!expanded && paths.length > 0 && (
-        <div className="text-[0.65rem] text-sol-base01 font-mono truncate">{paths.join(", ")}</div>
+        <div className="text-[0.65rem] text-sol-base01 font-mono truncate ml-6.5">{paths.join(", ")}</div>
       )}
       {expanded && (
-        <div className="flex flex-col gap-2 mt-1">
+        <div className="flex flex-col gap-1.5 mt-1 ml-6.5">
           {messages.map((m, j) => (
             <MessageBubble key={startIndex + j} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} />
           ))}
@@ -172,8 +187,11 @@ function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: strin
 
 function ToolSummary({ count }: { count: number }) {
   return (
-    <div className="text-[0.775rem] font-mono text-sol-base01">
-      called {count} tool{count > 1 ? "s" : ""}
+    <div className="flex items-center gap-1.5 font-mono text-[0.775rem] sm:text-[0.725rem] text-sol-base01">
+      <span className="inline-flex items-center justify-center w-5 h-5 rounded text-[0.65rem] font-bold bg-sol-base01/15">{"\u25C6"}</span>
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02">
+        {count} tool{count > 1 ? "s" : ""} called
+      </span>
     </div>
   );
 }
