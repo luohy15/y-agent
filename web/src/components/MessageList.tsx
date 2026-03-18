@@ -55,9 +55,40 @@ function fileToolKind(m: Message): string | null {
 type DisplayItem =
   | { type: "message"; message: Message; index: number }
   | { type: "tool_summary"; count: number; index: number }
-  | { type: "file_tools"; kind: string; messages: Message[]; startIndex: number };
+  | { type: "file_tools"; kind: string; messages: Message[]; startIndex: number }
+  | { type: "process_summary"; toolCounts: Record<string, number>; assistantCount: number; index: number };
 
-// Level 0: user + last assistant per round (between user messages)
+// Collect tool call stats for a range of messages
+function collectProcessStats(messages: Message[], from: number, to: number): { toolCounts: Record<string, number>; assistantCount: number } {
+  const toolCounts: Record<string, number> = {};
+  let assistantCount = 0;
+  for (let i = from; i < to; i++) {
+    const m = messages[i];
+    if (isToolMessage(m) && m.toolName) {
+      const label = getToolLabel(m.toolName);
+      toolCounts[label] = (toolCounts[label] || 0) + 1;
+    } else if (m.role === "assistant") {
+      assistantCount++;
+    }
+  }
+  return { toolCounts, assistantCount };
+}
+
+function getToolLabel(toolName: string): string {
+  const n = toolName.toLowerCase();
+  if (n === "bash") return "Bash";
+  if (n === "read" || n === "file_read") return "Read";
+  if (n === "write" || n === "file_write") return "Write";
+  if (n === "edit" || n === "file_edit") return "Edit";
+  if (n === "grep") return "Grep";
+  if (n === "glob") return "Glob";
+  if (n === "agent") return "Agent";
+  if (n === "websearch" || n === "webfetch") return toolName;
+  if (n === "todowrite") return "Todo";
+  return toolName;
+}
+
+// Level 0: user + last assistant per round (between user messages) + process summary
 function filterLevel0(messages: Message[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   // Split into rounds: each round starts at a user message
@@ -78,6 +109,12 @@ function filterLevel0(messages: Message[]): DisplayItem[] {
     const end = r + 1 < roundStarts.length ? roundStarts[r + 1] : messages.length;
     // Add user message
     items.push({ type: "message", message: messages[start], index: start });
+    // Add process summary if there are tool calls or multiple assistants in this round
+    const stats = collectProcessStats(messages, start + 1, end);
+    const totalTools = Object.values(stats.toolCounts).reduce((a, b) => a + b, 0);
+    if (totalTools > 0) {
+      items.push({ type: "process_summary", toolCounts: stats.toolCounts, assistantCount: stats.assistantCount, index: start + 1 });
+    }
     // Add last assistant in this round
     const lastAssistantIdx = findLastAssistant(messages, start + 1, end);
     if (lastAssistantIdx >= 0) {
@@ -185,6 +222,48 @@ function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: strin
   );
 }
 
+const toolIconMap: Record<string, { icon: string; color: string; bg: string }> = {
+  Bash: { icon: ">_", color: "text-sol-blue", bg: "bg-sol-blue/15" },
+  Read: { icon: "\u2193", color: "text-sol-cyan", bg: "bg-sol-cyan/15" },
+  Write: { icon: "\u2191", color: "text-sol-green", bg: "bg-sol-green/15" },
+  Edit: { icon: "\u0394", color: "text-sol-yellow", bg: "bg-sol-yellow/15" },
+  Grep: { icon: "/", color: "text-sol-violet", bg: "bg-sol-violet/15" },
+  Glob: { icon: "*", color: "text-sol-violet", bg: "bg-sol-violet/15" },
+  Agent: { icon: "\u25C8", color: "text-sol-magenta", bg: "bg-sol-magenta/15" },
+  Todo: { icon: "\u2713", color: "text-sol-green", bg: "bg-sol-green/15" },
+};
+const defaultToolIcon = { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
+
+function ProcessSummary({ toolCounts, onExpand }: { toolCounts: Record<string, number>; assistantCount: number; onExpand: () => void }) {
+  const totalTools = Object.values(toolCounts).reduce((a, b) => a + b, 0);
+  const entries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div
+      className="flex items-center gap-2 font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer select-none py-0.5 group"
+      onClick={onExpand}
+    >
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base01">
+        {totalTools} tool{totalTools > 1 ? "s" : ""}
+      </span>
+      <span className="flex items-center gap-1.5 flex-wrap">
+        {entries.map(([label, count]) => {
+          const meta = toolIconMap[label] || defaultToolIcon;
+          return (
+            <span key={label} className="inline-flex items-center gap-0.5">
+              <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[0.55rem] font-bold ${meta.bg} ${meta.color}`}>
+                {meta.icon}
+              </span>
+              <span className="text-sol-base01 text-[0.6rem]">{count}</span>
+            </span>
+          );
+        })}
+      </span>
+      <span className="text-sol-base01 text-[0.6rem] ml-auto group-hover:text-sol-base0">▼</span>
+    </div>
+  );
+}
+
 function ToolSummary({ count }: { count: number }) {
   return (
     <div className="flex items-center gap-1.5 font-mono text-[0.775rem] sm:text-[0.725rem] text-sol-base01">
@@ -203,9 +282,10 @@ interface MessageListProps {
   showProcess: boolean;
   showDetail: boolean;
   onOpenFile?: (path: string) => void;
+  onToggleProcess?: () => void;
 }
 
-export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile, onToggleProcess }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -222,6 +302,9 @@ export default function MessageList({ messages, running, centered, showProcess, 
     <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
       <div className={innerClass}>
       {items.map((item) => {
+        if (item.type === "process_summary") {
+          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} onExpand={() => onToggleProcess?.()} />;
+        }
         if (item.type === "tool_summary") {
           return <ToolSummary key={`ts-${item.index}`} count={item.count} />;
         }

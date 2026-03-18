@@ -286,7 +286,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
-      <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} />
+      <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} onToggleProcess={() => { setShowProcess(true); localStorage.setItem("showProcess", "true"); }} />
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
