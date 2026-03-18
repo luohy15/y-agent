@@ -178,7 +178,7 @@ def _hook_telegram_notify(chat, hook: dict, user_id: int) -> None:
     from storage.repository import user as user_repo
 
     # Look up user's telegram_id
-    user = user_repo.get_user(user_id)
+    user = user_repo.get_user_by_id(user_id)
     if not user or not user.telegram_id:
         logger.info("telegram_notify: user {} has no telegram_id", user_id)
         return
