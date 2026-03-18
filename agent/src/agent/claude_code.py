@@ -456,7 +456,10 @@ async def _run_claude_process(
         stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
         if stderr_text:
             logger.error("claude-code stderr: {}", stderr_text)
-        return ClaudeCodeResult(status="error", session_id=session_id)
+        error_detail = f"Claude Code process error: {e}"
+        if stderr_text:
+            error_detail += f"\n{stderr_text}"
+        return ClaudeCodeResult(status="error", session_id=session_id, result_text=error_detail)
 
     await proc.wait()
 
@@ -476,7 +479,10 @@ async def _run_claude_process(
 
     if proc.returncode != 0:
         logger.error("claude-code exited with code {} stderr={}", proc.returncode, stderr_text)
-        return ClaudeCodeResult(status="error", session_id=session_id)
+        error_detail = f"Claude Code exited with code {proc.returncode}"
+        if stderr_text:
+            error_detail += f": {stderr_text}"
+        return ClaudeCodeResult(status="error", session_id=session_id, result_text=error_detail)
 
     return ClaudeCodeResult(status="completed", session_id=session_id)
 
@@ -627,7 +633,10 @@ async def _run_claude_ssh(
 
     if exit_code != 0:
         logger.error("ssh claude-code exited with code {} stderr={}", exit_code, stderr_text)
-        return ClaudeCodeResult(status="error", session_id=session_id)
+        error_detail = f"Claude Code (SSH) exited with code {exit_code}"
+        if stderr_text:
+            error_detail += f": {stderr_text}"
+        return ClaudeCodeResult(status="error", session_id=session_id, result_text=error_detail)
 
     return ClaudeCodeResult(status="completed", session_id=session_id)
 

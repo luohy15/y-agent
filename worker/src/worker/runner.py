@@ -9,6 +9,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
+from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
@@ -290,6 +291,18 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         images=user_images,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
+
+    # Surface error status as a visible message to the user
+    if result.status == "error":
+        error_text = result.result_text or "Claude Code exited with an error."
+        error_msg = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=error_text,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        )
+        cb(error_msg)
 
     # Save session_id and work_dir for future resume
     # Reload fresh chat from DB to avoid overwriting messages appended via callback
