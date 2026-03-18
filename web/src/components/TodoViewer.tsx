@@ -39,6 +39,52 @@ const statusColor: Record<string, string> = {
   completed: "bg-sol-green text-sol-base03",
 };
 
+const actionColor: Record<string, string> = {
+  create: "text-sol-green",
+  activate: "text-sol-blue",
+  finish: "text-sol-green",
+  deactivate: "text-sol-yellow",
+  update: "text-sol-cyan",
+  delete: "text-sol-red",
+};
+
+function ActivityHistory({ todos, collapsed, onToggle }: { todos: Todo[]; collapsed: boolean; onToggle: () => void }) {
+  const entries = todos.flatMap((t) =>
+    (t.history || []).map((h) => ({ ...h, todoName: t.name, todoId: t.todo_id }))
+  ).sort((a, b) => (b.unix_timestamp || 0) - (a.unix_timestamp || 0));
+
+  return (
+    <div className={`flex flex-col bg-sol-base03 border-l border-sol-base02 shrink-0 transition-all ${collapsed ? "w-8" : "w-72"}`}>
+      <button
+        onClick={onToggle}
+        className="px-2 py-1.5 text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer flex items-center gap-1 border-b border-sol-base02 shrink-0"
+        title={collapsed ? "Show activity" : "Hide activity"}
+      >
+        {collapsed ? "◀" : "▶"}
+        {!collapsed && <span className="font-medium text-sol-base1">Activity</span>}
+      </button>
+      {!collapsed && (
+        <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1">
+          {entries.length === 0 ? (
+            <p className="text-sol-base01 text-xs italic">No activity</p>
+          ) : entries.map((e, i) => (
+            <div key={i} className="text-xs border-b border-sol-base02/50 pb-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sol-base01 shrink-0">{new Date(e.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                <span className={`shrink-0 ${actionColor[e.action] || "text-sol-base0"}`}>{e.action}</span>
+              </div>
+              <div className="text-sol-base1 truncate" title={e.todoName}>
+                #{e.todoId} {e.todoName}
+              </div>
+              {e.note && <div className="text-sol-base01 truncate" title={e.note}>{e.note}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KanbanCard({ t, className, draggable, onDragStart, onClickName }: { t: Todo; className?: string; draggable?: boolean; onDragStart?: (e: DragEvent) => void; onClickName?: () => void }) {
   return (
     <div
@@ -150,7 +196,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
         <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
           {[...t.history].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((h, i) => (
             <div key={i} className="text-xs text-sol-base01 flex gap-1.5">
-              <span className="shrink-0">{new Date(h.timestamp).toLocaleDateString()}</span>
+              <span className="shrink-0">{new Date(h.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
               <span className="text-sol-base0 shrink-0">{h.action}</span>
               {h.note && <span className="text-sol-base01">{h.note}</span>}
             </div>
@@ -316,6 +362,9 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
 
 export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode }) {
 
+  const [historyCollapsed, setHistoryCollapsed] = useState(() => localStorage.getItem("todoHistoryCollapsed") !== "false");
+  useEffect(() => { localStorage.setItem("todoHistoryCollapsed", String(historyCollapsed)); }, [historyCollapsed]);
+
   const [bottomFilter, setBottomFilter] = useState<BottomFilter>(() => {
     const saved = localStorage.getItem("todoFilter");
     return saved === "all" ? "all" : saved === "completed" ? "completed" : "pending";
@@ -415,27 +464,34 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
 
   const filteredKanbanTodos = kanbanTodos.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
 
+  // Collect all loaded todos for activity history
+  const allTodosForHistory = viewMode === "kanban" ? kanbanTodos : [...(activeTodos || []), ...(bottomTodos || [])];
+
   if (viewMode === "kanban") {
     return (
-      <div className="h-full flex flex-col bg-sol-base03 text-sm sm:text-xs">
-        <div className="px-3 pt-2 pb-1">
-          <input
-            type="text"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            placeholder="filter by name..."
-            className="px-2 py-0.5 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01"
-          />
+      <div className="h-full flex bg-sol-base03 text-sm sm:text-xs">
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="px-3 pt-2 pb-1">
+            <input
+              type="text"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              placeholder="filter by name..."
+              className="px-2 py-0.5 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01"
+            />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} />
+          </div>
         </div>
-        <div className="flex-1 overflow-hidden">
-          <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} />
-        </div>
+        <ActivityHistory todos={allTodosForHistory} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden bg-sol-base03 text-sm sm:text-xs" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
+    <div className="h-full flex bg-sol-base03 text-sm sm:text-xs">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
       {/* Active tasks as cards */}
       {activeCards.length > 0 && (
         <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
@@ -550,6 +606,8 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
           </div>
         </div>
       )}
+    </div>
+    <ActivityHistory todos={allTodosForHistory} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
     </div>
   );
 }

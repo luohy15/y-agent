@@ -1,2 +1,3 @@
 - CLI install command: uv tool install --force -e ./cli
 - Non-interactive mode: Do not prompt for confirmation (e.g., ExitPlanMode). Stop after planning.
+- Do NOT use background tasks (run_in_background). This project runs in `-p` headless mode where background tasks will hang the process. Always run commands in the foreground.
