@@ -127,8 +127,9 @@ def _hook_telegram_reply(chat, hook: dict) -> None:
     if not telegram_chat_id:
         logger.warning("telegram_reply: missing telegram_chat_id")
         return
+    message_thread_id = hook.get("message_thread_id")
 
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
     if not bot_token:
         logger.warning("telegram_reply: TELEGRAM_BOT_TOKEN not set")
         return
@@ -155,13 +156,17 @@ def _hook_telegram_reply(chat, hook: dict) -> None:
     with httpx.Client() as client:
         for i, chunk in enumerate(html_chunks):
             payload = {"chat_id": telegram_chat_id, "text": chunk, "parse_mode": "HTML"}
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
             resp = client.post(url, json=payload)
             # Retry with plain text if HTML formatting fails
             if not resp.is_success:
-                fallback = plain_chunks[i] if i < len(plain_chunks) else chunk
-                client.post(url, json={"chat_id": telegram_chat_id, "text": fallback})
+                fallback_payload = {"chat_id": telegram_chat_id, "text": plain_chunks[i] if i < len(plain_chunks) else chunk}
+                if message_thread_id:
+                    fallback_payload["message_thread_id"] = message_thread_id
+                client.post(url, json=fallback_payload)
 
-    logger.info("telegram_reply: sent {} chars to telegram chat {}", len(reply_text), telegram_chat_id)
+    logger.info("telegram_reply: sent {} chars to telegram chat {} thread {}, text={}", len(reply_text), telegram_chat_id, message_thread_id, reply_text[:200])
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None) -> None:
@@ -268,7 +273,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         logger.info("claude-code work_dir mismatch (was {}, now {}), aborting", chat.work_dir, cwd)
         return
     resume = bool(session_id)
-    logger.info("claude-code start chat_id={} session_id={} resume={}", chat_id, session_id, resume)
+    logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, user_prompt[:200])
 
     result = await run_claude_code(
         prompt=user_prompt,

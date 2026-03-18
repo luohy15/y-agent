@@ -201,3 +201,5 @@ def find_chat_by_channel_sync(user_id: int, channel_id: str) -> Optional[Chat]:
         except Exception as e:
             print(f"Error parsing chat JSON: {e}")
             return None
+
+
