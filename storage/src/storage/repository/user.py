@@ -19,7 +19,12 @@ def get_or_create_user(user_id: str) -> UserEntity:
         return user
 
 
-def get_user(user_id: str) -> Optional[UserEntity]:
+def get_user_by_id(id: int) -> Optional[UserEntity]:
+    with get_db() as session:
+        return session.query(UserEntity).filter_by(id=id, deleted=False).first()
+
+
+def get_user_by_user_id(user_id: str) -> Optional[UserEntity]:
     with get_db() as session:
         return session.query(UserEntity).filter_by(user_id=user_id, deleted=False).first()
 
