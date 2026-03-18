@@ -93,8 +93,12 @@ function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: str
         <li key={h.id}>
           <a
             href={`#${h.id}`}
-            onClick={onSelect}
-            className="text-xs text-sol-base0 hover:text-sol-blue no-underline block truncate"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById(h.id)?.scrollIntoView({ block: "start" });
+              onSelect?.();
+            }}
+            className="text-xs text-sol-base0 hover:text-sol-blue no-underline block truncate cursor-pointer"
           >
             {h.text}
           </a>
@@ -113,7 +117,7 @@ function MarkdownPreview({ content }: { content: string }) {
       const m = line.match(/^## (.+)/);
       if (m) {
         const text = m[1].trim();
-        const id = text.toLowerCase().replace(/[^\w]+/g, "-").replace(/(^-|-$)/g, "");
+        const id = text.toLowerCase().replace(/[\s\p{P}]+/gu, "-").replace(/(^-|-$)/g, "");
         result.push({ text, id });
       }
     }
@@ -128,7 +132,7 @@ function MarkdownPreview({ content }: { content: string }) {
           components={{
             h2: ({ children, ...props }) => {
               const text = String(children).trim();
-              const id = text.toLowerCase().replace(/[^\w]+/g, "-").replace(/(^-|-$)/g, "");
+              const id = text.toLowerCase().replace(/[\s\p{P}]+/gu, "-").replace(/(^-|-$)/g, "");
               return <h2 id={id} {...props}>{children}</h2>;
             },
           }}
