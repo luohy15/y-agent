@@ -197,7 +197,7 @@ def _hook_telegram_send(chat, hook: dict, user_id: int) -> None:
     logger.info("telegram_send: sent {} chars to chat={} thread={}", len(reply_text), telegram_chat_id, message_thread_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None) -> None:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, from_skill: str = None) -> None:
     """Execute a chat round. bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message."""
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -220,7 +220,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     error_occurred = False
     try:
         if bot_config.api_type == "claude-code":
-            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir)
+            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, from_skill=from_skill)
         else:
             await _run_chat_agent_loop(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir)
     except Exception:
@@ -275,7 +275,7 @@ async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
 
 
-async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:
+async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, from_skill: str = None) -> None:
     """Run chat through Claude Code CLI with stateful session resume.
 
     First message creates a new session. Subsequent messages resume via
@@ -330,6 +330,9 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         api_base_url=bot_config.base_url if bot_config.base_url else None,
         api_key=bot_config.api_key if bot_config.api_key else None,
         images=user_images,
+        chat_id=chat_id,
+        trace_id=trace_id,
+        from_skill=from_skill,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 

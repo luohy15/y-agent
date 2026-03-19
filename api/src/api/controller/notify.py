@@ -58,13 +58,8 @@ async def post_notify(req: NotifyRequest, request: Request):
     # Find existing participant for target skill
     target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
 
-    # Build message content with trace context so the receiving skill
-    # knows the trace_id (and caller info) for callbacks
-    trace_lines = [f'trace_id: {req.trace_id}']
-    if req.from_skill:
-        trace_lines.append(f'from_skill: {req.from_skill}')
-    trace_block = '\n'.join(trace_lines)
-    msg_content = f'/{req.skill} {req.message}\n\n<trace>\n{trace_block}\n</trace>'
+    # Build message content (trace context is passed via env vars, not message)
+    msg_content = f'/{req.skill} {req.message}'
 
     chat_id = None
     if target_participant and not req.new_chat:
@@ -104,8 +99,8 @@ async def post_notify(req: NotifyRequest, request: Request):
     # Save trace
     trace_service.save_trace(user_id, trace)
 
-    # Enqueue worker (bot_name = skill name)
-    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir)
+    # Enqueue worker (bot_name = skill name, pass trace context via queue)
+    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill)
 
     # Send Telegram notification to the target skill's topic
     await _notify_telegram_topic(user_id, req)
