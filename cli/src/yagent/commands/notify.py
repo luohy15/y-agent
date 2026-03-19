@@ -19,12 +19,25 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, new_chat
     # Auto-detect from environment if not explicitly provided
     if not trace_id:
         trace_id = os.environ.get('Y_TRACE_ID')
-    if not trace_id:
-        raise click.UsageError('--trace-id is required (or set Y_TRACE_ID env)')
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
     if not from_skill:
         from_skill = os.environ.get('Y_SKILL')
+
+    # If trace_id or from_skill still missing, look up from chat_id
+    if (not trace_id or not from_skill) and from_chat_id:
+        try:
+            resp = api_request("GET", "/api/trace/by-chat", params={"chat_id": from_chat_id})
+            data = resp.json()
+            if not trace_id:
+                trace_id = data.get("trace_id")
+            if not from_skill:
+                from_skill = data.get("skill")
+        except Exception:
+            pass
+
+    if not trace_id:
+        raise click.UsageError('--trace-id is required (or set Y_TRACE_ID env)')
     payload = {
         "skill": skill_name,
         "message": message,

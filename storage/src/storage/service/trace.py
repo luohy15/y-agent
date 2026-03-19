@@ -12,5 +12,9 @@ def get_trace(user_id: int, trace_id: str) -> Optional[Trace]:
     return trace_repo.get_trace(user_id, trace_id)
 
 
+def find_trace_by_chat_id(user_id: int, chat_id: str) -> Optional[Trace]:
+    return trace_repo.find_trace_by_chat_id(user_id, chat_id)
+
+
 def save_trace(user_id: int, trace: Trace) -> Trace:
     return trace_repo.save_trace(user_id, trace)
