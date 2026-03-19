@@ -24,7 +24,7 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, new_chat
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
     if not from_skill:
-        from_skill = os.environ.get('Y_FROM_SKILL')
+        from_skill = os.environ.get('Y_SKILL')
     payload = {
         "skill": skill_name,
         "message": message,
