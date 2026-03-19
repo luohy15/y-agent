@@ -3,7 +3,7 @@ import subprocess
 import click
 
 from yagent.api_client import api_request
-from .registry import get_worktree
+from .registry import get_worktree, update_worktree
 
 
 def _plans_dir(work_dir: str) -> str:
@@ -72,14 +72,22 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit:
     if commit:
         post_hooks.insert(0, {"type": "commit_and_merge", "worktree_name": worktree_name})
 
+    # Determine chat_id to resume: prefer todo's chat_ids, fall back to worktree registry
+    resume_chat_id = None
+    if not clear:
+        if chat_ids:
+            resume_chat_id = chat_ids[-1]
+        elif entry.get("chat_id"):
+            resume_chat_id = entry["chat_id"]
+
     # Resume or new session
-    if chat_ids and not clear:
-        chat_id = chat_ids[-1]
+    if resume_chat_id:
         continue_msg = message or "Continue working on this task."
         api_request("POST", "/api/chat/message", json={
-            "chat_id": chat_id, "prompt": continue_msg, "bot_name": bot, "work_dir": work_dir,
+            "chat_id": resume_chat_id, "prompt": continue_msg, "bot_name": bot, "work_dir": work_dir,
             "post_hooks": post_hooks,
         })
+        chat_id = resume_chat_id
         click.echo(f"Resumed chat {chat_id}")
     else:
         resp = api_request("POST", "/api/chat", json={
@@ -89,9 +97,12 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit:
         chat_id = resp.json()["chat_id"]
         click.echo(f"Created chat {chat_id}")
 
-        # Track chat_id on todo if using todo input
-        if todo_id:
-            chat_ids.append(chat_id)
-            api_request("POST", "/api/todo/update", json={
-                "todo_id": todo_id, "chat_ids": chat_ids,
-            })
+    # Track chat_id on worktree for future resume
+    update_worktree(worktree_name, chat_id=chat_id)
+
+    # Track chat_id on todo if using todo input
+    if todo_id and chat_id not in chat_ids:
+        chat_ids.append(chat_id)
+        api_request("POST", "/api/todo/update", json={
+            "todo_id": todo_id, "chat_ids": chat_ids,
+        })
