@@ -48,8 +48,7 @@ export default function ShareView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
-  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
+  const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
   const [shareLabel, setShareLabel] = useState("share");
   const isLoggedIn = !!getToken();
 
@@ -92,22 +91,14 @@ export default function ShareView() {
           <span className="text-xs text-sol-base01">Shared conversation</span>
         </div>
       </div>
-      <MessageList messages={messages} centered showProcess={showProcess} showDetail={showDetail} />
+      <MessageList messages={messages} centered showProgress={showProgress} />
       <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-1 flex items-center justify-center gap-2 text-xs select-none">
         <button
-          onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+          onClick={() => { const next = !showProgress; setShowProgress(next); localStorage.setItem("showProgress", String(next)); }}
+          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProgress ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
         >
-          {showProcess ? "process ●" : "process ○"}
+          {showProgress ? "progress ●" : "progress ○"}
         </button>
-        {showProcess && (
-          <button
-            onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-            className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-          >
-            {showDetail ? "detail ●" : "detail ○"}
-          </button>
-        )}
         <button
           onClick={() => { navigator.clipboard.writeText(window.location.href); setShareLabel("copied!"); setTimeout(() => setShareLabel("share"), 1500); }}
           className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
