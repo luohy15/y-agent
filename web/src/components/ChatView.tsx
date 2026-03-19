@@ -159,7 +159,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (((e.ctrlKey && e.key === "c") || e.key === "Escape") && !completed) {
+      if (e.ctrlKey && e.key === "c" && !completed) {
         e.preventDefault();
         stopChat();
       }
@@ -291,7 +291,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
           <button onClick={stopChat} className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
-          <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Esc / Ctrl+C to stop</span>
+          <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Ctrl+C to stop</span>
         </div>
       )}
       {completed ? (
