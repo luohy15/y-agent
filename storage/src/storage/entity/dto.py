@@ -8,4 +8,5 @@ from storage.dto import (  # noqa: F401
     CalendarEvent,
     Link, LinkActivity, LinkSummary,
     Email,
+    TgTopic,
 )
