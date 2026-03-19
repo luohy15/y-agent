@@ -72,13 +72,15 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit:
     if commit:
         post_hooks.insert(0, {"type": "commit_and_merge", "worktree_name": worktree_name})
 
-    # Determine chat_id to resume: prefer todo's chat_ids, fall back to worktree registry
+    # Determine chat_id to resume: prefer todo's chat_ids, fall back to worktree chat_ids
     resume_chat_id = None
     if not clear:
         if chat_ids:
             resume_chat_id = chat_ids[-1]
-        elif entry.get("chat_id"):
-            resume_chat_id = entry["chat_id"]
+        else:
+            wt_chat_ids = entry.get("chat_ids") or []
+            if wt_chat_ids:
+                resume_chat_id = wt_chat_ids[-1]
 
     # Resume or new session
     if resume_chat_id:
@@ -98,7 +100,10 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit:
         click.echo(f"Created chat {chat_id}")
 
     # Track chat_id on worktree for future resume
-    update_worktree(worktree_name, chat_id=chat_id)
+    wt_chat_ids = entry.get("chat_ids") or []
+    if chat_id not in wt_chat_ids:
+        wt_chat_ids.append(chat_id)
+    update_worktree(worktree_name, chat_ids=wt_chat_ids)
 
     # Track chat_id on todo if using todo input
     if todo_id and chat_id not in chat_ids:

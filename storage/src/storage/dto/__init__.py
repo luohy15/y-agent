@@ -7,6 +7,7 @@ from storage.dto.todo import TodoHistoryEntry, Todo
 from storage.dto.calendar_event import CalendarEvent
 from storage.dto.link import Link, LinkActivity, LinkSummary
 from storage.dto.email import Email
+from storage.dto.dev_worktree import DevWorktreeHistoryEntry, DevWorktree
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -16,4 +17,5 @@ __all__ = [
     "CalendarEvent",
     "Link", "LinkActivity", "LinkSummary",
     "Email",
+    "DevWorktreeHistoryEntry", "DevWorktree",
 ]

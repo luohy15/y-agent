@@ -34,7 +34,7 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
         hook_type = hook.get("type")
         try:
             if hook_type == "commit_and_merge":
-                _hook_commit_and_merge(chat.work_dir, hook)
+                _hook_commit_and_merge(chat.work_dir, hook, user_id)
             elif hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
             elif hook_type == "telegram_reply":
@@ -47,31 +47,29 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
             logger.exception("Post hook {} failed: {}", hook_type, e)
 
 
-def _hook_commit_and_merge(work_dir: str, hook: dict) -> None:
+def _hook_commit_and_merge(work_dir: str, hook: dict, user_id: int = None) -> None:
     """Stage, commit, rebase onto main, and fast-forward main.
 
-    Resolves worktree from dev-worktrees.json registry, then commit + merge + cleanup.
+    Resolves worktree from DB via service layer, then commit + merge + cleanup.
     """
-    import json
+    from storage.service import dev_worktree as wt_service
 
     worktree_name = hook.get("worktree_name")
     if not worktree_name:
         logger.warning("commit_and_merge: missing worktree_name")
         return
 
-    registry_path = os.path.join(os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent")), "dev-worktrees.json")
-    if not os.path.exists(registry_path):
-        logger.error("commit_and_merge: registry not found at {}", registry_path)
+    if not user_id:
+        logger.error("commit_and_merge: missing user_id")
         return
-    with open(registry_path) as f:
-        registry = json.load(f)
-    entry = registry.get(worktree_name)
-    if not entry:
-        logger.error("commit_and_merge: worktree '{}' not found in registry", worktree_name)
+
+    wt = wt_service.get_worktree_by_name(user_id, worktree_name)
+    if not wt:
+        logger.error("commit_and_merge: worktree '{}' not found in DB", worktree_name)
         return
-    work_dir = entry["worktree_path"]
-    project_path = entry["project_path"]
-    branch = entry["branch"]
+    work_dir = wt.worktree_path
+    project_path = wt.project_path
+    branch = wt.branch
     commit_msg = worktree_name
 
     git = ["git", "-C", work_dir]
@@ -95,10 +93,8 @@ def _hook_commit_and_merge(work_dir: str, hook: dict) -> None:
     subprocess.check_call(["git", "-C", project_path, "worktree", "remove", work_dir])
     subprocess.call(["git", "-C", project_path, "branch", "-d", branch])
     logger.info("commit_and_merge: removed worktree and branch {}", branch)
-    del registry[worktree_name]
-    with open(registry_path, "w") as f:
-        json.dump(registry, f, indent=2)
-    logger.info("commit_and_merge: removed '{}' from registry", worktree_name)
+    wt_service.remove_worktree(user_id, wt.worktree_id)
+    logger.info("commit_and_merge: removed '{}' from DB", worktree_name)
 
 
 def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:

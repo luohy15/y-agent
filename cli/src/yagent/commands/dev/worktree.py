@@ -2,7 +2,7 @@ import os
 import subprocess
 import click
 
-from .registry import load_registry, save_registry
+from .registry import load_registry, create_worktree, remove_worktree, get_worktree
 
 
 def _run_hook(project_path: str, worktree_path: str, hook_name: str):
@@ -34,6 +34,7 @@ def wt_add(project_path: str, name: str):
         click.echo(f"Error: {project_path} is not a git repository", err=True)
         raise click.Abort()
 
+    # Check if already exists
     registry = load_registry()
     if name in registry:
         click.echo(f"Worktree '{name}' already exists at {registry[name]['worktree_path']}", err=True)
@@ -52,12 +53,7 @@ def wt_add(project_path: str, name: str):
 
     _run_hook(project_path, worktree_path, "post-create")
 
-    registry[name] = {
-        "project_path": project_path,
-        "worktree_path": worktree_path,
-        "branch": branch,
-    }
-    save_registry(registry)
+    create_worktree(name, project_path, worktree_path, branch)
     click.echo(f"Registered worktree '{name}'")
 
 
@@ -65,12 +61,8 @@ def wt_add(project_path: str, name: str):
 @click.argument('name')
 def wt_rm(name: str):
     """Remove a worktree."""
-    registry = load_registry()
-    if name not in registry:
-        click.echo(f"Worktree '{name}' not found", err=True)
-        raise click.Abort()
+    entry = get_worktree(name)
 
-    entry = registry[name]
     project_path = entry["project_path"]
     worktree_path = entry["worktree_path"]
     branch = entry["branch"]
@@ -81,8 +73,7 @@ def wt_rm(name: str):
     subprocess.call(["git", "-C", project_path, "branch", "-D", branch])
     click.echo(f"Removed worktree at {worktree_path}")
 
-    del registry[name]
-    save_registry(registry)
+    remove_worktree(name)
 
 
 @click.command('list')

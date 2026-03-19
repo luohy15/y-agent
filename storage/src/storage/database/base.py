@@ -62,6 +62,7 @@ def init_tables():
     import storage.entity.calendar_event  # noqa: F401
     import storage.entity.link  # noqa: F401
     import storage.entity.email  # noqa: F401
+    import storage.entity.dev_worktree  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 
