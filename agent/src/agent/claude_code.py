@@ -750,6 +750,9 @@ async def run_claude_code(
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     images: Optional[List[str]] = None,
+    chat_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    from_skill: Optional[str] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
 
@@ -783,14 +786,20 @@ async def run_claude_code(
     if allowed_tools:
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
 
-    # Build env vars for API configuration
+    # Build env vars for API configuration and context
     env: Optional[Dict[str, str]] = None
-    if api_base_url or api_key:
+    if api_base_url or api_key or chat_id or trace_id or from_skill:
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
         if api_key:
             env["ANTHROPIC_AUTH_TOKEN"] = api_key
+        if chat_id:
+            env["Y_CHAT_ID"] = chat_id
+        if trace_id:
+            env["Y_TRACE_ID"] = trace_id
+        if from_skill:
+            env["Y_FROM_SKILL"] = from_skill
 
     # Materialize images as files and prepend paths to prompt
     effective_cwd = cwd or (vm_config.work_dir if vm_config else None) or os.getcwd()

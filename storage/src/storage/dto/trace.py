@@ -17,7 +17,7 @@ class TraceParticipant:
         )
 
     def to_dict(self) -> Dict:
-        result = {'chat_id': self.chat_id, 'skill': self.skill}
+        result: Dict = {'chat_id': self.chat_id, 'skill': self.skill}
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
         return result
