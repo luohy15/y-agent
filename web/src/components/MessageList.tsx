@@ -55,7 +55,7 @@ function fileToolKind(m: Message): string | null {
 type DisplayItem =
   | { type: "message"; message: Message; index: number }
   | { type: "tool_group"; messages: Message[]; startIndex: number; defaultExpanded: boolean }
-  | { type: "process_summary"; toolCounts: Record<string, number>; assistantCount: number; index: number };
+  | { type: "process_summary"; toolCounts: Record<string, number>; assistantCount: number; index: number; roundMessages: Message[]; roundStartIndex: number };
 
 // Collect tool call stats for a range of messages
 function collectProcessStats(messages: Message[], from: number, to: number): { toolCounts: Record<string, number>; assistantCount: number } {
@@ -112,7 +112,8 @@ function filterLevel0(messages: Message[]): DisplayItem[] {
     const stats = collectProcessStats(messages, start + 1, end);
     const totalTools = Object.values(stats.toolCounts).reduce((a, b) => a + b, 0);
     if (totalTools > 0) {
-      items.push({ type: "process_summary", toolCounts: stats.toolCounts, assistantCount: stats.assistantCount, index: start + 1 });
+      const roundMsgs = messages.slice(start + 1, end);
+      items.push({ type: "process_summary", toolCounts: stats.toolCounts, assistantCount: stats.assistantCount, index: start + 1, roundMessages: roundMsgs, roundStartIndex: start + 1 });
     }
     // Add last assistant in this round
     const lastAssistantIdx = findLastAssistant(messages, start + 1, end);
@@ -169,7 +170,13 @@ function filterWithProcessSummary(messages: Message[], defaultExpanded: boolean)
       // Insert process_summary after user messages
       const stats = summaryAfter.get(i);
       if (stats) {
-        items.push({ type: "process_summary", toolCounts: stats.toolCounts, assistantCount: stats.assistantCount, index: i + 1 });
+        // Find round end (next user message or end of messages)
+        let roundEnd = messages.length;
+        for (let j = i + 1; j < messages.length; j++) {
+          if (messages[j].role === "user") { roundEnd = j; break; }
+        }
+        const roundMsgs = messages.slice(i + 1, roundEnd);
+        items.push({ type: "process_summary", toolCounts: stats.toolCounts, assistantCount: stats.assistantCount, index: i + 1, roundMessages: roundMsgs, roundStartIndex: i + 1 });
       }
     }
   }
@@ -240,32 +247,93 @@ const toolIconMap: Record<string, { icon: string; color: string; bg: string }> =
 };
 const defaultToolIcon = { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
 
-function ProcessSummary({ toolCounts, expanded, onToggle }: { toolCounts: Record<string, number>; assistantCount: number; expanded: boolean; onToggle: () => void }) {
+function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, onOpenFile }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; onOpenFile?: (path: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
   const totalTools = Object.values(toolCounts).reduce((a, b) => a + b, 0);
   const entries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
 
+  // Build tool-grouped items for expanded view (reuse ToolGroup logic)
+  const expandedItems: ({ type: "single"; message: Message; idx: number } | { type: "file_group"; kind: string; messages: Message[]; startIdx: number })[] = [];
+  if (expanded) {
+    // Group consecutive tool messages, interleave with assistant messages
+    let i = 0;
+    while (i < roundMessages.length) {
+      const m = roundMessages[i];
+      if (isToolMessage(m)) {
+        const batch: Message[] = [];
+        const batchStart = i;
+        while (i < roundMessages.length && isToolMessage(roundMessages[i])) {
+          batch.push(roundMessages[i]);
+          i++;
+        }
+        // Sub-group consecutive same-kind file tools
+        let j = 0;
+        while (j < batch.length) {
+          const kind = fileToolKind(batch[j]);
+          if (kind) {
+            const fileBatch: Message[] = [];
+            const fileBatchStart = j;
+            while (j < batch.length && fileToolKind(batch[j]) === kind) {
+              fileBatch.push(batch[j]);
+              j++;
+            }
+            if (fileBatch.length >= 2) {
+              expandedItems.push({ type: "file_group", kind, messages: fileBatch, startIdx: roundStartIndex + batchStart + fileBatchStart });
+            } else {
+              expandedItems.push({ type: "single", message: fileBatch[0], idx: roundStartIndex + batchStart + fileBatchStart });
+            }
+          } else {
+            expandedItems.push({ type: "single", message: batch[j], idx: roundStartIndex + batchStart + j });
+            j++;
+          }
+        }
+      } else if (m.role === "assistant") {
+        expandedItems.push({ type: "single", message: m, idx: roundStartIndex + i });
+        i++;
+      } else {
+        i++;
+      }
+    }
+  }
+
   return (
-    <div
-      className="flex items-center gap-2 font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer select-none py-0.5 group"
-      onClick={onToggle}
-    >
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base01">
-        {totalTools} tool{totalTools > 1 ? "s" : ""}
-      </span>
-      <span className="flex items-center gap-1.5 flex-wrap">
-        {entries.map(([label, count]) => {
-          const meta = toolIconMap[label] || defaultToolIcon;
-          return (
-            <span key={label} className="inline-flex items-center gap-0.5">
-              <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[0.55rem] font-bold ${meta.bg} ${meta.color}`}>
-                {meta.icon}
+    <div>
+      <div
+        className="flex items-center gap-2 font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer select-none py-0.5 group"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base01">
+          {totalTools} tool{totalTools > 1 ? "s" : ""}
+        </span>
+        <span className="flex items-center gap-1.5 flex-wrap">
+          {entries.map(([label, count]) => {
+            const meta = toolIconMap[label] || defaultToolIcon;
+            return (
+              <span key={label} className="inline-flex items-center gap-0.5">
+                <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[0.55rem] font-bold ${meta.bg} ${meta.color}`}>
+                  {meta.icon}
+                </span>
+                <span className="text-sol-base01 text-[0.6rem]">{count}</span>
               </span>
-              <span className="text-sol-base01 text-[0.6rem]">{count}</span>
-            </span>
-          );
-        })}
-      </span>
-      <span className="text-sol-base01 text-[0.6rem] ml-auto group-hover:text-sol-base0">{expanded ? "\u25B2" : "\u25BC"}</span>
+            );
+          })}
+        </span>
+        <span className="text-sol-base01 text-[0.6rem] ml-auto group-hover:text-sol-base0">{expanded ? "\u25B2" : "\u25BC"}</span>
+      </div>
+      {expanded && (
+        <div className="flex flex-col gap-1.5 mt-1 ml-6.5">
+          {expandedItems.map((ei) => {
+            if (ei.type === "file_group") {
+              return <FileToolGroup key={`fg-${ei.startIdx}`} kind={ei.kind} messages={ei.messages} startIndex={ei.startIdx} onOpenFile={onOpenFile} />;
+            }
+            return (
+              <div key={ei.idx}>
+                <MessageBubble role={ei.message.role} content={ei.message.content} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} onOpenFile={onOpenFile} />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -355,11 +423,10 @@ interface MessageListProps {
   showProcess: boolean;
   showDetail: boolean;
   onOpenFile?: (path: string) => void;
-  onToggleProcess?: () => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile, onToggleProcess, scrollContainerRef }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile, scrollContainerRef }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
@@ -378,7 +445,7 @@ export default function MessageList({ messages, running, centered, showProcess, 
       <div className={innerClass}>
       {items.map((item) => {
         if (item.type === "process_summary") {
-          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} expanded={showProcess} onToggle={() => onToggleProcess?.()} />;
+          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} onOpenFile={onOpenFile} />;
         }
         if (item.type === "tool_group") {
           return <ToolGroup key={`tg-${item.startIndex}-${item.defaultExpanded}`} messages={item.messages} startIndex={item.startIndex} defaultExpanded={item.defaultExpanded} onOpenFile={onOpenFile} />;
