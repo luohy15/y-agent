@@ -32,3 +32,11 @@ def get_worktree(name: str) -> dict:
         click.echo(f"Worktree '{name}' not found. Use `y dev wt list` to see available worktrees.", err=True)
         raise click.Abort()
     return registry[name]
+
+
+def update_worktree(name: str, **fields):
+    """Update fields on an existing worktree entry."""
+    registry = load_registry()
+    if name in registry:
+        registry[name].update(fields)
+        save_registry(registry)
