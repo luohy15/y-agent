@@ -9,6 +9,7 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    allowedHosts: ["unreached-choppier-lakita.ngrok-free.dev"],
     proxy: {
       "/api": "http://localhost:8001",
     },

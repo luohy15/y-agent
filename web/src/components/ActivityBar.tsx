@@ -17,9 +17,39 @@ interface ActivityBarProps {
   onToggleSidebar: () => void;
   activePanel: SidebarPanel;
   onSelectPanel: (panel: SidebarPanel) => void;
+  onOpenFile?: (path: string) => void;
+  activeFile?: string | null;
 }
 
-export default function ActivityBar({ isLoggedIn, vmList, selectedVM, onSelectVM, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel }: ActivityBarProps) {
+const viewerShortcuts = [
+  { key: "todo.md", label: "Todo", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  )},
+  { key: "calendar.md", label: "Calendar", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  )},
+  { key: "finance.bean", label: "Finance", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  )},
+  { key: "links.md", label: "Links", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )},
+  { key: "emails.md", label: "Email", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" />
+    </svg>
+  )},
+];
+
+export default function ActivityBar({ isLoggedIn, vmList, selectedVM, onSelectVM, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile }: ActivityBarProps) {
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -108,6 +138,18 @@ export default function ActivityBar({ isLoggedIn, vmList, selectedVM, onSelectVM
           <line x1="6" y1="9" x2="6" y2="21" />
         </svg>
       </button>
+      {/* Viewer shortcuts */}
+      <div className="w-6 border-t border-sol-base02 my-1" />
+      {viewerShortcuts.map((v) => (
+        <button
+          key={v.key}
+          onClick={() => onOpenFile?.(v.key)}
+          className={`w-8 h-8 flex items-center justify-center rounded cursor-pointer ${activeFile === v.key ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"}`}
+          title={v.label}
+        >
+          {v.icon}
+        </button>
+      ))}
     </div>
   );
 }
