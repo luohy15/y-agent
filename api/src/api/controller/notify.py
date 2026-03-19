@@ -57,38 +57,50 @@ async def post_notify(req: NotifyRequest, request: Request):
             ))
         trace_service.save_trace(user_id, trace)
 
-    # Look up existing participant for routing
-    target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
-
     # Build message content (trace context is passed via env vars, not message)
     msg_content = f'/{req.skill} {req.message}'
+    user_msg = Message.from_dict({
+        "role": "user",
+        "content": msg_content,
+        "timestamp": get_utc_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+    })
 
+    # Find existing chat_id with 3-tier priority:
+    # 1. trace participant (skill already registered in this trace)
+    # 2. skill's telegram topic channel (most recent chat for this skill)
+    # 3. create new chat
     chat_id = None
-    if target_participant and not req.new_chat:
-        # Append message to existing chat
-        chat_id = target_participant.chat_id
-        user_msg = Message.from_dict({
-            "role": "user",
-            "content": msg_content,
-            "timestamp": get_utc_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-        })
+    if not req.new_chat:
+        # Priority 1: trace participant
+        target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
+        if target_participant:
+            chat_id = target_participant.chat_id
+
+        # Priority 2: find by skill's telegram topic channel
+        if not chat_id:
+            try:
+                from storage.repository.tg_topic import find_topic_by_name
+                from storage.repository.chat import find_chat_by_channel_sync
+                topic = find_topic_by_name(user_id, req.skill)
+                if topic and topic.topic_id is not None:
+                    channel_id = f"telegram:{topic.group_id}:{topic.topic_id}"
+                    existing_chat = find_chat_by_channel_sync(user_id, channel_id)
+                    if existing_chat:
+                        chat_id = existing_chat.id
+            except Exception as e:
+                logger.warning("notify: skill channel lookup failed: {}", e)
+
+    if chat_id:
         await chat_service.append_message(chat_id, user_msg)
     else:
-        # Create new chat
+        # Priority 3: create new chat
         chat_id = generate_id()
-        user_msg = Message.from_dict({
-            "role": "user",
-            "content": msg_content,
-            "timestamp": get_utc_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-        })
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
-    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill, skill=req.skill)
+    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
 
     # Send Telegram notification to the target skill's topic
     await _notify_telegram_topic(user_id, req, chat_id)

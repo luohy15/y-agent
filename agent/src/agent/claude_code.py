@@ -752,7 +752,6 @@ async def run_claude_code(
     images: Optional[List[str]] = None,
     chat_id: Optional[str] = None,
     trace_id: Optional[str] = None,
-    from_skill: Optional[str] = None,
     skill: Optional[str] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
@@ -789,7 +788,7 @@ async def run_claude_code(
 
     # Build env vars for API configuration and context
     env: Optional[Dict[str, str]] = None
-    if api_base_url or api_key or chat_id or trace_id or from_skill or skill:
+    if api_base_url or api_key or chat_id or trace_id or skill:
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
@@ -799,8 +798,6 @@ async def run_claude_code(
             env["Y_CHAT_ID"] = chat_id
         if trace_id:
             env["Y_TRACE_ID"] = trace_id
-        if from_skill:
-            env["Y_FROM_SKILL"] = from_skill
         if skill:
             env["Y_SKILL"] = skill
 
