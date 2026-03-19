@@ -100,7 +100,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     trace_service.save_trace(user_id, trace)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
-    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill)
+    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill, skill=req.skill)
 
     # Send Telegram notification to the target skill's topic
     await _notify_telegram_topic(user_id, req, chat_id)

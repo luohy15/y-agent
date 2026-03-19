@@ -41,7 +41,7 @@ def _get_celery_app():
     return app
 
 
-def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, from_skill: str = None):
+def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, from_skill: str = None, skill: str = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -62,6 +62,8 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, 
         payload["trace_id"] = trace_id
     if from_skill:
         payload["from_skill"] = from_skill
+    if skill:
+        payload["skill"] = skill
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
@@ -73,7 +75,7 @@ def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, 
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "from_skill": from_skill})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "from_skill": from_skill, "skill": skill})
 
 
 class CreateChatRequest(BaseModel):

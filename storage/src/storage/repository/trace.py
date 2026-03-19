@@ -52,6 +52,17 @@ def get_trace(user_id: int, trace_id: str) -> Optional[Trace]:
         return None
 
 
+def find_trace_by_chat_id(user_id: int, chat_id: str) -> Optional[Trace]:
+    """Find a trace that has a participant with the given chat_id."""
+    with get_db() as session:
+        rows = session.query(TraceEntity).filter_by(user_id=user_id).all()
+        for row in rows:
+            for p in (row.participants or []):
+                if p.get("chat_id") == chat_id:
+                    return _entity_to_dto(row)
+        return None
+
+
 def save_trace(user_id: int, trace: Trace) -> Trace:
     with get_db() as session:
         entity = session.query(TraceEntity).filter_by(user_id=user_id, trace_id=trace.trace_id).first()
