@@ -5,13 +5,13 @@ import click
 from .registry import load_registry, save_registry
 
 
-def _run_post_create(project_path: str, worktree_path: str):
-    script = os.path.join(project_path, "worktree", "post-create.sh")
+def _run_hook(project_path: str, worktree_path: str, hook_name: str):
+    script = os.path.join(project_path, "worktree", f"{hook_name}.sh")
     if not os.path.exists(script):
         return
-    click.echo(f"Running post-create.sh ...")
+    click.echo(f"Running {hook_name}.sh ...")
     subprocess.check_call(["bash", script], cwd=worktree_path)
-    click.echo("post-create.sh done")
+    click.echo(f"{hook_name}.sh done")
 
 
 @click.group('wt')
@@ -50,7 +50,7 @@ def wt_add(project_path: str, name: str):
     subprocess.check_call(["git", "-C", project_path, "worktree", "add", "-b", branch, worktree_path, "HEAD"])
     click.echo(f"Created worktree at {worktree_path}")
 
-    _run_post_create(project_path, worktree_path)
+    _run_hook(project_path, worktree_path, "post-create")
 
     registry[name] = {
         "project_path": project_path,
@@ -76,6 +76,7 @@ def wt_rm(name: str):
     branch = entry["branch"]
 
     if os.path.exists(worktree_path):
+        _run_hook(project_path, worktree_path, "pre-remove")
         subprocess.check_call(["git", "-C", project_path, "worktree", "remove", "--force", worktree_path])
     subprocess.call(["git", "-C", project_path, "branch", "-D", branch])
     click.echo(f"Removed worktree at {worktree_path}")
