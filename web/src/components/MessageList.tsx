@@ -283,16 +283,18 @@ interface MessageListProps {
   showDetail: boolean;
   onOpenFile?: (path: string) => void;
   onToggleProcess?: () => void;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile, onToggleProcess }: MessageListProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+export default function MessageList({ messages, running, centered, showProcess, showDetail, onOpenFile, onToggleProcess, scrollContainerRef }: MessageListProps) {
+  const internalRef = useRef<HTMLDivElement>(null);
+  const containerRef = scrollContainerRef || internalRef;
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, containerRef]);
 
   const items = showDetail ? filterLevel2(messages) : showProcess ? filterLevel1(messages) : filterLevel0(messages);
 
@@ -311,8 +313,11 @@ export default function MessageList({ messages, running, centered, showProcess, 
         if (item.type === "file_tools") {
           return <FileToolGroup key={`fr-${item.startIndex}`} kind={item.kind} messages={item.messages} startIndex={item.startIndex} onOpenFile={onOpenFile} />;
         }
+        const isUser = item.message.role === "user";
         return (
-          <MessageBubble key={item.index} role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} />
+          <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
+            <MessageBubble role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} />
+          </div>
         );
       })}
       {running && (
