@@ -9,6 +9,7 @@ import FileViewer from "./components/FileViewer";
 import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
+import TraceView from "./components/TraceView";
 import GitPanel from "./components/GitPanel";
 
 interface VmConfigItem {
@@ -37,7 +38,7 @@ export default function App() {
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
-  const [bottomTab, setBottomTab] = useState<"chat" | "terminal">(() => (localStorage.getItem("bottomTab") as "chat" | "terminal") || "chat");
+  const [bottomTab, setBottomTab] = useState<"chat" | "terminal" | "trace">(() => (localStorage.getItem("bottomTab") as "chat" | "terminal" | "trace") || "chat");
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => (localStorage.getItem("sidebarPanel") as SidebarPanel) || "files");
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -253,6 +254,19 @@ export default function App() {
                     <line x1="7" y1="11" x2="12" y2="11" />
                   </svg>
                 </button>
+                <button
+                  onClick={() => setBottomTab("trace")}
+                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "trace" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  title="Traces"
+                >
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="3" cy="3" r="1.5" />
+                    <circle cx="11" cy="7" r="1.5" />
+                    <circle cx="3" cy="11" r="1.5" />
+                    <line x1="4.5" y1="3.5" x2="9.5" y2="6.5" />
+                    <line x1="9.5" y1="7.5" x2="4.5" y2="10.5" />
+                  </svg>
+                </button>
                 <div className="w-px h-4 bg-sol-base02 mx-0.5" />
                 <button
                   onClick={() => { setSelectedChatId(null); }}
@@ -316,6 +330,10 @@ export default function App() {
                 {/* Terminal (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
                   <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
+                </div>
+                {/* Trace (kept mounted, toggled via CSS) */}
+                <div className={`absolute inset-0 flex flex-col ${bottomTab === "trace" ? "" : "invisible pointer-events-none"}`}>
+                  <TraceView isLoggedIn={auth.isLoggedIn} />
                 </div>
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
