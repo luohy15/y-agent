@@ -187,6 +187,17 @@ async def save_chat_by_id(chat: Chat) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
+def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
+    """Update the channel_id for a chat, clearing it from any other chat that had it."""
+    with get_db() as session:
+        # Clear channel_id from any other chat that currently owns it
+        session.query(ChatEntity).filter_by(user_id=user_id, channel_id=channel_id).filter(
+            ChatEntity.chat_id != chat_id
+        ).update({"channel_id": None})
+        # Set channel_id on the target chat
+        session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update({"channel_id": channel_id})
+
+
 def find_chat_by_channel_sync(user_id: int, channel_id: str) -> Optional[Chat]:
     """Find the most recent chat for a given channel_id (e.g. 'telegram:123')."""
     with get_db() as session:

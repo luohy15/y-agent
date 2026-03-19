@@ -103,13 +103,14 @@ async def post_notify(req: NotifyRequest, request: Request):
     _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill)
 
     # Send Telegram notification to the target skill's topic
-    await _notify_telegram_topic(user_id, req)
+    await _notify_telegram_topic(user_id, req, chat_id)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
 
 
-async def _notify_telegram_topic(user_id: int, req: NotifyRequest) -> None:
-    """Send a notification to the Telegram topic matching the target skill name."""
+async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str) -> None:
+    """Send a notification to the Telegram topic matching the target skill name,
+    then update the chat's channel_id so Telegram replies route to this chat."""
     try:
         from storage.repository.tg_topic import find_topic_by_name
 
@@ -129,5 +130,11 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest) -> None:
         from api.controller.telegram import _send_message
         await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)
         logger.info("notify telegram: sent to skill='{}' group={} topic={}", req.skill, topic.group_id, topic.topic_id)
+
+        # Update channel_id on the target chat so Telegram replies go to this chat
+        channel_id = f"telegram:{topic.group_id}:{topic.topic_id}"
+        from storage.repository.chat import update_channel_id
+        update_channel_id(user_id, chat_id, channel_id)
+        logger.info("notify telegram: updated channel_id='{}' on chat_id='{}'", channel_id, chat_id)
     except Exception as e:
         logger.exception("notify telegram failed: {}", e)
