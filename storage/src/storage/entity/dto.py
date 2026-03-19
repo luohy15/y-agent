@@ -9,4 +9,5 @@ from storage.dto import (  # noqa: F401
     Link, LinkActivity, LinkSummary,
     Email,
     TgTopic,
+    Trace, TraceParticipant,
 )

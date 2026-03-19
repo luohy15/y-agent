@@ -9,6 +9,7 @@ from storage.dto.link import Link, LinkActivity, LinkSummary
 from storage.dto.email import Email
 from storage.dto.dev_worktree import DevWorktreeHistoryEntry, DevWorktree
 from storage.dto.tg_topic import TgTopic
+from storage.dto.trace import Trace, TraceParticipant
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -20,4 +21,5 @@ __all__ = [
     "Email",
     "DevWorktreeHistoryEntry", "DevWorktree",
     "TgTopic",
+    "Trace", "TraceParticipant",
 ]
