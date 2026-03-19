@@ -40,22 +40,24 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # Get or create trace
+    # Get or create trace (notify is where a trace starts)
     trace = trace_service.get_trace(user_id, req.trace_id)
     if trace is None:
         trace = Trace(trace_id=req.trace_id)
-
-    # Register from_* as participant if provided
-    if req.from_skill and req.from_chat_id:
-        existing_from = next((p for p in trace.participants if p.skill == req.from_skill and p.chat_id == req.from_chat_id), None)
-        if existing_from is None:
+        # Register the caller as the first participant (trace origin)
+        if req.from_skill and req.from_chat_id:
+            caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
+            message_id = caller_chat.messages[-1].id if caller_chat and caller_chat.messages else None
+            work_dir = caller_chat.work_dir if caller_chat else None
             trace.participants.append(TraceParticipant(
                 chat_id=req.from_chat_id,
                 skill=req.from_skill,
-                work_dir=req.from_work_dir,
+                work_dir=work_dir,
+                message_id=message_id,
             ))
+        trace_service.save_trace(user_id, trace)
 
-    # Find existing participant for target skill
+    # Look up existing participant for routing
     target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
 
     # Build message content (trace context is passed via env vars, not message)
@@ -84,20 +86,6 @@ async def post_notify(req: NotifyRequest, request: Request):
             "id": generate_message_id(),
         })
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
-
-        # Register or update participant
-        if target_participant:
-            target_participant.chat_id = chat_id
-            target_participant.work_dir = req.work_dir
-        else:
-            trace.participants.append(TraceParticipant(
-                chat_id=chat_id,
-                skill=req.skill,
-                work_dir=req.work_dir,
-            ))
-
-    # Save trace
-    trace_service.save_trace(user_id, trace)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
     _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, from_skill=req.from_skill, skill=req.skill)

@@ -7,6 +7,7 @@ class TraceParticipant:
     chat_id: str
     skill: str
     work_dir: Optional[str] = None
+    message_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'TraceParticipant':
@@ -14,12 +15,15 @@ class TraceParticipant:
             chat_id=data['chat_id'],
             skill=data['skill'],
             work_dir=data.get('work_dir'),
+            message_id=data.get('message_id'),
         )
 
     def to_dict(self) -> Dict:
         result: Dict = {'chat_id': self.chat_id, 'skill': self.skill}
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
+        if self.message_id is not None:
+            result['message_id'] = self.message_id
         return result
 
 
