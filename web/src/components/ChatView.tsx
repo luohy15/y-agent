@@ -26,8 +26,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const [newPrompt, setNewPrompt] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
-  const [showProcess, setShowProcess] = useState(() => localStorage.getItem("showProcess") === "true");
-  const [showDetail, setShowDetail] = useState(() => localStorage.getItem("showDetail") === "true");
+  const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
@@ -268,28 +267,18 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   }
 
   const processDetailButtons = (
-    <>
-      <button
-        onClick={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }}
-        className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProcess ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-      >
-        {showProcess ? "process ●" : "process ○"}
-      </button>
-      {showProcess && (
-        <button
-          onClick={() => { const next = !showDetail; setShowDetail(next); localStorage.setItem("showDetail", String(next)); }}
-          className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showDetail ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-        >
-          {showDetail ? "detail ●" : "detail ○"}
-        </button>
-      )}
-    </>
+    <button
+      onClick={() => { const next = !showProgress; setShowProgress(next); localStorage.setItem("showProgress", String(next)); }}
+      className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProgress ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+    >
+      {showProgress ? "progress ●" : "progress ○"}
+    </button>
   );
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0">
-        <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} scrollContainerRef={scrollRef} />
+        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
       </div>
       {!completed && (

@@ -11,6 +11,7 @@ interface MessageBubbleProps {
   toolName?: string;
   arguments?: Record<string, unknown>;
   timestamp?: string;
+  dimmed?: boolean;
   onOpenFile?: (path: string) => void;
 }
 
@@ -228,7 +229,7 @@ function ToolCallCompact({
   );
 }
 
-export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, onOpenFile }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, dimmed, onOpenFile }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
@@ -264,8 +265,8 @@ export default function MessageBubble({ role, content, toolName, arguments: args
   // Assistant message: rendered markdown like CLI
   return (
     <div>
-      <TimestampLine timestamp={timestamp} />
-      <div className="text-sm sm:text-[0.775rem] text-sol-base0 prose prose-sm max-w-none">
+      {!dimmed && <TimestampLine timestamp={timestamp} />}
+      <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
