@@ -9,7 +9,6 @@ from fastapi import APIRouter, Request
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
-from storage.repository.tg_topic import get_topic_by_name
 from storage.service.tg_topic import auto_discover_topic
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, markdown_to_telegram_html
@@ -24,14 +23,6 @@ JWT_ALGORITHM = "HS256"
 
 def _bot_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
-
-
-def _resolve_topic_id(user_id: int, group_id: int, topic_name: str) -> Optional[int]:
-    """Look up topic_id from DB by name."""
-    topic = get_topic_by_name(user_id, group_id, topic_name)
-    if topic and topic.topic_id is not None:
-        return topic.topic_id
-    return None
 
 
 async def _send_message(chat_id, text: str, parse_mode: Optional[str] = "HTML", message_thread_id=None):
@@ -290,7 +281,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         send_chat_message(
             chat_id,
             user_id=user.id,
-            post_hooks=[{"type": "telegram_reply", "telegram_chat_id": telegram_chat_id, "message_thread_id": message_thread_id}],
+            post_hooks=[{"type": "telegram_send", "telegram_chat_id": telegram_chat_id, "message_thread_id": message_thread_id}],
         )
     except Exception as e:
         logger.exception("_handle_message: failed to queue message: {}", e)
