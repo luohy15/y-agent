@@ -37,9 +37,9 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
                 _hook_commit_and_merge(chat.work_dir, hook, user_id)
             elif hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
-            elif hook_type == "telegram_reply":
-                _hook_telegram_reply(chat, hook)
-            elif hook_type == "telegram_notify":
+            elif hook_type == "telegram_send":
+                _hook_telegram_send(chat, hook, user_id)
+            elif hook_type == "telegram_send_always":
                 pass  # handled separately in run_chat to always fire
             else:
                 logger.warning("Unknown post_hook type: {}", hook_type)
@@ -118,32 +118,62 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
-def _hook_telegram_reply(chat, hook: dict) -> None:
-    """Send the last assistant message back to Telegram."""
-    import httpx
+def _hook_telegram_send(chat, hook: dict, user_id: int) -> None:
+    """Send a message to a Telegram topic.
 
-    telegram_chat_id = hook.get("telegram_chat_id")
-    if not telegram_chat_id:
-        logger.warning("telegram_reply: missing telegram_chat_id")
-        return
-    message_thread_id = hook.get("message_thread_id")
+    Target resolution (in order):
+    1. Explicit telegram_chat_id + message_thread_id from hook
+    2. topic_name → look up (group_id, topic_id) from tg_topic DB
+    """
+    import httpx
 
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
     if not bot_token:
-        logger.warning("telegram_reply: TELEGRAM_BOT_TOKEN not set")
+        logger.warning("telegram_send: TELEGRAM_BOT_TOKEN not set")
         return
 
-    # Find last assistant text message
-    reply_text = None
-    for msg in reversed(chat.messages):
-        if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
-            reply_text = msg.content.strip()
-            break
+    # --- Resolve target ---
+    telegram_chat_id = hook.get("telegram_chat_id")
+    message_thread_id = hook.get("message_thread_id")
 
-    if not reply_text:
-        logger.info("telegram_reply: no assistant message to send")
+    if not telegram_chat_id and hook.get("topic_name"):
+        from storage.repository.tg_topic import find_topic_by_name
+        topic = find_topic_by_name(user_id, hook["topic_name"])
+        if not topic or topic.topic_id is None:
+            logger.warning("telegram_send: topic '{}' not found for user {}", hook["topic_name"], user_id)
+            return
+        telegram_chat_id = topic.group_id
+        message_thread_id = topic.topic_id
+
+    if not telegram_chat_id:
+        logger.warning("telegram_send: no target resolved")
         return
 
+    # --- Build message text ---
+    worktree_name = hook.get("worktree_name")
+    if worktree_name:
+        # Notification format: status + summary
+        status = hook.get("status", "completed")
+        summary = ""
+        for msg in reversed(chat.messages):
+            if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
+                text = msg.content.strip()
+                summary = text[:200] + ("..." if len(text) > 200 else "")
+                break
+        status_emoji = {"completed": "✅", "interrupted": "⚠️", "error": "❌"}.get(status, "ℹ️")
+        reply_text = f"{status_emoji} {worktree_name} — {status}\n\n{summary}" if summary else f"{status_emoji} {worktree_name} — {status}"
+    else:
+        # Reply format: full last assistant message
+        reply_text = None
+        for msg in reversed(chat.messages):
+            if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
+                reply_text = msg.content.strip()
+                break
+        if not reply_text:
+            logger.info("telegram_send: no assistant message to send")
+            return
+
+    # --- Send ---
     from storage.util import markdown_to_telegram_html
     html_text = markdown_to_telegram_html(reply_text)
 
@@ -158,56 +188,13 @@ def _hook_telegram_reply(chat, hook: dict) -> None:
             if message_thread_id:
                 payload["message_thread_id"] = message_thread_id
             resp = client.post(url, json=payload)
-            # Retry with plain text if HTML formatting fails
             if not resp.is_success:
                 fallback_payload = {"chat_id": telegram_chat_id, "text": plain_chunks[i] if i < len(plain_chunks) else chunk}
                 if message_thread_id:
                     fallback_payload["message_thread_id"] = message_thread_id
                 client.post(url, json=fallback_payload)
 
-    logger.info("telegram_reply: sent {} chars to telegram chat {} thread {}, text={}", len(reply_text), telegram_chat_id, message_thread_id, reply_text[:200])
-
-
-def _hook_telegram_notify(chat, hook: dict, user_id: int) -> None:
-    """Send a short completion notification to the user's Telegram."""
-    import httpx
-    from storage.repository import user as user_repo
-
-    # Look up user's telegram_id
-    user = user_repo.get_user_by_id(user_id)
-    if not user or not user.telegram_id:
-        logger.info("telegram_notify: user {} has no telegram_id", user_id)
-        return
-
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
-    if not bot_token:
-        logger.warning("telegram_notify: TELEGRAM_BOT_TOKEN not set")
-        return
-
-    worktree_name = hook.get("worktree_name", "unknown")
-    status = hook.get("status", "completed")
-
-    # Build summary from last assistant message
-    summary = ""
-    for msg in reversed(chat.messages):
-        if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
-            text = msg.content.strip()
-            summary = text[:200] + ("..." if len(text) > 200 else "")
-            break
-
-    status_emoji = {"completed": "✅", "interrupted": "⚠️", "error": "❌"}.get(status, "ℹ️")
-    notify_text = f"{status_emoji} <b>{worktree_name}</b> — {status}\n\n{summary}" if summary else f"{status_emoji} <b>{worktree_name}</b> — {status}"
-
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    with httpx.Client() as client:
-        payload = {"chat_id": user.telegram_id, "text": notify_text, "parse_mode": "HTML"}
-        resp = client.post(url, json=payload)
-        if not resp.is_success:
-            # Fallback to plain text
-            plain = f"{worktree_name} — {status}\n\n{summary}" if summary else f"{worktree_name} — {status}"
-            client.post(url, json={"chat_id": user.telegram_id, "text": plain})
-
-    logger.info("telegram_notify: sent to user {} telegram_id={} worktree={} status={}", user_id, user.telegram_id, worktree_name, status)
+    logger.info("telegram_send: sent {} chars to chat={} thread={}", len(reply_text), telegram_chat_id, message_thread_id)
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None) -> None:
@@ -249,16 +236,16 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             if not fresh.interrupted and post_hooks:
                 logger.info("Running {} post hooks for chat {}", len(post_hooks), chat_id)
                 _run_post_hooks(fresh, user_id, post_hooks)
-            # Always run telegram_notify hooks regardless of interrupted/error status
+            # Always run telegram_send_always hooks regardless of interrupted/error status
             if post_hooks:
                 status = "error" if error_occurred else ("interrupted" if fresh.interrupted else "completed")
                 for hook in post_hooks:
-                    if hook.get("type") == "telegram_notify":
+                    if hook.get("type") == "telegram_send_always":
                         try:
                             hook["status"] = status
-                            _hook_telegram_notify(fresh, hook, user_id)
+                            _hook_telegram_send(fresh, hook, user_id)
                         except Exception as e:
-                            logger.exception("telegram_notify hook failed: {}", e)
+                            logger.exception("telegram_send_always hook failed: {}", e)
 
 
 async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:

@@ -117,6 +117,19 @@ def get_topic_by_thread_id(user_id: int, group_id: int, tg_topic_id: int) -> Opt
         return None
 
 
+def find_topic_by_name(user_id: int, topic_name: str) -> Optional[TgTopic]:
+    """Find a topic by user_id and topic_name (any group)."""
+    with get_db() as session:
+        row = (
+            session.query(TgTopicEntity)
+            .filter_by(user_id=user_id, topic_name=topic_name)
+            .first()
+        )
+        if row:
+            return _entity_to_dto(row)
+        return None
+
+
 def delete_topic(user_id: int, pk_id: int) -> bool:
     with get_db() as session:
         count = session.query(TgTopicEntity).filter_by(user_id=user_id, id=pk_id).delete()

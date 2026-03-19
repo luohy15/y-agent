@@ -68,7 +68,7 @@ def dev_run(worktree_name: str, todo_id: str, message: str, clear: bool, commit:
         raise click.Abort()
 
     # Build post hooks
-    post_hooks = [{"type": "telegram_notify", "worktree_name": worktree_name}]
+    post_hooks = [{"type": "telegram_send_always", "topic_name": "dev", "worktree_name": worktree_name}]
     if commit:
         post_hooks.insert(0, {"type": "commit_and_merge", "worktree_name": worktree_name})
 
