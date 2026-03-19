@@ -220,7 +220,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     error_occurred = False
     try:
         if bot_config.api_type == "claude-code":
-            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, from_skill=from_skill)
+            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, from_skill=from_skill, skill=bot_name)
         else:
             await _run_chat_agent_loop(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir)
     except Exception:
@@ -275,7 +275,7 @@ async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
 
 
-async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, from_skill: str = None) -> None:
+async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, from_skill: str = None, skill: str = None) -> None:
     """Run chat through Claude Code CLI with stateful session resume.
 
     First message creates a new session. Subsequent messages resume via
@@ -333,6 +333,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         chat_id=chat_id,
         trace_id=trace_id,
         from_skill=from_skill,
+        skill=skill,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 
