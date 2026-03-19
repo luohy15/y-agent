@@ -58,13 +58,21 @@ async def post_notify(req: NotifyRequest, request: Request):
     # Find existing participant for target skill
     target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
 
+    # Build message content with trace context so the receiving skill
+    # knows the trace_id (and caller info) for callbacks
+    trace_lines = [f'trace_id: {req.trace_id}']
+    if req.from_skill:
+        trace_lines.append(f'from_skill: {req.from_skill}')
+    trace_block = '\n'.join(trace_lines)
+    msg_content = f'/{req.skill} {req.message}\n\n<trace>\n{trace_block}\n</trace>'
+
     chat_id = None
     if target_participant and not req.new_chat:
         # Append message to existing chat
         chat_id = target_participant.chat_id
         user_msg = Message.from_dict({
             "role": "user",
-            "content": f'/{req.skill} {req.message}',
+            "content": msg_content,
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
@@ -75,7 +83,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         chat_id = generate_id()
         user_msg = Message.from_dict({
             "role": "user",
-            "content": f'/{req.skill} {req.message}',
+            "content": msg_content,
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
