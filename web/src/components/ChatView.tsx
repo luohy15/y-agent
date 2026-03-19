@@ -289,7 +289,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0">
-        <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} onToggleProcess={() => { setShowProcess(true); localStorage.setItem("showProcess", "true"); }} scrollContainerRef={scrollRef} />
+        <MessageList messages={messages} running={!completed} showProcess={showProcess} showDetail={showDetail} onOpenFile={onOpenFile} onToggleProcess={() => { const next = !showProcess; setShowProcess(next); localStorage.setItem("showProcess", String(next)); if (!next) { setShowDetail(false); localStorage.setItem("showDetail", "false"); } }} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
       </div>
       {!completed && (
