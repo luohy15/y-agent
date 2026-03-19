@@ -62,7 +62,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         chat_id = target_participant.chat_id
         user_msg = Message.from_dict({
             "role": "user",
-            "content": req.message,
+            "content": f'/{req.skill} {req.message}',
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
@@ -73,7 +73,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         chat_id = generate_id()
         user_msg = Message.from_dict({
             "role": "user",
-            "content": req.message,
+            "content": f'/{req.skill} {req.message}',
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
