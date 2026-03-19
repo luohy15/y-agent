@@ -788,7 +788,7 @@ async def run_claude_code(
 
     # Build env vars for API configuration and context
     env: Optional[Dict[str, str]] = None
-    if api_base_url or api_key or chat_id or trace_id or skill:
+    if api_base_url or api_key or chat_id or trace_id or skill or last_message_id:
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
@@ -800,6 +800,8 @@ async def run_claude_code(
             env["Y_TRACE_ID"] = trace_id
         if skill:
             env["Y_SKILL"] = skill
+        if last_message_id:
+            env["Y_MESSAGE_ID"] = last_message_id
 
     # Materialize images as files and prepend paths to prompt
     effective_cwd = cwd or (vm_config.work_dir if vm_config else None) or os.getcwd()
