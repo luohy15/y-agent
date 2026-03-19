@@ -196,6 +196,8 @@ export default function App() {
           }}
           activePanel={sidebarPanel}
           onSelectPanel={setSidebarPanel}
+          onOpenFile={handleOpenFile}
+          activeFile={activeFile}
         />
         {/* Mobile overlay backdrop */}
         {sidebarOpen && (
