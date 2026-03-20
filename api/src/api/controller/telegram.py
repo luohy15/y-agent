@@ -46,11 +46,6 @@ async def _send_message(chat_id, text: str, parse_mode: Optional[str] = "HTML", 
                 await client.post(_bot_api_url("sendMessage"), json=payload)
 
 
-def _get_send_chat_message():
-    """Import _send_chat_message from chat controller to reuse queue dispatch."""
-    from api.controller.chat import _send_chat_message
-    return _send_chat_message
-
 
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
@@ -277,8 +272,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
 
     # Queue for processing with telegram_reply post-hook
     try:
-        send_chat_message = _get_send_chat_message()
-        send_chat_message(
+        from api.controller.chat import _send_chat_message
+        _send_chat_message(
             chat_id,
             user_id=user.id,
             post_hooks=[{"type": "telegram_send", "telegram_chat_id": telegram_chat_id, "message_thread_id": message_thread_id}],
