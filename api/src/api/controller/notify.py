@@ -1,4 +1,3 @@
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
@@ -109,9 +108,7 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             return
 
         from_label = req.from_skill or "unknown"
-        web_url = os.environ.get("Y_AGENT_WEB_URL", "https://yovy.app")
-        trace_link = f"{web_url}/trace/{req.trace_id}"
-        text = f"📨 {from_label} → {req.skill}\n\n{req.message}\n\n🔗 {trace_link}"
+        text = f"📨 {from_label} → {req.skill}\n\n{req.message}"
 
         from api.controller.telegram import _send_message
         await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)

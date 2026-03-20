@@ -177,9 +177,6 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
                                 reply_text = msg.content.strip()
                                 break
                         if reply_text:
-                            if trace_id:
-                                web_url = os.environ.get("Y_AGENT_WEB_URL", "https://yovy.app")
-                                reply_text += f"\n\n🔗 {web_url}/trace/{trace_id}"
                             bot_token = get_telegram_bot_token()
                             if bot_token:
                                 send_telegram_message(bot_token, group_id, reply_text, topic_id)
