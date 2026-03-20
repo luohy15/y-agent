@@ -223,31 +223,6 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    # Register self as trace participant
-    if trace_id and skill:
-        try:
-            from storage.service import trace as trace_service
-            from storage.dto.trace import Trace, TraceParticipant
-            trace = trace_service.get_trace(user_id, trace_id)
-            if trace is None:
-                trace = Trace(trace_id=trace_id)
-            # Get the last message id as the entry message
-            last_message_id = chat.messages[-1].id if chat.messages else None
-            # Find existing participant for this skill
-            existing = next((p for p in trace.participants if p.skill == skill), None)
-            if existing:
-                existing.chat_id = chat_id
-                existing.work_dir = work_dir
-                # Append as entry message_id (first in list)
-                if last_message_id and (not existing.message_ids or existing.message_ids[0] != last_message_id):
-                    existing.message_ids = [last_message_id] + existing.message_ids[1:]
-            else:
-                trace.participants.append(TraceParticipant(chat_id=chat_id, skill=skill, work_dir=work_dir, message_ids=[last_message_id] if last_message_id else []))
-            trace_service.save_trace(user_id, trace)
-            logger.info("Registered trace participant: trace_id={} skill={} chat_id={} message_ids={}", trace_id, skill, chat_id, existing.message_ids if existing else [last_message_id])
-        except Exception as e:
-            logger.exception("Failed to register trace participant: {}", e)
-
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 

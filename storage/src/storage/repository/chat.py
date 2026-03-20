@@ -19,6 +19,7 @@ class ChatSummary:
     title: str
     created_at: str
     updated_at: str
+    skill: str = ""
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
@@ -105,6 +106,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = chat.backend
             entity.channel_id = chat.channel_id
+            entity.skill = chat.skill
             entity.active_trace_id = chat.active_trace_id
             entity.trace_ids = chat.trace_ids
         else:
@@ -116,6 +118,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
                 channel_id=chat.channel_id,
+                skill=chat.skill,
                 active_trace_id=chat.active_trace_id,
                 trace_ids=chat.trace_ids,
                 json_content=content,
@@ -202,6 +205,47 @@ def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
         session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update({"channel_id": channel_id})
 
 
+def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0) -> list:
+    """List distinct trace_ids from all chats' trace_ids lists, ordered by most recently updated."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity.trace_ids, ChatEntity.updated_at, ChatEntity.updated_at_unix)
+                .filter_by(user_id=user_id)
+                .filter(ChatEntity.trace_ids.isnot(None))
+                .order_by(ChatEntity.updated_at_unix.desc())
+                .all())
+        # Collect all trace_ids, keeping the most recent updated_at for each
+        trace_map: dict = {}  # trace_id -> (updated_at, updated_at_unix)
+        for row in rows:
+            if not isinstance(row.trace_ids, list):
+                continue
+            for tid in row.trace_ids:
+                if tid not in trace_map or (row.updated_at_unix or 0) > trace_map[tid][1]:
+                    trace_map[tid] = (row.updated_at or "", row.updated_at_unix or 0)
+        # Sort by most recent
+        sorted_traces = sorted(trace_map.items(), key=lambda x: x[1][1], reverse=True)
+        return [
+            {"trace_id": tid, "updated_at": info[0]}
+            for tid, info in sorted_traces[offset:offset + limit]
+        ]
+
+
+def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Optional[Chat]:
+    """Find a chat with the given skill that participates in the given trace."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity)
+                .filter_by(user_id=user_id, skill=skill)
+                .filter(ChatEntity.trace_ids.isnot(None))
+                .order_by(ChatEntity.updated_at_unix.desc())
+                .all())
+        for row in rows:
+            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids:
+                try:
+                    return _entity_to_chat(row)
+                except Exception:
+                    pass
+        return None
+
+
 def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
     """Find all chats that participate in a given trace."""
     from sqlalchemy import cast, String
@@ -219,6 +263,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 title=row.title or "",
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
+                skill=row.skill or "",
             )
             for row in rows
             if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
