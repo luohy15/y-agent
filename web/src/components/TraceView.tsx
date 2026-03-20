@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken, getToken } from "../api";
 import MessageList, { type Message, extractContent } from "./MessageList";
@@ -33,13 +33,25 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-// Extended message with original ID for range filtering
+// Extended message with trace_id for filtering
 interface TracedMessage extends Message {
-  msgId?: string;
+  traceId?: string;
 }
 
-// Sub-component: expandable chat messages for a participant
-function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; messageIds?: string[]; isLoggedIn: boolean }) {
+// Skill color mapping
+const SKILL_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+  "dev-manager": { bg: "bg-sol-blue/10", border: "border-sol-blue/30", text: "text-sol-blue", dot: "bg-sol-blue" },
+  "dev": { bg: "bg-sol-green/10", border: "border-sol-green/30", text: "text-sol-green", dot: "bg-sol-green" },
+  "git": { bg: "bg-sol-yellow/10", border: "border-sol-yellow/30", text: "text-sol-yellow", dot: "bg-sol-yellow" },
+  "default": { bg: "bg-sol-cyan/10", border: "border-sol-cyan/30", text: "text-sol-cyan", dot: "bg-sol-cyan" },
+};
+
+function getSkillColors(skill: string) {
+  return SKILL_COLORS[skill] || SKILL_COLORS["default"];
+}
+
+// Sub-component: load messages for a participant, filtered by trace_id
+function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; traceId: string; isLoggedIn: boolean }) {
   const [messages, setMessages] = useState<TracedMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const esRef = useRef<EventSource | null>(null);
@@ -54,6 +66,10 @@ function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; m
     const es = new EventSource(`${API}/api/chat/messages?chat_id=${chatId}&last_index=0${tokenParam}`);
     esRef.current = es;
 
+    // Track current trace_id context: user messages carry trace_id,
+    // subsequent assistant/tool messages inherit it until next user message
+    let currentTraceId: string | undefined;
+
     const handleMessage = (raw: string) => {
       try {
         const evt = JSON.parse(raw);
@@ -61,19 +77,26 @@ function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; m
         const role = msg.role || "assistant";
         const content = extractContent(msg.content);
         const timestamp = msg.timestamp;
-        const msgId = msg.id as string | undefined;
+        const msgTraceId = msg.trace_id as string | undefined;
+
+        // User messages set the trace context
+        if (role === "user" && msgTraceId) {
+          currentTraceId = msgTraceId;
+        }
+
+        const effectiveTraceId = role === "user" ? msgTraceId : currentTraceId;
 
         if (role === "user") {
-          setMessages((prev) => [...prev, { role: "user", content, timestamp, msgId }]);
+          setMessages((prev) => [...prev, { role: "user", content, timestamp, traceId: effectiveTraceId }]);
         } else if (role === "assistant" && msg.tool_calls) {
           if (content.trim()) {
-            setMessages((prev) => [...prev, { role: "assistant", content, timestamp, msgId }]);
+            setMessages((prev) => [...prev, { role: "assistant", content, timestamp, traceId: effectiveTraceId }]);
           }
           for (const tc of msg.tool_calls) {
             const func = tc.function || {};
             let toolArgs: Record<string, unknown> = {};
             try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-            setMessages((prev) => [...prev, { role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp, msgId }]);
+            setMessages((prev) => [...prev, { role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp, traceId: effectiveTraceId }]);
           }
         } else if (role === "tool") {
           const tcId = msg.tool_call_id;
@@ -83,10 +106,10 @@ function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; m
               m.toolCallId === tcId ? { ...m, role: denied ? "tool_denied" : "tool_result", content } : m
             ));
           } else {
-            setMessages((prev) => [...prev, { role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp, msgId }]);
+            setMessages((prev) => [...prev, { role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp, traceId: effectiveTraceId }]);
           }
         } else {
-          setMessages((prev) => [...prev, { role: "assistant", content, timestamp, msgId }]);
+          setMessages((prev) => [...prev, { role: "assistant", content, timestamp, traceId: effectiveTraceId }]);
         }
       } catch {}
     };
@@ -110,25 +133,10 @@ function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; m
     };
   }, [chatId, isLoggedIn]);
 
-  // Filter messages by message_ids range
-  const filteredMessages = (() => {
-    if (!messageIds || messageIds.length === 0) return messages;
-    const startId = messageIds[0];
-    const endId = messageIds.length > 1 ? messageIds[1] : undefined;
-
-    // Find start index: first message with matching msgId
-    let startIdx = messages.findIndex((m) => m.msgId === startId);
-    if (startIdx < 0) startIdx = 0;
-
-    // Find end index: last message with matching msgId (inclusive)
-    let endIdx = messages.length;
-    if (endId) {
-      const found = messages.findIndex((m) => m.msgId === endId);
-      if (found >= 0) endIdx = found + 1;
-    }
-
-    return messages.slice(startIdx, endIdx);
-  })();
+  // Filter messages belonging to this trace
+  const filteredMessages = useMemo(() => {
+    return messages.filter((m) => m.traceId === traceId);
+  }, [messages, traceId]);
 
   return (
     <div className="max-h-[60vh] overflow-y-auto">
@@ -140,16 +148,65 @@ function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; m
   );
 }
 
-// Skill color mapping
-const SKILL_COLORS: Record<string, string> = {
-  "dev-manager": "text-sol-blue",
-  "dev": "text-sol-green",
-  "git": "text-sol-yellow",
-  "default": "text-sol-cyan",
-};
+// Waterfall bar for a single participant
+function WaterfallRow({
+  participant,
+  index,
+  traceId,
+  isExpanded,
+  onToggle,
+  isLoggedIn,
+}: {
+  participant: TraceParticipant;
+  index: number;
+  traceId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  isLoggedIn: boolean;
+}) {
+  const colors = getSkillColors(participant.skill);
 
-function getSkillColor(skill: string): string {
-  return SKILL_COLORS[skill] || SKILL_COLORS["default"];
+  return (
+    <div className="group">
+      {/* Row header + bar */}
+      <div className="flex items-center gap-0 min-h-[2rem]">
+        {/* Skill label */}
+        <button
+          onClick={onToggle}
+          className="w-28 shrink-0 flex items-center gap-1.5 px-2 py-1 text-left hover:bg-sol-base02/50 rounded transition-colors cursor-pointer"
+        >
+          <div className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
+          <span className={`text-xs font-semibold truncate ${colors.text}`}>{participant.skill}</span>
+          <svg
+            className={`w-2.5 h-2.5 shrink-0 text-sol-base01 transition-transform ml-auto ${isExpanded ? "rotate-90" : ""}`}
+            viewBox="0 0 12 12"
+            fill="currentColor"
+          >
+            <path d="M4 2l4 4-4 4z" />
+          </svg>
+        </button>
+        {/* Bar area */}
+        <div className="flex-1 min-w-0 h-6 relative flex items-center px-1">
+          <div className={`h-4 rounded ${colors.bg} border ${colors.border} min-w-[2rem] w-full flex items-center px-2`}>
+            <span className="text-[0.6rem] text-sol-base01 font-mono truncate">
+              {participant.chat_id.slice(0, 8)}
+            </span>
+            {participant.work_dir && (
+              <span className="text-[0.55rem] text-sol-base01 ml-auto truncate hidden sm:inline" title={participant.work_dir}>
+                {participant.work_dir.split("/").pop()}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* Expanded messages */}
+      {isExpanded && (
+        <div className="ml-28 border-l-2 border-sol-base02 pl-2 mb-2">
+          <ParticipantChat chatId={participant.chat_id} traceId={traceId} isLoggedIn={isLoggedIn} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
@@ -176,7 +233,6 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
   const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceSummary[]>(getKey, fetcher);
 
   const listTraces = data ? data.flat() : [];
-  // Merge directTrace if it's not already in the paginated list
   const traces = directTrace && !listTraces.some((t) => t.trace_id === directTrace.trace_id)
     ? [directTrace, ...listTraces]
     : listTraces;
@@ -213,7 +269,7 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
   return (
     <div className="flex h-full min-h-0">
       {/* Left: Trace list */}
-      <div className="w-56 shrink-0 border-r border-sol-base02 bg-sol-base03 flex flex-col text-xs overflow-hidden">
+      <div className="w-48 shrink-0 border-r border-sol-base02 bg-sol-base03 flex flex-col text-xs overflow-hidden">
         <div className="p-2 border-b border-sol-base02 text-sol-base1 font-semibold text-xs">
           Traces
         </div>
@@ -231,9 +287,9 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
               {traces.map((t) => {
                 const sel = t.trace_id === selectedTraceId;
                 const dt = t.updated_at || t.created_at ? new Date(t.updated_at || t.created_at!) : null;
-                const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
-                const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-                const skills = t.participants.map((p) => p.skill).join(" → ");
+                const date = dt ? dt.toLocaleDateString([], { month: "2-digit", day: "2-digit" }) : "";
+                const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+                const skills = [...new Set(t.participants.map((p) => p.skill))];
                 return (
                   <div
                     key={t.trace_id}
@@ -245,8 +301,15 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
                       sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                     }`}
                   >
-                    <div className="truncate text-sol-base0">{skills || t.trace_id}</div>
-                    <div className="text-[0.6rem] text-sol-base01 mt-0.5">{date} {time}</div>
+                    {/* Skill badges */}
+                    <div className="flex flex-wrap gap-0.5 mb-0.5">
+                      {skills.map((s) => (
+                        <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="text-[0.6rem] text-sol-base01">{date} {time}</div>
                   </div>
                 );
               })}
@@ -260,62 +323,36 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
         </div>
       </div>
 
-      {/* Right: Timeline detail */}
+      {/* Right: Waterfall view */}
       <div className="flex-1 min-w-0 overflow-y-auto bg-sol-base03 p-3">
         {!selectedTrace ? (
           <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
             Select a trace to view details
           </div>
         ) : (
-          <div className="space-y-2">
-            <div className="text-sol-base1 text-xs font-mono mb-3">
-              Trace: {selectedTrace.trace_id}
+          <div>
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sol-base1 text-xs font-mono">{selectedTrace.trace_id}</span>
+              {selectedTrace.created_at && (
+                <span className="text-[0.6rem] text-sol-base01">
+                  {new Date(selectedTrace.created_at).toLocaleString()}
+                </span>
+              )}
             </div>
-            {/* Timeline */}
-            <div className="relative pl-4 border-l-2 border-sol-base02 space-y-3">
-              {selectedTrace.participants.map((p, i) => {
-                const isExpanded = expandedParticipants.has(i);
-                return (
-                  <div key={i} className="relative">
-                    {/* Timeline dot */}
-                    <div className={`absolute -left-[1.3rem] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-sol-base03 ${getSkillColor(p.skill).replace("text-", "bg-")}`} />
-                    {/* Participant card */}
-                    <div className="bg-sol-base02/50 rounded-lg overflow-hidden">
-                      <button
-                        onClick={() => toggleParticipant(i)}
-                        className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-sol-base02 transition-colors cursor-pointer"
-                      >
-                        <svg
-                          className={`w-3 h-3 shrink-0 text-sol-base01 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-                          viewBox="0 0 12 12"
-                          fill="currentColor"
-                        >
-                          <path d="M4 2l4 4-4 4z" />
-                        </svg>
-                        <span className={`text-xs font-semibold ${getSkillColor(p.skill)}`}>
-                          {p.skill}
-                        </span>
-                        <span className="text-[0.6rem] text-sol-base01 font-mono truncate">
-                          {p.chat_id.slice(0, 10)}
-                        </span>
-                        {p.work_dir && (
-                          <span className="text-[0.6rem] text-sol-base01 truncate ml-auto" title={p.work_dir}>
-                            {p.work_dir}
-                          </span>
-                        )}
-                        <span className="text-[0.55rem] text-sol-base01 ml-auto shrink-0">
-                          #{i + 1}
-                        </span>
-                      </button>
-                      {isExpanded && (
-                        <div className="border-t border-sol-base02 px-1">
-                          <ParticipantChat key={i} chatId={p.chat_id} messageIds={p.message_ids} isLoggedIn={isLoggedIn} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Waterfall rows */}
+            <div className="space-y-0.5">
+              {selectedTrace.participants.map((p, i) => (
+                <WaterfallRow
+                  key={`${p.chat_id}-${i}`}
+                  participant={p}
+                  index={i}
+                  traceId={selectedTrace.trace_id}
+                  isExpanded={expandedParticipants.has(i)}
+                  onToggle={() => toggleParticipant(i)}
+                  isLoggedIn={isLoggedIn}
+                />
+              ))}
             </div>
           </div>
         )}

@@ -39,6 +39,23 @@ async def get_trace_by_chat(request: Request, chat_id: str = Query(...)):
     return {"trace_id": trace.trace_id, "skill": skill}
 
 
+@router.get("/chats")
+async def get_trace_chats(request: Request, trace_id: str = Query(...)):
+    """Get all chats participating in a trace."""
+    user_id = _get_user_id(request)
+    from storage.repository.chat import find_chats_by_trace_id
+    chats = find_chats_by_trace_id(user_id, trace_id)
+    return [
+        {
+            "chat_id": c.chat_id,
+            "title": c.title,
+            "created_at": c.created_at,
+            "updated_at": c.updated_at,
+        }
+        for c in chats
+    ]
+
+
 @router.get("")
 async def get_trace(request: Request, trace_id: str = Query(...)):
     user_id = _get_user_id(request)
