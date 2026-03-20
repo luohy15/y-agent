@@ -48,31 +48,14 @@ async def post_notify(req: NotifyRequest, request: Request):
         "trace_id": req.trace_id,
     })
 
-    # Find existing chat_id with 3-tier priority:
-    # 1. chat with matching skill + trace_id in trace_ids
-    # 2. skill's telegram topic channel (most recent chat for this skill)
-    # 3. create new chat
+    # Find existing chat to resume: match by skill + active_trace_id.
+    # If no match, create a new chat.
     chat_id = None
     if not req.force_new:
-        # Priority 1: find chat by skill + trace_id
         from storage.repository.chat import find_chat_by_skill_and_trace
         existing = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
         if existing:
             chat_id = existing.id
-
-        # Priority 2: find by skill's telegram topic channel
-        if not chat_id:
-            try:
-                from storage.repository.tg_topic import find_topic_by_name
-                from storage.repository.chat import find_chat_by_channel_sync
-                topic = find_topic_by_name(user_id, req.skill)
-                if topic and topic.topic_id is not None:
-                    channel_id = f"telegram:{topic.group_id}:{topic.topic_id}"
-                    existing_chat = find_chat_by_channel_sync(user_id, channel_id)
-                    if existing_chat:
-                        chat_id = existing_chat.id
-            except Exception as e:
-                logger.warning("notify: skill channel lookup failed: {}", e)
 
     if chat_id:
         await chat_service.append_message(chat_id, user_msg)
