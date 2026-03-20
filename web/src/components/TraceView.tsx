@@ -1,20 +1,25 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import useSWRInfinite from "swr/infinite";
 import useSWR from "swr";
-import { API, authFetch, clearToken, getToken } from "../api";
-import MessageList, { type Message, extractContent } from "./MessageList";
+import { API, authFetch, clearToken } from "../api";
+
+interface Segment {
+  start_unix: number;
+  end_unix: number;
+}
 
 interface TraceChat {
   chat_id: string;
   title: string;
   skill: string;
-  created_at: string;
-  updated_at: string;
+  segments: Segment[];
 }
 
 interface TraceListItem {
   trace_id: string;
   updated_at: string;
+  todo_name: string | null;
+  todo_status: string | null;
 }
 
 interface TraceViewProps {
@@ -33,177 +38,158 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-// Extended message with trace_id for filtering
-interface TracedMessage extends Message {
-  traceId?: string;
-}
-
 // Skill color mapping
-const SKILL_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-  "dev-manager": { bg: "bg-sol-blue/10", border: "border-sol-blue/30", text: "text-sol-blue", dot: "bg-sol-blue" },
-  "dev": { bg: "bg-sol-green/10", border: "border-sol-green/30", text: "text-sol-green", dot: "bg-sol-green" },
-  "git": { bg: "bg-sol-yellow/10", border: "border-sol-yellow/30", text: "text-sol-yellow", dot: "bg-sol-yellow" },
-  "default": { bg: "bg-sol-cyan/10", border: "border-sol-cyan/30", text: "text-sol-cyan", dot: "bg-sol-cyan" },
+const SKILL_COLORS: Record<string, { bg: string; border: string; text: string; dot: string; bar: string }> = {
+  "dev-manager": { bg: "bg-sol-blue/10", border: "border-sol-blue/30", text: "text-sol-blue", dot: "bg-sol-blue", bar: "bg-sol-blue/60" },
+  "dev": { bg: "bg-sol-green/10", border: "border-sol-green/30", text: "text-sol-green", dot: "bg-sol-green", bar: "bg-sol-green/60" },
+  "git": { bg: "bg-sol-yellow/10", border: "border-sol-yellow/30", text: "text-sol-yellow", dot: "bg-sol-yellow", bar: "bg-sol-yellow/60" },
+  "default": { bg: "bg-sol-cyan/10", border: "border-sol-cyan/30", text: "text-sol-cyan", dot: "bg-sol-cyan", bar: "bg-sol-cyan/60" },
 };
 
 function getSkillColors(skill: string) {
   return SKILL_COLORS[skill] || SKILL_COLORS["default"];
 }
 
-// Sub-component: load messages for a chat, filtered by trace_id
-function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; traceId: string; isLoggedIn: boolean }) {
-  const [messages, setMessages] = useState<TracedMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const esRef = useRef<EventSource | null>(null);
-
-  useEffect(() => {
-    if (!isLoggedIn || !chatId) return;
-    setMessages([]);
-    setLoading(true);
-
-    const token = getToken();
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-    const es = new EventSource(`${API}/api/chat/messages?chat_id=${chatId}&last_index=0${tokenParam}`);
-    esRef.current = es;
-
-    // Track current trace_id context: user messages carry trace_id,
-    // subsequent assistant/tool messages inherit it until next user message
-    let currentTraceId: string | undefined;
-
-    const handleMessage = (raw: string) => {
-      try {
-        const evt = JSON.parse(raw);
-        const msg = evt.data || evt;
-        const role = msg.role || "assistant";
-        const content = extractContent(msg.content);
-        const timestamp = msg.timestamp;
-        const msgTraceId = msg.trace_id as string | undefined;
-
-        if (role === "user" && msgTraceId) {
-          currentTraceId = msgTraceId;
-        }
-
-        const effectiveTraceId = role === "user" ? msgTraceId : currentTraceId;
-
-        if (role === "user") {
-          setMessages((prev) => [...prev, { role: "user", content, timestamp, traceId: effectiveTraceId }]);
-        } else if (role === "assistant" && msg.tool_calls) {
-          if (content.trim()) {
-            setMessages((prev) => [...prev, { role: "assistant", content, timestamp, traceId: effectiveTraceId }]);
-          }
-          for (const tc of msg.tool_calls) {
-            const func = tc.function || {};
-            let toolArgs: Record<string, unknown> = {};
-            try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-            setMessages((prev) => [...prev, { role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp, traceId: effectiveTraceId }]);
-          }
-        } else if (role === "tool") {
-          const tcId = msg.tool_call_id;
-          const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
-          if (tcId) {
-            setMessages((prev) => prev.map((m) =>
-              m.toolCallId === tcId ? { ...m, role: denied ? "tool_denied" : "tool_result", content } : m
-            ));
-          } else {
-            setMessages((prev) => [...prev, { role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp, traceId: effectiveTraceId }]);
-          }
-        } else {
-          setMessages((prev) => [...prev, { role: "assistant", content, timestamp, traceId: effectiveTraceId }]);
-        }
-      } catch {}
-    };
-
-    es.addEventListener("message", (e) => handleMessage(e.data));
-    for (const t of ["text", "tool_use", "tool_result"]) {
-      es.addEventListener(t, (e) => handleMessage((e as MessageEvent).data));
-    }
-    es.addEventListener("done", () => {
-      setLoading(false);
-      es.close();
-    });
-    es.addEventListener("error", () => {
-      setLoading(false);
-      es.close();
-    });
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
-  }, [chatId, isLoggedIn]);
-
-  const filteredMessages = useMemo(() => {
-    return messages.filter((m) => m.traceId === traceId);
-  }, [messages, traceId]);
-
-  return (
-    <div className="max-h-[60vh] overflow-y-auto">
-      {loading && messages.length === 0 && (
-        <p className="text-sol-base01 italic p-2 text-xs">Loading messages...</p>
-      )}
-      <MessageList messages={filteredMessages} running={loading} showProgress={false} />
-    </div>
-  );
+// Format time for axis labels
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Waterfall row for a single chat participant
-function WaterfallRow({
-  chat,
-  traceId,
-  isExpanded,
-  onToggle,
-  isLoggedIn,
-}: {
-  chat: TraceChat;
-  traceId: string;
-  isExpanded: boolean;
-  onToggle: () => void;
-  isLoggedIn: boolean;
-}) {
-  const colors = getSkillColors(chat.skill);
+// Generate time axis ticks between min and max
+function generateTicks(minTs: number, maxTs: number): number[] {
+  const range = maxTs - minTs;
+  if (range <= 0) return [minTs];
+
+  // Pick interval: 5m, 10m, 15m, 30m, 1h, 2h, 4h
+  const intervals = [5 * 60000, 10 * 60000, 15 * 60000, 30 * 60000, 60 * 60000, 2 * 60 * 60000, 4 * 60 * 60000];
+  let interval = intervals[0];
+  for (const iv of intervals) {
+    if (range / iv <= 10) { interval = iv; break; }
+    interval = iv;
+  }
+
+  const first = Math.ceil(minTs / interval) * interval;
+  const ticks: number[] = [];
+  for (let t = first; t <= maxTs; t += interval) {
+    ticks.push(t);
+  }
+  return ticks;
+}
+
+// Waterfall chart component
+function WaterfallChart({ chats, traceId }: { chats: TraceChat[]; traceId: string }) {
+  // Group chats by skill, preserving order of first appearance
+  const skillGroups = useMemo(() => {
+    const groups: Record<string, TraceChat[]> = {};
+    const order: string[] = [];
+    for (const c of chats) {
+      const skill = c.skill || "unknown";
+      if (!groups[skill]) {
+        groups[skill] = [];
+        order.push(skill);
+      }
+      groups[skill].push(c);
+    }
+    return { groups, order };
+  }, [chats]);
+
+  // Compute timeline bounds from all segments
+  const { minTs, maxTs } = useMemo(() => {
+    let min = Infinity, max = -Infinity;
+    for (const c of chats) {
+      for (const seg of c.segments) {
+        if (seg.start_unix) min = Math.min(min, seg.start_unix);
+        if (seg.end_unix) max = Math.max(max, seg.end_unix);
+      }
+    }
+    if (!isFinite(min) || !isFinite(max)) return { minTs: 0, maxTs: 1 };
+    const pad = Math.max((max - min) * 0.05, 60000); // 5% padding or at least 1 min
+    return { minTs: min - pad, maxTs: max + pad };
+  }, [chats]);
+
+  const ticks = useMemo(() => generateTicks(minTs, maxTs), [minTs, maxTs]);
+  const range = maxTs - minTs || 1;
+
+  const LABEL_W = 96; // px for skill label column
 
   return (
-    <div className="group">
-      <div className="flex items-center gap-0 min-h-[2rem]">
-        <button
-          onClick={onToggle}
-          className="w-28 shrink-0 flex items-center gap-1.5 px-2 py-1 text-left hover:bg-sol-base02/50 rounded transition-colors cursor-pointer"
-        >
-          <div className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
-          <span className={`text-xs font-semibold truncate ${colors.text}`}>{chat.skill || "unknown"}</span>
-          <svg
-            className={`w-2.5 h-2.5 shrink-0 text-sol-base01 transition-transform ml-auto ${isExpanded ? "rotate-90" : ""}`}
-            viewBox="0 0 12 12"
-            fill="currentColor"
-          >
-            <path d="M4 2l4 4-4 4z" />
-          </svg>
-        </button>
-        <div className="flex-1 min-w-0 h-6 relative flex items-center px-1">
-          <div className={`h-4 rounded ${colors.bg} border ${colors.border} min-w-[2rem] w-full flex items-center px-2`}>
-            <span className="text-[0.6rem] text-sol-base01 font-mono truncate">
-              {chat.chat_id.slice(0, 8)}
-            </span>
-            {chat.title && (
-              <span className="text-[0.55rem] text-sol-base01 ml-auto truncate hidden sm:inline" title={chat.title}>
-                {chat.title.slice(0, 40)}
-              </span>
-            )}
-          </div>
+    <div className="mt-2">
+      {/* Time axis */}
+      <div className="flex">
+        <div style={{ width: LABEL_W }} className="shrink-0" />
+        <div className="flex-1 relative h-5 border-b border-sol-base02">
+          {ticks.map((t) => {
+            const pct = ((t - minTs) / range) * 100;
+            return (
+              <div
+                key={t}
+                className="absolute text-[0.55rem] text-sol-base01 font-mono -translate-x-1/2"
+                style={{ left: `${pct}%` }}
+              >
+                {formatTime(t)}
+              </div>
+            );
+          })}
         </div>
       </div>
-      {isExpanded && (
-        <div className="ml-28 border-l-2 border-sol-base02 pl-2 mb-2">
-          <ParticipantChat chatId={chat.chat_id} traceId={traceId} isLoggedIn={isLoggedIn} />
-        </div>
-      )}
+
+      {/* Skill rows */}
+      {skillGroups.order.map((skill) => {
+        const colors = getSkillColors(skill);
+        const skillChats = skillGroups.groups[skill];
+
+        return (
+          <div key={skill} className="flex items-center min-h-[1.75rem] group">
+            {/* Skill label */}
+            <div
+              style={{ width: LABEL_W }}
+              className="shrink-0 flex items-center gap-1.5 px-2"
+            >
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+              <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{skill}</span>
+            </div>
+
+            {/* Timeline bar area */}
+            <div className="flex-1 relative h-5">
+              {/* Grid lines */}
+              {ticks.map((t) => {
+                const pct = ((t - minTs) / range) * 100;
+                return (
+                  <div
+                    key={t}
+                    className="absolute top-0 bottom-0 border-l border-sol-base02/30"
+                    style={{ left: `${pct}%` }}
+                  />
+                );
+              })}
+
+              {/* Chat segment bars */}
+              {skillChats.flatMap((c) =>
+                c.segments.map((seg, i) => {
+                  const left = ((seg.start_unix - minTs) / range) * 100;
+                  const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
+
+                  return (
+                    <div
+                      key={`${c.chat_id}-${i}`}
+                      className={`absolute top-0.5 h-4 rounded-sm ${colors.bar} hover:brightness-125 transition-all cursor-default`}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix)} → ${formatTime(seg.end_unix)}`}
+                    />
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(initialTraceId || null);
-  const [expandedChats, setExpandedChats] = useState<Set<string>>(new Set());
 
   // Trace list with infinite scroll
   const getKey = (pageIndex: number, previousPageData: TraceListItem[] | null) => {
@@ -240,19 +226,13 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
     fetcher,
   );
 
-  const toggleChat = (chatId: string) => {
-    setExpandedChats((prev) => {
-      const next = new Set(prev);
-      if (next.has(chatId)) next.delete(chatId);
-      else next.add(chatId);
-      return next;
-    });
-  };
+  // Find the selected trace item for display
+  const selectedTrace = useMemo(() => traces.find((t) => t.trace_id === selectedTraceId), [traces, selectedTraceId]);
 
   return (
     <div className="flex h-full min-h-0">
       {/* Left: Trace list */}
-      <div className="w-48 shrink-0 border-r border-sol-base02 bg-sol-base03 flex flex-col text-xs overflow-hidden">
+      <div className="w-56 shrink-0 border-r border-sol-base02 bg-sol-base03 flex flex-col text-xs overflow-hidden">
         <div className="p-2 border-b border-sol-base02 text-sol-base1 font-semibold text-xs">
           Traces
         </div>
@@ -275,16 +255,26 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
                 return (
                   <div
                     key={t.trace_id}
-                    onClick={() => {
-                      setSelectedTraceId(sel ? null : t.trace_id);
-                      setExpandedChats(new Set());
-                    }}
+                    onClick={() => setSelectedTraceId(sel ? null : t.trace_id)}
                     className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
                       sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                     }`}
                   >
-                    <div className="truncate text-sol-base0 font-mono text-[0.65rem]">{t.trace_id.slice(0, 16)}</div>
-                    <div className="text-[0.6rem] text-sol-base01">{date} {time}</div>
+                    <div className="truncate text-sol-base0 text-[0.7rem]">
+                      {t.todo_name || t.trace_id.slice(0, 16)}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
+                      <span>{date} {time}</span>
+                      {t.todo_status && (
+                        <span className={`px-1 rounded ${
+                          t.todo_status === "completed" ? "bg-sol-green/20 text-sol-green" :
+                          t.todo_status === "active" ? "bg-sol-blue/20 text-sol-blue" :
+                          "bg-sol-base02 text-sol-base01"
+                        }`}>
+                          {t.todo_status}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -314,8 +304,11 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
           </div>
         ) : (
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-sol-base1 text-xs font-mono">{selectedTraceId}</span>
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sol-base1 text-sm font-medium">
+                {selectedTrace?.todo_name || selectedTraceId}
+              </span>
               {/* Skill badges */}
               <div className="flex flex-wrap gap-0.5">
                 {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
@@ -325,18 +318,10 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
                 ))}
               </div>
             </div>
-            <div className="space-y-0.5">
-              {traceChats.map((c) => (
-                <WaterfallRow
-                  key={c.chat_id}
-                  chat={c}
-                  traceId={selectedTraceId}
-                  isExpanded={expandedChats.has(c.chat_id)}
-                  onToggle={() => toggleChat(c.chat_id)}
-                  isLoggedIn={isLoggedIn}
-                />
-              ))}
-            </div>
+            <div className="text-[0.6rem] text-sol-base01 font-mono mb-2">{selectedTraceId}</div>
+
+            {/* Waterfall chart */}
+            <WaterfallChart chats={traceChats} traceId={selectedTraceId} />
           </div>
         )}
       </div>
