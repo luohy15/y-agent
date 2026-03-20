@@ -78,6 +78,18 @@ function getBadgeText(toolName: string, args?: Record<string, unknown>): string 
   // File tools: show path
   const fp = getFilePath(toolName, args);
   if (fp) return shortPath(fp);
+  // TodoWrite: show summary counts
+  if (n === "todowrite" && Array.isArray(args?.todos)) {
+    const todos = args.todos as { status?: string }[];
+    const done = todos.filter((t) => t.status === "completed").length;
+    const active = todos.filter((t) => t.status === "in_progress").length;
+    const pending = todos.length - done - active;
+    const parts: string[] = [];
+    if (done) parts.push(`${done} done`);
+    if (active) parts.push(`${active} active`);
+    if (pending) parts.push(`${pending} pending`);
+    return parts.join(", ") || `${todos.length} items`;
+  }
   // Bash: show truncated command
   if (n === "bash") return truncate(String(args?.command || ""), 60);
   // Grep: show pattern
@@ -150,6 +162,10 @@ function ToolCallCompact({
   const filePath = getFilePath(toolName, args);
   const n = toolName.toLowerCase();
   // For Bash, prepend full command to expandable content
+  // For TodoWrite, render structured todo list
+  const isTodo = n === "todowrite";
+  const todoItems = isTodo && Array.isArray(args?.todos) ? (args.todos as { content?: string; status?: string; activeForm?: string }[]) : null;
+
   const isBash = n === "bash";
   const bashCommand = isBash ? String(args?.command || "") : "";
   const expandContent = isBash && bashCommand ? (bashCommand + (content ? "\n" + content : "")) : content;
@@ -158,7 +174,7 @@ function ToolCallCompact({
   const editOld = isEdit ? String(args?.old_string || "") : "";
   const editNew = isEdit ? String(args?.new_string || "") : "";
   const hasDiff = isEdit && (editOld || editNew);
-  const hasContent = expandContent.length > 0 || hasDiff;
+  const hasContent = expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0);
 
   const isDenied = status === "denied";
   const isPending = status === "pending";
@@ -215,7 +231,21 @@ function ToolCallCompact({
 
       {/* Expandable detail content */}
       {expanded && hasContent && (
-        hasDiff ? (
+        todoItems && todoItems.length > 0 ? (
+          <div className="mt-1 ml-6.5 max-h-60 overflow-y-auto rounded bg-sol-base02 px-2 py-1.5 text-[0.7rem] font-mono flex flex-col gap-0.5">
+            {todoItems.map((t, i) => {
+              const st = t.status || "pending";
+              const icon = st === "completed" ? "\u2713" : st === "in_progress" ? "\u25B6" : "\u25CB";
+              const color = st === "completed" ? "text-sol-green" : st === "in_progress" ? "text-sol-blue" : "text-sol-base01";
+              return (
+                <div key={i} className="flex items-start gap-1.5">
+                  <span className={`${color} shrink-0 w-3.5 text-center`}>{icon}</span>
+                  <span className={st === "completed" ? "text-sol-base01 line-through" : "text-sol-base0"}>{t.content || t.activeForm || ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : hasDiff ? (
           <div className="mt-1 ml-6.5 max-h-60 overflow-auto rounded bg-sol-base02 text-[0.7rem]">
             <PatchDiff patch={buildUnifiedDiff(shortPath(filePath || "file"), editOld, editNew)} options={{ theme: "solarized-dark" }} />
           </div>
