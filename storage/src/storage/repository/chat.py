@@ -156,6 +156,10 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
         if entity:
             entity.json_content = content
             entity.title = title
+            entity.origin_chat_id = chat.origin_chat_id
+            entity.external_id = chat.external_id
+            entity.backend = chat.backend
+            entity.channel_id = chat.channel_id
             entity.skill = chat.skill
             entity.active_trace_id = chat.active_trace_id
             entity.trace_ids = chat.trace_ids
