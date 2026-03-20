@@ -154,7 +154,7 @@ function getSkillColor(skill: string): string {
 
 export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(initialTraceId || null);
-  const [expandedChats, setExpandedChats] = useState<Set<string>>(new Set());
+  const [expandedParticipants, setExpandedParticipants] = useState<Set<number>>(new Set());
   const [directTrace, setDirectTrace] = useState<TraceSummary | null>(null);
 
   // Fetch trace directly when initialTraceId is provided
@@ -201,11 +201,11 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
 
   const selectedTrace = traces.find((t) => t.trace_id === selectedTraceId);
 
-  const toggleChat = (chatId: string) => {
-    setExpandedChats((prev) => {
+  const toggleParticipant = (index: number) => {
+    setExpandedParticipants((prev) => {
       const next = new Set(prev);
-      if (next.has(chatId)) next.delete(chatId);
-      else next.add(chatId);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -239,7 +239,7 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
                     key={t.trace_id}
                     onClick={() => {
                       setSelectedTraceId(sel ? null : t.trace_id);
-                      setExpandedChats(new Set());
+                      setExpandedParticipants(new Set());
                     }}
                     className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
                       sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
@@ -269,20 +269,20 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
         ) : (
           <div className="space-y-2">
             <div className="text-sol-base1 text-xs font-mono mb-3">
-              Trace: {selectedTrace.trace_id.slice(0, 12)}...
+              Trace: {selectedTrace.trace_id}
             </div>
             {/* Timeline */}
             <div className="relative pl-4 border-l-2 border-sol-base02 space-y-3">
               {selectedTrace.participants.map((p, i) => {
-                const isExpanded = expandedChats.has(p.chat_id);
+                const isExpanded = expandedParticipants.has(i);
                 return (
-                  <div key={p.chat_id} className="relative">
+                  <div key={i} className="relative">
                     {/* Timeline dot */}
                     <div className={`absolute -left-[1.3rem] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-sol-base03 ${getSkillColor(p.skill).replace("text-", "bg-")}`} />
                     {/* Participant card */}
                     <div className="bg-sol-base02/50 rounded-lg overflow-hidden">
                       <button
-                        onClick={() => toggleChat(p.chat_id)}
+                        onClick={() => toggleParticipant(i)}
                         className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-sol-base02 transition-colors cursor-pointer"
                       >
                         <svg
@@ -309,7 +309,7 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
                       </button>
                       {isExpanded && (
                         <div className="border-t border-sol-base02 px-1">
-                          <ParticipantChat chatId={p.chat_id} messageIds={p.message_ids} isLoggedIn={isLoggedIn} />
+                          <ParticipantChat key={i} chatId={p.chat_id} messageIds={p.message_ids} isLoggedIn={isLoggedIn} />
                         </div>
                       )}
                     </div>
