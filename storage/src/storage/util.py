@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 from typing import List
@@ -132,6 +133,44 @@ def markdown_to_telegram_html(text: str) -> str:
         text = text.replace(f"\x00PH{i}\x00", ph)
 
     return text
+
+
+def get_telegram_bot_token() -> str:
+    """Get Telegram bot token from environment."""
+    return os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+
+
+def parse_telegram_channel_id(channel_id: str):
+    """Parse 'telegram:{group_id}:{topic_id}' into (group_id, topic_id) or None."""
+    if not channel_id or not channel_id.startswith("telegram:"):
+        return None
+    parts = channel_id.split(":", 2)
+    if len(parts) != 3:
+        return None
+    return parts[1], int(parts[2])
+
+
+def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None) -> None:
+    """Send a message to Telegram with HTML formatting, chunking, and plain-text fallback."""
+    import httpx
+
+    html_text = markdown_to_telegram_html(text)
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    MAX_LEN = 4096
+    html_chunks = [html_text[i:i + MAX_LEN] for i in range(0, len(html_text), MAX_LEN)]
+    plain_chunks = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+
+    with httpx.Client() as client:
+        for i, chunk in enumerate(html_chunks):
+            payload = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"}
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
+            resp = client.post(url, json=payload)
+            if not resp.is_success:
+                fallback_payload = {"chat_id": chat_id, "text": plain_chunks[i] if i < len(plain_chunks) else chunk}
+                if message_thread_id:
+                    fallback_payload["message_thread_id"] = message_thread_id
+                client.post(url, json=fallback_payload)
 
 
 def build_message_path(messages: List, message_id: str) -> List:
