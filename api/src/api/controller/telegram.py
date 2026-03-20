@@ -11,11 +11,11 @@ from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, u
 from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
 from storage.entity.dto import Message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, markdown_to_telegram_html
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
 
 router = APIRouter(prefix="/telegram")
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
@@ -25,25 +25,10 @@ def _bot_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
 
-async def _send_message(chat_id, text: str, parse_mode: Optional[str] = "HTML", message_thread_id=None):
+async def _send_message(chat_id, text: str, message_thread_id=None):
     """Send a message to a Telegram chat, splitting if too long."""
-    if parse_mode == "HTML":
-        text = markdown_to_telegram_html(text)
-    MAX_LEN = 4096
-    chunks = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
-    async with httpx.AsyncClient() as client:
-        for chunk in chunks:
-            payload = {"chat_id": chat_id, "text": chunk}
-            if parse_mode:
-                payload["parse_mode"] = parse_mode
-            if message_thread_id:
-                payload["message_thread_id"] = message_thread_id
-            resp = await client.post(_bot_api_url("sendMessage"), json=payload)
-            # Retry without parse_mode if formatting fails
-            if not resp.is_success and parse_mode:
-                payload.pop("parse_mode")
-                payload["text"] = chunk  # keep original chunk
-                await client.post(_bot_api_url("sendMessage"), json=payload)
+    import asyncio
+    await asyncio.to_thread(send_telegram_message, TELEGRAM_BOT_TOKEN, chat_id, text, message_thread_id)
 
 
 
@@ -276,7 +261,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         _send_chat_message(
             chat_id,
             user_id=user.id,
-            post_hooks=[{"type": "telegram_send", "telegram_chat_id": telegram_chat_id, "message_thread_id": message_thread_id}],
+            # No post_hooks needed — run_chat auto-sends assistant reply via channel_id
         )
     except Exception as e:
         logger.exception("_handle_message: failed to queue message: {}", e)

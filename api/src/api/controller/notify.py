@@ -26,7 +26,7 @@ class NotifyRequest(BaseModel):
     from_chat_id: Optional[str] = None
     from_work_dir: Optional[str] = None
     from_skill: Optional[str] = None
-    new_chat: Optional[bool] = False
+    resume_chat: Optional[bool] = False
 
 
 class NotifyResponse(BaseModel):
@@ -58,7 +58,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     # 2. skill's telegram topic channel (most recent chat for this skill)
     # 3. create new chat
     chat_id = None
-    if not req.new_chat:
+    if req.resume_chat:
         # Priority 1: find chat by skill + trace_id
         from storage.repository.chat import find_chat_by_skill_and_trace
         existing = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
@@ -132,7 +132,8 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             logger.debug("notify telegram: no topic found for skill '{}'", req.skill)
             return
 
-        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+        from storage.util import get_telegram_bot_token
+        bot_token = get_telegram_bot_token()
         if not bot_token:
             logger.warning("notify telegram: TELEGRAM_BOT_TOKEN not set")
             return

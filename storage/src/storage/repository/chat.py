@@ -156,6 +156,9 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
         if entity:
             entity.json_content = content
             entity.title = title
+            entity.skill = chat.skill
+            entity.active_trace_id = chat.active_trace_id
+            entity.trace_ids = chat.trace_ids
         else:
             raise ValueError(f"Chat with id {chat.id} not found")
         return chat
