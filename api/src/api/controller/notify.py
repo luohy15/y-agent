@@ -25,7 +25,7 @@ class NotifyRequest(BaseModel):
     from_chat_id: Optional[str] = None
     from_work_dir: Optional[str] = None
     from_skill: Optional[str] = None
-    resume_chat: Optional[bool] = False
+    force_new: Optional[bool] = False
 
 
 class NotifyResponse(BaseModel):
@@ -53,7 +53,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     # 2. skill's telegram topic channel (most recent chat for this skill)
     # 3. create new chat
     chat_id = None
-    if req.resume_chat:
+    if not req.force_new:
         # Priority 1: find chat by skill + trace_id
         from storage.repository.chat import find_chat_by_skill_and_trace
         existing = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
