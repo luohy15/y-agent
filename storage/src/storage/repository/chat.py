@@ -201,11 +201,21 @@ def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
     """Update the channel_id for a chat, clearing it from any other chat that had it."""
     with get_db() as session:
         # Clear channel_id from any other chat that currently owns it
-        session.query(ChatEntity).filter_by(user_id=user_id, channel_id=channel_id).filter(
+        old_entities = session.query(ChatEntity).filter_by(user_id=user_id, channel_id=channel_id).filter(
             ChatEntity.chat_id != chat_id
-        ).update({"channel_id": None})
-        # Set channel_id on the target chat
-        session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update({"channel_id": channel_id})
+        ).all()
+        for entity in old_entities:
+            entity.channel_id = None
+            data = json.loads(entity.json_content)
+            data.pop("channel_id", None)
+            entity.json_content = json.dumps(data)
+        # Set channel_id on the target chat (both column and json_content)
+        entity = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).first()
+        if entity:
+            entity.channel_id = channel_id
+            data = json.loads(entity.json_content)
+            data["channel_id"] = channel_id
+            entity.json_content = json.dumps(data)
 
 
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0) -> list:
