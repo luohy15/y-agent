@@ -20,6 +20,8 @@ class ChatSummary:
     created_at: str
     updated_at: str
     skill: str = ""
+    created_at_unix: int = 0
+    updated_at_unix: int = 0
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
@@ -263,6 +265,22 @@ def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Opt
         return None
 
 
+def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
+    """Find all chats in a trace, returning (chat_id, title, skill, json_content) tuples.
+    Includes json_content so caller can extract message-level time segments."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity)
+                .filter_by(user_id=user_id)
+                .filter(ChatEntity.trace_ids.isnot(None))
+                .order_by(ChatEntity.created_at_unix.asc())
+                .all())
+        return [
+            (row.chat_id, row.title or "", row.skill or "", row.json_content)
+            for row in rows
+            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
+        ]
+
+
 def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
     """Find all chats that participate in a given trace."""
     from sqlalchemy import cast, String
@@ -281,6 +299,8 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
                 skill=row.skill or "",
+                created_at_unix=row.created_at_unix or 0,
+                updated_at_unix=row.updated_at_unix or 0,
             )
             for row in rows
             if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
