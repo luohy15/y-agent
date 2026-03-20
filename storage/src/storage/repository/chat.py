@@ -105,6 +105,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = chat.backend
             entity.channel_id = chat.channel_id
+            entity.active_trace_id = chat.active_trace_id
+            entity.trace_ids = chat.trace_ids
         else:
             entity = ChatEntity(
                 user_id=user_id,
@@ -114,6 +116,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
                 channel_id=chat.channel_id,
+                active_trace_id=chat.active_trace_id,
+                trace_ids=chat.trace_ids,
                 json_content=content,
             )
             session.add(entity)
@@ -196,6 +200,29 @@ def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
         ).update({"channel_id": None})
         # Set channel_id on the target chat
         session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update({"channel_id": channel_id})
+
+
+def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
+    """Find all chats that participate in a given trace."""
+    from sqlalchemy import cast, String
+    with get_db() as session:
+        rows = (session.query(ChatEntity)
+                .filter_by(user_id=user_id)
+                .filter(ChatEntity.trace_ids.isnot(None))
+                .options(defer(ChatEntity.json_content))
+                .order_by(ChatEntity.updated_at_unix.desc())
+                .all())
+        # Filter in Python since JSON array contains is DB-specific
+        return [
+            ChatSummary(
+                chat_id=row.chat_id,
+                title=row.title or "",
+                created_at=row.created_at or "",
+                updated_at=row.updated_at or "",
+            )
+            for row in rows
+            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
+        ]
 
 
 def find_chat_by_channel_sync(user_id: int, channel_id: str) -> Optional[Chat]:

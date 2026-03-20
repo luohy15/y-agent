@@ -45,6 +45,10 @@ async def post_notify(req: NotifyRequest, request: Request):
     if trace is None:
         trace = Trace(trace_id=req.trace_id)
 
+    # Persist active_trace_id on the caller's chat
+    if req.from_chat_id:
+        await _set_chat_active_trace(req.from_chat_id, req.trace_id)
+
     # Register or update the caller as participant
     if req.from_chat_id:
         caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
@@ -67,7 +71,7 @@ async def post_notify(req: NotifyRequest, request: Request):
             ))
     trace_service.save_trace(user_id, trace)
 
-    # Build message content (trace context is passed via env vars, not message)
+    # Build message content with trace_id on the message itself
     msg_content = f'/{req.skill} {req.message}'
     user_msg = Message.from_dict({
         "role": "user",
@@ -75,6 +79,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp(),
         "id": generate_message_id(),
+        "trace_id": req.trace_id,
     })
 
     # Find existing chat_id with 3-tier priority:
@@ -109,6 +114,9 @@ async def post_notify(req: NotifyRequest, request: Request):
         chat_id = generate_id()
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
+    # Persist active_trace_id on the target chat so it survives interruptions
+    await _set_chat_active_trace(chat_id, req.trace_id)
+
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
     _send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
 
@@ -116,6 +124,26 @@ async def post_notify(req: NotifyRequest, request: Request):
     await _notify_telegram_topic(user_id, req, chat_id)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
+
+
+async def _set_chat_active_trace(chat_id: str, trace_id: str) -> None:
+    """Set active_trace_id and append to trace_ids on the chat."""
+    chat = await chat_service.get_chat_by_id(chat_id)
+    if not chat:
+        return
+    changed = False
+    if chat.active_trace_id != trace_id:
+        chat.active_trace_id = trace_id
+        changed = True
+    if not chat.trace_ids:
+        chat.trace_ids = [trace_id]
+        changed = True
+    elif trace_id not in chat.trace_ids:
+        chat.trace_ids.append(trace_id)
+        changed = True
+    if changed:
+        from storage.repository import chat as chat_repo
+        await chat_repo.save_chat_by_id(chat)
 
 
 async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str) -> None:

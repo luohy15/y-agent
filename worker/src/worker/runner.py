@@ -212,6 +212,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         logger.error("Chat {} not found", chat_id)
         return
 
+    # Fallback: read active_trace_id from chat if not passed via queue
+    if not trace_id and chat.active_trace_id:
+        trace_id = chat.active_trace_id
+        logger.info("Using active_trace_id from chat: {}", trace_id)
+
     # Reset interrupted flag and mark as running
     chat.interrupted = False
     chat.running = True
