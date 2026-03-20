@@ -45,13 +45,15 @@ async def post_notify(req: NotifyRequest, request: Request):
     if trace is None:
         trace = Trace(trace_id=req.trace_id)
         # Register the caller as the first participant (trace origin)
-        if req.from_skill and req.from_chat_id:
+        if req.from_chat_id:
             caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
+            # Fallback skill name: from_skill > "unknown"
+            caller_skill = req.from_skill or "unknown"
             message_id = caller_chat.messages[-1].id if caller_chat and caller_chat.messages else None
             work_dir = caller_chat.work_dir if caller_chat else None
             trace.participants.append(TraceParticipant(
                 chat_id=req.from_chat_id,
-                skill=req.from_skill,
+                skill=caller_skill,
                 work_dir=work_dir,
                 message_id=message_id,
             ))
@@ -100,7 +102,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
-    _send_chat_message(chat_id, bot_name=req.skill, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
+    _send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
 
     # Send Telegram notification to the target skill's topic
     await _notify_telegram_topic(user_id, req, chat_id)
