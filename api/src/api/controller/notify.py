@@ -49,7 +49,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     if req.from_chat_id:
         caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
         caller_skill = req.from_skill or "unknown"
-        message_id = caller_chat.messages[-1].id if caller_chat and caller_chat.messages else None
+        message_id = next((m.id for m in reversed(caller_chat.messages) if m.role == "user"), None) if caller_chat and caller_chat.messages else None
         work_dir = caller_chat.work_dir if caller_chat else None
 
         existing_caller = next((p for p in trace.participants if p.chat_id == req.from_chat_id), None)
