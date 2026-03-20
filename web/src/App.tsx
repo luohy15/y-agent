@@ -238,6 +238,19 @@ export default function App() {
               <>
                 {/* Tab switcher */}
                 <button
+                  onClick={() => setBottomTab("trace")}
+                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "trace" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  title="Traces"
+                >
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="3" cy="3" r="1.5" />
+                    <circle cx="11" cy="7" r="1.5" />
+                    <circle cx="3" cy="11" r="1.5" />
+                    <line x1="4.5" y1="3.5" x2="9.5" y2="6.5" />
+                    <line x1="9.5" y1="7.5" x2="4.5" y2="10.5" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => setBottomTab("chat")}
                   className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "chat" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
                   title="Chat"
@@ -254,19 +267,6 @@ export default function App() {
                   <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <polyline points="2,4 6,7 2,10" />
                     <line x1="7" y1="11" x2="12" y2="11" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setBottomTab("trace")}
-                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "trace" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
-                  title="Traces"
-                >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <circle cx="3" cy="3" r="1.5" />
-                    <circle cx="11" cy="7" r="1.5" />
-                    <circle cx="3" cy="11" r="1.5" />
-                    <line x1="4.5" y1="3.5" x2="9.5" y2="6.5" />
-                    <line x1="9.5" y1="7.5" x2="4.5" y2="10.5" />
                   </svg>
                 </button>
                 <div className="w-px h-4 bg-sol-base02 mx-0.5" />
