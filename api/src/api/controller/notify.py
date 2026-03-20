@@ -44,20 +44,28 @@ async def post_notify(req: NotifyRequest, request: Request):
     trace = trace_service.get_trace(user_id, req.trace_id)
     if trace is None:
         trace = Trace(trace_id=req.trace_id)
-        # Register the caller as the first participant (trace origin)
-        if req.from_chat_id:
-            caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
-            # Fallback skill name: from_skill > "unknown"
-            caller_skill = req.from_skill or "unknown"
-            message_id = caller_chat.messages[-1].id if caller_chat and caller_chat.messages else None
-            work_dir = caller_chat.work_dir if caller_chat else None
+
+    # Register or update the caller as participant
+    if req.from_chat_id:
+        caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
+        caller_skill = req.from_skill or "unknown"
+        message_id = caller_chat.messages[-1].id if caller_chat and caller_chat.messages else None
+        work_dir = caller_chat.work_dir if caller_chat else None
+
+        existing_caller = next((p for p in trace.participants if p.chat_id == req.from_chat_id), None)
+        if existing_caller:
+            # Only append exit message_id when this chat is the last participant (re-entry point)
+            is_last = trace.participants and trace.participants[-1].chat_id == req.from_chat_id
+            if is_last and message_id and existing_caller.message_ids and existing_caller.message_ids[-1] != message_id:
+                existing_caller.message_ids = existing_caller.message_ids[:1] + [message_id]
+        else:
             trace.participants.append(TraceParticipant(
                 chat_id=req.from_chat_id,
                 skill=caller_skill,
                 work_dir=work_dir,
-                message_id=message_id,
+                message_ids=[message_id] if message_id else [],
             ))
-        trace_service.save_trace(user_id, trace)
+    trace_service.save_trace(user_id, trace)
 
     # Build message content (trace context is passed via env vars, not message)
     msg_content = f'/{req.skill} {req.message}'
@@ -127,7 +135,9 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             return
 
         from_label = req.from_skill or "unknown"
-        text = f"📨 {from_label} → {req.skill}\n\n{req.message}"
+        web_url = os.environ.get("Y_AGENT_WEB_URL", "https://yovy.app")
+        trace_link = f"{web_url}/trace/{req.trace_id}"
+        text = f"📨 {from_label} → {req.skill}\n\n{req.message}\n\n🔗 {trace_link}"
 
         from api.controller.telegram import _send_message
         await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)

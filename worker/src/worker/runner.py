@@ -28,7 +28,7 @@ def check_interrupted(chat_id: str) -> bool:
 
 
 
-def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
+def _run_post_hooks(chat, user_id: int, post_hooks: list, trace_id: str = None) -> None:
     """Execute post-completion hooks."""
     for hook in post_hooks:
         hook_type = hook.get("type")
@@ -38,7 +38,7 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list) -> None:
             elif hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
             elif hook_type == "telegram_send":
-                _hook_telegram_send(chat, hook, user_id)
+                _hook_telegram_send(chat, hook, user_id, trace_id=trace_id)
             elif hook_type == "telegram_send_always":
                 pass  # handled separately in run_chat to always fire
             else:
@@ -118,7 +118,7 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
-def _hook_telegram_send(chat, hook: dict, user_id: int) -> None:
+def _hook_telegram_send(chat, hook: dict, user_id: int, trace_id: str = None) -> None:
     """Send a message to a Telegram topic.
 
     Target resolution (in order):
@@ -173,6 +173,11 @@ def _hook_telegram_send(chat, hook: dict, user_id: int) -> None:
             logger.info("telegram_send: no assistant message to send")
             return
 
+    # Append trace link if available
+    if trace_id:
+        web_url = os.environ.get("Y_AGENT_WEB_URL", "https://yovy.app")
+        reply_text += f"\n\n🔗 {web_url}/trace/{trace_id}"
+
     # --- Send ---
     from storage.util import markdown_to_telegram_html
     html_text = markdown_to_telegram_html(reply_text)
@@ -221,18 +226,20 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             trace = trace_service.get_trace(user_id, trace_id)
             if trace is None:
                 trace = Trace(trace_id=trace_id)
-            # Get the last message id as the trigger message
+            # Get the last message id as the entry message
             last_message_id = chat.messages[-1].id if chat.messages else None
             # Find existing participant for this skill
             existing = next((p for p in trace.participants if p.skill == skill), None)
             if existing:
                 existing.chat_id = chat_id
                 existing.work_dir = work_dir
-                existing.message_id = last_message_id
+                # Append as entry message_id (first in list)
+                if last_message_id and (not existing.message_ids or existing.message_ids[0] != last_message_id):
+                    existing.message_ids = [last_message_id] + existing.message_ids[1:]
             else:
-                trace.participants.append(TraceParticipant(chat_id=chat_id, skill=skill, work_dir=work_dir, message_id=last_message_id))
+                trace.participants.append(TraceParticipant(chat_id=chat_id, skill=skill, work_dir=work_dir, message_ids=[last_message_id] if last_message_id else []))
             trace_service.save_trace(user_id, trace)
-            logger.info("Registered trace participant: trace_id={} skill={} chat_id={} message_id={}", trace_id, skill, chat_id, last_message_id)
+            logger.info("Registered trace participant: trace_id={} skill={} chat_id={} message_ids={}", trace_id, skill, chat_id, existing.message_ids if existing else [last_message_id])
         except Exception as e:
             logger.exception("Failed to register trace participant: {}", e)
 
@@ -258,7 +265,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             # Execute post hooks if chat completed (not interrupted)
             if not fresh.interrupted and post_hooks:
                 logger.info("Running {} post hooks for chat {}", len(post_hooks), chat_id)
-                _run_post_hooks(fresh, user_id, post_hooks)
+                _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
             # Always run telegram_send_always hooks regardless of interrupted/error status
             if post_hooks:
                 status = "error" if error_occurred else ("interrupted" if fresh.interrupted else "completed")
@@ -266,7 +273,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
                     if hook.get("type") == "telegram_send_always":
                         try:
                             hook["status"] = status
-                            _hook_telegram_send(fresh, hook, user_id)
+                            _hook_telegram_send(fresh, hook, user_id, trace_id=trace_id)
                         except Exception as e:
                             logger.exception("telegram_send_always hook failed: {}", e)
 

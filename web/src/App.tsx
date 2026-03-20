@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import { API, authFetch } from "./api";
 import Header from "./components/Header";
@@ -19,6 +20,7 @@ interface VmConfigItem {
 }
 
 export default function App() {
+  const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
   const auth = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
@@ -38,7 +40,7 @@ export default function App() {
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
-  const [bottomTab, setBottomTab] = useState<"chat" | "terminal" | "trace">(() => (localStorage.getItem("bottomTab") as "chat" | "terminal" | "trace") || "chat");
+  const [bottomTab, setBottomTab] = useState<"chat" | "terminal" | "trace">(() => urlTraceId ? "trace" : ((localStorage.getItem("bottomTab") as "chat" | "terminal" | "trace") || "chat"));
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => (localStorage.getItem("sidebarPanel") as SidebarPanel) || "files");
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -333,7 +335,7 @@ export default function App() {
                 </div>
                 {/* Trace (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "trace" ? "" : "invisible pointer-events-none"}`}>
-                  <TraceView isLoggedIn={auth.isLoggedIn} />
+                  <TraceView isLoggedIn={auth.isLoggedIn} initialTraceId={urlTraceId} />
                 </div>
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
