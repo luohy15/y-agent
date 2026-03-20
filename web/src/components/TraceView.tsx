@@ -1,20 +1,20 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import useSWRInfinite from "swr/infinite";
+import useSWR from "swr";
 import { API, authFetch, clearToken, getToken } from "../api";
 import MessageList, { type Message, extractContent } from "./MessageList";
 
-interface TraceParticipant {
+interface TraceChat {
   chat_id: string;
+  title: string;
   skill: string;
-  work_dir?: string;
-  message_ids?: string[];
+  created_at: string;
+  updated_at: string;
 }
 
-interface TraceSummary {
+interface TraceListItem {
   trace_id: string;
-  participants: TraceParticipant[];
-  created_at?: string;
-  updated_at?: string;
+  updated_at: string;
 }
 
 interface TraceViewProps {
@@ -50,7 +50,7 @@ function getSkillColors(skill: string) {
   return SKILL_COLORS[skill] || SKILL_COLORS["default"];
 }
 
-// Sub-component: load messages for a participant, filtered by trace_id
+// Sub-component: load messages for a chat, filtered by trace_id
 function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; traceId: string; isLoggedIn: boolean }) {
   const [messages, setMessages] = useState<TracedMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,7 +79,6 @@ function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; trac
         const timestamp = msg.timestamp;
         const msgTraceId = msg.trace_id as string | undefined;
 
-        // User messages set the trace context
         if (role === "user" && msgTraceId) {
           currentTraceId = msgTraceId;
         }
@@ -133,7 +132,6 @@ function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; trac
     };
   }, [chatId, isLoggedIn]);
 
-  // Filter messages belonging to this trace
   const filteredMessages = useMemo(() => {
     return messages.filter((m) => m.traceId === traceId);
   }, [messages, traceId]);
@@ -148,35 +146,31 @@ function ParticipantChat({ chatId, traceId, isLoggedIn }: { chatId: string; trac
   );
 }
 
-// Waterfall bar for a single participant
+// Waterfall row for a single chat participant
 function WaterfallRow({
-  participant,
-  index,
+  chat,
   traceId,
   isExpanded,
   onToggle,
   isLoggedIn,
 }: {
-  participant: TraceParticipant;
-  index: number;
+  chat: TraceChat;
   traceId: string;
   isExpanded: boolean;
   onToggle: () => void;
   isLoggedIn: boolean;
 }) {
-  const colors = getSkillColors(participant.skill);
+  const colors = getSkillColors(chat.skill);
 
   return (
     <div className="group">
-      {/* Row header + bar */}
       <div className="flex items-center gap-0 min-h-[2rem]">
-        {/* Skill label */}
         <button
           onClick={onToggle}
           className="w-28 shrink-0 flex items-center gap-1.5 px-2 py-1 text-left hover:bg-sol-base02/50 rounded transition-colors cursor-pointer"
         >
           <div className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
-          <span className={`text-xs font-semibold truncate ${colors.text}`}>{participant.skill}</span>
+          <span className={`text-xs font-semibold truncate ${colors.text}`}>{chat.skill || "unknown"}</span>
           <svg
             className={`w-2.5 h-2.5 shrink-0 text-sol-base01 transition-transform ml-auto ${isExpanded ? "rotate-90" : ""}`}
             viewBox="0 0 12 12"
@@ -185,24 +179,22 @@ function WaterfallRow({
             <path d="M4 2l4 4-4 4z" />
           </svg>
         </button>
-        {/* Bar area */}
         <div className="flex-1 min-w-0 h-6 relative flex items-center px-1">
           <div className={`h-4 rounded ${colors.bg} border ${colors.border} min-w-[2rem] w-full flex items-center px-2`}>
             <span className="text-[0.6rem] text-sol-base01 font-mono truncate">
-              {participant.chat_id.slice(0, 8)}
+              {chat.chat_id.slice(0, 8)}
             </span>
-            {participant.work_dir && (
-              <span className="text-[0.55rem] text-sol-base01 ml-auto truncate hidden sm:inline" title={participant.work_dir}>
-                {participant.work_dir.split("/").pop()}
+            {chat.title && (
+              <span className="text-[0.55rem] text-sol-base01 ml-auto truncate hidden sm:inline" title={chat.title}>
+                {chat.title.slice(0, 40)}
               </span>
             )}
           </div>
         </div>
       </div>
-      {/* Expanded messages */}
       {isExpanded && (
         <div className="ml-28 border-l-2 border-sol-base02 pl-2 mb-2">
-          <ParticipantChat chatId={participant.chat_id} traceId={traceId} isLoggedIn={isLoggedIn} />
+          <ParticipantChat chatId={chat.chat_id} traceId={traceId} isLoggedIn={isLoggedIn} />
         </div>
       )}
     </div>
@@ -211,31 +203,18 @@ function WaterfallRow({
 
 export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(initialTraceId || null);
-  const [expandedParticipants, setExpandedParticipants] = useState<Set<number>>(new Set());
-  const [directTrace, setDirectTrace] = useState<TraceSummary | null>(null);
-
-  // Fetch trace directly when initialTraceId is provided
-  useEffect(() => {
-    if (!initialTraceId || !isLoggedIn) return;
-    authFetch(`${API}/api/trace?trace_id=${encodeURIComponent(initialTraceId)}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setDirectTrace(data); })
-      .catch(() => {});
-  }, [initialTraceId, isLoggedIn]);
+  const [expandedChats, setExpandedChats] = useState<Set<string>>(new Set());
 
   // Trace list with infinite scroll
-  const getKey = (pageIndex: number, previousPageData: TraceSummary[] | null) => {
+  const getKey = (pageIndex: number, previousPageData: TraceListItem[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null;
     return `${API}/api/trace/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}`;
   };
 
-  const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceSummary[]>(getKey, fetcher);
+  const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceListItem[]>(getKey, fetcher);
 
-  const listTraces = data ? data.flat() : [];
-  const traces = directTrace && !listTraces.some((t) => t.trace_id === directTrace.trace_id)
-    ? [directTrace, ...listTraces]
-    : listTraces;
+  const traces = data ? data.flat() : [];
   const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isEmpty = data?.[0]?.length === 0;
   const isReachingEnd = isEmpty || (data && data[data.length - 1]?.length < PAGE_SIZE);
@@ -255,13 +234,17 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
     [isValidating, isReachingEnd, setSize],
   );
 
-  const selectedTrace = traces.find((t) => t.trace_id === selectedTraceId);
+  // Fetch chats for selected trace
+  const { data: traceChats } = useSWR<TraceChat[]>(
+    selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
+    fetcher,
+  );
 
-  const toggleParticipant = (index: number) => {
-    setExpandedParticipants((prev) => {
+  const toggleChat = (chatId: string) => {
+    setExpandedChats((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(chatId)) next.delete(chatId);
+      else next.add(chatId);
       return next;
     });
   };
@@ -286,29 +269,21 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
             <>
               {traces.map((t) => {
                 const sel = t.trace_id === selectedTraceId;
-                const dt = t.updated_at || t.created_at ? new Date(t.updated_at || t.created_at!) : null;
+                const dt = t.updated_at ? new Date(t.updated_at) : null;
                 const date = dt ? dt.toLocaleDateString([], { month: "2-digit", day: "2-digit" }) : "";
                 const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-                const skills = [...new Set(t.participants.map((p) => p.skill))];
                 return (
                   <div
                     key={t.trace_id}
                     onClick={() => {
                       setSelectedTraceId(sel ? null : t.trace_id);
-                      setExpandedParticipants(new Set());
+                      setExpandedChats(new Set());
                     }}
                     className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
                       sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                     }`}
                   >
-                    {/* Skill badges */}
-                    <div className="flex flex-wrap gap-0.5 mb-0.5">
-                      {skills.map((s) => (
-                        <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
-                          {s}
-                        </span>
-                      ))}
-                    </div>
+                    <div className="truncate text-sol-base0 font-mono text-[0.65rem]">{t.trace_id.slice(0, 16)}</div>
                     <div className="text-[0.6rem] text-sol-base01">{date} {time}</div>
                   </div>
                 );
@@ -325,31 +300,39 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
 
       {/* Right: Waterfall view */}
       <div className="flex-1 min-w-0 overflow-y-auto bg-sol-base03 p-3">
-        {!selectedTrace ? (
+        {!selectedTraceId ? (
           <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
             Select a trace to view details
           </div>
+        ) : !traceChats ? (
+          <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
+            Loading...
+          </div>
+        ) : traceChats.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
+            No chats found for this trace
+          </div>
         ) : (
           <div>
-            {/* Header */}
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-sol-base1 text-xs font-mono">{selectedTrace.trace_id}</span>
-              {selectedTrace.created_at && (
-                <span className="text-[0.6rem] text-sol-base01">
-                  {new Date(selectedTrace.created_at).toLocaleString()}
-                </span>
-              )}
+              <span className="text-sol-base1 text-xs font-mono">{selectedTraceId}</span>
+              {/* Skill badges */}
+              <div className="flex flex-wrap gap-0.5">
+                {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
+                  <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
+                    {s}
+                  </span>
+                ))}
+              </div>
             </div>
-            {/* Waterfall rows */}
             <div className="space-y-0.5">
-              {selectedTrace.participants.map((p, i) => (
+              {traceChats.map((c) => (
                 <WaterfallRow
-                  key={`${p.chat_id}-${i}`}
-                  participant={p}
-                  index={i}
-                  traceId={selectedTrace.trace_id}
-                  isExpanded={expandedParticipants.has(i)}
-                  onToggle={() => toggleParticipant(i)}
+                  key={c.chat_id}
+                  chat={c}
+                  traceId={selectedTraceId}
+                  isExpanded={expandedChats.has(c.chat_id)}
+                  onToggle={() => toggleChat(c.chat_id)}
                   isLoggedIn={isLoggedIn}
                 />
               ))}

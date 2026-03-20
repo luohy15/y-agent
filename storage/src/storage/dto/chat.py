@@ -132,6 +132,7 @@ class Chat:
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
     channel_id: Optional[str] = None  # e.g. "telegram:123456789"
+    skill: Optional[str] = None  # skill name (e.g. "dev", "dev-manager")
     trace_ids: Optional[List[str]] = None  # all traces this chat participates in
     active_trace_id: Optional[str] = None  # current trace for new messages
     work_dir: Optional[str] = None
@@ -156,6 +157,7 @@ class Chat:
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
             channel_id=data.get('channel_id'),
+            skill=data.get('skill'),
             trace_ids=data.get('trace_ids'),
             active_trace_id=data.get('active_trace_id'),
             work_dir=data.get('work_dir'),
@@ -185,6 +187,8 @@ class Chat:
             result['selected_message_id'] = self.selected_message_id
         if self.channel_id is not None:
             result['channel_id'] = self.channel_id
+        if self.skill is not None:
+            result['skill'] = self.skill
         if self.trace_ids:
             result['trace_ids'] = self.trace_ids
         if self.active_trace_id is not None:

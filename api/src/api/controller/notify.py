@@ -6,8 +6,6 @@ from loguru import logger
 from pydantic import BaseModel
 
 from storage.service import chat as chat_service
-from storage.service import trace as trace_service
-from storage.dto.trace import Trace, TraceParticipant
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
@@ -40,36 +38,9 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # Get or create trace (notify is where a trace starts)
-    trace = trace_service.get_trace(user_id, req.trace_id)
-    if trace is None:
-        trace = Trace(trace_id=req.trace_id)
-
-    # Persist active_trace_id on the caller's chat
+    # Persist trace context on the caller's chat
     if req.from_chat_id:
-        await _set_chat_active_trace(req.from_chat_id, req.trace_id)
-
-    # Register or update the caller as participant
-    if req.from_chat_id:
-        caller_chat = await chat_service.get_chat(user_id, req.from_chat_id)
-        caller_skill = req.from_skill or "unknown"
-        message_id = next((m.id for m in reversed(caller_chat.messages) if m.role == "user"), None) if caller_chat and caller_chat.messages else None
-        work_dir = caller_chat.work_dir if caller_chat else None
-
-        existing_caller = next((p for p in trace.participants if p.chat_id == req.from_chat_id), None)
-        if existing_caller:
-            # Only append exit message_id when this chat is the last participant (re-entry point)
-            is_last = trace.participants and trace.participants[-1].chat_id == req.from_chat_id
-            if is_last and message_id and existing_caller.message_ids and existing_caller.message_ids[-1] != message_id:
-                existing_caller.message_ids = existing_caller.message_ids[:1] + [message_id]
-        else:
-            trace.participants.append(TraceParticipant(
-                chat_id=req.from_chat_id,
-                skill=caller_skill,
-                work_dir=work_dir,
-                message_ids=[message_id] if message_id else [],
-            ))
-    trace_service.save_trace(user_id, trace)
+        await _set_chat_trace_and_skill(req.from_chat_id, req.trace_id, req.from_skill)
 
     # Build message content with trace_id on the message itself
     msg_content = f'/{req.skill} {req.message}'
@@ -83,15 +54,16 @@ async def post_notify(req: NotifyRequest, request: Request):
     })
 
     # Find existing chat_id with 3-tier priority:
-    # 1. trace participant (skill already registered in this trace)
+    # 1. chat with matching skill + trace_id in trace_ids
     # 2. skill's telegram topic channel (most recent chat for this skill)
     # 3. create new chat
     chat_id = None
     if not req.new_chat:
-        # Priority 1: trace participant
-        target_participant = next((p for p in trace.participants if p.skill == req.skill), None)
-        if target_participant:
-            chat_id = target_participant.chat_id
+        # Priority 1: find chat by skill + trace_id
+        from storage.repository.chat import find_chat_by_skill_and_trace
+        existing = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
+        if existing:
+            chat_id = existing.id
 
         # Priority 2: find by skill's telegram topic channel
         if not chat_id:
@@ -114,8 +86,8 @@ async def post_notify(req: NotifyRequest, request: Request):
         chat_id = generate_id()
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
-    # Persist active_trace_id on the target chat so it survives interruptions
-    await _set_chat_active_trace(chat_id, req.trace_id)
+    # Persist trace context on the target chat
+    await _set_chat_trace_and_skill(chat_id, req.trace_id, req.skill)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
     _send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
@@ -126,8 +98,8 @@ async def post_notify(req: NotifyRequest, request: Request):
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
 
 
-async def _set_chat_active_trace(chat_id: str, trace_id: str) -> None:
-    """Set active_trace_id and append to trace_ids on the chat."""
+async def _set_chat_trace_and_skill(chat_id: str, trace_id: str, skill: str = None) -> None:
+    """Set active_trace_id, append to trace_ids, and set skill on the chat."""
     chat = await chat_service.get_chat_by_id(chat_id)
     if not chat:
         return
@@ -140,6 +112,9 @@ async def _set_chat_active_trace(chat_id: str, trace_id: str) -> None:
         changed = True
     elif trace_id not in chat.trace_ids:
         chat.trace_ids.append(trace_id)
+        changed = True
+    if skill and chat.skill != skill:
+        chat.skill = skill
         changed = True
     if changed:
         from storage.repository import chat as chat_repo
