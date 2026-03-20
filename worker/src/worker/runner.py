@@ -129,10 +129,20 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         trace_id = chat.active_trace_id
         logger.info("Using active_trace_id from chat: {}", trace_id)
 
+    # Persist trace context on the chat
+    from storage.repository import chat as chat_repo
+    if trace_id:
+        chat.active_trace_id = trace_id
+        if not chat.trace_ids:
+            chat.trace_ids = [trace_id]
+        elif trace_id not in chat.trace_ids:
+            chat.trace_ids.append(trace_id)
+    if skill and chat.skill != skill:
+        chat.skill = skill
+
     # Reset interrupted flag and mark as running
     chat.interrupted = False
     chat.running = True
-    from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)

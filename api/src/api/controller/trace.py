@@ -15,13 +15,14 @@ def _get_user_id(request: Request) -> int:
 def _extract_segments(messages: list, trace_id: str) -> List[dict]:
     """Extract time segments from messages belonging to this trace.
 
-    A segment starts when a user message with matching trace_id appears,
-    and extends through subsequent messages until the next user message
-    (which may start a new segment or end the current one).
-    Returns list of {start_unix, end_unix}.
+    A segment = user message (start) through last reply before next user message (end).
+    Only user messages carry trace_id; assistant/tool messages inherit from the
+    preceding user message.
+
+    Fallback: if no user message has matching trace_id (e.g. dev-manager chat where
+    trace_id was set at chat level, not message level), use first message → last message.
     """
-    # Assign effective trace_id: user messages carry it explicitly,
-    # subsequent non-user messages inherit from the last user message
+    # Pass 1: annotate each message with whether it belongs to this trace
     current_trace = None
     annotated = []  # (unix_timestamp, belongs_to_trace)
     for m in messages:
@@ -31,12 +32,12 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
         if not ts:
             continue
 
-        if role == "user" and msg_trace:
-            current_trace = msg_trace
+        if role == "user":
+            current_trace = msg_trace  # reset on every user message (None clears it)
         belongs = (current_trace == trace_id)
         annotated.append((ts, belongs))
 
-    # Build segments from consecutive belongs=True runs
+    # Pass 2: build segments from consecutive belongs=True runs
     segments: List[dict] = []
     seg_start = None
     seg_end = None
@@ -52,6 +53,10 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
                 seg_end = None
     if seg_start is not None:
         segments.append({"start_unix": seg_start, "end_unix": seg_end})
+
+    # Fallback: no message-level match, use full chat time range
+    if not segments and annotated:
+        segments.append({"start_unix": annotated[0][0], "end_unix": annotated[-1][0]})
 
     return segments
 
