@@ -141,13 +141,16 @@ def get_telegram_bot_token() -> str:
 
 
 def parse_telegram_channel_id(channel_id: str):
-    """Parse 'telegram:{group_id}:{topic_id}' into (group_id, topic_id) or None."""
+    """Parse 'telegram:{group_id}' or 'telegram:{group_id}:{topic_id}' into (group_id, topic_id) or None.
+    topic_id is None for General topic (2-part format)."""
     if not channel_id or not channel_id.startswith("telegram:"):
         return None
     parts = channel_id.split(":", 2)
-    if len(parts) != 3:
-        return None
-    return parts[1], int(parts[2])
+    if len(parts) == 2:
+        return parts[1], None
+    if len(parts) == 3:
+        return parts[1], int(parts[2])
+    return None
 
 
 def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None) -> None:
