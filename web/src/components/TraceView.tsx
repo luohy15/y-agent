@@ -7,6 +7,7 @@ interface TraceParticipant {
   chat_id: string;
   skill: string;
   work_dir?: string;
+  message_ids?: string[];
 }
 
 interface TraceSummary {
@@ -18,6 +19,7 @@ interface TraceSummary {
 
 interface TraceViewProps {
   isLoggedIn: boolean;
+  initialTraceId?: string;
 }
 
 const PAGE_SIZE = 50;
@@ -31,9 +33,14 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
+// Extended message with original ID for range filtering
+interface TracedMessage extends Message {
+  msgId?: string;
+}
+
 // Sub-component: expandable chat messages for a participant
-function ParticipantChat({ chatId, isLoggedIn }: { chatId: string; isLoggedIn: boolean }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+function ParticipantChat({ chatId, messageIds, isLoggedIn }: { chatId: string; messageIds?: string[]; isLoggedIn: boolean }) {
+  const [messages, setMessages] = useState<TracedMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const esRef = useRef<EventSource | null>(null);
 
@@ -54,18 +61,19 @@ function ParticipantChat({ chatId, isLoggedIn }: { chatId: string; isLoggedIn: b
         const role = msg.role || "assistant";
         const content = extractContent(msg.content);
         const timestamp = msg.timestamp;
+        const msgId = msg.id as string | undefined;
 
         if (role === "user") {
-          setMessages((prev) => [...prev, { role: "user", content, timestamp }]);
+          setMessages((prev) => [...prev, { role: "user", content, timestamp, msgId }]);
         } else if (role === "assistant" && msg.tool_calls) {
           if (content.trim()) {
-            setMessages((prev) => [...prev, { role: "assistant", content, timestamp }]);
+            setMessages((prev) => [...prev, { role: "assistant", content, timestamp, msgId }]);
           }
           for (const tc of msg.tool_calls) {
             const func = tc.function || {};
             let toolArgs: Record<string, unknown> = {};
             try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-            setMessages((prev) => [...prev, { role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp }]);
+            setMessages((prev) => [...prev, { role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp, msgId }]);
           }
         } else if (role === "tool") {
           const tcId = msg.tool_call_id;
@@ -75,10 +83,10 @@ function ParticipantChat({ chatId, isLoggedIn }: { chatId: string; isLoggedIn: b
               m.toolCallId === tcId ? { ...m, role: denied ? "tool_denied" : "tool_result", content } : m
             ));
           } else {
-            setMessages((prev) => [...prev, { role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp }]);
+            setMessages((prev) => [...prev, { role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp, msgId }]);
           }
         } else {
-          setMessages((prev) => [...prev, { role: "assistant", content, timestamp }]);
+          setMessages((prev) => [...prev, { role: "assistant", content, timestamp, msgId }]);
         }
       } catch {}
     };
@@ -102,12 +110,32 @@ function ParticipantChat({ chatId, isLoggedIn }: { chatId: string; isLoggedIn: b
     };
   }, [chatId, isLoggedIn]);
 
+  // Filter messages by message_ids range
+  const filteredMessages = (() => {
+    if (!messageIds || messageIds.length === 0) return messages;
+    const startId = messageIds[0];
+    const endId = messageIds.length > 1 ? messageIds[1] : undefined;
+
+    // Find start index: first message with matching msgId
+    let startIdx = messages.findIndex((m) => m.msgId === startId);
+    if (startIdx < 0) startIdx = 0;
+
+    // Find end index: last message with matching msgId (inclusive)
+    let endIdx = messages.length;
+    if (endId) {
+      const found = messages.findIndex((m) => m.msgId === endId);
+      if (found >= 0) endIdx = found + 1;
+    }
+
+    return messages.slice(startIdx, endIdx);
+  })();
+
   return (
     <div className="max-h-[60vh] overflow-y-auto">
       {loading && messages.length === 0 && (
         <p className="text-sol-base01 italic p-2 text-xs">Loading messages...</p>
       )}
-      <MessageList messages={messages} completed={!loading} />
+      <MessageList messages={filteredMessages} running={loading} showProgress={false} />
     </div>
   );
 }
@@ -124,9 +152,19 @@ function getSkillColor(skill: string): string {
   return SKILL_COLORS[skill] || SKILL_COLORS["default"];
 }
 
-export default function TraceView({ isLoggedIn }: TraceViewProps) {
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(initialTraceId || null);
   const [expandedChats, setExpandedChats] = useState<Set<string>>(new Set());
+  const [directTrace, setDirectTrace] = useState<TraceSummary | null>(null);
+
+  // Fetch trace directly when initialTraceId is provided
+  useEffect(() => {
+    if (!initialTraceId || !isLoggedIn) return;
+    authFetch(`${API}/api/trace?trace_id=${encodeURIComponent(initialTraceId)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setDirectTrace(data); })
+      .catch(() => {});
+  }, [initialTraceId, isLoggedIn]);
 
   // Trace list with infinite scroll
   const getKey = (pageIndex: number, previousPageData: TraceSummary[] | null) => {
@@ -137,7 +175,11 @@ export default function TraceView({ isLoggedIn }: TraceViewProps) {
 
   const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceSummary[]>(getKey, fetcher);
 
-  const traces = data ? data.flat() : [];
+  const listTraces = data ? data.flat() : [];
+  // Merge directTrace if it's not already in the paginated list
+  const traces = directTrace && !listTraces.some((t) => t.trace_id === directTrace.trace_id)
+    ? [directTrace, ...listTraces]
+    : listTraces;
   const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isEmpty = data?.[0]?.length === 0;
   const isReachingEnd = isEmpty || (data && data[data.length - 1]?.length < PAGE_SIZE);
@@ -267,7 +309,7 @@ export default function TraceView({ isLoggedIn }: TraceViewProps) {
                       </button>
                       {isExpanded && (
                         <div className="border-t border-sol-base02 px-1">
-                          <ParticipantChat chatId={p.chat_id} isLoggedIn={isLoggedIn} />
+                          <ParticipantChat chatId={p.chat_id} messageIds={p.message_ids} isLoggedIn={isLoggedIn} />
                         </div>
                       )}
                     </div>

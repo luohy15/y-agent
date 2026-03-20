@@ -19,14 +19,12 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, new_chat
     # Auto-detect from environment if not explicitly provided
     if not trace_id:
         trace_id = os.environ.get('Y_TRACE_ID')
-    if not trace_id:
-        trace_id = os.environ.get('Y_MESSAGE_ID')
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
     if not from_skill:
         from_skill = os.environ.get('Y_SKILL')
 
-    # If trace_id or from_skill still missing, look up from chat_id
+    # Try lookup from chat_id first (finds trace where this chat is last participant)
     if (not trace_id or not from_skill) and from_chat_id:
         try:
             resp = api_request("GET", "/api/trace/by-chat", params={"chat_id": from_chat_id})
@@ -37,6 +35,10 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, new_chat
                 from_skill = data.get("skill")
         except Exception:
             pass
+
+    # Fallback to Y_MESSAGE_ID as trace_id (starts a new trace)
+    if not trace_id:
+        trace_id = os.environ.get('Y_MESSAGE_ID')
 
     if not trace_id:
         raise click.UsageError('--trace-id is required (or set Y_TRACE_ID env)')
