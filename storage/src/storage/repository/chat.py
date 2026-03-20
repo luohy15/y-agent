@@ -249,19 +249,17 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0) -> list:
 
 
 def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Optional[Chat]:
-    """Find a chat with the given skill that participates in the given trace."""
+    """Find a chat with the given skill whose active trace matches trace_id."""
     with get_db() as session:
-        rows = (session.query(ChatEntity)
-                .filter_by(user_id=user_id, skill=skill)
-                .filter(ChatEntity.trace_ids.isnot(None))
-                .order_by(ChatEntity.updated_at_unix.desc())
-                .all())
-        for row in rows:
-            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids:
-                try:
-                    return _entity_to_chat(row)
-                except Exception:
-                    pass
+        row = (session.query(ChatEntity)
+               .filter_by(user_id=user_id, skill=skill, active_trace_id=trace_id)
+               .order_by(ChatEntity.updated_at_unix.desc())
+               .first())
+        if row:
+            try:
+                return _entity_to_chat(row)
+            except Exception:
+                pass
         return None
 
 
