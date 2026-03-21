@@ -48,7 +48,7 @@ export default function App() {
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
   const [chatListWidth, setChatListWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -91,6 +91,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatMaximize", String(chatMaximize)); }, [chatMaximize]);
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
+  useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
