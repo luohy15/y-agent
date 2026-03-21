@@ -12,6 +12,37 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
+def _annotate_trace_belonging(messages: list, trace_id: str) -> List[bool]:
+    """Annotate each message with whether it belongs to this trace.
+
+    Returns a list of booleans parallel to messages (skipping messages without timestamps).
+    """
+    current_trace = None
+    belongs_list = []
+    for m in messages:
+        role = m.get("role", "")
+        msg_trace = m.get("trace_id")
+        ts = m.get("unix_timestamp", 0)
+        if not ts:
+            belongs_list.append(False)
+            continue
+
+        if role == "user":
+            current_trace = msg_trace
+        belongs_list.append(current_trace == trace_id)
+
+    return belongs_list
+
+
+def _filter_messages_for_trace(messages: list, trace_id: str) -> list:
+    """Filter messages to only those belonging to this trace."""
+    belongs_list = _annotate_trace_belonging(messages, trace_id)
+    # If no message-level match, return all messages (fallback)
+    if not any(belongs_list):
+        return messages
+    return [m for m, b in zip(messages, belongs_list) if b]
+
+
 def _extract_segments(messages: list, trace_id: str) -> List[dict]:
     """Extract time segments from messages belonging to this trace.
 
@@ -108,11 +139,13 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     for chat_id, title, skill, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages, trace_id)
+        trace_messages = _filter_messages_for_trace(messages, trace_id)
         result_chats.append({
             "chat_id": chat_id,
             "title": title,
             "skill": skill,
             "segments": segments,
+            "messages": trace_messages,
         })
 
     # Lookup todo info (trace_id = todo_id)

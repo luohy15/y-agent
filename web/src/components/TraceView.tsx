@@ -1,11 +1,22 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import TraceList from "./TraceList";
+import MessageList, { type Message, extractContent } from "./MessageList";
 
 interface Segment {
   start_unix: number;
   end_unix: number;
+}
+
+interface RawMessage {
+  role?: string;
+  content?: string | { type: string; text?: string }[];
+  tool_calls?: { id: string; function?: { name?: string; arguments?: string } }[];
+  tool_call_id?: string;
+  tool?: string;
+  arguments?: Record<string, unknown>;
+  timestamp?: string;
 }
 
 interface TraceChat {
@@ -13,6 +24,7 @@ interface TraceChat {
   title: string;
   skill: string;
   segments: Segment[];
+  messages?: RawMessage[];
 }
 
 interface TraceViewProps {
@@ -69,8 +81,51 @@ function generateTicks(minTs: number, maxTs: number): number[] {
   return ticks;
 }
 
+// Convert raw backend messages to MessageList format (same logic as ChatView SSE handler)
+function parseRawMessages(rawMessages: RawMessage[]): Message[] {
+  const result: Message[] = [];
+  // Track pending tool calls by ID for later resolution
+  const pendingTools = new Map<string, number>(); // toolCallId -> index in result
+
+  for (const msg of rawMessages) {
+    const role = msg.role || "assistant";
+    const content = extractContent(msg.content as string);
+    const timestamp = msg.timestamp;
+
+    if (role === "user") {
+      result.push({ role: "user", content, timestamp });
+    } else if (role === "assistant" && msg.tool_calls) {
+      if (content.trim()) {
+        result.push({ role: "assistant", content, timestamp });
+      }
+      for (const tc of msg.tool_calls) {
+        const func = tc.function || {};
+        let toolArgs: Record<string, unknown> = {};
+        try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
+        const idx = result.length;
+        result.push({ role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp });
+        pendingTools.set(tc.id, idx);
+      }
+    } else if (role === "tool") {
+      const tcId = msg.tool_call_id;
+      const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
+      const newRole = denied ? "tool_denied" as const : "tool_result" as const;
+      if (tcId && pendingTools.has(tcId)) {
+        const idx = pendingTools.get(tcId)!;
+        result[idx] = { ...result[idx], role: newRole, content };
+        pendingTools.delete(tcId);
+      } else {
+        result.push({ role: newRole, content, toolName: msg.tool, arguments: msg.arguments, timestamp });
+      }
+    } else {
+      result.push({ role: "assistant", content, timestamp });
+    }
+  }
+  return result;
+}
+
 // Waterfall chart component
-function WaterfallChart({ chats, traceId }: { chats: TraceChat[]; traceId: string }) {
+function WaterfallChart({ chats, traceId, onChatClick }: { chats: TraceChat[]; traceId: string; onChatClick?: (chatId: string) => void }) {
   // Group chats by skill, preserving order of first appearance
   const skillGroups = useMemo(() => {
     const groups: Record<string, TraceChat[]> = {};
@@ -165,9 +220,10 @@ function WaterfallChart({ chats, traceId }: { chats: TraceChat[]; traceId: strin
                   return (
                     <div
                       key={`${c.chat_id}-${i}`}
-                      className={`absolute top-0.5 h-4 rounded-sm ${colors.bar} hover:brightness-125 transition-all cursor-default`}
+                      className={`absolute top-0.5 h-4 rounded-sm ${colors.bar} hover:brightness-125 transition-all cursor-pointer`}
                       style={{ left: `${left}%`, width: `${width}%` }}
                       title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix)} → ${formatTime(seg.end_unix)}`}
+                      onClick={() => onChatClick?.(c.chat_id)}
                     />
                   );
                 })
@@ -187,6 +243,8 @@ interface TraceChatsResponse {
 }
 
 export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }: TraceViewProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   // Fetch chats for selected trace
   const { data: traceData } = useSWR<TraceChatsResponse>(
     selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
@@ -197,6 +255,23 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
   const todoName = traceData?.todo_name;
   const todoStatus = traceData?.todo_status;
 
+  // Parse messages for each chat
+  const chatMessages = useMemo(() => {
+    if (!traceChats) return new Map<string, Message[]>();
+    const map = new Map<string, Message[]>();
+    for (const chat of traceChats) {
+      if (chat.messages && chat.messages.length > 0) {
+        map.set(chat.chat_id, parseRawMessages(chat.messages));
+      }
+    }
+    return map;
+  }, [traceChats]);
+
+  const scrollToChat = (chatId: string) => {
+    const el = scrollRef.current?.querySelector(`#trace-chat-${CSS.escape(chatId)}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="flex h-full min-h-0">
       {/* Left: Trace list (desktop only, mobile uses drawer) */}
@@ -204,8 +279,8 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
         <TraceList isLoggedIn={isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={onSelectTrace} />
       </div>
 
-      {/* Right: Waterfall view */}
-      <div className="flex-1 min-w-0 overflow-y-auto bg-sol-base03 p-3">
+      {/* Right: Waterfall view + messages */}
+      <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto bg-sol-base03 p-3">
         {!selectedTraceId ? (
           <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
             Select a trace to view details
@@ -245,8 +320,28 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
             </div>
             <div className="text-[0.6rem] text-sol-base01 font-mono mb-2">{selectedTraceId}</div>
 
-            {/* Waterfall chart */}
-            <WaterfallChart chats={traceChats} traceId={selectedTraceId} />
+            {/* Waterfall chart (sticky TOC) */}
+            <div className="sticky top-0 z-10 bg-sol-base03 pb-2 border-b border-sol-base02 mb-4">
+              <WaterfallChart chats={traceChats} traceId={selectedTraceId} onChatClick={scrollToChat} />
+            </div>
+
+            {/* Messages per chat */}
+            {traceChats.map((chat) => {
+              const messages = chatMessages.get(chat.chat_id);
+              if (!messages || messages.length === 0) return null;
+              const colors = getSkillColors(chat.skill);
+              return (
+                <div key={chat.chat_id} id={`trace-chat-${chat.chat_id}`} className="mb-6">
+                  {/* Chat header */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                    <span className={`text-[0.7rem] font-semibold ${colors.text}`}>{chat.skill}</span>
+                    <span className="text-[0.7rem] text-sol-base0 truncate">{chat.title}</span>
+                  </div>
+                  <MessageList messages={messages} showProgress={true} inline />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -290,25 +290,26 @@ interface MessageListProps {
   showProgress: boolean;
   onOpenFile?: (path: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  inline?: boolean;
 }
 
-export default function MessageList({ messages, running, centered, showProgress, onOpenFile, scrollContainerRef }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProgress, onOpenFile, scrollContainerRef, inline }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
   useEffect(() => {
+    if (inline) return;
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [messages, containerRef]);
+  }, [messages, containerRef, inline]);
 
   const items = filterLevel0(messages);
 
   const innerClass = centered ? "max-w-3xl mx-auto w-full flex flex-col gap-3" : "flex flex-col gap-3";
 
-  return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
-      <div className={innerClass}>
+  const content = (
+    <>
       {items.map((item) => {
         if (item.type === "process_summary") {
           return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} />;
@@ -325,7 +326,16 @@ export default function MessageList({ messages, running, centered, showProgress,
           <span className="inline-block w-2.5 h-5 bg-sol-base1" />
         </div>
       )}
-      </div>
+    </>
+  );
+
+  if (inline) {
+    return <div className={`text-xs ${innerClass}`}>{content}</div>;
+  }
+
+  return (
+    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
+      <div className={innerClass}>{content}</div>
     </div>
   );
 }
