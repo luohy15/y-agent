@@ -11,6 +11,7 @@ import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
 import TraceView from "./components/TraceView";
+import TraceList from "./components/TraceList";
 import GitPanel from "./components/GitPanel";
 
 interface VmConfigItem {
@@ -47,6 +48,7 @@ export default function App() {
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || null);
   const [chatListWidth, setChatListWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -183,7 +185,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onOpenFileSearch={() => setFileSearchOpen(true)} vmList={vmList} selectedVM={selectedVM} onSelectVM={(name) => { setSelectedVM(name); setSelectedChatId(null); }} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => setSelectedChatId(null)} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} bottomTab={bottomTab} onOpenFileSearch={() => setFileSearchOpen(true)} vmList={vmList} selectedVM={selectedVM} onSelectVM={(name) => { setSelectedVM(name); setSelectedChatId(null); }} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
@@ -335,7 +337,7 @@ export default function App() {
                 </div>
                 {/* Trace (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "trace" ? "" : "invisible pointer-events-none"}`}>
-                  <TraceView isLoggedIn={auth.isLoggedIn} initialTraceId={urlTraceId} />
+                  <TraceView isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={setSelectedTraceId} />
                 </div>
               </div>
               {/* Desktop: chat list panel (hidden with chat) */}
@@ -356,7 +358,7 @@ export default function App() {
               )}
             </div>
           </div>
-          {/* Mobile: chat list drawer (visible even when chat is hidden) */}
+          {/* Mobile: chat/trace list drawer (visible even when chat is hidden) */}
           {chatListOpen && (
             <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
           )}
@@ -369,7 +371,11 @@ export default function App() {
             `}
             style={{ width: chatListWidth }}
           >
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
+            {bottomTab === "trace" ? (
+              <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); setChatListOpen(false); }} />
+            ) : (
+              <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); }} />
+            )}
           </div>
         </div>
       </div>
