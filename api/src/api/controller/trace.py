@@ -38,6 +38,8 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
         annotated.append((ts, belongs))
 
     # Pass 2: build segments from consecutive belongs=True runs
+    # Split into separate segments when gap between messages exceeds 5 minutes
+    GAP_THRESHOLD_MS = 5 * 60 * 1000  # 5 minutes in milliseconds
     segments: List[dict] = []
     seg_start = None
     seg_end = None
@@ -45,7 +47,14 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
         if belongs:
             if seg_start is None:
                 seg_start = ts
-            seg_end = ts
+                seg_end = ts
+            elif ts - seg_end > GAP_THRESHOLD_MS:
+                # Gap too large, close current segment and start a new one
+                segments.append({"start_unix": seg_start, "end_unix": seg_end})
+                seg_start = ts
+                seg_end = ts
+            else:
+                seg_end = ts
         else:
             if seg_start is not None:
                 segments.append({"start_unix": seg_start, "end_unix": seg_end})
@@ -54,9 +63,18 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
     if seg_start is not None:
         segments.append({"start_unix": seg_start, "end_unix": seg_end})
 
-    # Fallback: no message-level match, use full chat time range
+    # Fallback: no message-level match, use all messages but still split by time gaps
     if not segments and annotated:
-        segments.append({"start_unix": annotated[0][0], "end_unix": annotated[-1][0]})
+        seg_start = annotated[0][0]
+        seg_end = annotated[0][0]
+        for ts, _ in annotated[1:]:
+            if ts - seg_end > GAP_THRESHOLD_MS:
+                segments.append({"start_unix": seg_start, "end_unix": seg_end})
+                seg_start = ts
+                seg_end = ts
+            else:
+                seg_end = ts
+        segments.append({"start_unix": seg_start, "end_unix": seg_end})
 
     return segments
 
