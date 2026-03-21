@@ -14,6 +14,7 @@ interface HeaderProps {
   onLogout: () => void;
   onToggleChatList?: () => void;
   chatListOpen?: boolean;
+  bottomTab?: "chat" | "terminal" | "trace";
   onOpenFileSearch?: () => void;
   onClickLogo?: () => void;
   vmList?: VmConfigItem[];
@@ -22,7 +23,7 @@ interface HeaderProps {
   onToggleSidebar?: () => void;
 }
 
-export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onOpenFileSearch, onClickLogo, vmList, selectedVM, onSelectVM, onToggleSidebar }: HeaderProps) {
+export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, bottomTab, onOpenFileSearch, onClickLogo, vmList, selectedVM, onSelectVM, onToggleSidebar }: HeaderProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     (window as any).google.accounts.id.renderButton(node, {
@@ -98,11 +99,21 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
           <button
             onClick={onToggleChatList}
             className={`md:hidden h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${chatListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
-            title={chatListOpen ? "Hide chat list" : "Show chat list"}
+            title={chatListOpen ? (bottomTab === "trace" ? "Hide trace list" : "Hide chat list") : (bottomTab === "trace" ? "Show trace list" : "Show chat list")}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            {bottomTab === "trace" ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="5" cy="5" r="2.5" />
+                <circle cx="19" cy="12" r="2.5" />
+                <circle cx="5" cy="19" r="2.5" />
+                <line x1="7.5" y1="6" x2="16.5" y2="11" />
+                <line x1="16.5" y1="13" x2="7.5" y2="18" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            )}
           </button>
         )}
         {isLoggedIn && onOpenFileSearch && (

@@ -83,20 +83,31 @@ async def list_traces(request: Request, offset: int = Query(0, ge=0), limit: int
 
 @router.get("/chats")
 async def get_trace_chats(request: Request, trace_id: str = Query(...)):
-    """Get all chats participating in a trace, with message-derived time segments."""
+    """Get all chats participating in a trace, with message-derived time segments and todo info."""
     user_id = _get_user_id(request)
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
-    result = []
+    result_chats = []
     for chat_id, title, skill, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages, trace_id)
-        result.append({
+        result_chats.append({
             "chat_id": chat_id,
             "title": title,
             "skill": skill,
             "segments": segments,
         })
-    return result
+
+    # Lookup todo info (trace_id = todo_id)
+    todo_name = None
+    todo_status = None
+    from storage.repository.todo import find_todos_by_ids
+    todo_map = find_todos_by_ids(user_id, [trace_id])
+    todo = todo_map.get(trace_id)
+    if todo:
+        todo_name = todo.name
+        todo_status = todo.status
+
+    return {"chats": result_chats, "todo_name": todo_name, "todo_status": todo_status}
 
 
 @router.get("/by-chat")

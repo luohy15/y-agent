@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef, useMemo } from "react";
-import useSWRInfinite from "swr/infinite";
+import { useMemo } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
+import TraceList from "./TraceList";
 
 interface Segment {
   start_unix: number;
@@ -15,19 +15,11 @@ interface TraceChat {
   segments: Segment[];
 }
 
-interface TraceListItem {
-  trace_id: string;
-  updated_at: string;
-  todo_name: string | null;
-  todo_status: string | null;
-}
-
 interface TraceViewProps {
   isLoggedIn: boolean;
-  initialTraceId?: string;
+  selectedTraceId: string | null;
+  onSelectTrace: (traceId: string | null) => void;
 }
-
-const PAGE_SIZE = 50;
 
 const fetcher = async (url: string) => {
   const res = await authFetch(url);
@@ -188,104 +180,28 @@ function WaterfallChart({ chats, traceId }: { chats: TraceChat[]; traceId: strin
   );
 }
 
-export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps) {
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(initialTraceId || null);
+interface TraceChatsResponse {
+  chats: TraceChat[];
+  todo_name: string | null;
+  todo_status: string | null;
+}
 
-  // Trace list with infinite scroll
-  const getKey = (pageIndex: number, previousPageData: TraceListItem[] | null) => {
-    if (!isLoggedIn) return null;
-    if (previousPageData && previousPageData.length < PAGE_SIZE) return null;
-    return `${API}/api/trace/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}`;
-  };
-
-  const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceListItem[]>(getKey, fetcher);
-
-  const traces = data ? data.flat() : [];
-  const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
-  const isEmpty = data?.[0]?.length === 0;
-  const isReachingEnd = isEmpty || (data && data[data.length - 1]?.length < PAGE_SIZE);
-
-  const observer = useRef<IntersectionObserver | null>(null);
-  const sentinelRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (isValidating) return;
-      if (observer.current) observer.current.disconnect();
-      observer.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !isReachingEnd) {
-          setSize((s) => s + 1);
-        }
-      });
-      if (node) observer.current.observe(node);
-    },
-    [isValidating, isReachingEnd, setSize],
-  );
-
+export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }: TraceViewProps) {
   // Fetch chats for selected trace
-  const { data: traceChats } = useSWR<TraceChat[]>(
+  const { data: traceData } = useSWR<TraceChatsResponse>(
     selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
     fetcher,
   );
 
-  // Find the selected trace item for display
-  const selectedTrace = useMemo(() => traces.find((t) => t.trace_id === selectedTraceId), [traces, selectedTraceId]);
+  const traceChats = traceData?.chats;
+  const todoName = traceData?.todo_name;
+  const todoStatus = traceData?.todo_status;
 
   return (
     <div className="flex h-full min-h-0">
-      {/* Left: Trace list */}
-      <div className="w-56 shrink-0 border-r border-sol-base02 bg-sol-base03 flex flex-col text-xs overflow-hidden">
-        <div className="p-2 border-b border-sol-base02 text-sol-base1 font-semibold text-xs">
-          Traces
-        </div>
-        <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-          {!isLoggedIn ? (
-            <p className="text-sol-base01 italic p-2">Sign in to view traces</p>
-          ) : isLoading ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : error ? (
-            <p className="text-sol-base01 italic p-2">Error loading traces</p>
-          ) : traces.length === 0 ? (
-            <p className="text-sol-base01 italic p-2">No traces yet</p>
-          ) : (
-            <>
-              {traces.map((t) => {
-                const sel = t.trace_id === selectedTraceId;
-                const dt = t.updated_at ? new Date(t.updated_at) : null;
-                const date = dt ? dt.toLocaleDateString([], { month: "2-digit", day: "2-digit" }) : "";
-                const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-                return (
-                  <div
-                    key={t.trace_id}
-                    onClick={() => setSelectedTraceId(sel ? null : t.trace_id)}
-                    className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
-                      sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
-                    }`}
-                  >
-                    <div className="truncate text-sol-base0 text-[0.7rem]">
-                      {t.todo_name || t.trace_id.slice(0, 16)}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
-                      <span>{date} {time}</span>
-                      {t.todo_status && (
-                        <span className={`px-1 rounded ${
-                          t.todo_status === "completed" ? "bg-sol-green/20 text-sol-green" :
-                          t.todo_status === "active" ? "bg-sol-blue/20 text-sol-blue" :
-                          "bg-sol-base02 text-sol-base01"
-                        }`}>
-                          {t.todo_status}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {!isReachingEnd && (
-                <div ref={sentinelRef} className="py-2 text-center text-sol-base01 italic">
-                  {isLoadingMore ? "Loading..." : ""}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+      {/* Left: Trace list (desktop only, mobile uses drawer) */}
+      <div className="hidden md:flex w-56 shrink-0 border-r border-sol-base02 bg-sol-base03 flex-col overflow-hidden">
+        <TraceList isLoggedIn={isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={onSelectTrace} />
       </div>
 
       {/* Right: Waterfall view */}
@@ -307,8 +223,17 @@ export default function TraceView({ isLoggedIn, initialTraceId }: TraceViewProps
             {/* Header */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sol-base1 text-sm font-medium">
-                {selectedTrace?.todo_name || selectedTraceId}
+                {todoName || selectedTraceId}
               </span>
+              {todoStatus && (
+                <span className={`text-[0.6rem] px-1 rounded ${
+                  todoStatus === "completed" ? "bg-sol-green/20 text-sol-green" :
+                  todoStatus === "active" ? "bg-sol-blue/20 text-sol-blue" :
+                  "bg-sol-base02 text-sol-base01"
+                }`}>
+                  {todoStatus}
+                </span>
+              )}
               {/* Skill badges */}
               <div className="flex flex-wrap gap-0.5">
                 {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
