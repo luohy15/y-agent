@@ -23,7 +23,6 @@ class NotifyRequest(BaseModel):
     work_dir: Optional[str] = None
     trace_id: str
     from_chat_id: Optional[str] = None
-    from_work_dir: Optional[str] = None
     from_skill: Optional[str] = None
     force_new: Optional[bool] = False
 
@@ -37,8 +36,9 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # Build message content with trace_id on the message itself
-    msg_content = f'/{req.skill} {req.message}'
+    # Build message content with meta-info line + skill command
+    from_label = req.from_skill or "unknown"
+    msg_content = f'[trace:{req.trace_id} from:{from_label}]\n/{req.skill} {req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -91,7 +91,7 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             return
 
         from_label = req.from_skill or "unknown"
-        text = f"📨 {from_label} → {req.skill}\n\n{req.message}"
+        text = f"[trace:{req.trace_id} from:{from_label}]\n/{req.skill} {req.message}"
 
         from api.controller.telegram import _send_message
         await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)
