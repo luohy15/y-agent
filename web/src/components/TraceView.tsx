@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import TraceList from "./TraceList";
@@ -124,8 +124,56 @@ function parseRawMessages(rawMessages: RawMessage[]): Message[] {
   return result;
 }
 
-// Waterfall chart component
-function WaterfallChart({ chats, traceId, onChatClick }: { chats: TraceChat[]; traceId: string; onChatClick?: (chatId: string) => void }) {
+// A block of consecutive messages from the same chat
+interface TimeBlock {
+  chatId: string;
+  skill: string;
+  title: string;
+  messages: Message[];
+  startTimestamp: number; // unix ms for sorting
+}
+
+// Merge all chat messages into chronological blocks
+function buildTimeBlocks(chats: TraceChat[], chatMessages: Map<string, Message[]>): TimeBlock[] {
+  // Flatten: each message tagged with its chat info
+  const tagged: { chatId: string; skill: string; title: string; message: Message; ts: number }[] = [];
+
+  for (const chat of chats) {
+    const msgs = chatMessages.get(chat.chat_id);
+    if (!msgs) continue;
+    for (const m of msgs) {
+      const ts = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+      tagged.push({ chatId: chat.chat_id, skill: chat.skill, title: chat.title, message: m, ts });
+    }
+  }
+
+  // Sort by timestamp (stable sort preserves order for same-ts messages)
+  tagged.sort((a, b) => a.ts - b.ts);
+
+  // Group consecutive same-chat messages into blocks
+  const blocks: TimeBlock[] = [];
+  for (const item of tagged) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.chatId === item.chatId) {
+      last.messages.push(item.message);
+    } else {
+      blocks.push({
+        chatId: item.chatId,
+        skill: item.skill,
+        title: item.title,
+        messages: [item.message],
+        startTimestamp: item.ts,
+      });
+    }
+  }
+
+  return blocks;
+}
+
+// Waterfall chart component with time ticker
+function WaterfallChart({ chats, currentTime, onDragTime }: { chats: TraceChat[]; currentTime: number | null; onDragTime?: (ts: number) => void }) {
+  const timelineRef = useRef<HTMLDivElement>(null);
+
   // Group chats by skill, preserving order of first appearance
   const skillGroups = useMemo(() => {
     const groups: Record<string, TraceChat[]> = {};
@@ -158,10 +206,40 @@ function WaterfallChart({ chats, traceId, onChatClick }: { chats: TraceChat[]; t
   const ticks = useMemo(() => generateTicks(minTs, maxTs), [minTs, maxTs]);
   const range = maxTs - minTs || 1;
 
+  // Ticker position
+  const tickerPct = currentTime != null ? ((currentTime - minTs) / range) * 100 : null;
+
+  // Convert X position in timeline area to timestamp
+  const xToTime = useCallback((clientX: number) => {
+    const el = timelineRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return minTs + pct * range;
+  }, [minTs, range]);
+
+  // Drag handling
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const ts = xToTime(e.clientX);
+    if (ts != null) onDragTime?.(ts);
+
+    const onMove = (ev: PointerEvent) => {
+      const t = xToTime(ev.clientX);
+      if (t != null) onDragTime?.(t);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  }, [xToTime, onDragTime]);
+
   const LABEL_W = 96; // px for skill label column
 
   return (
-    <div className="mt-2">
+    <div className="mt-2 relative">
       {/* Time axis */}
       <div className="flex">
         <div style={{ width: LABEL_W }} className="shrink-0" />
@@ -181,57 +259,72 @@ function WaterfallChart({ chats, traceId, onChatClick }: { chats: TraceChat[]; t
         </div>
       </div>
 
-      {/* Skill rows */}
-      {skillGroups.order.map((skill) => {
-        const colors = getSkillColors(skill);
-        const skillChats = skillGroups.groups[skill];
+      {/* Skill rows with shared timeline area for ticker overlay */}
+      <div className="flex">
+        {/* Skill labels column */}
+        <div style={{ width: LABEL_W }} className="shrink-0">
+          {skillGroups.order.map((skill) => {
+            const colors = getSkillColors(skill);
+            return (
+              <div key={skill} className="flex items-center min-h-[1.75rem] px-2 gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{skill}</span>
+              </div>
+            );
+          })}
+        </div>
 
-        return (
-          <div key={skill} className="flex items-center min-h-[1.75rem] group">
-            {/* Skill label */}
-            <div
-              style={{ width: LABEL_W }}
-              className="shrink-0 flex items-center gap-1.5 px-2"
-            >
-              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-              <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{skill}</span>
-            </div>
-
-            {/* Timeline bar area */}
-            <div className="flex-1 relative h-5">
-              {/* Grid lines */}
-              {ticks.map((t) => {
-                const pct = ((t - minTs) / range) * 100;
-                return (
-                  <div
-                    key={t}
-                    className="absolute top-0 bottom-0 border-l border-sol-base02/30"
-                    style={{ left: `${pct}%` }}
-                  />
-                );
-              })}
-
-              {/* Chat segment bars */}
-              {skillChats.flatMap((c) =>
-                c.segments.map((seg, i) => {
-                  const left = ((seg.start_unix - minTs) / range) * 100;
-                  const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
-
+        {/* Timeline area (single div for unified ticker) */}
+        <div
+          ref={timelineRef}
+          className="flex-1 relative cursor-col-resize"
+          onPointerDown={handlePointerDown}
+        >
+          {/* Skill row bars */}
+          {skillGroups.order.map((skill, rowIdx) => {
+            const colors = getSkillColors(skill);
+            const skillChats = skillGroups.groups[skill];
+            return (
+              <div key={skill} className="relative h-[1.75rem]">
+                {/* Grid lines */}
+                {ticks.map((t) => {
+                  const pct = ((t - minTs) / range) * 100;
                   return (
                     <div
-                      key={`${c.chat_id}-${i}`}
-                      className={`absolute top-0.5 h-4 rounded-sm ${colors.bar} hover:brightness-125 transition-all cursor-pointer`}
-                      style={{ left: `${left}%`, width: `${width}%` }}
-                      title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix)} → ${formatTime(seg.end_unix)}`}
-                      onClick={() => onChatClick?.(c.chat_id)}
+                      key={`${skill}-tick-${t}`}
+                      className="absolute top-0 bottom-0 border-l border-sol-base02/30"
+                      style={{ left: `${pct}%` }}
                     />
                   );
-                })
-              )}
-            </div>
-          </div>
-        );
-      })}
+                })}
+                {/* Chat segment bars */}
+                {skillChats.flatMap((c) =>
+                  c.segments.map((seg, i) => {
+                    const left = ((seg.start_unix - minTs) / range) * 100;
+                    const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
+                    return (
+                      <div
+                        key={`${c.chat_id}-${i}`}
+                        className={`absolute top-1 h-4 rounded-sm ${colors.bar}`}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix)} → ${formatTime(seg.end_unix)}`}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            );
+          })}
+
+          {/* Single unified ticker line spanning all rows */}
+          {tickerPct != null && tickerPct >= 0 && tickerPct <= 100 && (
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-sol-base1 z-10 pointer-events-none rounded-full"
+              style={{ left: `${tickerPct}%` }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -244,6 +337,8 @@ interface TraceChatsResponse {
 
 export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }: TraceViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [currentTime, setCurrentTime] = useState<number | null>(null);
+  const isDragging = useRef(false);
 
   // Fetch chats for selected trace
   const { data: traceData } = useSWR<TraceChatsResponse>(
@@ -267,10 +362,70 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
     return map;
   }, [traceChats]);
 
-  const scrollToChat = (chatId: string) => {
-    const el = scrollRef.current?.querySelector(`#trace-chat-${CSS.escape(chatId)}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  // Build chronological time blocks
+  const timeBlocks = useMemo(() => {
+    if (!traceChats) return [];
+    return buildTimeBlocks(traceChats, chatMessages);
+  }, [traceChats, chatMessages]);
+
+  // Scroll-spy: track timestamp of topmost visible block
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || timeBlocks.length === 0) return;
+
+    const handleScroll = () => {
+      if (isDragging.current) return;
+      const containerTop = container.getBoundingClientRect().top;
+      let bestTs: number | null = null;
+
+      const blockEls = container.querySelectorAll("[data-block-ts]");
+      for (const el of blockEls) {
+        const rect = el.getBoundingClientRect();
+        const relTop = rect.top - containerTop;
+        if (relTop <= 60) {
+          bestTs = Number(el.getAttribute("data-block-ts"));
+        }
+      }
+      setCurrentTime(bestTs);
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [timeBlocks]);
+
+  // Drag ticker → scroll messages to matching timestamp
+  const scrollToTime = useCallback((ts: number) => {
+    isDragging.current = true;
+    setCurrentTime(ts);
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    // Find the block element with the closest timestamp <= ts
+    const blockEls = container.querySelectorAll("[data-block-ts]");
+    let bestEl: Element | null = null;
+    let bestTs = -Infinity;
+    for (const el of blockEls) {
+      const blockTs = Number(el.getAttribute("data-block-ts"));
+      if (blockTs <= ts && blockTs > bestTs) {
+        bestTs = blockTs;
+        bestEl = el;
+      }
+    }
+    // If no block <= ts, pick the first one
+    if (!bestEl && blockEls.length > 0) bestEl = blockEls[0];
+
+    if (bestEl) {
+      const stickyEl = container.querySelector("[data-sticky-header]");
+      const stickyHeight = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
+      const elTop = bestEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+      container.scrollTo({ top: elTop - stickyHeight - 8 });
+    }
+
+    // Release drag lock after a short delay to let scroll event fire
+    requestAnimationFrame(() => { isDragging.current = false; });
+  }, []);
 
   return (
     <div className="flex h-full min-h-0">
@@ -295,50 +450,44 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
           </div>
         ) : (
           <div>
-            {/* Header */}
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-sol-base1 text-sm font-medium">
-                {todoName || selectedTraceId}
-              </span>
-              {todoStatus && (
-                <span className={`text-[0.6rem] px-1 rounded ${
-                  todoStatus === "completed" ? "bg-sol-green/20 text-sol-green" :
-                  todoStatus === "active" ? "bg-sol-blue/20 text-sol-blue" :
-                  "bg-sol-base02 text-sol-base01"
-                }`}>
-                  {todoStatus}
+            {/* Sticky header + waterfall */}
+            <div data-sticky-header className="sticky -top-3 z-10 bg-sol-base03 -mx-3 px-3 pt-3 pb-2 border-b border-sol-base02 mb-4">
+              <div className="flex items-center gap-2 mb-1 pt-1">
+                <span className="text-sol-base1 text-sm font-medium">
+                  {todoName || selectedTraceId}
                 </span>
-              )}
-              {/* Skill badges */}
-              <div className="flex flex-wrap gap-0.5">
-                {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
-                  <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
-                    {s}
+                {todoStatus && (
+                  <span className={`text-[0.6rem] px-1 rounded ${
+                    todoStatus === "completed" ? "bg-sol-green/20 text-sol-green" :
+                    todoStatus === "active" ? "bg-sol-blue/20 text-sol-blue" :
+                    "bg-sol-base02 text-sol-base01"
+                  }`}>
+                    {todoStatus}
                   </span>
-                ))}
+                )}
+                {/* Skill badges */}
+                <div className="flex flex-wrap gap-0.5">
+                  {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
+                    <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
+                      {s}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="text-[0.6rem] text-sol-base01 font-mono mb-2">{selectedTraceId}</div>
-
-            {/* Waterfall chart (sticky TOC) */}
-            <div className="sticky top-0 z-10 bg-sol-base03 pb-2 border-b border-sol-base02 mb-4">
-              <WaterfallChart chats={traceChats} traceId={selectedTraceId} onChatClick={scrollToChat} />
+              <div className="text-[0.6rem] text-sol-base01 font-mono mb-1">{selectedTraceId}</div>
+              <WaterfallChart chats={traceChats} currentTime={currentTime} onDragTime={scrollToTime} />
             </div>
 
-            {/* Messages per chat */}
-            {traceChats.map((chat) => {
-              const messages = chatMessages.get(chat.chat_id);
-              if (!messages || messages.length === 0) return null;
-              const colors = getSkillColors(chat.skill);
+            {/* Messages in chronological order */}
+            {timeBlocks.map((block, i) => {
+              const colors = getSkillColors(block.skill);
               return (
-                <div key={chat.chat_id} id={`trace-chat-${chat.chat_id}`} className="mb-6">
-                  {/* Chat header */}
+                <div key={`${block.chatId}-${i}`} data-block-ts={block.startTimestamp} className="mb-4">
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-                    <span className={`text-[0.7rem] font-semibold ${colors.text}`}>{chat.skill}</span>
-                    <span className="text-[0.7rem] text-sol-base0 truncate">{chat.title}</span>
+                    <span className={`text-[0.7rem] font-semibold ${colors.text}`}>{block.skill}</span>
                   </div>
-                  <MessageList messages={messages} showProgress={true} inline />
+                  <MessageList messages={block.messages} showProgress={false} inline />
                 </div>
               );
             })}
