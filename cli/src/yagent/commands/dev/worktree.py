@@ -70,6 +70,10 @@ def wt_rm(name: str):
     if os.path.exists(worktree_path):
         _run_hook(project_path, worktree_path, "pre-remove")
         subprocess.check_call(["git", "-C", project_path, "worktree", "remove", "--force", worktree_path])
+    # Safety cleanup: remove any residual files (e.g. from processes that recreate cache dirs)
+    if os.path.exists(worktree_path):
+        import shutil
+        shutil.rmtree(worktree_path)
     subprocess.call(["git", "-C", project_path, "branch", "-D", branch])
     click.echo(f"Removed worktree at {worktree_path}")
 
