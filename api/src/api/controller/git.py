@@ -35,9 +35,9 @@ async def git_status(request: Request, vm_name: str = Query(None), work_dir: str
 async def git_diff(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
     # Try staged diff first, fall back to unstaged, then show new file
-    diff = await _exec(user_id, ["git", "diff", "--cached", "--", path], vm_name=vm_name, work_dir=work_dir)
+    diff = await _exec(user_id, ["git", "diff", "-U99999", "--cached", "--", path], vm_name=vm_name, work_dir=work_dir)
     if not diff.strip():
-        diff = await _exec(user_id, ["git", "diff", "--", path], vm_name=vm_name, work_dir=work_dir)
+        diff = await _exec(user_id, ["git", "diff", "-U99999", "--", path], vm_name=vm_name, work_dir=work_dir)
     if not diff.strip():
         # Untracked file — show full content as added
         content = await _exec(user_id, ["cat", path], vm_name=vm_name, work_dir=work_dir)
