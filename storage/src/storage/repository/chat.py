@@ -36,7 +36,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
         if query:
             q = q.filter(or_(
                 ChatEntity.title.ilike(f"%{query}%"),
-                ChatEntity.json_content.ilike(f"%{query}%"),
+                ChatEntity.search_text.ilike(f"%{query}%"),
             ))
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
@@ -82,15 +82,38 @@ async def delete_chat(user_id: int, chat_id: str) -> bool:
         return count > 0
 
 
+def _extract_content_text(content) -> str:
+    """Extract plain text from message content (str or list of ContentPart)."""
+    if isinstance(content, str):
+        return content
+    if content:
+        return " ".join(part.text for part in content if hasattr(part, 'text') and part.text)
+    return ""
+
+
 def _extract_title(chat: Chat) -> str:
     for m in chat.messages:
         if m.role == 'user':
-            return m.content[:100] if isinstance(m.content, str) else ""
+            text = _extract_content_text(m.content)
+            return text[:100] if text else ""
     # Fallback to first assistant message if no user message found
     for m in chat.messages:
-        if m.role == 'assistant' and isinstance(m.content, str) and m.content.strip():
-            return m.content.strip()[:100]
+        if m.role == 'assistant':
+            text = _extract_content_text(m.content).strip()
+            if text:
+                return text[:100]
     return ""
+
+
+def _extract_search_text(chat: Chat) -> str:
+    """Extract searchable text from chat messages (user + assistant text only)."""
+    parts = []
+    for m in chat.messages:
+        if m.role in ('user', 'assistant'):
+            text = _extract_content_text(m.content).strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts)
 
 
 def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
@@ -101,9 +124,11 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
         entity = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat.id).first()
         content = json.dumps(chat.to_dict())
         title = _extract_title(chat)
+        search_text = _extract_search_text(chat)
         if entity:
             entity.json_content = content
             entity.title = title
+            entity.search_text = search_text
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
@@ -124,6 +149,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 active_trace_id=chat.active_trace_id,
                 trace_ids=chat.trace_ids,
                 json_content=content,
+                search_text=search_text,
             )
             session.add(entity)
         return chat
@@ -155,9 +181,11 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
         entity = session.query(ChatEntity).filter_by(chat_id=chat.id).first()
         content = json.dumps(chat.to_dict())
         title = _extract_title(chat)
+        search_text = _extract_search_text(chat)
         if entity:
             entity.json_content = content
             entity.title = title
+            entity.search_text = search_text
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend

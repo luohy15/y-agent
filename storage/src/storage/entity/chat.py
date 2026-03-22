@@ -17,6 +17,7 @@ class ChatEntity(Base, BaseEntity):
     active_trace_id = Column(String, nullable=True, index=True)
     trace_ids = Column(JSON, nullable=True)  # list of trace_ids this chat participates in
     json_content = Column(Text, nullable=False)
+    search_text = Column(Text, nullable=True)  # extracted message text for fast search
 
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),
