@@ -2,7 +2,6 @@
 
 import os
 import re
-import subprocess
 from typing import List
 
 from loguru import logger
@@ -33,64 +32,13 @@ def _run_post_hooks(chat, user_id: int, post_hooks: list, trace_id: str = None) 
     for hook in post_hooks:
         hook_type = hook.get("type")
         try:
-            if hook_type == "commit_and_merge":
-                _hook_commit_and_merge(chat.work_dir, hook, user_id)
-            elif hook_type == "save_plan_to_todo":
+            if hook_type == "save_plan_to_todo":
                 _hook_save_plan_to_todo(chat, hook, user_id)
             else:
                 logger.warning("Unknown post_hook type: {}", hook_type)
         except Exception as e:
             logger.exception("Post hook {} failed: {}", hook_type, e)
 
-
-def _hook_commit_and_merge(work_dir: str, hook: dict, user_id: int = None) -> None:
-    """Stage, commit, rebase onto main, and fast-forward main.
-
-    Resolves worktree from DB via service layer, then commit + merge + cleanup.
-    """
-    from storage.service import dev_worktree as wt_service
-
-    worktree_name = hook.get("worktree_name")
-    if not worktree_name:
-        logger.warning("commit_and_merge: missing worktree_name")
-        return
-
-    if not user_id:
-        logger.error("commit_and_merge: missing user_id")
-        return
-
-    wt = wt_service.get_worktree_by_name(user_id, worktree_name)
-    if not wt:
-        logger.error("commit_and_merge: worktree '{}' not found in DB", worktree_name)
-        return
-    work_dir = wt.worktree_path
-    project_path = wt.project_path
-    branch = wt.branch
-    commit_msg = worktree_name
-
-    git = ["git", "-C", work_dir]
-
-    status = subprocess.run(git + ["status", "--porcelain"], capture_output=True, text=True)
-    if not status.stdout.strip():
-        logger.info("commit_and_merge: no changes to commit")
-        return
-
-    subprocess.check_call(git + ["add", "-A"])
-    subprocess.check_call(git + ["commit", "-m", commit_msg])
-    logger.info("commit_and_merge: committed")
-
-    # Rebase current branch onto main, then fast-forward main
-    subprocess.check_call(git + ["rebase", "main"])
-    logger.info("commit_and_merge: rebased onto main")
-
-    subprocess.check_call(["git", "-C", project_path, "merge", "--ff-only", branch])
-    logger.info("commit_and_merge: fast-forwarded main to {}", branch)
-    # Clean up worktree and registry
-    subprocess.check_call(["git", "-C", project_path, "worktree", "remove", work_dir])
-    subprocess.call(["git", "-C", project_path, "branch", "-d", branch])
-    logger.info("commit_and_merge: removed worktree and branch {}", branch)
-    wt_service.remove_worktree(user_id, wt.worktree_id)
-    logger.info("commit_and_merge: removed '{}' from DB", worktree_name)
 
 
 def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
