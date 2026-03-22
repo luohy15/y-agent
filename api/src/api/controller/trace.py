@@ -46,16 +46,18 @@ def _filter_messages_for_trace(messages: list, trace_id: str) -> list:
 def _extract_segments(messages: list, trace_id: str) -> List[dict]:
     """Extract time segments from messages belonging to this trace.
 
-    A segment = user message (start) through last reply before next user message (end).
+    Each round (user message + its assistant/tool replies) is one segment.
     Only user messages carry trace_id; assistant/tool messages inherit from the
     preceding user message.
 
     Fallback: if no user message has matching trace_id (e.g. dev-manager chat where
-    trace_id was set at chat level, not message level), use first message → last message.
+    trace_id was set at chat level, not message level), treat all messages as belonging.
     """
-    # Pass 1: annotate each message with whether it belongs to this trace
+    # Annotate each message with whether it belongs to this trace
     current_trace = None
-    annotated = []  # (unix_timestamp, belongs_to_trace)
+    rounds = []  # list of (start_ts, end_ts) per round
+    has_match = False
+
     for m in messages:
         role = m.get("role", "")
         msg_trace = m.get("trace_id")
@@ -64,48 +66,28 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
             continue
 
         if role == "user":
-            current_trace = msg_trace  # reset on every user message (None clears it)
+            current_trace = msg_trace
         belongs = (current_trace == trace_id)
-        annotated.append((ts, belongs))
-
-    # Pass 2: build segments from consecutive belongs=True runs
-    # Split into separate segments when gap between messages exceeds 5 minutes
-    GAP_THRESHOLD_MS = 5 * 60 * 1000  # 5 minutes in milliseconds
-    segments: List[dict] = []
-    seg_start = None
-    seg_end = None
-    for ts, belongs in annotated:
         if belongs:
-            if seg_start is None:
-                seg_start = ts
-                seg_end = ts
-            elif ts - seg_end > GAP_THRESHOLD_MS:
-                # Gap too large, close current segment and start a new one
-                segments.append({"start_unix": seg_start, "end_unix": seg_end})
-                seg_start = ts
-                seg_end = ts
-            else:
-                seg_end = ts
-        else:
-            if seg_start is not None:
-                segments.append({"start_unix": seg_start, "end_unix": seg_end})
-                seg_start = None
-                seg_end = None
-    if seg_start is not None:
-        segments.append({"start_unix": seg_start, "end_unix": seg_end})
+            has_match = True
 
-    # Fallback: no message-level match, use all messages but still split by time gaps
-    if not segments and annotated:
-        seg_start = annotated[0][0]
-        seg_end = annotated[0][0]
-        for ts, _ in annotated[1:]:
-            if ts - seg_end > GAP_THRESHOLD_MS:
-                segments.append({"start_unix": seg_start, "end_unix": seg_end})
-                seg_start = ts
-                seg_end = ts
-            else:
-                seg_end = ts
-        segments.append({"start_unix": seg_start, "end_unix": seg_end})
+        if role == "user":
+            # Start a new round
+            rounds.append([ts, ts, belongs])
+        elif rounds:
+            # Extend the current round's end time
+            rounds[-1][1] = ts
+
+    # Build segments from rounds that belong to this trace
+    segments: List[dict] = []
+    if has_match:
+        for start_ts, end_ts, belongs in rounds:
+            if belongs:
+                segments.append({"start_unix": start_ts, "end_unix": end_ts})
+    else:
+        # Fallback: no message-level match, each round is a segment
+        for start_ts, end_ts, _ in rounds:
+            segments.append({"start_unix": start_ts, "end_unix": end_ts})
 
     return segments
 
