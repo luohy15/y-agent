@@ -250,6 +250,12 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
     cb = lambda msg: message_callback(chat_id, msg)
     interrupted_fn = lambda: check_interrupted(chat_id)
 
+    # Set work_dir early so it persists even if the run is interrupted or errors out
+    if not chat.work_dir:
+        chat.work_dir = cwd
+        from storage.repository import chat as chat_repo
+        await chat_repo.save_chat_by_id(chat)
+
     # Resume existing session only if work_dir matches (session files are path-specific)
     session_id = chat.external_id
     if session_id and chat.work_dir != cwd:
@@ -289,13 +295,12 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         )
         cb(error_msg)
 
-    # Save session_id and work_dir for future resume
+    # Save session_id for future resume
     # Reload fresh chat from DB to avoid overwriting messages appended via callback
     if result.session_id:
         fresh_chat = await chat_service.get_chat_by_id(chat_id)
         if fresh_chat:
             fresh_chat.external_id = result.session_id
-            fresh_chat.work_dir = cwd
             from storage.repository import chat as chat_repo
             await chat_repo.save_chat_by_id(fresh_chat)
 
