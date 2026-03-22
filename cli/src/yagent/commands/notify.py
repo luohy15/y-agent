@@ -35,9 +35,13 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
         except Exception:
             pass
 
-    # Fallback to Y_MESSAGE_ID as trace_id (starts a new trace)
+    # Fallback: use from_chat_id as trace_id
     if not trace_id:
-        trace_id = os.environ.get('Y_MESSAGE_ID')
+        trace_id = from_chat_id
+
+    # Default from_skill to 'unknown' if still not resolved
+    if not from_skill:
+        from_skill = 'General'
 
     if not trace_id:
         raise click.UsageError('--trace-id is required (or set Y_TRACE_ID env)')
@@ -46,14 +50,10 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
         "message": message,
         "trace_id": trace_id,
         "force_new": force_new,
+        "from_skill": from_skill,
     }
     if work_dir:
         payload["work_dir"] = work_dir
-    if from_chat_id:
-        payload["from_chat_id"] = from_chat_id
-    if from_skill:
-        payload["from_skill"] = from_skill
-
     resp = api_request("POST", "/api/notify", json=payload)
     data = resp.json()
     click.echo(data["chat_id"])
