@@ -22,8 +22,7 @@ class NotifyRequest(BaseModel):
     message: str
     work_dir: Optional[str] = None
     trace_id: str
-    from_chat_id: Optional[str] = None
-    from_skill: Optional[str] = None
+    from_skill: str
     force_new: Optional[bool] = False
 
 
@@ -37,8 +36,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
     # Build message content with meta-info line + skill command
-    from_label = req.from_skill or "unknown"
-    msg_content = f'[trace:{req.trace_id} from:{from_label}]\n/{req.skill} {req.message}'
+    msg_content = f'[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -90,8 +88,7 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             logger.warning("notify telegram: TELEGRAM_BOT_TOKEN not set")
             return
 
-        from_label = req.from_skill or "unknown"
-        text = f"[trace:{req.trace_id} from:{from_label}]\n/{req.skill} {req.message}"
+        text = f"[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}"
 
         from api.controller.telegram import _send_message
         await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)
