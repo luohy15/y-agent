@@ -36,7 +36,10 @@ async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
     # Build message content with meta-info line + skill command
-    msg_content = f'[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}'
+    if req.skill == 'DM':
+        msg_content = f'[trace:{req.trace_id} from:{req.from_skill}]\n{req.message}'
+    else:
+        msg_content = f'[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -73,31 +76,51 @@ async def post_notify(req: NotifyRequest, request: Request):
 
 async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str) -> None:
     """Send a notification to the Telegram topic matching the target skill name,
-    then update the chat's channel_id so Telegram replies route to this chat."""
+    then update the chat's channel_id so Telegram replies route to this chat.
+    For DM skill, send as a private message to the user's telegram_id."""
     try:
-        from storage.repository.tg_topic import find_topic_by_name
-
-        topic = find_topic_by_name(user_id, req.skill)
-        if not topic or topic.topic_id is None:
-            logger.debug("notify telegram: no topic found for skill '{}'", req.skill)
-            return
-
         from storage.util import get_telegram_bot_token
         bot_token = get_telegram_bot_token()
         if not bot_token:
             logger.warning("notify telegram: TELEGRAM_BOT_TOKEN not set")
             return
 
-        text = f"[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}"
+        if req.skill == 'DM':
+            text = f"[trace:{req.trace_id} from:{req.from_skill}]\n{req.message}"
+        else:
+            text = f"[trace:{req.trace_id} from:{req.from_skill}]\n/{req.skill} {req.message}"
 
         from api.controller.telegram import _send_message
-        await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)
-        logger.info("notify telegram: sent to skill='{}' group={} topic={}", req.skill, topic.group_id, topic.topic_id)
-
-        # Update channel_id on the target chat so Telegram replies go to this chat
-        channel_id = f"telegram:{topic.group_id}:{topic.topic_id}"
         from storage.repository.chat import update_channel_id
-        update_channel_id(user_id, chat_id, channel_id)
-        logger.info("notify telegram: updated channel_id='{}' on chat_id='{}'", channel_id, chat_id)
+
+        if req.skill == 'DM':
+            # Send as private message to user's telegram_id
+            from storage.repository.user import get_user_by_id
+            user = get_user_by_id(user_id)
+            if not user or not user.telegram_id:
+                logger.debug("notify telegram DM: no telegram_id for user_id={}", user_id)
+                return
+
+            telegram_id = user.telegram_id
+            await _send_message(telegram_id, text, message_thread_id=None)
+            logger.info("notify telegram DM: sent to telegram_id={}", telegram_id)
+
+            channel_id = f"telegram:{telegram_id}"
+            update_channel_id(user_id, chat_id, channel_id)
+            logger.info("notify telegram: updated channel_id='{}' on chat_id='{}'", channel_id, chat_id)
+        else:
+            from storage.repository.tg_topic import find_topic_by_name
+
+            topic = find_topic_by_name(user_id, req.skill)
+            if not topic or topic.topic_id is None:
+                logger.debug("notify telegram: no topic found for skill '{}'", req.skill)
+                return
+
+            await _send_message(topic.group_id, text, message_thread_id=topic.topic_id)
+            logger.info("notify telegram: sent to skill='{}' group={} topic={}", req.skill, topic.group_id, topic.topic_id)
+
+            channel_id = f"telegram:{topic.group_id}:{topic.topic_id}"
+            update_channel_id(user_id, chat_id, channel_id)
+            logger.info("notify telegram: updated channel_id='{}' on chat_id='{}'", channel_id, chat_id)
     except Exception as e:
         logger.exception("notify telegram failed: {}", e)

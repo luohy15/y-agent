@@ -41,7 +41,7 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
 
     # Default from_skill to 'unknown' if still not resolved
     if not from_skill:
-        from_skill = 'General'
+        from_skill = 'DM'
 
     if not trace_id:
         raise click.UsageError('--trace-id is required (or set Y_TRACE_ID env)')
