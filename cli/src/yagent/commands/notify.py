@@ -12,9 +12,8 @@ from yagent.api_client import api_request
 @click.option('--trace-id', default=None, help='Trace ID (auto-detected from Y_TRACE_ID env)')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (auto-detected from Y_CHAT_ID env)')
-@click.option('--from-work-dir', default=None, help='Caller working directory')
 @click.option('--from-skill', default=None, help='Caller skill name (auto-detected from Y_SKILL env)')
-def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_chat_id: str, from_work_dir: str, from_skill: str):
+def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_chat_id: str, from_skill: str):
     """Send a message to a skill via trace-based communication."""
     # Auto-detect from environment if not explicitly provided
     if not trace_id:
@@ -52,8 +51,6 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
         payload["work_dir"] = work_dir
     if from_chat_id:
         payload["from_chat_id"] = from_chat_id
-    if from_work_dir:
-        payload["from_work_dir"] = from_work_dir
     if from_skill:
         payload["from_skill"] = from_skill
 
