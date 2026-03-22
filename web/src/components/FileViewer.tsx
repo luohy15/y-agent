@@ -8,6 +8,7 @@ import CalendarViewer from "./CalendarViewer";
 import LinkViewer from "./LinkViewer";
 import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
+import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -194,11 +195,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isLink = !isDiff && activeFileName.endsWith("links.md");
   const isFinance = !isDiff && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && activeFileName.endsWith("emails.md");
+  const isDev = !isDiff && activeFileName.endsWith("dev.md");
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTodo || isCalendar || isLink || isFinance || isEmail) return;
+    if (isDiff || isTodo || isCalendar || isLink || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -275,6 +277,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/email/"));
       return;
     }
+    if (isDev) {
+      mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
+      return;
+    }
     // Clear cache entry so useEffect re-fetches
     setCache((prev) => {
       const next = { ...prev };
@@ -285,7 +291,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLink, isFinance, isEmail, mutate]);
+  }, [activeFile, isTodo, isCalendar, isLink, isFinance, isEmail, isDev, mutate]);
 
 
   if (openFiles.length === 0) {
@@ -405,6 +411,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileLink = !fileDiff && fileName.endsWith("links.md");
           const fileFinance = !fileDiff && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && fileName.endsWith("emails.md");
+          const fileDev = !fileDiff && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
           const fileExt = getExt(fileName);
@@ -414,7 +421,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDev || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -428,6 +435,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
                 <EmailViewer />
+              ) : fileDev ? (
+                <DevViewer />
               ) : !fileData || fileData.loading ? (
                 <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
               ) : fileData.error ? (
