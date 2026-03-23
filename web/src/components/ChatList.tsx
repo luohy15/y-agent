@@ -71,7 +71,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   }, [refreshKey, mutate]);
 
   const handleClick = (id: string) => {
-    onSelectChat(selectedChatId === id ? null : id);
+    onSelectChat(id);
   };
 
   return (

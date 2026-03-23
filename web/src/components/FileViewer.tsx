@@ -10,6 +10,7 @@ import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
+import TraceView from "./TraceView";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -23,6 +24,7 @@ interface FileViewerProps {
   vmName?: string | null;
   workDir?: string;
   diffFiles?: Set<string>;
+  isLoggedIn?: boolean;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -176,7 +178,7 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -190,17 +192,18 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
-  const isTodo = !isDiff && activeFileName.endsWith("todo.md");
-  const isCalendar = !isDiff && activeFileName.endsWith("calendar.md");
-  const isLink = !isDiff && activeFileName.endsWith("links.md");
-  const isFinance = !isDiff && activeFileName.endsWith("finance.bean");
-  const isEmail = !isDiff && activeFileName.endsWith("emails.md");
-  const isDev = !isDiff && activeFileName.endsWith("dev.md");
+  const isTrace = !isDiff && activeFileName.startsWith("trace:");
+  const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
+  const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
+  const isLink = !isDiff && !isTrace && activeFileName.endsWith("links.md");
+  const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
+  const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
+  const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTodo || isCalendar || isLink || isFinance || isEmail || isDev) return;
+    if (isDiff || isTrace || isTodo || isCalendar || isLink || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -337,7 +340,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
+            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : filePath.startsWith("trace:") ? `trace:${filePath.slice(6, 14)}` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -406,12 +409,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         {openFiles.map((filePath) => {
           const fileDiff = !!(diffFiles?.has(filePath));
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileTodo = !fileDiff && fileName.endsWith("todo.md");
-          const fileCalendar = !fileDiff && fileName.endsWith("calendar.md");
-          const fileLink = !fileDiff && fileName.endsWith("links.md");
-          const fileFinance = !fileDiff && fileName.endsWith("finance.bean");
-          const fileEmail = !fileDiff && fileName.endsWith("emails.md");
-          const fileDev = !fileDiff && fileName.endsWith("dev.md");
+          const fileTrace = !fileDiff && fileName.startsWith("trace:");
+          const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
+          const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
+          const fileLink = !fileDiff && !fileTrace && fileName.endsWith("links.md");
+          const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
+          const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
+          const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
           const fileExt = getExt(fileName);
@@ -421,10 +425,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDev || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDev || fileDiff || fileTrace ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
+              ) : fileTrace ? (
+                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={fileName.slice(6)} />
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
