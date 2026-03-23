@@ -94,12 +94,12 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
             return
         tg_chat_id = user.telegram_id
 
-    # When trace_id is set (notify-created chat), send the last user message first
-    if trace_id:
-        for msg in reversed(chat.messages):
-            if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
+    # Send the last user message only for notify-created messages (prefixed with [trace:)
+    for msg in reversed(chat.messages):
+        if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
+            if msg.content.strip().startswith('[trace:'):
                 send_telegram_message(bot_token, tg_chat_id, msg.content.strip(), topic_id)
-                break
+            break
 
     # Send assistant reply
     reply_text = None
