@@ -122,7 +122,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
-                  {(firstTraceId || c.skill) && (
+                  {(firstTraceId || c.chat_id || c.skill) && (
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
@@ -134,6 +134,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                           {firstTraceId.slice(0, 8)}
                         </button>
                       )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.chat_id); }}
+                        className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                        title="Copy chat ID"
+                      >
+                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        {c.chat_id.slice(0, 8)}
+                      </button>
                       {c.skill && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{c.skill}</span>}
                     </div>
                   )}
