@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
 
@@ -55,7 +55,15 @@ async def post_notify(req: NotifyRequest, request: Request):
         if existing:
             chat_id = existing.id
 
+    # Resolve work_dir for existing chat
+    work_dir = req.work_dir
     if chat_id:
+        existing_chat = await chat_service.get_chat_by_id(chat_id)
+        if existing_chat and existing_chat.work_dir:
+            if work_dir and work_dir != existing_chat.work_dir:
+                raise HTTPException(status_code=400, detail=f"work_dir mismatch: chat has '{existing_chat.work_dir}', got '{work_dir}'")
+            if not work_dir:
+                work_dir = existing_chat.work_dir
         await chat_service.append_message(chat_id, user_msg)
     else:
         # Priority 3: create new chat
@@ -63,6 +71,6 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
-    send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
+    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)

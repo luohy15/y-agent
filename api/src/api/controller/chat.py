@@ -92,6 +92,14 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
 
+    # Resolve work_dir: use existing chat.work_dir if not provided, validate if provided
+    work_dir = req.work_dir
+    if chat.work_dir:
+        if work_dir and work_dir != chat.work_dir:
+            raise HTTPException(status_code=400, detail=f"work_dir mismatch: chat has '{chat.work_dir}', got '{work_dir}'")
+        if not work_dir:
+            work_dir = chat.work_dir
+
     # Backfill tool results so they are persisted
     backfill_tool_results(chat.messages, mode="cancelled")
     user_msg = Message.from_dict({
@@ -107,7 +115,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
+    send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
     return {"ok": True}
 
 

@@ -244,7 +244,12 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
     # Resume existing session only if work_dir matches (session files are path-specific)
     session_id = chat.external_id
     if session_id and chat.work_dir != cwd:
-        logger.info("claude-code work_dir mismatch (was {}, now {}), aborting", chat.work_dir, cwd)
+        error_msg = f"work_dir mismatch: chat has '{chat.work_dir}', got '{cwd}'"
+        logger.error("claude-code {}, aborting", error_msg)
+        message_callback(chat_id, Message.from_dict({
+            "role": "assistant",
+            "content": f"Error: {error_msg}. Cannot resume session with a different work_dir.",
+        }))
         return
     resume = bool(session_id)
     logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, user_prompt[:200])
