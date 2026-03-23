@@ -62,6 +62,56 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
+def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
+    """Send assistant reply to Telegram, routing by skill.
+
+    If chat has a skill, find the matching tg_topic and send there.
+    If skill is None, send as DM to the user's telegram_id.
+    When trace_id is set (notify-created chats), also send the last user message first.
+    """
+    from storage.util import get_telegram_bot_token, send_telegram_message
+    from storage.repository.tg_topic import find_topic_by_name
+    from storage.repository.user import get_user_by_id
+
+    bot_token = get_telegram_bot_token()
+    if not bot_token:
+        return
+
+    # Determine where to send
+    tg_chat_id = None
+    topic_id = None
+    if chat.skill:
+        topic = find_topic_by_name(user_id, chat.skill)
+        if not topic or topic.topic_id is None:
+            logger.debug("telegram reply: no topic for skill '{}'", chat.skill)
+            return
+        tg_chat_id = topic.group_id
+        topic_id = topic.topic_id
+    else:
+        user = get_user_by_id(user_id)
+        if not user or not user.telegram_id:
+            logger.debug("telegram reply: no telegram_id for user_id={}", user_id)
+            return
+        tg_chat_id = user.telegram_id
+
+    # When trace_id is set (notify-created chat), send the last user message first
+    if trace_id:
+        for msg in reversed(chat.messages):
+            if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
+                send_telegram_message(bot_token, tg_chat_id, msg.content.strip(), topic_id)
+                break
+
+    # Send assistant reply
+    reply_text = None
+    for msg in reversed(chat.messages):
+        if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
+            reply_text = msg.content.strip()
+            break
+    if reply_text:
+        send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
+        logger.info("telegram reply: sent to skill={} tg_chat_id={}", chat.skill, tg_chat_id)
+
+
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None) -> None:
     """Execute a chat round. bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message."""
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
@@ -112,23 +162,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         if fresh:
             fresh.running = False
             await chat_repo.save_chat_by_id(fresh)
-            # Send assistant reply to Telegram if chat has a channel
+            # Send assistant reply to Telegram based on skill routing
             if not fresh.interrupted and not error_occurred:
                 try:
-                    from storage.util import parse_telegram_channel_id, get_telegram_bot_token, send_telegram_message
-                    tg = parse_telegram_channel_id(fresh.channel_id)
-                    if tg:
-                        group_id, topic_id = tg
-                        reply_text = None
-                        for msg in reversed(fresh.messages):
-                            if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
-                                reply_text = msg.content.strip()
-                                break
-                        if reply_text:
-                            bot_token = get_telegram_bot_token()
-                            if bot_token:
-                                send_telegram_message(bot_token, group_id, reply_text, topic_id)
-                                logger.info("telegram reply: sent to channel={}", fresh.channel_id)
+                    _send_telegram_reply(fresh, user_id, trace_id)
                 except Exception as e:
                     logger.exception("telegram reply failed: {}", e)
             # Execute post hooks if chat completed (not interrupted)

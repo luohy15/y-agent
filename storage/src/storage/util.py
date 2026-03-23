@@ -140,19 +140,6 @@ def get_telegram_bot_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
 
 
-def parse_telegram_channel_id(channel_id: str):
-    """Parse 'telegram:{group_id}' or 'telegram:{group_id}:{topic_id}' into (group_id, topic_id) or None.
-    topic_id is None for General topic (2-part format)."""
-    if not channel_id or not channel_id.startswith("telegram:"):
-        return None
-    parts = channel_id.split(":", 2)
-    if len(parts) == 2:
-        return parts[1], None
-    if len(parts) == 3:
-        return parts[1], int(parts[2])
-    return None
-
-
 def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None) -> None:
     """Send a message to Telegram with HTML formatting, chunking, and plain-text fallback."""
     import httpx
