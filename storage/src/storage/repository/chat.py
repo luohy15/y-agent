@@ -52,6 +52,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                     title=row.title or "",
                     created_at=row.created_at or "",
                     updated_at=row.updated_at or "",
+                    skill=row.skill or "",
                 )
                 for row in filtered[offset:offset + limit]
             ]
@@ -65,6 +66,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 title=row.title or "",
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
+                skill=row.skill or "",
             )
             for row in rows
         ]

@@ -141,14 +141,3 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
         todo_status = todo.status
 
     return {"chats": result_chats, "todo_name": todo_name, "todo_status": todo_status}
-
-
-@router.get("/by-chat")
-async def get_trace_by_chat(request: Request, chat_id: str = Query(...)):
-    """Find the active trace for a chat."""
-    user_id = _get_user_id(request)
-    from storage.repository.chat import get_chat
-    chat = await get_chat(user_id, chat_id)
-    if not chat or not chat.active_trace_id:
-        raise HTTPException(status_code=404, detail="trace not found for chat_id")
-    return {"trace_id": chat.active_trace_id, "skill": chat.skill}

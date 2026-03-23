@@ -257,8 +257,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
 
     # Queue for processing with telegram_reply post-hook
     try:
-        from api.controller.chat import _send_chat_message
-        _send_chat_message(
+        from storage.service.chat import send_chat_message
+        send_chat_message(
             chat_id,
             user_id=user.id,
             # No post_hooks needed — run_chat auto-sends assistant reply via channel_id
