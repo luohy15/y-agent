@@ -28,7 +28,7 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return Chat.from_dict(json.loads(entity.json_content))
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -38,6 +38,23 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 ChatEntity.title.ilike(f"%{query}%"),
                 ChatEntity.search_text.ilike(f"%{query}%"),
             ))
+        if trace_id:
+            # Filter by trace_id in Python since JSON array contains is DB-specific
+            q = q.filter(ChatEntity.trace_ids.isnot(None))
+            rows = (q.order_by(ChatEntity.updated_at.desc()).all())
+            filtered = [
+                row for row in rows
+                if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
+            ]
+            return [
+                ChatSummary(
+                    chat_id=row.chat_id,
+                    title=row.title or "",
+                    created_at=row.created_at or "",
+                    updated_at=row.updated_at or "",
+                )
+                for row in filtered[offset:offset + limit]
+            ]
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)
@@ -252,7 +269,7 @@ def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
             entity.json_content = json.dumps(data)
 
 
-def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0) -> list:
+def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:
     """List distinct trace_ids from all chats' trace_ids lists, ordered by most recently updated."""
     with get_db() as session:
         rows = (session.query(ChatEntity.trace_ids, ChatEntity.updated_at, ChatEntity.updated_at_unix)
@@ -268,6 +285,9 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0) -> list:
             for tid in row.trace_ids:
                 if tid not in trace_map or (row.updated_at_unix or 0) > trace_map[tid][1]:
                     trace_map[tid] = (row.updated_at or "", row.updated_at_unix or 0)
+        # Filter by trace_id if provided
+        if trace_id:
+            trace_map = {tid: info for tid, info in trace_map.items() if trace_id in tid}
         # Sort by most recent
         sorted_traces = sorted(trace_map.items(), key=lambda x: x[1][1], reverse=True)
         return [

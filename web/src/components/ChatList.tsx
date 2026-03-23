@@ -29,12 +29,14 @@ const fetcher = async (url: string) => {
 
 export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey }: ChatListProps) {
   const [search, setSearch] = useState("");
+  const [traceId, setTraceId] = useState("");
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
+  const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -59,10 +61,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
     [isValidating, isReachingEnd, setSize],
   );
 
-  // Reset pagination when search changes
+  // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, setSize]);
+  }, [search, traceId, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -82,6 +84,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           placeholder="Search tasks..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+        />
+        <input
+          type="text"
+          placeholder="Filter by trace ID..."
+          value={traceId}
+          onChange={(e) => setTraceId(e.target.value)}
           className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
         />
       </div>

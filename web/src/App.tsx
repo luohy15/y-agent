@@ -363,6 +363,7 @@ export default function App() {
               fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
               md:hidden
               shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
+              max-w-[280px]
               ${chatListOpen ? "translate-x-0" : "translate-x-full"}
             `}
             style={{ width: chatListWidth }}
