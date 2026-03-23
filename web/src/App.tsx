@@ -105,7 +105,7 @@ export default function App() {
   useEffect(() => {
     if (urlTraceId) {
       setSelectedTraceId(urlTraceId);
-      handleOpenFile("trace:" + urlTraceId);
+      handleOpenFile("trace.md");
       setSidebarPanel("traces");
     }
   }, [urlTraceId, handleOpenFile]);
@@ -252,7 +252,7 @@ export default function App() {
           {sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
           ) : sidebarPanel === "traces" ? (
-            <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); if (id) handleOpenFile("trace:" + id); }} />
+            <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); if (id) handleOpenFile("trace.md"); }} />
           ) : (
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
@@ -265,7 +265,7 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Right top: FileViewer (shown when chat hidden) */}
           <div className={`${chatHide ? "flex-1" : "hidden"} min-h-0 overflow-hidden`}>
-            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} />
+            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} />
           </div>
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">

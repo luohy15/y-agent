@@ -116,6 +116,7 @@ async def get_chats(request: Request, query: Optional[str] = Query(None), trace_
             "title": c.title,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
+            "skill": c.skill,
         }
         for c in chats
     ]

@@ -7,6 +7,7 @@ interface Chat {
   title?: string;
   created_at?: string;
   updated_at?: string;
+  skill?: string;
 }
 
 interface ChatListProps {
@@ -110,16 +111,39 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
               const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
               const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+              // Parse [trace:xxx from:xxx] prefix
+              const traceMatch = c.title?.match(/^\[trace:(\S+)\s+from:(\S+)\]\s*(.*)/);
+              const traceIdVal = traceMatch?.[1];
+              const fromSkill = traceMatch?.[2];
+              const displayTitle = traceMatch ? traceMatch[3] : (c.title || "");
+              const toSkill = c.skill;
               return (
                 <div
                   key={c.chat_id}
                   onClick={() => handleClick(c.chat_id)}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
+                  className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
-                  <span className="flex-1 truncate">{c.title || ""}</span>
-                  <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
+                  {traceIdVal && (
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(traceIdVal); }}
+                        className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                        title="Copy trace ID"
+                      >
+                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>
+                        {traceIdVal.slice(0, 8)}
+                      </button>
+                      {fromSkill && toSkill && (
+                        <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{fromSkill}<span className="text-sol-base01 mx-0.5">&rarr;</span>{toSkill}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex-1 truncate">{displayTitle}</span>
+                    <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
+                  </div>
                 </div>
               );
             })}
