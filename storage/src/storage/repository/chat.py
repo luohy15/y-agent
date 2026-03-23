@@ -69,6 +69,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
                 skill=row.skill or "",
+                trace_ids=row.trace_ids if isinstance(row.trace_ids, list) else None,
             )
             for row in rows
         ]
