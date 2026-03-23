@@ -24,6 +24,8 @@ class NotifyRequest(BaseModel):
     trace_id: str
     from_skill: str
     force_new: Optional[bool] = False
+    chat_id: Optional[str] = None
+    from_chat_id: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):
@@ -35,8 +37,27 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
+    # Resolve target chat: explicit chat_id > skill+trace lookup > new
+    existing_chat = None
+    if req.chat_id:
+        existing_chat = await chat_service.get_chat_by_id(req.chat_id)
+        if not existing_chat:
+            raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
+        chat_id = req.chat_id
+    elif not req.force_new:
+        from storage.repository.chat import find_chat_by_skill_and_trace
+        found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
+        if found:
+            chat_id = found.id
+            existing_chat = await chat_service.get_chat_by_id(chat_id)
+        else:
+            chat_id = generate_id()
+    else:
+        chat_id = generate_id()
+
     # Build message content with trace metadata prefix
-    msg_content = f'[trace:{req.trace_id} from:{req.from_skill} to:{req.skill}]\n{req.message}'
+    from_chat_part = f' from_chat:{req.from_chat_id}' if req.from_chat_id else ''
+    msg_content = f'[trace:{req.trace_id} from:{req.from_skill} to:{req.skill}{from_chat_part} to_chat:{chat_id}]\n{req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -46,31 +67,19 @@ async def post_notify(req: NotifyRequest, request: Request):
         "trace_id": req.trace_id,
     })
 
-    # Find existing chat to resume: match by skill + active_trace_id.
-    # If no match, create a new chat.
-    chat_id = None
-    if not req.force_new:
-        from storage.repository.chat import find_chat_by_skill_and_trace
-        existing = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
-        if existing:
-            chat_id = existing.id
-
-    # Resolve work_dir for existing chat
+    # Resolve work_dir and append/create chat
     work_dir = req.work_dir
-    if chat_id:
-        existing_chat = await chat_service.get_chat_by_id(chat_id)
-        if existing_chat and existing_chat.work_dir:
+    if existing_chat:
+        if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
                 raise HTTPException(status_code=400, detail=f"work_dir mismatch: chat has '{existing_chat.work_dir}', got '{work_dir}'")
             if not work_dir:
                 work_dir = existing_chat.work_dir
         await chat_service.append_message(chat_id, user_msg)
     else:
-        # Priority 3: create new chat
-        chat_id = generate_id()
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
-    # Enqueue worker (bot_name = skill name, pass trace context via queue)
+    # Enqueue worker
     send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
