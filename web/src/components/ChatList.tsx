@@ -111,12 +111,12 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
               const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
               const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-              // Parse [trace:xxx from:xxx] prefix
-              const traceMatch = c.title?.match(/^\[trace:(\S+)\s+from:(\S+)\]\s*(.*)/);
+              // Parse [trace:xxx from:xxx] or [trace:xxx from:xxx to:xxx] prefix
+              const traceMatch = c.title?.match(/^\[trace:(\S+)\s+from:(\S+)(?:\s+to:(\S+))?\]\s*(.*)/);
               const traceIdVal = traceMatch?.[1];
               const fromSkill = traceMatch?.[2];
-              const displayTitle = traceMatch ? traceMatch[3] : (c.title || "");
-              const toSkill = c.skill;
+              const displayTitle = traceMatch ? traceMatch[4] : (c.title || "");
+              const toSkill = traceMatch?.[3] || c.skill;
               return (
                 <div
                   key={c.chat_id}
