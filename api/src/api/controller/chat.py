@@ -1,79 +1,17 @@
 import asyncio
 import json
-import os
 from typing import Optional
 
-import boto3
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from storage.service import chat as chat_service
+from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, backfill_tool_results
 from storage.entity.dto import Message
 
 router = APIRouter(prefix="/chat")
-
-
-def _get_sqs_client():
-    region = os.environ.get("AWS_REGION", "us-east-1")
-    endpoint_url = os.environ.get("SQS_ENDPOINT_URL")
-    kwargs = {"region_name": region}
-    if endpoint_url:
-        kwargs["endpoint_url"] = endpoint_url
-    return boto3.client("sqs", **kwargs)
-
-
-def _get_celery_app():
-    """Create a minimal Celery app for dispatching tasks via filesystem broker."""
-    from celery import Celery
-    from storage.celery_config import BROKER_URL, BROKER_TRANSPORT_OPTIONS, RESULT_BACKEND
-
-    app = Celery("api")
-    app.conf.update(
-        broker_url=BROKER_URL,
-        broker_transport_options=BROKER_TRANSPORT_OPTIONS,
-        result_backend=RESULT_BACKEND,
-        task_serializer="json",
-        accept_content=["json"],
-        result_serializer="json",
-    )
-    return app
-
-
-def _send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None):
-    """Send a message to trigger the worker for a chat.
-
-    Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
-    Falls back to Celery with filesystem broker for local dev.
-    """
-    payload = {"chat_id": chat_id}
-    if bot_name:
-        payload["bot_name"] = bot_name
-    if user_id is not None:
-        payload["user_id"] = user_id
-    if vm_name:
-        payload["vm_name"] = vm_name
-    if work_dir:
-        payload["work_dir"] = work_dir
-    if post_hooks:
-        payload["post_hooks"] = post_hooks
-    if trace_id:
-        payload["trace_id"] = trace_id
-    if skill:
-        payload["skill"] = skill
-
-    queue_url = os.environ.get("SQS_QUEUE_URL")
-    if queue_url:
-        client = _get_sqs_client()
-        client.send_message(
-            QueueUrl=queue_url,
-            MessageBody=json.dumps(payload),
-        )
-        return
-
-    app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "skill": skill})
 
 
 class CreateChatRequest(BaseModel):
@@ -142,7 +80,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         chat_id=chat_id,
     )
 
-    _send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
+    send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -168,7 +106,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    _send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
+    send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return {"ok": True}
 
 

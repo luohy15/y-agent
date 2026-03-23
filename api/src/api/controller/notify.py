@@ -8,7 +8,7 @@ from storage.service import chat as chat_service
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
-from api.controller.chat import _send_chat_message
+from storage.service.chat import send_chat_message
 
 router = APIRouter(prefix="/notify")
 
@@ -36,7 +36,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
     # Build message content with trace metadata prefix
-    msg_content = f'[trace:{req.trace_id} from:{req.from_skill}]\n{req.message}'
+    msg_content = f'[trace:{req.trace_id} from:{req.from_skill} to:{req.skill}]\n{req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -63,7 +63,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
     # Enqueue worker (bot_name = skill name, pass trace context via queue)
-    _send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
+    send_chat_message(chat_id, user_id=user_id, work_dir=req.work_dir, trace_id=req.trace_id, skill=req.skill)
 
     # Send Telegram notification to the target skill's topic
     await _notify_telegram_topic(user_id, req, chat_id)
@@ -82,7 +82,7 @@ async def _notify_telegram_topic(user_id: int, req: NotifyRequest, chat_id: str)
             logger.warning("notify telegram: TELEGRAM_BOT_TOKEN not set")
             return
 
-        text = f"[trace:{req.trace_id} from:{req.from_skill}]\n{req.message}"
+        text = f"[trace:{req.trace_id} from:{req.from_skill} to:{req.skill}]\n{req.message}"
 
         from api.controller.telegram import _send_message
         from storage.repository.chat import update_channel_id
