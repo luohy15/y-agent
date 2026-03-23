@@ -25,6 +25,7 @@ interface FileViewerProps {
   workDir?: string;
   diffFiles?: Set<string>;
   isLoggedIn?: boolean;
+  selectedTraceId?: string | null;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -178,7 +179,7 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -192,7 +193,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
-  const isTrace = !isDiff && activeFileName.startsWith("trace:");
+  const isTrace = !isDiff && activeFileName === "trace.md";
   const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
   const isLink = !isDiff && !isTrace && activeFileName.endsWith("links.md");
@@ -340,7 +341,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : filePath.startsWith("trace:") ? `trace:${filePath.slice(6, 14)}` : getFileName(filePath)}</span>
+            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -409,7 +410,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         {openFiles.map((filePath) => {
           const fileDiff = !!(diffFiles?.has(filePath));
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileTrace = !fileDiff && fileName.startsWith("trace:");
+          const fileTrace = !fileDiff && fileName === "trace.md";
           const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
           const fileLink = !fileDiff && !fileTrace && fileName.endsWith("links.md");
@@ -430,7 +431,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileTrace ? (
-                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={fileName.slice(6)} />
+                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} />
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (

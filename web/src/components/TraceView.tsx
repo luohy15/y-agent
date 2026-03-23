@@ -486,7 +486,14 @@ export default function TraceView({ isLoggedIn, selectedTraceId }: TraceViewProp
                   ))}
                 </div>
               </div>
-              <div className="text-[0.6rem] text-sol-base01 font-mono mb-1">{selectedTraceId}</div>
+              <button
+                onClick={() => navigator.clipboard.writeText(selectedTraceId)}
+                className="inline-flex items-center gap-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono mb-1 cursor-pointer"
+                title="Copy trace ID"
+              >
+                <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>
+                {selectedTraceId}
+              </button>
               <WaterfallChart chats={traceChats} currentTime={currentTime} onDragTime={scrollToTime} />
             </div>
 
