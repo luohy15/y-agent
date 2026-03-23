@@ -98,6 +98,13 @@ def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
         return {row.todo_id: _entity_to_dto(row) for row in rows}
 
 
+def get_all_todo_ids(user_id: int) -> List[str]:
+    """Return all todo_ids for a user."""
+    with get_db() as session:
+        rows = session.query(TodoEntity.todo_id).filter_by(user_id=user_id).all()
+        return [row[0] for row in rows]
+
+
 def delete_todo(user_id: int, todo_id: str) -> bool:
     with get_db() as session:
         count = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id).delete()
