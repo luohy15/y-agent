@@ -37,6 +37,7 @@ class Message:
     tool_calls: Optional[List[Dict]] = None
     tool_call_id: Optional[str] = None
     trace_id: Optional[str] = None
+    source: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Message':
@@ -75,6 +76,7 @@ class Message:
             tool_calls=data.get('tool_calls'),
             tool_call_id=data.get('tool_call_id'),
             trace_id=data.get('trace_id'),
+            source=data.get('source'),
         )
 
     def to_dict(self) -> Dict:
@@ -117,6 +119,8 @@ class Message:
             result['tool_call_id'] = self.tool_call_id
         if self.trace_id is not None:
             result['trace_id'] = self.trace_id
+        if self.source is not None:
+            result['source'] = self.source
         return result
 
 @dataclass
