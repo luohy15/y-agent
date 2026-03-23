@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
-import TraceList from "./TraceList";
 import MessageList, { type Message, extractContent } from "./MessageList";
 
 interface Segment {
@@ -30,7 +29,6 @@ interface TraceChat {
 interface TraceViewProps {
   isLoggedIn: boolean;
   selectedTraceId: string | null;
-  onSelectTrace: (traceId: string | null) => void;
 }
 
 const fetcher = async (url: string) => {
@@ -335,7 +333,7 @@ interface TraceChatsResponse {
   todo_status: string | null;
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }: TraceViewProps) {
+export default function TraceView({ isLoggedIn, selectedTraceId }: TraceViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState<number | null>(null);
   const isDragging = useRef(false);
@@ -427,14 +425,28 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
     requestAnimationFrame(() => { isDragging.current = false; });
   }, []);
 
+  // Build TOC items from time blocks - one entry per block showing skill + first user message
+  const tocItems = useMemo(() => {
+    return timeBlocks.map((block, i) => {
+      const firstUser = block.messages.find((m) => m.role === "user");
+      const text = firstUser ? extractContent(firstUser.content).split("\n")[0].trim() : block.title;
+      const label = text.length > 30 ? text.slice(0, 30) + "..." : text;
+      return { index: i, skill: block.skill, label, ts: block.startTimestamp };
+    });
+  }, [timeBlocks]);
+
+  const scrollToBlock = useCallback((ts: number) => {
+    const el = scrollRef.current?.querySelector(`[data-block-ts="${ts}"]`);
+    if (el) {
+      const stickyEl = scrollRef.current?.querySelector("[data-sticky-header]");
+      const stickyHeight = stickyEl ? stickyEl.getBoundingClientRect().height : 0;
+      const elTop = el.getBoundingClientRect().top - scrollRef.current!.getBoundingClientRect().top + scrollRef.current!.scrollTop;
+      scrollRef.current!.scrollTo({ top: elTop - stickyHeight - 8, behavior: "smooth" });
+    }
+  }, []);
+
   return (
     <div className="flex h-full min-h-0">
-      {/* Left: Trace list (desktop only, mobile uses drawer) */}
-      <div className="hidden md:flex w-56 shrink-0 border-r border-sol-base02 bg-sol-base03 flex-col overflow-hidden">
-        <TraceList isLoggedIn={isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={onSelectTrace} />
-      </div>
-
-      {/* Right: Waterfall view + messages */}
       <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto bg-sol-base03 p-3">
         {!selectedTraceId ? (
           <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
@@ -494,6 +506,41 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectTrace }
           </div>
         )}
       </div>
+      {/* TOC sidebar */}
+      {tocItems.length >= 2 && (
+        <div className="hidden md:flex flex-col shrink-0 w-8 hover:w-52 transition-all duration-200 overflow-hidden group border-l border-sol-base02">
+          {/* Dot indicators (visible when collapsed) */}
+          <div className="flex flex-col items-center gap-1.5 py-2 group-hover:hidden">
+            {tocItems.map((item) => {
+              const colors = getSkillColors(item.skill);
+              return (
+                <div
+                  key={item.index}
+                  className={`w-2 h-2 rounded-full ${colors.dot} hover:opacity-80 cursor-pointer shrink-0`}
+                  onClick={() => scrollToBlock(item.ts)}
+                />
+              );
+            })}
+          </div>
+          {/* Expanded list (visible on hover) */}
+          <div className="hidden group-hover:flex flex-col overflow-y-auto py-1">
+            {tocItems.map((item) => {
+              const colors = getSkillColors(item.skill);
+              return (
+                <button
+                  key={item.index}
+                  onClick={() => scrollToBlock(item.ts)}
+                  className="flex items-center text-left px-2 h-6 shrink-0 text-[0.65rem] font-mono text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer truncate gap-1.5"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                  <span className={`shrink-0 ${colors.text}`}>{item.skill}</span>
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

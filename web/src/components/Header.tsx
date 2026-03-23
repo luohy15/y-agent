@@ -1,11 +1,5 @@
-import { useCallback, useState, useRef, useEffect, type RefCallback } from "react";
+import { useCallback, type RefCallback } from "react";
 import { isPreview, MAIN_DOMAIN } from "../hooks/useAuth";
-
-interface VmConfigItem {
-  name: string;
-  vm_name: string;
-  work_dir: string;
-}
 
 interface HeaderProps {
   email: string | null;
@@ -14,16 +8,12 @@ interface HeaderProps {
   onLogout: () => void;
   onToggleChatList?: () => void;
   chatListOpen?: boolean;
-  bottomTab?: "chat" | "terminal" | "trace";
-  onOpenFileSearch?: () => void;
+  onToggleActivityBar?: () => void;
+  activityBarOpen?: boolean;
   onClickLogo?: () => void;
-  vmList?: VmConfigItem[];
-  selectedVM?: string | null;
-  onSelectVM?: (name: string | null) => void;
-  onToggleSidebar?: () => void;
 }
 
-export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, bottomTab, onOpenFileSearch, onClickLogo, vmList, selectedVM, onSelectVM, onToggleSidebar }: HeaderProps) {
+export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onToggleActivityBar, activityBarOpen, onClickLogo }: HeaderProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     (window as any).google.accounts.id.renderButton(node, {
@@ -33,98 +23,35 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
     });
   }, [isLoggedIn, gsiReady]);
 
-  const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
-  const vmDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!vmDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (vmDropdownRef.current && !vmDropdownRef.current.contains(e.target as Node)) {
-        setVmDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [vmDropdownOpen]);
-
   return (
     <header className="px-4 md:px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
       <div className="flex items-center gap-2">
         <button onClick={onClickLogo} className="h-8 w-8 shrink-0 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm cursor-pointer hover:bg-sol-base01 transition-colors">
           <span className="text-lg font-bold text-sol-blue">Y</span>
         </button>
-        {/* Mobile-only: VM selector */}
-        {isLoggedIn && onSelectVM && (
-          <div className="relative md:hidden" ref={vmDropdownRef}>
-            <button
-              onClick={() => setVmDropdownOpen((v) => !v)}
-              className="h-8 flex items-center gap-1.5 px-2 text-sm text-sol-base01 hover:text-sol-base1 cursor-pointer rounded hover:bg-sol-base02"
-              title="Select VM"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-                <line x1="6" y1="6" x2="6.01" y2="6" />
-                <line x1="6" y1="18" x2="6.01" y2="18" />
-              </svg>
-            </button>
-            {vmDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
-                <button
-                  onClick={() => { onSelectVM(null); setVmDropdownOpen(false); }}
-                  className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                >
-                  default
-                </button>
-                {(vmList || []).filter((vm) => vm.name !== "default").map((vm) => (
-                  <button
-                    key={vm.name}
-                    onClick={() => { onSelectVM(vm.name); setVmDropdownOpen(false); }}
-                    className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                  >
-                    {vm.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {/* Mobile-only: Directory toggle */}
-        {isLoggedIn && onToggleSidebar && (
-          <button onClick={onToggleSidebar} className="md:hidden h-8 flex items-center gap-1.5 px-2 text-sm text-sol-base01 hover:text-sol-base1 cursor-pointer rounded hover:bg-sol-base02">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        {/* Mobile-only: Activity bar drawer toggle */}
+        {isLoggedIn && onToggleActivityBar && (
+          <button
+            onClick={onToggleActivityBar}
+            className={`md:hidden h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${activityBarOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
+            title="Menu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
           </button>
         )}
+        {/* Mobile-only: Chat list drawer toggle */}
         {isLoggedIn && onToggleChatList && (
           <button
             onClick={onToggleChatList}
             className={`md:hidden h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${chatListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
-            title={chatListOpen ? (bottomTab === "trace" ? "Hide trace list" : "Hide chat list") : (bottomTab === "trace" ? "Show trace list" : "Show chat list")}
-          >
-            {bottomTab === "trace" ? (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="5" cy="5" r="2.5" />
-                <circle cx="19" cy="12" r="2.5" />
-                <circle cx="5" cy="19" r="2.5" />
-                <line x1="7.5" y1="6" x2="16.5" y2="11" />
-                <line x1="16.5" y1="13" x2="7.5" y2="18" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            )}
-          </button>
-        )}
-        {isLoggedIn && onOpenFileSearch && (
-          <button
-            onClick={onOpenFileSearch}
-            className="md:hidden h-8 flex items-center gap-1.5 px-2 text-sm text-sol-base01 hover:text-sol-base1 cursor-pointer rounded hover:bg-sol-base02"
-            title="Search files"
+            title={chatListOpen ? "Hide chat list" : "Show chat list"}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </button>
         )}

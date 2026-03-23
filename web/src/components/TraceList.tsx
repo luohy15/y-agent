@@ -79,7 +79,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
               return (
                 <div
                   key={t.trace_id}
-                  onClick={() => onSelectTrace(sel ? null : t.trace_id)}
+                  onClick={() => onSelectTrace(t.trace_id)}
                   className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
