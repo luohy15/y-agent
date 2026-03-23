@@ -783,6 +783,8 @@ async def run_claude_code(
         cmd.extend(["--max-turns", str(max_turns)])
     if system_prompt:
         cmd.extend(["--system-prompt", system_prompt])
+    if skill and skill != "DM" and not resume:
+        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{skill}' skill."])
     if allowed_tools:
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
 
