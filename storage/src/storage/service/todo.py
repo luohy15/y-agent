@@ -3,7 +3,7 @@
 from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
-from storage.util import generate_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 
 def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, limit: int = 50) -> List[Todo]:
@@ -22,8 +22,20 @@ def create_todo(
     due_date: Optional[str] = None,
     priority: Optional[str] = None,
 ) -> Todo:
+    # Find smallest available positive integer ID for this user
+    existing_ids = todo_repo.get_all_todo_ids(user_id)
+    used = set()
+    for tid in existing_ids:
+        try:
+            used.add(int(tid))
+        except (ValueError, TypeError):
+            pass
+    next_id = 1
+    while next_id in used:
+        next_id += 1
+
     todo = Todo(
-        todo_id=generate_id(),
+        todo_id=str(next_id),
         name=name,
         desc=desc,
         tags=tags,
