@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 
@@ -27,10 +27,13 @@ interface TraceListProps {
 }
 
 export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }: TraceListProps) {
+  const [search, setSearch] = useState("");
+  const traceIdParam = search.trim() ? `&trace_id=${encodeURIComponent(search.trim())}` : "";
+
   const getKey = (pageIndex: number, previousPageData: TraceListItem[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null;
-    return `${API}/api/trace/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}`;
+    return `${API}/api/trace/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${traceIdParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating } = useSWRInfinite<TraceListItem[]>(getKey, fetcher);
@@ -55,10 +58,21 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
     [isValidating, isReachingEnd, setSize],
   );
 
+  // Reset pagination when search changes
+  useEffect(() => {
+    setSize(1);
+  }, [search, setSize]);
+
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
-      <div className="p-2 border-b border-sol-base02 text-sol-base1 font-semibold text-xs">
-        Traces
+      <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
+        <input
+          type="text"
+          placeholder="Search traces..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+        />
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (

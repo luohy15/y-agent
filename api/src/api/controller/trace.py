@@ -93,11 +93,11 @@ def _extract_segments(messages: list, trace_id: str) -> List[dict]:
 
 
 @router.get("/list")
-async def list_traces(request: Request, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+async def list_traces(request: Request, trace_id: str = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     """List distinct trace_ids from chats, ordered by most recent. Includes todo name."""
     user_id = _get_user_id(request)
     from storage.repository.chat import list_trace_ids
-    traces = list_trace_ids(user_id, limit=limit, offset=offset)
+    traces = list_trace_ids(user_id, limit=limit, offset=offset, trace_id=trace_id)
 
     # Batch-lookup todo names for all trace_ids (trace_id = todo_id)
     trace_ids = [t["trace_id"] for t in traces]
