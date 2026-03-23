@@ -98,9 +98,13 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
     for msg in reversed(chat.messages):
         if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
             if msg.source != 'telegram':
-                user = get_user_by_id(user_id)
-                display_name = (user.username or user.email.split('@')[0]) if user else 'unknown'
-                send_telegram_message(bot_token, tg_chat_id, f"{display_name}: {msg.content.strip()}", topic_id)
+                text = msg.content.strip()
+                # Prefix with display name for non-notify messages (web-originated)
+                if not text.startswith('[trace:'):
+                    user = get_user_by_id(user_id)
+                    display_name = (user.username or user.email.split('@')[0]) if user else 'unknown'
+                    text = f"{display_name}: {text}"
+                send_telegram_message(bot_token, tg_chat_id, text, topic_id)
             break
 
     # Send assistant reply
