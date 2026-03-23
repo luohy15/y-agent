@@ -137,6 +137,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             chat.trace_ids.append(trace_id)
     if skill and chat.skill != skill:
         chat.skill = skill
+    elif not skill and chat.skill:
+        skill = chat.skill
+        logger.info("Using skill from chat: {}", skill)
 
     # Reset interrupted flag and mark as running
     chat.interrupted = False
