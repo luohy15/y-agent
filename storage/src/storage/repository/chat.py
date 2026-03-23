@@ -154,7 +154,6 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.channel_id = chat.channel_id
             entity.skill = chat.skill
             entity.active_trace_id = chat.active_trace_id
             entity.trace_ids = chat.trace_ids
@@ -166,7 +165,6 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 external_id=chat.external_id,
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
-                channel_id=chat.channel_id,
                 skill=chat.skill,
                 active_trace_id=chat.active_trace_id,
                 trace_ids=chat.trace_ids,
@@ -211,7 +209,6 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.channel_id = chat.channel_id
             entity.skill = chat.skill
             entity.active_trace_id = chat.active_trace_id
             entity.trace_ids = chat.trace_ids
@@ -251,27 +248,6 @@ async def find_chat_by_origin(user_id: int, origin_chat_id: str) -> List[Chat]:
 
 async def save_chat_by_id(chat: Chat) -> Chat:
     return _save_chat_by_id_sync(chat)
-
-
-def update_channel_id(user_id: int, chat_id: str, channel_id: str) -> None:
-    """Update the channel_id for a chat, clearing it from any other chat that had it."""
-    with get_db() as session:
-        # Clear channel_id from any other chat that currently owns it
-        old_entities = session.query(ChatEntity).filter_by(user_id=user_id, channel_id=channel_id).filter(
-            ChatEntity.chat_id != chat_id
-        ).all()
-        for entity in old_entities:
-            entity.channel_id = None
-            data = json.loads(entity.json_content)
-            data.pop("channel_id", None)
-            entity.json_content = json.dumps(data)
-        # Set channel_id on the target chat (both column and json_content)
-        entity = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).first()
-        if entity:
-            entity.channel_id = channel_id
-            data = json.loads(entity.json_content)
-            data["channel_id"] = channel_id
-            entity.json_content = json.dumps(data)
 
 
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:
@@ -358,13 +334,15 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
         ]
 
 
-def find_chat_by_channel_sync(user_id: int, channel_id: str) -> Optional[Chat]:
-    """Find the most recent chat for a given channel_id (e.g. 'telegram:123')."""
+def find_latest_chat_by_skill(user_id: int, skill: Optional[str]) -> Optional[Chat]:
+    """Find the most recent chat for a given skill (or skill IS NULL when skill=None)."""
     with get_db() as session:
-        row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, channel_id=channel_id)
-               .order_by(ChatEntity.updated_at_unix.desc())
-               .first())
+        q = session.query(ChatEntity).filter_by(user_id=user_id)
+        if skill is None:
+            q = q.filter(ChatEntity.skill.is_(None))
+        else:
+            q = q.filter_by(skill=skill)
+        row = q.order_by(ChatEntity.updated_at_unix.desc()).first()
         if not row:
             return None
         try:

@@ -8,7 +8,7 @@ from loguru import logger
 from fastapi import APIRouter, Request
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
-from storage.repository.chat import find_chat_by_channel_sync, save_chat as repo_save_chat
+from storage.repository.chat import find_latest_chat_by_skill, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
@@ -166,11 +166,15 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
         return {"ok": True}
 
-    channel_id = f"telegram:{telegram_chat_id}"
+    # Determine skill from topic
+    skill = None
     if message_thread_id:
-        channel_id = f"telegram:{telegram_chat_id}:{message_thread_id}"
+        from storage.repository.tg_topic import get_topic_by_thread_id
+        topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
+        if topic:
+            skill = topic.topic_name
 
-    # Create a new empty chat with the same channel_id, replacing the current session
+    # Create a new empty chat with the skill set
     chat_id = generate_id()
     from storage.dto.chat import Chat as ChatDTO
     timestamp = get_utc_iso8601_timestamp()
@@ -179,7 +183,7 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         create_time=timestamp,
         update_time=timestamp,
         messages=[],
-        channel_id=channel_id,
+        skill=skill,
     )
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat(user.id, chat)
@@ -205,13 +209,16 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         except Exception as e:
             logger.warning("tg_topic auto-discover failed: {}", e)
 
-    # Each forum topic (message_thread_id) maps to a separate chat session
-    channel_id = f"telegram:{telegram_chat_id}"
+    # Determine skill from topic (DM has skill=None)
+    skill = None
     if message_thread_id:
-        channel_id = f"telegram:{telegram_chat_id}:{message_thread_id}"
+        from storage.repository.tg_topic import get_topic_by_thread_id
+        topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
+        if topic:
+            skill = topic.topic_name
 
-    # Find or create chat for this channel
-    chat = find_chat_by_channel_sync(user.id, channel_id)
+    # Find or create chat for this skill
+    chat = find_latest_chat_by_skill(user.id, skill)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
     if chat:
         # Append message to existing chat
@@ -250,18 +257,18 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             create_time=timestamp,
             update_time=timestamp,
             messages=[user_msg],
-            channel_id=channel_id,
+            skill=skill,
         )
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user.id, chat)
 
-    # Queue for processing with telegram_reply post-hook
+    # Queue for processing — pass skill so runner knows where to route replies
     try:
         from storage.service.chat import send_chat_message
         send_chat_message(
             chat_id,
             user_id=user.id,
-            # No post_hooks needed — run_chat auto-sends assistant reply via channel_id
+            skill=skill,
         )
     except Exception as e:
         logger.exception("_handle_message: failed to queue message: {}", e)
