@@ -80,7 +80,7 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
     # Determine where to send
     tg_chat_id = None
     topic_id = None
-    if chat.skill:
+    if chat.skill and chat.skill != 'DM':
         topic = find_topic_by_name(user_id, chat.skill)
         if not topic or topic.topic_id is None:
             logger.debug("telegram reply: no topic for skill '{}'", chat.skill)
