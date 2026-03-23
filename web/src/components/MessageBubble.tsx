@@ -98,6 +98,8 @@ function getBadgeText(toolName: string, args?: Record<string, unknown>): string 
   if (n === "glob") return truncate(String(args?.pattern || ""), 40);
   // Agent: show description
   if (n === "agent") return truncate(String(args?.description || args?.prompt || ""), 50);
+  // Skill: show skill name
+  if (n === "skill") return truncate(String(args?.skill || ""), 40);
   return null;
 }
 
@@ -174,7 +176,8 @@ function ToolCallCompact({
   const editOld = isEdit ? String(args?.old_string || "") : "";
   const editNew = isEdit ? String(args?.new_string || "") : "";
   const hasDiff = isEdit && (editOld || editNew);
-  const hasContent = expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0);
+  const isSkill = n === "skill";
+  const hasContent = !isSkill && (expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0));
 
   const isDenied = status === "denied";
   const isPending = status === "pending";
@@ -254,6 +257,13 @@ function ToolCallCompact({
             {expandContent}
           </pre>
         )
+      )}
+
+      {/* Skill: render content inline (always visible, no toggle) */}
+      {isSkill && content && (
+        <pre className={`mt-1 ml-6.5 text-[0.7rem] font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto rounded px-2 py-1 bg-sol-base02 ${isDenied ? "text-sol-base01" : "text-sol-base0"}`}>
+          {content}
+        </pre>
       )}
     </div>
   );
