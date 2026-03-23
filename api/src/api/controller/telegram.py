@@ -209,8 +209,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         except Exception as e:
             logger.warning("tg_topic auto-discover failed: {}", e)
 
-    # Determine skill from topic (DM has skill=None)
-    skill = None
+    # Determine skill from topic (DM uses skill='DM')
+    skill = 'DM'
     if message_thread_id:
         from storage.repository.tg_topic import get_topic_by_thread_id
         topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
