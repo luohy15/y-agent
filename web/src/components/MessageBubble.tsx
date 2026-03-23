@@ -259,12 +259,7 @@ function ToolCallCompact({
         )
       )}
 
-      {/* Skill: render content inline (always visible, no toggle) */}
-      {isSkill && content && (
-        <pre className={`mt-1 ml-6.5 text-[0.7rem] font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto rounded px-2 py-1 bg-sol-base02 ${isDenied ? "text-sol-base01" : "text-sol-base0"}`}>
-          {content}
-        </pre>
-      )}
+
     </div>
   );
 }
