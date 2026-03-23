@@ -228,6 +228,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
+            "source": "telegram",
         }
         if images:
             msg_dict["images"] = images
@@ -246,6 +247,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
+            "source": "telegram",
         }
         if images:
             msg_dict["images"] = images

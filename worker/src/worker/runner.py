@@ -94,10 +94,10 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
             return
         tg_chat_id = user.telegram_id
 
-    # Send the last user message only for notify-created messages (prefixed with [trace:)
+    # Send the last user message to Telegram unless it originated from Telegram
     for msg in reversed(chat.messages):
         if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
-            if msg.content.strip().startswith('[trace:'):
+            if msg.source != 'telegram':
                 send_telegram_message(bot_token, tg_chat_id, msg.content.strip(), topic_id)
             break
 
