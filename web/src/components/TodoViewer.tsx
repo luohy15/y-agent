@@ -207,7 +207,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
   );
 }
 
-type BottomFilter = "pending" | "completed" | "all";
+type BottomFilter = "pending" | "active" | "completed" | "all";
 
 type SortKey = "todo_id" | "due_date" | "name" | "status" | "priority" | "updated_at" | "tags";
 type SortDir = "asc" | "desc";
@@ -367,7 +367,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
 
   const [bottomFilter, setBottomFilter] = useState<BottomFilter>(() => {
     const saved = localStorage.getItem("todoFilter");
-    return saved === "all" ? "all" : saved === "completed" ? "completed" : "pending";
+    return saved === "all" ? "all" : saved === "completed" ? "completed" : saved === "active" ? "active" : "pending";
   });
   useEffect(() => { localStorage.setItem("todoFilter", bottomFilter); }, [bottomFilter]);
   const scrollToId = useRef<string | null>(null);
@@ -382,7 +382,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
     return null;
   });
   const [sortState, setSortState] = useState<Record<BottomFilter, { key: SortKey; dir: SortDir }>>(() => {
-    const defaults = { pending: { key: "due_date" as SortKey, dir: "asc" as SortDir }, completed: { key: "updated_at" as SortKey, dir: "desc" as SortDir }, all: { key: "updated_at" as SortKey, dir: "desc" as SortDir } };
+    const defaults = { pending: { key: "due_date" as SortKey, dir: "asc" as SortDir }, active: { key: "due_date" as SortKey, dir: "asc" as SortDir }, completed: { key: "updated_at" as SortKey, dir: "desc" as SortDir }, all: { key: "updated_at" as SortKey, dir: "desc" as SortDir } };
     try {
       const saved = JSON.parse(localStorage.getItem("todoSortState") || "");
       return { ...defaults, ...saved };
@@ -393,11 +393,6 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   useEffect(() => { localStorage.setItem("todoSortState", JSON.stringify(sortState)); }, [sortState]);
   const sortKey = sortState[bottomFilter].key;
   const sortDir = sortState[bottomFilter].dir;
-
-  const { data: activeTodos } = useSWR<Todo[]>(
-    `${API}/api/todo/list?status=active`,
-    fetcher,
-  );
 
   const bottomParam = bottomFilter === "all" ? "" : `?status=${bottomFilter}`;
   const { data: bottomTodos, isLoading, error } = useSWR<Todo[]>(
@@ -410,12 +405,16 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
     viewMode === "kanban" ? `${API}/api/todo/list?status=pending` : null,
     fetcher,
   );
+  const { data: kanbanActive } = useSWR<Todo[]>(
+    viewMode === "kanban" ? `${API}/api/todo/list?status=active` : null,
+    fetcher,
+  );
   const { data: kanbanCompleted } = useSWR<Todo[]>(
     viewMode === "kanban" ? `${API}/api/todo/list?status=completed` : null,
     fetcher,
   );
   const kanbanTodos = viewMode === "kanban"
-    ? [...(kanbanPending || []), ...(activeTodos || []), ...(kanbanCompleted || [])]
+    ? [...(kanbanPending || []), ...(kanbanActive || []), ...(kanbanCompleted || [])]
     : [];
 
   const revalidateTodos = () => {
@@ -423,7 +422,6 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   };
 
   const [nameFilter, setNameFilter] = useState("");
-  const activeCards = (activeTodos || []).slice(0, 3);
   const filteredTodos = bottomTodos?.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
   const sortedTodos = filteredTodos ? sortTodos(filteredTodos, sortKey, sortDir) : undefined;
 
@@ -465,7 +463,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   const filteredKanbanTodos = kanbanTodos.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
 
   // Collect all loaded todos for activity history
-  const allTodosForHistory = viewMode === "kanban" ? kanbanTodos : [...(activeTodos || []), ...(bottomTodos || [])];
+  const allTodosForHistory = viewMode === "kanban" ? kanbanTodos : (bottomTodos || []);
 
   if (viewMode === "kanban") {
     return (
@@ -492,23 +490,10 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   return (
     <div className="h-full flex bg-sol-base03 text-sm sm:text-xs">
     <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0" onClick={(e) => { if (expandedId && !(e.target as HTMLElement).closest('[data-todo-card]')) setExpandedId(null); }}>
-      {/* Active tasks as cards */}
-      {activeCards.length > 0 && (
-        <div className="px-3 pt-2 pb-1 border-b border-sol-base02">
-          <div className="flex flex-col sm:flex-row gap-2">
-            {activeCards.map((t) => (
-              <div key={t.todo_id} className="sm:w-52 sm:shrink-0">
-                <KanbanCard t={t} className="h-full" onClickName={() => setModalTodo(t)} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Pending / All table */}
+      {/* Todo table */}
       <div className="px-3 pt-2">
         <div className="flex items-center gap-1.5 mb-1">
-          {(["pending", "completed", "all"] as const).map((f) => (
+          {(["pending", "active", "completed", "all"] as const).map((f) => (
             <button
               key={f}
               onClick={() => { setBottomFilter(f); setExpandedId(null); }}
