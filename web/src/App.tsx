@@ -45,6 +45,7 @@ export default function App() {
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatSkill, setChatSkill] = useState<string | null>(null);
+  const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
@@ -260,7 +261,7 @@ export default function App() {
           {sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
           ) : sidebarPanel === "todo" ? (
-            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); handleOpenFile("trace.md"); }} />
+            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false); setBottomTab("chat"); } }).catch(() => {}); }} />
           ) : (
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
@@ -374,14 +375,14 @@ export default function App() {
                 {/* Chat (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
                   {/* Chat header: trace_id, chat_id, skill */}
-                  {selectedChatId && (chatListTraceId || chatSkill) && (
+                  {selectedChatId && (chatTraceId || chatSkill) && (
                     <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                      {chatListTraceId && <button onClick={() => { setSelectedTraceId(chatListTraceId); handleOpenFile("trace.md"); }} className="inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="View todo">#{chatListTraceId.slice(0, 8)}</button>}
+                      {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className="inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="View todo">#{chatTraceId.slice(0, 8)}</button>}
                       {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                       {chatSkill && <span className="shrink-0">{chatSkill}</span>}
                     </div>
                   )}
-                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={setChatTraceId} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
                 </div>
                 {/* Terminal (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>

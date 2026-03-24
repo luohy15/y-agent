@@ -53,6 +53,16 @@ async def list_traces(request: Request, trace_id: str = Query(None), offset: int
     return traces
 
 
+@router.get("/latest_chat")
+async def get_latest_chat(request: Request, trace_id: str = Query(...)):
+    """Get the latest chat_id for a trace."""
+    user_id = _get_user_id(request)
+    chats = find_chats_by_trace_id(user_id, trace_id)
+    if not chats:
+        return {"chat_id": None}
+    return {"chat_id": chats[0].chat_id}
+
+
 @router.get("/chats")
 async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     """Get all chats participating in a trace, with message-derived time segments and todo info."""
@@ -85,6 +95,13 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "priority": todo.priority,
             "due_date": todo.due_date,
             "progress": todo.progress,
+            "completed_at": todo.completed_at,
+            "created_at": todo.created_at,
+            "updated_at": todo.updated_at,
+            "history": [
+                {"timestamp": h.timestamp, "action": h.action, "note": h.note}
+                for h in (todo.history or [])
+            ],
         }
 
     return {
