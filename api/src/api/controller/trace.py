@@ -12,84 +12,25 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
-def _annotate_trace_belonging(messages: list, trace_id: str) -> List[bool]:
-    """Annotate each message with whether it belongs to this trace.
-
-    Returns a list of booleans parallel to messages (skipping messages without timestamps).
-    """
-    current_trace = None
-    belongs_list = []
-    for m in messages:
-        role = m.get("role", "")
-        msg_trace = m.get("trace_id")
-        ts = m.get("unix_timestamp", 0)
-        if not ts:
-            belongs_list.append(False)
-            continue
-
-        if role == "user":
-            current_trace = msg_trace
-        belongs_list.append(current_trace == trace_id)
-
-    return belongs_list
-
-
-def _filter_messages_for_trace(messages: list, trace_id: str) -> list:
-    """Filter messages to only those belonging to this trace."""
-    belongs_list = _annotate_trace_belonging(messages, trace_id)
-    # If no message-level match, return all messages (fallback)
-    if not any(belongs_list):
-        return messages
-    return [m for m, b in zip(messages, belongs_list) if b]
-
-
-def _extract_segments(messages: list, trace_id: str) -> List[dict]:
-    """Extract time segments from messages belonging to this trace.
+def _extract_segments(messages: list) -> List[dict]:
+    """Extract time segments from messages.
 
     Each round (user message + its assistant/tool replies) is one segment.
-    Only user messages carry trace_id; assistant/tool messages inherit from the
-    preceding user message.
-
-    Fallback: if no user message has matching trace_id (e.g. dev-manager chat where
-    trace_id was set at chat level, not message level), treat all messages as belonging.
     """
-    # Annotate each message with whether it belongs to this trace
-    current_trace = None
-    rounds = []  # list of (start_ts, end_ts) per round
-    has_match = False
+    rounds = []  # list of [start_ts, end_ts]
 
     for m in messages:
         role = m.get("role", "")
-        msg_trace = m.get("trace_id")
         ts = m.get("unix_timestamp", 0)
         if not ts:
             continue
 
         if role == "user":
-            current_trace = msg_trace
-        belongs = (current_trace == trace_id)
-        if belongs:
-            has_match = True
-
-        if role == "user":
-            # Start a new round
-            rounds.append([ts, ts, belongs])
+            rounds.append([ts, ts])
         elif rounds:
-            # Extend the current round's end time
             rounds[-1][1] = ts
 
-    # Build segments from rounds that belong to this trace
-    segments: List[dict] = []
-    if has_match:
-        for start_ts, end_ts, belongs in rounds:
-            if belongs:
-                segments.append({"start_unix": start_ts, "end_unix": end_ts})
-    else:
-        # Fallback: no message-level match, each round is a segment
-        for start_ts, end_ts, _ in rounds:
-            segments.append({"start_unix": start_ts, "end_unix": end_ts})
-
-    return segments
+    return [{"start_unix": start_ts, "end_unix": end_ts} for start_ts, end_ts in rounds]
 
 
 @router.get("/list")
@@ -120,14 +61,13 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     result_chats = []
     for chat_id, title, skill, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
-        segments = _extract_segments(messages, trace_id)
-        trace_messages = _filter_messages_for_trace(messages, trace_id)
+        segments = _extract_segments(messages)
         result_chats.append({
             "chat_id": chat_id,
             "title": title,
             "skill": skill,
             "segments": segments,
-            "messages": trace_messages,
+            "messages": messages,
         })
 
     # Lookup todo info (trace_id = todo_id)

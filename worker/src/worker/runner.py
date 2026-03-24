@@ -128,19 +128,15 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         logger.error("Chat {} not found", chat_id)
         return
 
-    # Fallback: read active_trace_id from chat if not passed via queue
-    if not trace_id and chat.active_trace_id:
-        trace_id = chat.active_trace_id
-        logger.info("Using active_trace_id from chat: {}", trace_id)
+    # Fallback: read trace_id from chat if not passed via queue
+    if not trace_id and chat.trace_id:
+        trace_id = chat.trace_id
+        logger.info("Using trace_id from chat: {}", trace_id)
 
     # Persist trace context on the chat
     from storage.repository import chat as chat_repo
     if trace_id:
-        chat.active_trace_id = trace_id
-        if not chat.trace_ids:
-            chat.trace_ids = [trace_id]
-        elif trace_id not in chat.trace_ids:
-            chat.trace_ids.append(trace_id)
+        chat.trace_id = trace_id
     if skill and chat.skill != skill:
         chat.skill = skill
     elif not skill and chat.skill:

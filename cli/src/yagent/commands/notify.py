@@ -7,7 +7,7 @@ from yagent.api_client import api_request
 @click.argument('skill_name')
 @click.option('--message', '-m', required=True, help='Message to send')
 @click.option('--work-dir', default=None, help='Working directory for the skill')
-@click.option('--trace-id', required=True, help='Trace ID')
+@click.option('--trace-id', default=None, help='Trace ID')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--from-skill', default='DM', help='Caller skill name')
 @click.option('--chat-id', default=None, help='Target chat ID to resume (skips skill+trace lookup)')
@@ -22,10 +22,11 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
     payload = {
         "skill": skill_name,
         "message": message,
-        "trace_id": trace_id,
         "force_new": force_new,
         "from_skill": from_skill,
     }
+    if trace_id:
+        payload["trace_id"] = trace_id
     if work_dir:
         payload["work_dir"] = work_dir
     if chat_id:
