@@ -354,16 +354,16 @@ export default function App() {
             )}
             <button
               onClick={() => setChatHide((v) => !v)}
-              className="p-2 md:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+              className="p-2 sm:p-3 md:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
               title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
             >
               {chatHide ? (
-                <svg className="w-5 h-5 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 sm:w-7 sm:h-7 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <polyline points="2,4 6,7 2,10" />
                   <line x1="7" y1="11" x2="12" y2="11" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 sm:w-7 sm:h-7 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <line x1="3" y1="3" x2="11" y2="11" />
                   <line x1="11" y1="3" x2="3" y2="11" />
                 </svg>
