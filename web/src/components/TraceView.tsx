@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from "react";
+import { useMemo, useRef, useCallback, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -204,10 +204,22 @@ function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSk
   );
 }
 
+interface TodoInfo {
+  todo_id: string;
+  name: string;
+  status: string;
+  desc?: string;
+  tags?: string[];
+  priority?: string;
+  due_date?: string;
+  progress?: string;
+}
+
 interface TraceChatsResponse {
   chats: TraceChat[];
   todo_name: string | null;
   todo_status: string | null;
+  todo: TodoInfo | null;
 }
 
 export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }: TraceViewProps) {
@@ -220,6 +232,14 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
   const traceChats = traceData?.chats;
   const todoName = traceData?.todo_name;
   const todoStatus = traceData?.todo_status;
+  const todoInfo = traceData?.todo;
+  const [todoDetailOpen, setTodoDetailOpen] = useState(true);
+
+  const priorityColor: Record<string, string> = {
+    high: "text-sol-red",
+    medium: "text-sol-yellow",
+    low: "text-sol-green",
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 p-3">
@@ -237,7 +257,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
         </div>
       ) : (
         <div>
-          {/* Header + waterfall */}
+          {/* Header */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-1 pt-1">
               <span className="text-sol-base1 text-sm font-medium">
@@ -263,12 +283,63 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
             </div>
             <button
               onClick={() => navigator.clipboard.writeText(selectedTraceId)}
-              className="inline-flex items-center gap-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono mb-1 cursor-pointer"
+              className="inline-flex items-center text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono mb-1 cursor-pointer"
               title="Copy trace ID"
             >
-              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>
-              {selectedTraceId}
+              #{selectedTraceId}
             </button>
+
+            {/* Todo detail section */}
+            {todoInfo && (
+              <div className="mb-3 border border-sol-base02 rounded">
+                <button
+                  onClick={() => setTodoDetailOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 px-2 py-1 text-xs text-sol-base01 hover:text-sol-base0 cursor-pointer"
+                >
+                  <span className="text-[0.6rem]">{todoDetailOpen ? "▼" : "▶"}</span>
+                  <span className="font-medium text-sol-base0">Todo Detail</span>
+                </button>
+                {todoDetailOpen && (
+                  <div className="px-2 pb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                    {todoInfo.desc && (
+                      <>
+                        <span className="text-sol-base01">Desc</span>
+                        <span className="text-sol-base0">{todoInfo.desc}</span>
+                      </>
+                    )}
+                    {todoInfo.priority && (
+                      <>
+                        <span className="text-sol-base01">Priority</span>
+                        <span className={priorityColor[todoInfo.priority] || "text-sol-base0"}>{todoInfo.priority}</span>
+                      </>
+                    )}
+                    {todoInfo.due_date && (
+                      <>
+                        <span className="text-sol-base01">Due</span>
+                        <span className="text-sol-base0">{todoInfo.due_date}</span>
+                      </>
+                    )}
+                    {todoInfo.tags && todoInfo.tags.length > 0 && (
+                      <>
+                        <span className="text-sol-base01">Tags</span>
+                        <div className="flex flex-wrap gap-1">
+                          {todoInfo.tags.map((tag) => (
+                            <span key={tag} className="bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded text-[0.6rem]">{tag}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {todoInfo.progress && (
+                      <>
+                        <span className="text-sol-base01">Progress</span>
+                        <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <WaterfallChart chats={traceChats} onClickSkill={onSelectChat} />
           </div>
         </div>

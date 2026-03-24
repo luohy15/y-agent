@@ -28,7 +28,6 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         progress=entity.progress,
         completed_at=entity.completed_at,
         history=[TodoHistoryEntry.from_dict(h) for h in history],
-        chat_ids=entity.chat_ids,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -76,7 +75,6 @@ def save_todo(user_id: int, todo: Todo) -> Todo:
             progress=todo.progress,
             completed_at=todo.completed_at,
             history=[h.to_dict() for h in (todo.history or [])],
-            chat_ids=todo.chat_ids,
         )
         if entity:
             for k, v in fields.items():

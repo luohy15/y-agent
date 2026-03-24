@@ -1,4 +1,4 @@
-export type SidebarPanel = "files" | "git" | "traces";
+export type SidebarPanel = "files" | "git" | "todo";
 
 interface ActivityBarProps {
   isLoggedIn: boolean;
@@ -9,6 +9,7 @@ interface ActivityBarProps {
   onOpenFile?: (path: string) => void;
   activeFile?: string | null;
   mobile?: boolean;
+  hideGroup1?: boolean;
 }
 
 const viewerShortcuts = [
@@ -44,7 +45,7 @@ const viewerShortcuts = [
   )},
 ];
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1 }: ActivityBarProps) {
   if (!isLoggedIn) return null;
 
   const handlePanelClick = (panel: SidebarPanel) => {
@@ -68,22 +69,20 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   return (
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
-      {/* Group 1: Traces */}
-      <button
-        onClick={() => handlePanelClick("traces")}
-        className={btnClass(sidebarOpen && activePanel === "traces")}
-        title="Traces"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="5" cy="5" r="2.5" />
-          <circle cx="19" cy="12" r="2.5" />
-          <circle cx="5" cy="19" r="2.5" />
-          <line x1="7.5" y1="6" x2="16.5" y2="11" />
-          <line x1="16.5" y1="13" x2="7.5" y2="18" />
-        </svg>
-        {mobile && <span>Traces</span>}
-      </button>
-      <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
+      {/* Group 1: Todo */}
+      {!hideGroup1 && (
+        <>
+          <button
+            onClick={() => handlePanelClick("todo")}
+            className={btnClass(sidebarOpen && activePanel === "todo")}
+            title="Todo"
+          >
+            <span className="text-base font-bold leading-none">#</span>
+            {mobile && <span>Todo</span>}
+          </button>
+          <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
+        </>
+      )}
       {/* Group 2: Files, Git */}
       <button
         onClick={() => handlePanelClick("files")}

@@ -10,7 +10,7 @@ import FileViewer from "./components/FileViewer";
 import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
-import TraceList from "./components/TraceList";
+import TodoList from "./components/TodoList";
 import GitPanel from "./components/GitPanel";
 
 interface VmConfigItem {
@@ -119,7 +119,7 @@ export default function App() {
     if (urlTraceId) {
       setSelectedTraceId(urlTraceId);
       handleOpenFile("trace.md");
-      setSidebarPanel("traces");
+      setSidebarPanel("todo");
     }
   }, [urlTraceId, handleOpenFile]);
 
@@ -206,7 +206,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} onToggleTraceList={() => { setSidebarPanel("traces"); setSidebarOpen((v) => !v); }} traceListOpen={sidebarOpen && sidebarPanel === "traces"} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} onToggleTraceList={() => { setSidebarPanel("todo"); setSidebarOpen((v) => !v); }} traceListOpen={sidebarOpen && sidebarPanel === "todo"} />
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
@@ -238,6 +238,7 @@ export default function App() {
         >
           <ActivityBar
             mobile
+            hideGroup1
             isLoggedIn={auth.isLoggedIn}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
@@ -258,8 +259,8 @@ export default function App() {
         >
           {sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
-          ) : sidebarPanel === "traces" ? (
-            <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); setChatListTraceId(id); if (id) handleOpenFile("trace.md"); }} />
+          ) : sidebarPanel === "todo" ? (
+            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); handleOpenFile("trace.md"); }} />
           ) : (
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
@@ -375,7 +376,7 @@ export default function App() {
                   {/* Chat header: trace_id, chat_id, skill */}
                   {selectedChatId && (chatListTraceId || chatSkill) && (
                     <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                      {chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>{chatListTraceId.slice(0, 8)}</button>}
+                      {chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID">#{chatListTraceId.slice(0, 8)}</button>}
                       {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                       {chatSkill && <span className="shrink-0">{chatSkill}</span>}
                     </div>

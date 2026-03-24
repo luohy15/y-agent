@@ -42,7 +42,6 @@ class Todo:
     progress: Optional[str] = None
     completed_at: Optional[str] = None
     history: Optional[List[TodoHistoryEntry]] = None
-    chat_ids: Optional[List[str]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -64,7 +63,6 @@ class Todo:
             progress=data.get('progress'),
             completed_at=data.get('completed_at'),
             history=history,
-            chat_ids=data.get('chat_ids'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -89,8 +87,6 @@ class Todo:
             result['progress'] = self.progress
         if self.completed_at is not None:
             result['completed_at'] = self.completed_at
-        if self.chat_ids is not None:
-            result['chat_ids'] = self.chat_ids
         if self.history:
             result['history'] = [h.to_dict() for h in self.history]
         if self.created_at is not None:

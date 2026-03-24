@@ -142,11 +142,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       {firstTraceId && (
                         <button
                           onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(firstTraceId); }}
-                          className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                          className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
                           title="Copy trace ID"
                         >
-                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>
-                          {firstTraceId.slice(0, 8)}
+                          #{firstTraceId.slice(0, 8)}
                         </button>
                       )}
                       <button
