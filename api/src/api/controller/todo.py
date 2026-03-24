@@ -77,37 +77,15 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     return todo.to_dict()
 
 
-@router.post("/finish")
-async def finish_todo(req: TodoIdRequest, request: Request):
+class UpdateStatusRequest(BaseModel):
+    todo_id: str
+    status: str
+
+
+@router.post("/status")
+async def update_status(req: UpdateStatusRequest, request: Request):
     user_id = _get_user_id(request)
-    todo = todo_service.finish_todo(user_id, req.todo_id)
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    return todo.to_dict()
-
-
-@router.post("/delete")
-async def delete_todo(req: TodoIdRequest, request: Request):
-    user_id = _get_user_id(request)
-    todo = todo_service.delete_todo(user_id, req.todo_id)
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    return todo.to_dict()
-
-
-@router.post("/activate")
-async def activate_todo(req: TodoIdRequest, request: Request):
-    user_id = _get_user_id(request)
-    todo = todo_service.activate_todo(user_id, req.todo_id)
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    return todo.to_dict()
-
-
-@router.post("/deactivate")
-async def deactivate_todo(req: TodoIdRequest, request: Request):
-    user_id = _get_user_id(request)
-    todo = todo_service.deactivate_todo(user_id, req.todo_id)
+    todo = todo_service.update_status(user_id, req.todo_id, req.status)
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()

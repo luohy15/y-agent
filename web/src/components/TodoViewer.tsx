@@ -250,26 +250,10 @@ const KANBAN_COLUMNS: { status: string; label: string; color: string }[] = [
 
 async function moveTodoToStatus(todoId: string, fromStatus: string, toStatus: string): Promise<boolean> {
   if (fromStatus === toStatus) return false;
-
-  let endpoint: string;
-  if (toStatus === "active") {
-    endpoint = `${API}/api/todo/activate`;
-  } else if (toStatus === "completed") {
-    endpoint = `${API}/api/todo/finish`;
-  } else if (toStatus === "pending") {
-    if (fromStatus === "active") {
-      endpoint = `${API}/api/todo/deactivate`;
-    } else {
-      endpoint = `${API}/api/todo/deactivate`;
-    }
-  } else {
-    return false;
-  }
-
-  const res = await authFetch(endpoint, {
+  const res = await authFetch(`${API}/api/todo/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ todo_id: todoId }),
+    body: JSON.stringify({ todo_id: todoId, status: toStatus }),
   });
   return res.ok;
 }

@@ -2,10 +2,10 @@ import click
 from yagent.api_client import api_request
 
 
-@click.command('activate')
+@click.command('reopen')
 @click.argument('todo_id')
-def todo_activate(todo_id):
-    """Set a todo to active status."""
+def todo_reopen(todo_id):
+    """Reopen a completed todo (set to active)."""
     resp = api_request("POST", "/api/todo/status", json={"todo_id": todo_id, "status": "active"})
     todo = resp.json()
-    click.echo(f"Activated todo '{todo['name']}' ({todo['todo_id']})")
+    click.echo(f"Reopened todo '{todo['name']}' ({todo['todo_id']})")

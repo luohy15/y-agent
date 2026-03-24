@@ -8,6 +8,8 @@ from .finish import todo_finish
 from .delete import todo_delete
 from .activate import todo_activate
 from .deactivate import todo_deactivate
+from .reopen import todo_reopen
+from .status import todo_status
 
 @click.group('todo')
 def todo_group():
@@ -22,3 +24,5 @@ todo_group.add_command(todo_finish)
 todo_group.add_command(todo_delete)
 todo_group.add_command(todo_activate)
 todo_group.add_command(todo_deactivate)
+todo_group.add_command(todo_reopen)
+todo_group.add_command(todo_status)
