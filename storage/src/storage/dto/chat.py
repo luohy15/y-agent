@@ -36,7 +36,6 @@ class Message:
     arguments: Optional[Dict[str, Union[str, int, float, bool, Dict, List]]] = None
     tool_calls: Optional[List[Dict]] = None
     tool_call_id: Optional[str] = None
-    trace_id: Optional[str] = None
     source: Optional[str] = None
 
     @classmethod
@@ -75,7 +74,6 @@ class Message:
             arguments=data.get('arguments'),
             tool_calls=data.get('tool_calls'),
             tool_call_id=data.get('tool_call_id'),
-            trace_id=data.get('trace_id'),
             source=data.get('source'),
         )
 
@@ -117,8 +115,6 @@ class Message:
             result['tool_calls'] = self.tool_calls
         if self.tool_call_id is not None:
             result['tool_call_id'] = self.tool_call_id
-        if self.trace_id is not None:
-            result['trace_id'] = self.trace_id
         if self.source is not None:
             result['source'] = self.source
         return result
@@ -136,8 +132,7 @@ class Chat:
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
     skill: Optional[str] = None  # skill name (e.g. "dev", "dev-manager")
-    trace_ids: Optional[List[str]] = None  # all traces this chat participates in
-    active_trace_id: Optional[str] = None  # current trace for new messages
+    trace_id: Optional[str] = None
     work_dir: Optional[str] = None
     interrupted: bool = False
     running: bool = False
@@ -160,8 +155,7 @@ class Chat:
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
             skill=data.get('skill'),
-            trace_ids=data.get('trace_ids'),
-            active_trace_id=data.get('active_trace_id'),
+            trace_id=data.get('trace_id'),
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
@@ -189,10 +183,8 @@ class Chat:
             result['selected_message_id'] = self.selected_message_id
         if self.skill is not None:
             result['skill'] = self.skill
-        if self.trace_ids:
-            result['trace_ids'] = self.trace_ids
-        if self.active_trace_id is not None:
-            result['active_trace_id'] = self.active_trace_id
+        if self.trace_id is not None:
+            result['trace_id'] = self.trace_id
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
         if self.interrupted:

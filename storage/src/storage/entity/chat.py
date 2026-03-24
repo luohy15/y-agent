@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint
 from .base import Base, BaseEntity
 
 
@@ -13,8 +13,7 @@ class ChatEntity(Base, BaseEntity):
     backend = Column(String, nullable=True)
     origin_chat_id = Column(String, nullable=True, index=True)
     skill = Column(String, nullable=True, index=True)
-    active_trace_id = Column(String, nullable=True, index=True)
-    trace_ids = Column(JSON, nullable=True)  # list of trace_ids this chat participates in
+    trace_id = Column(String, nullable=True, index=True)
     json_content = Column(Text, nullable=False)
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
 

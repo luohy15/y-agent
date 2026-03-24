@@ -8,7 +8,7 @@ interface Chat {
   created_at?: string;
   updated_at?: string;
   skill?: string;
-  trace_ids?: string[];
+  trace_id?: string;
 }
 
 interface ChatListProps {
@@ -113,7 +113,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
               const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
               const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "");
-              const firstTraceId = c.trace_ids?.[0];
+              const firstTraceId = c.trace_id;
               return (
                 <div
                   key={c.chat_id}

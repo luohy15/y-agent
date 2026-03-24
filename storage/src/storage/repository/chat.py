@@ -20,7 +20,7 @@ class ChatSummary:
     created_at: str
     updated_at: str
     skill: str = ""
-    trace_ids: list = None
+    trace_id: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
 
@@ -40,24 +40,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 ChatEntity.search_text.ilike(f"%{query}%"),
             ))
         if trace_id:
-            # Filter by trace_id in Python since JSON array contains is DB-specific
-            q = q.filter(ChatEntity.trace_ids.isnot(None))
-            rows = (q.order_by(ChatEntity.updated_at.desc()).all())
-            filtered = [
-                row for row in rows
-                if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
-            ]
-            return [
-                ChatSummary(
-                    chat_id=row.chat_id,
-                    title=row.title or "",
-                    created_at=row.created_at or "",
-                    updated_at=row.updated_at or "",
-                    skill=row.skill or "",
-                    trace_ids=row.trace_ids if isinstance(row.trace_ids, list) else None,
-                )
-                for row in filtered[offset:offset + limit]
-            ]
+            q = q.filter(ChatEntity.trace_id == trace_id)
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)
@@ -69,7 +52,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
                 skill=row.skill or "",
-                trace_ids=row.trace_ids if isinstance(row.trace_ids, list) else None,
+                trace_id=row.trace_id or "",
             )
             for row in rows
         ]
@@ -155,8 +138,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = chat.backend
             entity.skill = chat.skill
-            entity.active_trace_id = chat.active_trace_id
-            entity.trace_ids = chat.trace_ids
+            entity.trace_id = chat.trace_id
         else:
             entity = ChatEntity(
                 user_id=user_id,
@@ -166,8 +148,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
                 skill=chat.skill,
-                active_trace_id=chat.active_trace_id,
-                trace_ids=chat.trace_ids,
+                trace_id=chat.trace_id,
                 json_content=content,
                 search_text=search_text,
             )
@@ -210,8 +191,7 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = chat.backend
             entity.skill = chat.skill
-            entity.active_trace_id = chat.active_trace_id
-            entity.trace_ids = chat.trace_ids
+            entity.trace_id = chat.trace_id
         else:
             raise ValueError(f"Chat with id {chat.id} not found")
         return chat
@@ -251,37 +231,33 @@ async def save_chat_by_id(chat: Chat) -> Chat:
 
 
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:
-    """List distinct trace_ids from all chats' trace_ids lists, ordered by most recently updated."""
+    """List distinct trace_ids, ordered by most recently updated."""
+    from sqlalchemy import func
     with get_db() as session:
-        rows = (session.query(ChatEntity.trace_ids, ChatEntity.updated_at, ChatEntity.updated_at_unix)
-                .filter_by(user_id=user_id)
-                .filter(ChatEntity.trace_ids.isnot(None))
-                .order_by(ChatEntity.updated_at_unix.desc())
-                .all())
-        # Collect all trace_ids, keeping the most recent updated_at for each
-        trace_map: dict = {}  # trace_id -> (updated_at, updated_at_unix)
-        for row in rows:
-            if not isinstance(row.trace_ids, list):
-                continue
-            for tid in row.trace_ids:
-                if tid not in trace_map or (row.updated_at_unix or 0) > trace_map[tid][1]:
-                    trace_map[tid] = (row.updated_at or "", row.updated_at_unix or 0)
-        # Filter by trace_id if provided
+        q = (session.query(
+                ChatEntity.trace_id,
+                func.max(ChatEntity.updated_at).label("updated_at"),
+             )
+             .filter_by(user_id=user_id)
+             .filter(ChatEntity.trace_id.isnot(None)))
         if trace_id:
-            trace_map = {tid: info for tid, info in trace_map.items() if trace_id in tid}
-        # Sort by most recent
-        sorted_traces = sorted(trace_map.items(), key=lambda x: x[1][1], reverse=True)
+            q = q.filter(ChatEntity.trace_id.contains(trace_id))
+        rows = (q.group_by(ChatEntity.trace_id)
+                 .order_by(func.max(ChatEntity.updated_at_unix).desc())
+                 .offset(offset)
+                 .limit(limit)
+                 .all())
         return [
-            {"trace_id": tid, "updated_at": info[0]}
-            for tid, info in sorted_traces[offset:offset + limit]
+            {"trace_id": row.trace_id, "updated_at": row.updated_at or ""}
+            for row in rows
         ]
 
 
 def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Optional[Chat]:
-    """Find a chat with the given skill whose active trace matches trace_id."""
+    """Find a chat with the given skill and trace_id."""
     with get_db() as session:
         row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, skill=skill, active_trace_id=trace_id)
+               .filter_by(user_id=user_id, skill=skill, trace_id=trace_id)
                .order_by(ChatEntity.updated_at_unix.desc())
                .first())
         if row:
@@ -297,28 +273,23 @@ def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
     Includes json_content so caller can extract message-level time segments."""
     with get_db() as session:
         rows = (session.query(ChatEntity)
-                .filter_by(user_id=user_id)
-                .filter(ChatEntity.trace_ids.isnot(None))
+                .filter_by(user_id=user_id, trace_id=trace_id)
                 .order_by(ChatEntity.created_at_unix.asc())
                 .all())
         return [
             (row.chat_id, row.title or "", row.skill or "", row.json_content)
             for row in rows
-            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
         ]
 
 
 def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
     """Find all chats that participate in a given trace."""
-    from sqlalchemy import cast, String
     with get_db() as session:
         rows = (session.query(ChatEntity)
-                .filter_by(user_id=user_id)
-                .filter(ChatEntity.trace_ids.isnot(None))
+                .filter_by(user_id=user_id, trace_id=trace_id)
                 .options(defer(ChatEntity.json_content))
                 .order_by(ChatEntity.updated_at_unix.desc())
                 .all())
-        # Filter in Python since JSON array contains is DB-specific
         return [
             ChatSummary(
                 chat_id=row.chat_id,
@@ -330,7 +301,6 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 updated_at_unix=row.updated_at_unix or 0,
             )
             for row in rows
-            if isinstance(row.trace_ids, list) and trace_id in row.trace_ids
         ]
 
 

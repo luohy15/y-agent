@@ -21,7 +21,7 @@ class NotifyRequest(BaseModel):
     skill: str
     message: str
     work_dir: Optional[str] = None
-    trace_id: str
+    trace_id: Optional[str] = None
     from_skill: str
     force_new: Optional[bool] = False
     chat_id: Optional[str] = None
@@ -44,7 +44,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
         chat_id = req.chat_id
-    elif not req.force_new:
+    elif not req.force_new and req.trace_id:
         from storage.repository.chat import find_chat_by_skill_and_trace
         found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
         if found:
@@ -57,14 +57,14 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # Build message content with trace metadata prefix
     from_chat_part = f' from_chat:{req.from_chat_id}' if req.from_chat_id else ''
-    msg_content = f'[trace:{req.trace_id} from:{req.from_skill} to:{req.skill}{from_chat_part} to_chat:{chat_id}]\n{req.message}'
+    trace_part = f'trace:{req.trace_id} ' if req.trace_id else ''
+    msg_content = f'[{trace_part}from:{req.from_skill} to:{req.skill}{from_chat_part} to_chat:{chat_id}]\n{req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
         "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp(),
         "id": generate_message_id(),
-        "trace_id": req.trace_id,
     })
 
     # Resolve work_dir and append/create chat
