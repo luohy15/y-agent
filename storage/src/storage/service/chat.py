@@ -14,8 +14,8 @@ from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_p
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id)
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None) -> List[ChatSummary]:
+    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, skill=skill)
 
 
 async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
