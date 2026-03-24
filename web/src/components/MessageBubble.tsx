@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
@@ -264,6 +264,49 @@ function ToolCallCompact({
   );
 }
 
+const USER_MSG_MAX_LINES = 3;
+
+function UserMessage({ content, timestamp }: { content: string; timestamp?: string }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    // Compare scrollHeight vs line-height * max lines
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 16;
+    setClamped(el.scrollHeight > lineHeight * USER_MSG_MAX_LINES + 1);
+  }, [content]);
+
+  return (
+    <div>
+      <TimestampLine timestamp={timestamp} />
+      <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
+        <div className="flex items-baseline">
+          <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
+          <div className="min-w-0 flex-1">
+            <div
+              ref={contentRef}
+              className={`text-sm sm:text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}
+            >
+              {content}
+            </div>
+            {clamped && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="text-sol-blue text-xs mt-0.5 hover:underline cursor-pointer"
+              >
+                {expanded ? "Show less" : "Show more"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, dimmed, onOpenFile }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
@@ -282,19 +325,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
 
   // User message: terminal input style with > prompt and grey background
   if (role === "user") {
-    return (
-      <div>
-        <TimestampLine timestamp={timestamp} />
-        <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
-          <div className="flex items-baseline">
-            <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
-            <div className="text-sm sm:text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0">
-              {content}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <UserMessage content={content} timestamp={timestamp} />;
   }
 
   // Assistant message: rendered markdown like CLI
