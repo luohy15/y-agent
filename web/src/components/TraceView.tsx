@@ -245,7 +245,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
     <div className="h-full overflow-y-auto bg-sol-base03 p-3">
       {!selectedTraceId ? (
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
-          Select a trace to view details
+          Select a todo to view details
         </div>
       ) : !traceChats ? (
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
@@ -253,7 +253,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
         </div>
       ) : traceChats.length === 0 ? (
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
-          No chats found for this trace
+          No chats found for this todo
         </div>
       ) : (
         <div>
@@ -284,7 +284,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
             <button
               onClick={() => navigator.clipboard.writeText(selectedTraceId)}
               className="inline-flex items-center text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono mb-1 cursor-pointer"
-              title="Copy trace ID"
+              title="Copy todo ID"
             >
               #{selectedTraceId}
             </button>
