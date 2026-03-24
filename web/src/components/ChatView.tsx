@@ -32,6 +32,25 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Virtual keyboard adaptation: adjust container when keyboard appears on tablets
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const onResize = () => {
+      const offset = window.innerHeight - viewport.height;
+      if (containerRef.current) {
+        containerRef.current.style.paddingBottom = offset > 0 ? `${offset}px` : "";
+      }
+    };
+    viewport.addEventListener("resize", onResize);
+    viewport.addEventListener("scroll", onResize);
+    return () => {
+      viewport.removeEventListener("resize", onResize);
+      viewport.removeEventListener("scroll", onResize);
+    };
+  }, []);
 
   const addMessage = useCallback((msg: Message) => {
     setMessages((prev) => [...prev, msg]);
@@ -278,7 +297,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   );
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
+    <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0">
         <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
@@ -286,8 +305,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
-          <button onClick={stopChat} className="sm:hidden px-3 py-1 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
-          <span className="hidden sm:inline text-sol-base01 font-mono ml-auto">Ctrl+C to stop</span>
+          <button onClick={stopChat} className="px-3 py-1 sm:px-2 sm:py-0.5 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
       {completed ? (
