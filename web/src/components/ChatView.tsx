@@ -14,11 +14,12 @@ interface ChatViewProps {
   gsiReady?: boolean;
   vmName?: string | null;
   onWorkDirChange?: (workDir: string | null) => void;
+  onSkillChange?: (skill: string | null) => void;
   onComplete?: () => void;
   onOpenFile?: (path: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onComplete, onOpenFile }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onSkillChange, onComplete, onOpenFile }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -51,6 +52,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         const wd = data.work_dir ?? null;
         setChatWorkDir(wd);
         onWorkDirChange?.(wd);
+        onSkillChange?.(data.skill ?? null);
       })
       .catch(() => {});
   }, [chatId, completed, onWorkDirChange]);

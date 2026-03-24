@@ -44,10 +44,12 @@ export default function App() {
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => (localStorage.getItem("sidebarPanel") as SidebarPanel) || "files");
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
+  const [chatSkill, setChatSkill] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
+  const [chatListTraceId, setChatListTraceId] = useState<string | null>(null);
   const [chatListWidth, setChatListWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -252,7 +254,7 @@ export default function App() {
           {sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
           ) : sidebarPanel === "traces" ? (
-            <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); if (id) handleOpenFile("trace.md"); }} />
+            <TraceList isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectTrace={(id) => { setSelectedTraceId(id); setChatListTraceId(id); if (id) handleOpenFile("trace.md"); }} />
           ) : (
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
@@ -265,11 +267,11 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Right top: FileViewer (shown when chat hidden) */}
           <div className={`${chatHide ? "flex-1" : "hidden"} min-h-0 overflow-hidden`}>
-            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} />
+            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
           </div>
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
-            {!chatHide && <span className="font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 text-sol-base01" title={effectiveWorkDir || ""}><svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{effectiveWorkDir}</span></span>}
+            {!chatHide && <span className="font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 text-sol-base01">{chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center gap-0.5 text-sol-base01 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID"><svg className="w-3.5 h-3.5 sm:w-3 sm:h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>{chatListTraceId.slice(0, 8)}</button>}{selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 text-sol-base01 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3.5 h-3.5 sm:w-3 sm:h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}{chatSkill && <span className="shrink-0">{chatSkill}</span>}<svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{effectiveWorkDir}</span></span>}
             {!chatHide && (
               <>
                 {/* Tab switcher */}
@@ -329,7 +331,7 @@ export default function App() {
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
                 {/* Chat (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
-                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
                 </div>
                 {/* Terminal (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
@@ -349,7 +351,7 @@ export default function App() {
                     className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
                     onPointerDown={handleChatListResizeStart}
                   />
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} />
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} />
                 </div>
               )}
             </div>
@@ -368,7 +370,7 @@ export default function App() {
             `}
             style={{ width: chatListWidth }}
           >
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
+            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} traceId={chatListTraceId} />
           </div>
         </div>
       </div>

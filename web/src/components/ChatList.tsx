@@ -16,6 +16,7 @@ interface ChatListProps {
   selectedChatId: string | null;
   onSelectChat: (id: string | null) => void;
   refreshKey?: number;
+  traceId?: string | null;
 }
 
 const PAGE_SIZE = 50;
@@ -29,9 +30,10 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId }: ChatListProps) {
   const [search, setSearch] = useState("");
-  const [traceId, setTraceId] = useState("");
+  const [internalTraceId, setInternalTraceId] = useState("");
+  const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
 
@@ -66,7 +68,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, setSize]);
+  }, [search, traceId, externalTraceId, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -92,8 +94,9 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           type="text"
           placeholder="Filter by trace ID..."
           value={traceId}
-          onChange={(e) => setTraceId(e.target.value)}
+          onChange={(e) => setInternalTraceId(e.target.value)}
           className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+          readOnly={!!externalTraceId}
         />
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
