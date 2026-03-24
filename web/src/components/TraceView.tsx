@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback, useState } from "react";
+import { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -53,9 +53,21 @@ function getSkillColors(skill: string) {
 }
 
 // Format time for axis labels
-function formatTime(ts: number): string {
+function formatTime(ts: number, showDate = false): string {
   const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (showDate) {
+    const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return `${date} ${time}`;
+  }
+  return time;
+}
+
+// Check if two timestamps fall on different calendar days
+function spansMultipleDays(minTs: number, maxTs: number): boolean {
+  const a = new Date(minTs);
+  const b = new Date(maxTs);
+  return a.getFullYear() !== b.getFullYear() || a.getMonth() !== b.getMonth() || a.getDate() !== b.getDate();
 }
 
 // Generate time axis ticks between min and max
@@ -114,15 +126,27 @@ function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSk
 
   const ticks = useMemo(() => generateTicks(minTs, maxTs), [minTs, maxTs]);
   const range = maxTs - minTs || 1;
+  const multiDay = useMemo(() => spansMultipleDays(minTs, maxTs), [minTs, maxTs]);
 
   const LABEL_W = 96; // px for skill label column
 
   return (
     <div className="mt-2 relative">
+      {/* Date label row (single day) or integrated date+time axis */}
+      <div className="flex">
+        <div style={{ width: LABEL_W }} className="shrink-0" />
+        {!multiDay && (
+          <div className="flex-1 relative h-4">
+            <span className="text-[0.55rem] text-sol-base01 font-mono">
+              {new Date(minTs).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+        )}
+      </div>
       {/* Time axis */}
       <div className="flex">
         <div style={{ width: LABEL_W }} className="shrink-0" />
-        <div className="flex-1 relative h-5 border-b border-sol-base02">
+        <div className={`flex-1 relative ${multiDay ? "h-7" : "h-5"} border-b border-sol-base02`}>
           {ticks.map((t) => {
             const pct = ((t - minTs) / range) * 100;
             return (
@@ -131,7 +155,7 @@ function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSk
                 className="absolute text-[0.55rem] text-sol-base01 font-mono -translate-x-1/2"
                 style={{ left: `${pct}%` }}
               >
-                {formatTime(t)}
+                {formatTime(t, multiDay)}
               </div>
             );
           })}
@@ -190,7 +214,7 @@ function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSk
                         key={`${c.chat_id}-${i}`}
                         className={`absolute top-1 h-4 rounded-sm ${colors.bar}`}
                         style={{ left: `${left}%`, width: `${width}%` }}
-                        title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix)} → ${formatTime(seg.end_unix)}`}
+                        title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
                       />
                     );
                   })
@@ -204,6 +228,12 @@ function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSk
   );
 }
 
+interface TodoHistoryEntry {
+  timestamp: string;
+  action: string;
+  note?: string;
+}
+
 interface TodoInfo {
   todo_id: string;
   name: string;
@@ -213,6 +243,10 @@ interface TodoInfo {
   priority?: string;
   due_date?: string;
   progress?: string;
+  completed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+  history?: TodoHistoryEntry[];
 }
 
 interface TraceChatsResponse {
@@ -234,6 +268,8 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
   const todoStatus = traceData?.todo_status;
   const todoInfo = traceData?.todo;
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
 
   const priorityColor: Record<string, string> = {
     high: "text-sol-red",
@@ -299,7 +335,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
                   <span className="text-[0.6rem]">{todoDetailOpen ? "▼" : "▶"}</span>
                   <span className="font-medium text-sol-base0">Todo Detail</span>
                 </button>
-                {todoDetailOpen && (
+                {todoDetailOpen && (<>
                   <div className="px-2 pb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                     {todoInfo.desc && (
                       <>
@@ -335,8 +371,62 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
                         <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
                       </>
                     )}
+                    {todoInfo.created_at && (
+                      <>
+                        <span className="text-sol-base01">Created</span>
+                        <span className="text-sol-base0 font-mono text-[0.65rem]">{new Date(todoInfo.created_at).toLocaleString()}</span>
+                      </>
+                    )}
+                    {todoInfo.updated_at && (
+                      <>
+                        <span className="text-sol-base01">Updated</span>
+                        <span className="text-sol-base0 font-mono text-[0.65rem]">{new Date(todoInfo.updated_at).toLocaleString()}</span>
+                      </>
+                    )}
+                    {todoInfo.completed_at && (
+                      <>
+                        <span className="text-sol-base01">Completed</span>
+                        <span className="text-sol-green font-mono text-[0.65rem]">{new Date(todoInfo.completed_at).toLocaleString()}</span>
+                      </>
+                    )}
                   </div>
-                )}
+                  {/* History section */}
+                  {todoInfo.history && todoInfo.history.length > 0 && (
+                    <div className="px-2 pb-2">
+                      <button
+                        onClick={() => setHistoryOpen((v) => !v)}
+                        className="flex items-center gap-1.5 text-[0.65rem] text-sol-base01 hover:text-sol-base0 cursor-pointer mb-1"
+                      >
+                        <span className="text-[0.55rem]">{historyOpen ? "▼" : "▶"}</span>
+                        <span>History ({todoInfo.history.length})</span>
+                      </button>
+                      {historyOpen && (
+                        <div className="ml-1 border-l border-sol-base02 pl-2 space-y-1.5">
+                          {todoInfo.history.map((h, i) => {
+                            const actionColor: Record<string, string> = {
+                              created: "bg-sol-cyan/20 text-sol-cyan",
+                              completed: "bg-sol-green/20 text-sol-green",
+                              updated: "bg-sol-yellow/20 text-sol-yellow",
+                              activated: "bg-sol-blue/20 text-sol-blue",
+                              deleted: "bg-sol-red/20 text-sol-red",
+                            };
+                            const badge = actionColor[h.action] || "bg-sol-base02 text-sol-base0";
+                            return (
+                              <div key={i} className="flex items-start gap-1.5 relative">
+                                <div className="absolute -left-[calc(0.5rem+1px)] top-1 w-1.5 h-1.5 rounded-full bg-sol-base01 border border-sol-base02" />
+                                <span className="text-[0.6rem] text-sol-base01 font-mono shrink-0">
+                                  {new Date(h.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                                <span className={`text-[0.55rem] px-1 rounded shrink-0 ${badge}`}>{h.action}</span>
+                                {h.note && <span className="text-[0.6rem] text-sol-base0 break-all">{h.note}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>)}
               </div>
             )}
 
