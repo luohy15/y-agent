@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+html {
+  font-size: 110%;
+}
+
 @theme {
   --color-sol-base03: #002b36;
   --color-sol-base02: #073642;
