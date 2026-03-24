@@ -43,6 +43,11 @@ async def post_notify(req: NotifyRequest, request: Request):
         existing_chat = await chat_service.get_chat_by_id(req.chat_id)
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
+        if existing_chat.skill and existing_chat.skill != req.skill:
+            raise HTTPException(
+                status_code=400,
+                detail=f"skill mismatch: chat '{req.chat_id}' belongs to skill '{existing_chat.skill}', got '{req.skill}'"
+            )
         chat_id = req.chat_id
     elif not req.force_new and req.trace_id:
         from storage.repository.chat import find_chat_by_skill_and_trace
