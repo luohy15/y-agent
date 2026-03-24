@@ -32,7 +32,7 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return chat
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -44,6 +44,8 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
             ))
         if trace_id:
             q = q.filter(ChatEntity.trace_id == trace_id)
+        if skill:
+            q = q.filter(ChatEntity.skill == skill)
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)

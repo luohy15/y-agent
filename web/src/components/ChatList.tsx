@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 
@@ -34,19 +35,29 @@ const fetcher = async (url: string) => {
 export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [internalTraceId, setInternalTraceId] = useState("");
+  const [skillFilter, setSkillFilter] = useState("");
   const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
+  const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${skillParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
 
-  const chats = data ? data.flat() : [];
+  // Separate fetch for pinned DM chat (always visible, uses skill filter)
+  const { data: pinnedDmData, mutate: mutatePinnedDm } = useSWR<Chat[]>(
+    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&skill=DM` : null,
+    fetcher,
+  );
+  const pinnedDm = pinnedDmData?.[0] ?? null;
+
+  const allChats = data ? data.flat() : [];
+  const chats = pinnedDm ? allChats.filter((c) => c.chat_id !== pinnedDm.chat_id) : allChats;
   const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isEmpty = data?.[0]?.length === 0;
   const isReachingEnd = isEmpty || (data && data[data.length - 1]?.length < PAGE_SIZE);
@@ -69,13 +80,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, setSize]);
+  }, [search, traceId, externalTraceId, skillFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     mutate();
-  }, [refreshKey, mutate]);
+    mutatePinnedDm();
+  }, [refreshKey, mutate, mutatePinnedDm]);
 
   const handleClick = (id: string) => {
     onSelectChat(id);
@@ -91,26 +103,79 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
         />
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Filter by todo ID..."
-            value={traceId}
-            onChange={(e) => setInternalTraceId(e.target.value)}
-            className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-            readOnly={!!externalTraceId}
-          />
-          {(externalTraceId || internalTraceId) && (
-            <button
-              onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-              title="Clear todo filter"
-            >
-              ✕
-            </button>
-          )}
+        <div className="flex gap-1.5">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Todo ID..."
+              value={traceId}
+              onChange={(e) => setInternalTraceId(e.target.value)}
+              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              readOnly={!!externalTraceId}
+            />
+            {(externalTraceId || internalTraceId) && (
+              <button
+                onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                title="Clear todo filter"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="relative w-24">
+            <input
+              type="text"
+              placeholder="Skill..."
+              value={skillFilter}
+              onChange={(e) => setSkillFilter(e.target.value)}
+              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            {skillFilter && (
+              <button
+                onClick={() => setSkillFilter("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                title="Clear skill filter"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
       </div>
+      {pinnedDm && (
+        <div className="border-b border-sol-base02 p-1.5">
+          <div
+            onClick={() => handleClick(pinnedDm.chat_id)}
+            className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors border-l-2 border-sol-blue ${
+              pinnedDm.chat_id === selectedChatId ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
+            }`}
+          >
+            <div className="flex items-center gap-1 mb-0.5">
+              <span className="text-[0.55rem] text-sol-blue font-mono">DM</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(pinnedDm.chat_id); }}
+                className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                title="Copy chat ID"
+              >
+                <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                {pinnedDm.chat_id.slice(0, 8)}
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="flex-1 truncate">{(pinnedDm.title || "").replace(/^\[.*?\]\s*/, "")}</span>
+              <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">
+                {pinnedDm.updated_at || pinnedDm.created_at
+                  ? new Date(pinnedDm.updated_at || pinnedDm.created_at!).toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" })
+                  : ""}<br/>
+                {pinnedDm.updated_at || pinnedDm.created_at
+                  ? new Date(pinnedDm.updated_at || pinnedDm.created_at!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                  : ""}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view tasks</p>
