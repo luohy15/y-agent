@@ -135,7 +135,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
 
     # Persist trace context on the chat
     from storage.repository import chat as chat_repo
-    if trace_id:
+    if trace_id and skill != 'DM':
         chat.trace_id = trace_id
     if skill and not chat.skill:
         chat.skill = skill
