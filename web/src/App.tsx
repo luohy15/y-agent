@@ -55,6 +55,8 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 220;
   });
   const chatListResizingRef = useRef(false);
+  const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
+  const vmDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
@@ -98,6 +100,14 @@ export default function App() {
   useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
+  useEffect(() => {
+    if (!vmDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (vmDropdownRef.current && !vmDropdownRef.current.contains(e.target as Node)) setVmDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [vmDropdownOpen]);
   useEffect(() => {
     if (!auth.isLoggedIn) { setVmList([]); return; }
     authFetch(`${API}/api/vm-config/list`).then(r => r.json()).then(data => setVmList(data || [])).catch(() => setVmList([]));
@@ -195,14 +205,11 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} onToggleTraceList={() => { setSidebarPanel("traces"); setSidebarOpen((v) => !v); }} traceListOpen={sidebarOpen && sidebarPanel === "traces"} />
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
           isLoggedIn={auth.isLoggedIn}
-          vmList={vmList}
-          selectedVM={selectedVM}
-          onSelectVM={(name) => { setSelectedVM(name); setSelectedChatId(null); }}
           sidebarOpen={window.innerWidth < 768 ? sidebarOpen : desktopSidebarOpen}
           onToggleSidebar={() => {
             const isMobile = window.innerWidth < 768;
@@ -231,9 +238,6 @@ export default function App() {
           <ActivityBar
             mobile
             isLoggedIn={auth.isLoggedIn}
-            vmList={vmList}
-            selectedVM={selectedVM}
-            onSelectVM={(name) => { setSelectedVM(name); setSelectedChatId(null); setActivityBarOpen(false); }}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
             activePanel={sidebarPanel}
@@ -271,7 +275,43 @@ export default function App() {
           </div>
           {/* Toolbar (always visible) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
-            {!chatHide && <span className="font-mono text-sm sm:text-xs truncate mr-auto flex items-center gap-1 p-2 sm:p-1 text-sol-base01">{chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center gap-0.5 text-sol-base01 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID"><svg className="w-3.5 h-3.5 sm:w-3 sm:h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>{chatListTraceId.slice(0, 8)}</button>}{selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 text-sol-base01 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3.5 h-3.5 sm:w-3 sm:h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}{chatSkill && <span className="shrink-0">{chatSkill}</span>}<svg className="w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg><span className="hidden sm:inline truncate">{effectiveWorkDir}</span></span>}
+            {!chatHide && <div className="font-mono text-sm sm:text-xs mr-auto flex items-center gap-2 p-2 sm:p-1 text-sol-base01 min-w-0">
+              {/* VM selector */}
+              <div className="relative shrink-0" ref={vmDropdownRef}>
+                <button
+                  onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
+                  className={`inline-flex items-center gap-1 shrink-0 p-0 bg-transparent border-0 ${selectedChatId ? "text-sol-base01 cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+                  title={`VM: ${selectedVM || "default"}`}
+                >
+                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h5v2H5a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H9v-2h5a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2z"/></svg>
+                  <span>{selectedVM || "default"}</span>
+                </button>
+                {vmDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                    <button
+                      onClick={() => { setSelectedVM(null); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                    >
+                      default
+                    </button>
+                    {vmList.filter((vm) => vm.name !== "default").map((vm) => (
+                      <button
+                        key={vm.name}
+                        onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                      >
+                        {vm.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* Work dir */}
+              <span className="inline-flex items-center gap-1 min-w-0">
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
+                <span className="hidden sm:inline truncate min-w-0">{effectiveWorkDir}</span>
+              </span>
+            </div>}
             {!chatHide && (
               <>
                 {/* Tab switcher */}
@@ -331,6 +371,14 @@ export default function App() {
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
                 {/* Chat (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
+                  {/* Chat header: trace_id, chat_id, skill */}
+                  {selectedChatId && (chatListTraceId || chatSkill) && (
+                    <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
+                      {chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="5" r="2.5"/><circle cx="19" cy="12" r="2.5"/><circle cx="5" cy="19" r="2.5"/><line x1="7.5" y1="6" x2="16.5" y2="11"/><line x1="16.5" y1="13" x2="7.5" y2="18"/></svg>{chatListTraceId.slice(0, 8)}</button>}
+                      {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
+                      {chatSkill && <span className="shrink-0">{chatSkill}</span>}
+                    </div>
+                  )}
                   <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
                 </div>
                 {/* Terminal (kept mounted, toggled via CSS) */}

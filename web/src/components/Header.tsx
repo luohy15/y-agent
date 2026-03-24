@@ -11,9 +11,11 @@ interface HeaderProps {
   onToggleActivityBar?: () => void;
   activityBarOpen?: boolean;
   onClickLogo?: () => void;
+  onToggleTraceList?: () => void;
+  traceListOpen?: boolean;
 }
 
-export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onToggleActivityBar, activityBarOpen, onClickLogo }: HeaderProps) {
+export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onToggleActivityBar, activityBarOpen, onClickLogo, onToggleTraceList, traceListOpen }: HeaderProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     (window as any).google.accounts.id.renderButton(node, {
@@ -29,7 +31,23 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
         <button onClick={onClickLogo} className="h-8 w-8 shrink-0 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm cursor-pointer hover:bg-sol-base01 transition-colors">
           <span className="text-lg font-bold text-sol-blue">Y</span>
         </button>
-        {/* Mobile-only: Activity bar drawer toggle */}
+        {/* Mobile-only: Trace list toggle */}
+        {isLoggedIn && onToggleTraceList && (
+          <button
+            onClick={onToggleTraceList}
+            className={`md:hidden h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${traceListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
+            title="Traces"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="5" cy="5" r="2.5" />
+              <circle cx="19" cy="12" r="2.5" />
+              <circle cx="5" cy="19" r="2.5" />
+              <line x1="7.5" y1="6" x2="16.5" y2="11" />
+              <line x1="16.5" y1="13" x2="7.5" y2="18" />
+            </svg>
+          </button>
+        )}
+        {/* Mobile-only: Sidebar drawer toggle (files, git, apps) */}
         {isLoggedIn && onToggleActivityBar && (
           <button
             onClick={onToggleActivityBar}
