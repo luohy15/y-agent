@@ -26,7 +26,10 @@ class ChatSummary:
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
-    return Chat.from_dict(json.loads(entity.json_content))
+    chat = Chat.from_dict(json.loads(entity.json_content))
+    if entity.trace_id is not None:
+        chat.trace_id = entity.trace_id
+    return chat
 
 
 async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None) -> List[ChatSummary]:
