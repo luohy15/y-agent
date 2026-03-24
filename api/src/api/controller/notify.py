@@ -30,7 +30,7 @@ class NotifyRequest(BaseModel):
 
 class NotifyResponse(BaseModel):
     chat_id: str
-    trace_id: str
+    trace_id: Optional[str] = None
 
 
 @router.post("")
