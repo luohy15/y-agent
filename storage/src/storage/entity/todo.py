@@ -17,7 +17,6 @@ class TodoEntity(Base, BaseEntity):
     progress = Column(Text, nullable=True)
     completed_at = Column(String, nullable=True)
     history = Column(JSON, nullable=False, default=list)
-    chat_ids = Column(JSON, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "todo_id"),

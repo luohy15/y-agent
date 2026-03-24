@@ -71,13 +71,25 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
         })
 
     # Lookup todo info (trace_id = todo_id)
-    todo_name = None
-    todo_status = None
+    todo_info = None
     from storage.repository.todo import find_todos_by_ids
     todo_map = find_todos_by_ids(user_id, [trace_id])
     todo = todo_map.get(trace_id)
     if todo:
-        todo_name = todo.name
-        todo_status = todo.status
+        todo_info = {
+            "todo_id": todo.todo_id,
+            "name": todo.name,
+            "status": todo.status,
+            "desc": todo.desc,
+            "tags": todo.tags,
+            "priority": todo.priority,
+            "due_date": todo.due_date,
+            "progress": todo.progress,
+        }
 
-    return {"chats": result_chats, "todo_name": todo_name, "todo_status": todo_status}
+    return {
+        "chats": result_chats,
+        "todo_name": todo.name if todo else None,
+        "todo_status": todo.status if todo else None,
+        "todo": todo_info,
+    }
