@@ -94,7 +94,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
         <div className="relative">
           <input
             type="text"
-            placeholder="Filter by trace ID..."
+            placeholder="Filter by todo ID..."
             value={traceId}
             onChange={(e) => setInternalTraceId(e.target.value)}
             className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
@@ -104,7 +104,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             <button
               onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-              title="Clear trace filter"
+              title="Clear todo filter"
             >
               ✕
             </button>
@@ -143,7 +143,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <button
                           onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(firstTraceId); }}
                           className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
-                          title="Copy trace ID"
+                          title="Copy todo ID"
                         >
                           #{firstTraceId.slice(0, 8)}
                         </button>

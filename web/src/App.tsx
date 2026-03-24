@@ -376,7 +376,7 @@ export default function App() {
                   {/* Chat header: trace_id, chat_id, skill */}
                   {selectedChatId && (chatListTraceId || chatSkill) && (
                     <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                      {chatListTraceId && <button onClick={() => navigator.clipboard.writeText(chatListTraceId)} className="inline-flex items-center hover:text-sol-base0 cursor-pointer shrink-0" title="Copy trace ID">#{chatListTraceId.slice(0, 8)}</button>}
+                      {chatListTraceId && <button onClick={() => { setSelectedTraceId(chatListTraceId); handleOpenFile("trace.md"); }} className="inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="View todo">#{chatListTraceId.slice(0, 8)}</button>}
                       {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                       {chatSkill && <span className="shrink-0">{chatSkill}</span>}
                     </div>

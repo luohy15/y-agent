@@ -69,7 +69,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
         <div className="flex gap-1.5">
           <input
             type="text"
-            placeholder="Search traces..."
+            placeholder="Search todos..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
@@ -85,13 +85,13 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
-          <p className="text-sol-base01 italic p-2">Sign in to view traces</p>
+          <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading traces</p>
+          <p className="text-sol-base01 italic p-2">Error loading todos</p>
         ) : traces.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No traces yet</p>
+          <p className="text-sol-base01 italic p-2">No todos yet</p>
         ) : (
           <>
             {traces.map((t) => {
@@ -111,7 +111,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
                     <button
                       onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(t.trace_id); }}
                       className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.6rem] font-mono cursor-pointer shrink-0"
-                      title="Copy trace ID"
+                      title="Copy todo ID"
                     >
                       #{t.trace_id.slice(0, 8)}
                     </button>
