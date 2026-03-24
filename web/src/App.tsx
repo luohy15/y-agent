@@ -29,7 +29,7 @@ export default function App() {
   const [selectedVM, setSelectedVM] = useState<string | null>(() => localStorage.getItem("selectedVM") || null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("sidebarWidth");
-    return saved ? parseInt(saved, 10) : 384;
+    return saved ? parseInt(saved, 10) : 280;
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
@@ -264,7 +264,7 @@ export default function App() {
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
           <div
-            className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+            className="hidden sm:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
             onPointerDown={handleResizeStart}
           />
         </div>
@@ -350,16 +350,16 @@ export default function App() {
             )}
             <button
               onClick={() => setChatHide((v) => !v)}
-              className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+              className="p-2 md:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
               title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
             >
               {chatHide ? (
-                <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <polyline points="2,4 6,7 2,10" />
                   <line x1="7" y1="11" x2="12" y2="11" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg className="w-5 h-5 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <line x1="3" y1="3" x2="11" y2="11" />
                   <line x1="11" y1="3" x2="3" y2="11" />
                 </svg>
@@ -391,7 +391,7 @@ export default function App() {
               {!chatHide && bottomTab === "chat" && (
                 <div
                   className={`
-                    hidden md:block
+                    hidden sm:block
                     shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative
                   `}
                   style={{ width: chatListWidth }}
