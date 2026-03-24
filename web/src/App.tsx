@@ -266,9 +266,11 @@ export default function App() {
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
           <div
-            className="hidden sm:block absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+            className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
             onPointerDown={handleResizeStart}
-          />
+          >
+            <div className="absolute top-0 right-2 lg:right-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
+          </div>
         </div>
         {/* Right */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
@@ -399,9 +401,11 @@ export default function App() {
                   style={{ width: chatListWidth }}
                 >
                   <div
-                    className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sol-blue/40 active:bg-sol-blue/60 z-10"
+                    className="absolute top-0 -left-2 w-4 lg:w-1 lg:left-0 h-full cursor-col-resize z-10 group"
                     onPointerDown={handleChatListResizeStart}
-                  />
+                  >
+                    <div className="absolute top-0 left-2 lg:left-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
+                  </div>
                   <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} />
                 </div>
               )}
