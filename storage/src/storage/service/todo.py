@@ -69,46 +69,26 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     return todo
 
 
-def finish_todo(user_id: int, todo_id: str) -> Optional[Todo]:
+STATUS_ACTION = {
+    "pending": "deactivated",
+    "active": "activated",
+    "completed": "completed",
+    "deleted": "deleted",
+}
+
+
+def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
     todo = todo_repo.get_todo(user_id, todo_id)
     if not todo:
         return None
-    todo.status = "completed"
-    todo.completed_at = get_utc_iso8601_timestamp()
+    old_status = todo.status
+    todo.status = status
+    if status == "completed":
+        todo.completed_at = get_utc_iso8601_timestamp()
+    elif old_status == "completed":
+        todo.completed_at = None
+    action = STATUS_ACTION.get(status, status)
     history = todo.history or []
-    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="completed"))
-    todo.history = history
-    return todo_repo.save_todo(user_id, todo)
-
-
-def delete_todo(user_id: int, todo_id: str) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
-    todo.status = "deleted"
-    history = todo.history or []
-    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="deleted"))
-    todo.history = history
-    return todo_repo.save_todo(user_id, todo)
-
-
-def activate_todo(user_id: int, todo_id: str) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
-    todo.status = "active"
-    history = todo.history or []
-    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="activated"))
-    todo.history = history
-    return todo_repo.save_todo(user_id, todo)
-
-
-def deactivate_todo(user_id: int, todo_id: str) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
-    todo.status = "pending"
-    history = todo.history or []
-    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="deactivated"))
+    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action=action))
     todo.history = history
     return todo_repo.save_todo(user_id, todo)
