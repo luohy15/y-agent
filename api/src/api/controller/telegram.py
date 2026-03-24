@@ -167,7 +167,7 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         return {"ok": True}
 
     # Determine skill from topic
-    skill = None
+    skill = "DM"
     if message_thread_id:
         from storage.repository.tg_topic import get_topic_by_thread_id
         topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
