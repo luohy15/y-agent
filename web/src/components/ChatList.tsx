@@ -17,6 +17,7 @@ interface ChatListProps {
   onSelectChat: (id: string | null) => void;
   refreshKey?: number;
   traceId?: string | null;
+  onClearTraceId?: () => void;
 }
 
 const PAGE_SIZE = 50;
@@ -30,7 +31,7 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [internalTraceId, setInternalTraceId] = useState("");
   const traceId = externalTraceId || internalTraceId;
@@ -90,14 +91,25 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
         />
-        <input
-          type="text"
-          placeholder="Filter by trace ID..."
-          value={traceId}
-          onChange={(e) => setInternalTraceId(e.target.value)}
-          className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-          readOnly={!!externalTraceId}
-        />
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Filter by trace ID..."
+            value={traceId}
+            onChange={(e) => setInternalTraceId(e.target.value)}
+            className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            readOnly={!!externalTraceId}
+          />
+          {(externalTraceId || internalTraceId) && (
+            <button
+              onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+              title="Clear trace filter"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
