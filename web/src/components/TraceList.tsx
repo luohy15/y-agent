@@ -109,9 +109,9 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <button
-                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(t.trace_id); }}
+                      onClick={(e) => { e.stopPropagation(); onSelectTrace(t.trace_id); }}
                       className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.6rem] font-mono cursor-pointer shrink-0"
-                      title="Copy todo ID"
+                      title="View trace"
                     >
                       #{t.trace_id.slice(0, 8)}
                     </button>

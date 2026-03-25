@@ -19,6 +19,7 @@ interface ChatListProps {
   refreshKey?: number;
   traceId?: string | null;
   onClearTraceId?: () => void;
+  onSelectTrace?: (traceId: string) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -32,7 +33,7 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [internalTraceId, setInternalTraceId] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
@@ -206,9 +207,9 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(firstTraceId); }}
+                          onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(firstTraceId); else navigator.clipboard.writeText(firstTraceId); }}
                           className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
-                          title="Copy todo ID"
+                          title="View trace"
                         >
                           #{firstTraceId.slice(0, 8)}
                         </button>

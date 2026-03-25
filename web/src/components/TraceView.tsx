@@ -287,10 +287,6 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
           Loading...
         </div>
-      ) : traceChats.length === 0 ? (
-        <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
-          No chats found for this todo
-        </div>
       ) : (
         <div>
           {/* Header */}
@@ -309,13 +305,15 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
                 </span>
               )}
               {/* Skill badges */}
-              <div className="flex flex-wrap gap-0.5">
-                {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
-                  <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
-                    {s}
-                  </span>
-                ))}
-              </div>
+              {traceChats.length > 0 && (
+                <div className="flex flex-wrap gap-0.5">
+                  {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
+                    <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               onClick={() => navigator.clipboard.writeText(selectedTraceId)}
@@ -430,7 +428,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
               </div>
             )}
 
-            <WaterfallChart chats={traceChats} onClickSkill={onSelectChat} />
+            {traceChats.length > 0 ? (
+              <WaterfallChart chats={traceChats} onClickSkill={onSelectChat} />
+            ) : (
+              <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
+            )}
           </div>
         </div>
       )}
