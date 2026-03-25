@@ -7,7 +7,6 @@ interface ChatTocProps {
 }
 
 export default function ChatToc({ messages, containerRef }: ChatTocProps) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("chatTocCollapsed") !== "false");
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const userMessages = useMemo(() => {
@@ -25,12 +24,6 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
 
   if (userMessages.length < 2) return null;
 
-  const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem("chatTocCollapsed", String(next));
-  };
-
   const scrollTo = (index: number) => {
     const el = containerRef.current?.querySelector(`#user-msg-${index}`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -38,39 +31,31 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
 
   return (
     <>
-      {/* Desktop (lg+): sidebar TOC */}
-      <div className={`hidden lg:flex flex-col shrink-0 transition-all duration-200 overflow-hidden border-l border-sol-base02 ${collapsed ? "w-8" : "w-48"}`}>
-        <button
-          onClick={toggle}
-          className="px-2 py-1.5 text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer flex items-center gap-1 border-b border-sol-base02 shrink-0"
-          title={collapsed ? "Show TOC" : "Hide TOC"}
-        >
-          {collapsed ? "◀" : "▶"}
-        </button>
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-1.5 py-2">
-            {userMessages.map((um) => (
-              <div
-                key={um.index}
-                className="w-2 h-2 rounded-full bg-sol-base01 hover:bg-sol-base0 cursor-pointer shrink-0"
-                onClick={() => scrollTo(um.index)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col overflow-y-auto py-1">
-            {userMessages.map((um, i) => (
-              <button
-                key={um.index}
-                onClick={() => scrollTo(um.index)}
-                className="flex items-center text-left px-2 h-6 shrink-0 text-[0.7rem] font-mono text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer truncate"
-              >
-                <span className="text-sol-base01 mr-1">{i + 1}.</span>
-                {um.text}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Desktop (lg+): sidebar TOC with hover expand */}
+      <div className="hidden lg:flex flex-col shrink-0 w-8 hover:w-48 transition-all duration-200 overflow-hidden group border-l border-sol-base02">
+        {/* Dots (visible when collapsed) */}
+        <div className="flex flex-col items-center gap-1.5 py-2 group-hover:hidden">
+          {userMessages.map((um) => (
+            <div
+              key={um.index}
+              className="w-2 h-2 rounded-full bg-sol-base01 hover:bg-sol-base0 cursor-pointer shrink-0"
+              onClick={() => scrollTo(um.index)}
+            />
+          ))}
+        </div>
+        {/* Expanded list (visible on hover) */}
+        <div className="hidden group-hover:flex flex-col overflow-y-auto py-1">
+          {userMessages.map((um, i) => (
+            <button
+              key={um.index}
+              onClick={() => scrollTo(um.index)}
+              className="flex items-center text-left px-2 h-6 shrink-0 text-[0.7rem] font-mono text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer truncate"
+            >
+              <span className="text-sol-base01 mr-1">{i + 1}.</span>
+              {um.text}
+            </button>
+          ))}
+        </div>
       </div>
       {/* Tablet & Mobile (below lg): dropdown TOC button */}
       <div className="lg:hidden absolute top-2 right-2 z-10">
