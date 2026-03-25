@@ -49,9 +49,14 @@ async def post_notify(req: NotifyRequest, request: Request):
                 detail=f"skill mismatch: chat '{req.chat_id}' belongs to skill '{existing_chat.skill}', got '{req.skill}'"
             )
         chat_id = req.chat_id
-    elif not req.force_new and req.trace_id:
-        from storage.repository.chat import find_chat_by_skill_and_trace
-        found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
+    elif not req.force_new:
+        from storage.repository.chat import find_chat_by_skill_and_trace, find_chat_by_skill
+        found = None
+        # DM skill doesn't have trace_id on its chats, so look up by skill only
+        if req.skill == 'DM':
+            found = find_chat_by_skill(user_id, req.skill)
+        elif req.trace_id:
+            found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
         if found:
             chat_id = found.id
             existing_chat = await chat_service.get_chat_by_id(chat_id)

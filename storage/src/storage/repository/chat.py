@@ -273,6 +273,21 @@ def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Opt
         return None
 
 
+def find_chat_by_skill(user_id: int, skill: str) -> Optional[Chat]:
+    """Find the most recent chat with the given skill (ignoring trace_id)."""
+    with get_db() as session:
+        row = (session.query(ChatEntity)
+               .filter_by(user_id=user_id, skill=skill)
+               .order_by(ChatEntity.updated_at_unix.desc())
+               .first())
+        if row:
+            try:
+                return _entity_to_chat(row)
+            except Exception:
+                pass
+        return None
+
+
 def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
     """Find all chats in a trace, returning (chat_id, title, skill, json_content) tuples.
     Includes json_content so caller can extract message-level time segments."""
