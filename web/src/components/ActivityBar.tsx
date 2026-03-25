@@ -10,6 +10,8 @@ interface ActivityBarProps {
   activeFile?: string | null;
   mobile?: boolean;
   hideGroup1?: boolean;
+  chatHide?: boolean;
+  onToggleChatHide?: () => void;
 }
 
 const viewerShortcuts = [
@@ -45,7 +47,7 @@ const viewerShortcuts = [
   )},
 ];
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1 }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1, chatHide, onToggleChatHide }: ActivityBarProps) {
   if (!isLoggedIn) return null;
 
   const handlePanelClick = (panel: SidebarPanel) => {
@@ -69,7 +71,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   return (
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
-      {/* Group 1: Todo */}
+      {/* Group 1: Todo + Terminal toggle */}
       {!hideGroup1 && (
         <>
           <button
@@ -80,6 +82,19 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
             <span className="text-base font-bold leading-none">#</span>
             {mobile && <span>Todo</span>}
           </button>
+          {onToggleChatHide && (
+            <button
+              onClick={onToggleChatHide}
+              className={btnClass(!chatHide)}
+              title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <polyline points="2,4 6,7 2,10" />
+                <line x1="7" y1="11" x2="12" y2="11" />
+              </svg>
+              {mobile && <span>Terminal</span>}
+            </button>
+          )}
           <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
         </>
       )}
@@ -113,7 +128,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         <button
           key={v.key}
           onClick={() => onOpenFile?.(v.key)}
-          className={btnClass(activeFile === v.key)}
+          className={btnClass(!!chatHide && activeFile === v.key)}
           title={v.label}
         >
           {v.icon}

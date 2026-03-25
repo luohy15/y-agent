@@ -55,6 +55,7 @@ export default function App() {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
   });
+  const [chatListCollapsed, setChatListCollapsed] = useState(() => localStorage.getItem("chatListCollapsed") === "true");
   const chatListResizingRef = useRef(false);
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
@@ -98,6 +99,7 @@ export default function App() {
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
+  useEffect(() => { localStorage.setItem("chatListCollapsed", String(chatListCollapsed)); }, [chatListCollapsed]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
   useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
@@ -222,6 +224,8 @@ export default function App() {
           onSelectPanel={setSidebarPanel}
           onOpenFile={handleOpenFile}
           activeFile={activeFile}
+          chatHide={chatHide}
+          onToggleChatHide={() => setChatHide((v) => !v)}
         />
         {/* Mobile overlay backdrop (sidebar or activity bar) */}
         {(sidebarOpen || activityBarOpen) && (
@@ -278,8 +282,8 @@ export default function App() {
           <div className={`${chatHide ? "flex-1" : "hidden"} min-h-0 overflow-hidden`}>
             <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
           </div>
-          {/* Toolbar (always visible) */}
-          <div className="flex items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
+          {/* Toolbar (hidden when chatHide) */}
+          <div className={`items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0 ${chatHide ? "hidden" : "flex"}`}>
             {!chatHide && <div className="font-mono text-sm sm:text-xs mr-auto flex items-center gap-2 p-2 sm:p-1 text-sol-base01 min-w-0">
               {/* VM selector */}
               <div className="relative shrink-0" ref={vmDropdownRef}>
@@ -350,25 +354,17 @@ export default function App() {
                     <line x1="2" y1="7" x2="12" y2="7" />
                   </svg>
                 </button>
+                <button
+                  onClick={() => setChatListCollapsed((v) => !v)}
+                  className={`hidden sm:block p-2 sm:p-1 rounded cursor-pointer ${!chatListCollapsed ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  title={chatListCollapsed ? "Show chat list" : "Hide chat list"}
+                >
+                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm-1 12h-3V3h3v10zM2 3h7v10H2V3z"/>
+                  </svg>
+                </button>
               </>
             )}
-            <button
-              onClick={() => setChatHide((v) => !v)}
-              className="p-2 sm:p-3 md:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-              title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
-            >
-              {chatHide ? (
-                <svg className="w-5 h-5 sm:w-7 sm:h-7 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <polyline points="2,4 6,7 2,10" />
-                  <line x1="7" y1="11" x2="12" y2="11" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5 sm:w-7 sm:h-7 md:w-3.5 md:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <line x1="3" y1="3" x2="11" y2="11" />
-                  <line x1="11" y1="3" x2="3" y2="11" />
-                </svg>
-              )}
-            </button>
           </div>
           {/* Right bottom: ChatView / TerminalView + ChatList */}
           <div className={`flex flex-col min-h-0 flex-1 ${chatHide ? "hidden" : ""}`}>
@@ -392,12 +388,9 @@ export default function App() {
                 </div>
               </div>
               {/* Desktop: chat list panel (only when chat tab active) */}
-              {!chatHide && bottomTab === "chat" && (
+              {!chatHide && bottomTab === "chat" && !chatListCollapsed && (
                 <div
-                  className={`
-                    hidden sm:block
-                    shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative
-                  `}
+                  className="hidden sm:block shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative"
                   style={{ width: chatListWidth }}
                 >
                   <div
