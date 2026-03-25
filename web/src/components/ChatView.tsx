@@ -305,7 +305,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const processDetailButtons = (
     <button
       onClick={() => { const next = !showProgress; setShowProgress(next); localStorage.setItem("showProgress", String(next)); }}
-      className={`font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-[0.7rem] font-semibold ${showProgress ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
+      className={`font-mono cursor-pointer px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold ${showProgress ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
     >
       {showProgress ? "progress ●" : "progress ○"}
     </button>
@@ -331,7 +331,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
-          <button onClick={stopChat} className="px-3 py-1 sm:px-2 sm:py-0.5 bg-sol-red text-sol-base3 rounded text-sm sm:text-xs font-semibold cursor-pointer">Stop</button>
+          <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
       {completed ? (
@@ -345,7 +345,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           autoFocus
           extraButtons={<>
             {processDetailButtons}
-            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-3 py-1 sm:px-2 sm:py-0.5 rounded text-sm sm:text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
           </>}
         />
       ) : null}

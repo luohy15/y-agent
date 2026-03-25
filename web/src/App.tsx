@@ -243,7 +243,6 @@ export default function App() {
         >
           <ActivityBar
             mobile
-            hideGroup1
             isLoggedIn={auth.isLoggedIn}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
@@ -251,6 +250,8 @@ export default function App() {
             onSelectPanel={(panel) => { setSidebarPanel(panel); setActivityBarOpen(false); setSidebarOpen(true); }}
             onOpenFile={(path) => { handleOpenFile(path); setActivityBarOpen(false); }}
             activeFile={activeFile}
+            chatHide={chatHide}
+            onToggleChatHide={() => { setChatHide((v) => !v); setActivityBarOpen(false); }}
           />
         </div>
         {/* Left: FileTree */}
@@ -326,19 +327,19 @@ export default function App() {
                 {/* Tab switcher */}
                 <button
                   onClick={() => setBottomTab("chat")}
-                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "chat" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  className={`p-1.5 sm:p-1 rounded cursor-pointer ${bottomTab === "chat" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
                   title="Chat"
                 >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
                   </svg>
                 </button>
                 <button
                   onClick={() => setBottomTab("terminal")}
-                  className={`p-2 sm:p-1 rounded cursor-pointer ${bottomTab === "terminal" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  className={`p-1.5 sm:p-1 rounded cursor-pointer ${bottomTab === "terminal" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
                   title="Terminal"
                 >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <polyline points="2,4 6,7 2,10" />
                     <line x1="7" y1="11" x2="12" y2="11" />
                   </svg>
@@ -346,20 +347,20 @@ export default function App() {
                 <div className="w-px h-4 bg-sol-base02 mx-0.5" />
                 <button
                   onClick={() => { setSelectedChatId(null); setChatListTraceId(null); }}
-                  className="p-2 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                  className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                   title="New chat"
                 >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <line x1="7" y1="2" x2="7" y2="12" />
                     <line x1="2" y1="7" x2="12" y2="7" />
                   </svg>
                 </button>
                 <button
                   onClick={() => setChatListCollapsed((v) => !v)}
-                  className={`hidden sm:block p-2 sm:p-1 rounded cursor-pointer ${!chatListCollapsed ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
+                  className={`hidden sm:block p-1.5 sm:p-1 rounded cursor-pointer ${!chatListCollapsed ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
                   title={chatListCollapsed ? "Show chat list" : "Hide chat list"}
                 >
-                  <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm-1 12h-3V3h3v10zM2 3h7v10H2V3z"/>
                   </svg>
                 </button>

@@ -72,8 +72,8 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
           </div>
         )}
       </div>
-      {/* Tablet (md to lg): dropdown TOC button */}
-      <div className="hidden md:block lg:hidden absolute top-2 right-2 z-10">
+      {/* Tablet & Mobile (below lg): dropdown TOC button */}
+      <div className="lg:hidden absolute top-2 right-2 z-10">
         <button
           onClick={() => setDropdownOpen((v) => !v)}
           className="w-8 h-8 rounded bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center cursor-pointer hover:bg-sol-base01/30"
