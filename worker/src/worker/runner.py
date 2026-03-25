@@ -62,39 +62,48 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
         logger.info("save_plan_to_todo: saved plan path {} to todo {}", plan_path, todo_id)
 
 
-def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
-    """Send assistant reply to Telegram, routing by skill.
+def _resolve_telegram_target(chat, user_id: int):
+    """Determine Telegram routing target based on chat skill.
 
-    If chat has a skill, find the matching tg_topic and send there.
-    If skill is None, send as DM to the user's telegram_id.
-    When trace_id is set (notify-created chats), also send the last user message first.
+    Returns (bot_token, tg_chat_id, topic_id) or None if no valid target.
     """
-    from storage.util import get_telegram_bot_token, send_telegram_message
+    from storage.util import get_telegram_bot_token
     from storage.repository.tg_topic import find_topic_by_name
     from storage.repository.user import get_user_by_id
 
     bot_token = get_telegram_bot_token()
     if not bot_token:
-        return
+        return None
 
-    # Determine where to send
     tg_chat_id = None
     topic_id = None
     if chat.skill and chat.skill != 'DM':
         topic = find_topic_by_name(user_id, chat.skill)
         if not topic or topic.topic_id is None:
-            logger.debug("telegram reply: no topic for skill '{}'", chat.skill)
-            return
+            logger.debug("telegram: no topic for skill '{}'", chat.skill)
+            return None
         tg_chat_id = topic.group_id
         topic_id = topic.topic_id
     else:
         user = get_user_by_id(user_id)
         if not user or not user.telegram_id:
-            logger.debug("telegram reply: no telegram_id for user_id={}", user_id)
-            return
+            logger.debug("telegram: no telegram_id for user_id={}", user_id)
+            return None
         tg_chat_id = user.telegram_id
 
-    # Send the last user message to Telegram unless it originated from Telegram
+    return (bot_token, tg_chat_id, topic_id)
+
+
+def _send_telegram_user_message(chat, user_id: int) -> None:
+    """Send the last user message to Telegram immediately (before agent runs)."""
+    from storage.util import send_telegram_message
+    from storage.repository.user import get_user_by_id
+
+    target = _resolve_telegram_target(chat, user_id)
+    if not target:
+        return
+    bot_token, tg_chat_id, topic_id = target
+
     for msg in reversed(chat.messages):
         if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
             if msg.source != 'telegram':
@@ -106,6 +115,16 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
                     text = f"{display_name}: {text}"
                 send_telegram_message(bot_token, tg_chat_id, text, topic_id)
             break
+
+
+def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
+    """Send assistant reply to Telegram, routing by skill."""
+    from storage.util import send_telegram_message
+
+    target = _resolve_telegram_target(chat, user_id)
+    if not target:
+        return
+    bot_token, tg_chat_id, topic_id = target
 
     # Send assistant reply
     reply_text = None
@@ -147,6 +166,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     chat.interrupted = False
     chat.running = True
     await chat_repo.save_chat_by_id(chat)
+
+    # Send user message to Telegram immediately (before agent runs)
+    try:
+        _send_telegram_user_message(chat, user_id)
+    except Exception as e:
+        logger.exception("telegram user message failed: {}", e)
 
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
