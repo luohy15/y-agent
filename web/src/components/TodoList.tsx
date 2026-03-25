@@ -37,9 +37,10 @@ type StatusFilter = "pending" | "active" | "completed" | "all";
 interface TodoListProps {
   isLoggedIn: boolean;
   onSelectTodo: (todoId: string) => void;
+  onSelectTrace?: (traceId: string) => void;
 }
 
-export default function TodoList({ isLoggedIn, onSelectTodo }: TodoListProps) {
+export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: TodoListProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const saved = localStorage.getItem("todoListStatusFilter");
@@ -110,9 +111,9 @@ export default function TodoList({ isLoggedIn, onSelectTodo }: TodoListProps) {
             >
               <div className="flex items-center gap-1.5 mb-0.5">
                 <button
-                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(t.todo_id); }}
+                  onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(t.todo_id); else navigator.clipboard.writeText(t.todo_id); }}
                   className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.6rem] font-mono cursor-pointer shrink-0"
-                  title="Copy todo ID"
+                  title="View trace"
                 >
                   #{t.todo_id}
                 </button>
