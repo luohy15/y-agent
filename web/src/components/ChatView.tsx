@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type RefCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import { isPreview, MAIN_DOMAIN } from "../hooks/useAuth";
@@ -34,6 +34,19 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const inputRef = useRef<ChatInputHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  // Track scroll position to show/hide scroll-to-bottom button
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowScrollBottom(distFromBottom > 200);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [messages]);
 
   // Virtual keyboard adaptation: adjust container when keyboard appears on tablets
   useEffect(() => {
@@ -300,9 +313,20 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 relative">
         <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
+        {showScrollBottom && (
+          <button
+            onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-8 h-8 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-lg cursor-pointer hover:bg-sol-base01/30"
+            title="Scroll to bottom"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
       </div>
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">

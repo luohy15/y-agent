@@ -115,6 +115,7 @@ function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: str
 
 function MarkdownPreview({ content }: { content: string }) {
   const [tocOpen, setTocOpen] = useState(false);
+  const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const headings = useMemo(() => {
     const lines = content.split("\n");
     const result: { text: string; id: string }[] = [];
@@ -131,7 +132,7 @@ function MarkdownPreview({ content }: { content: string }) {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full">
+      <div className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full relative">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -145,12 +146,47 @@ function MarkdownPreview({ content }: { content: string }) {
           {content}
         </ReactMarkdown>
       </div>
-      {/* Desktop: sidebar TOC */}
+      {/* Desktop (lg+): sidebar TOC */}
       {headings.length > 0 && (
-        <nav className="hidden md:block w-48 shrink-0 overflow-y-auto border-l border-sol-base02 p-3">
-          <div className="text-xs text-sol-base01 mb-2">Contents</div>
-          <MarkdownToc headings={headings} />
+        <nav className={`hidden lg:flex flex-col shrink-0 border-l border-sol-base02 transition-all duration-200 ${tocCollapsed ? "w-8" : "w-48"}`}>
+          <button
+            onClick={() => setTocCollapsed((v) => { const next = !v; localStorage.setItem("markdownTocCollapsed", String(next)); return next; })}
+            className="p-2 text-sol-base01 hover:text-sol-base0 cursor-pointer text-xs shrink-0"
+            title={tocCollapsed ? "Expand TOC" : "Collapse TOC"}
+          >
+            {tocCollapsed ? "◀" : "▶"}
+          </button>
+          {!tocCollapsed && (
+            <div className="overflow-y-auto px-3 pb-3">
+              <div className="text-xs text-sol-base01 mb-2">Contents</div>
+              <MarkdownToc headings={headings} />
+            </div>
+          )}
         </nav>
+      )}
+      {/* Tablet (md to lg): dropdown TOC button */}
+      {headings.length > 0 && (
+        <div className="hidden md:block lg:hidden absolute top-2 right-2 z-10">
+          <button
+            onClick={() => setTocOpen((v) => !v)}
+            className="w-8 h-8 rounded bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center cursor-pointer hover:bg-sol-base01/30"
+            title="Table of contents"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+          </button>
+          {tocOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
+              <nav className="absolute right-0 top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
+                <div className="text-xs text-sol-base01 mb-2">Contents</div>
+                <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
+              </nav>
+            </>
+          )}
+        </div>
       )}
       {/* Mobile: FAB + popover TOC */}
       {headings.length > 0 && (
