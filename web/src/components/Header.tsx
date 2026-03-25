@@ -11,11 +11,9 @@ interface HeaderProps {
   onToggleActivityBar?: () => void;
   activityBarOpen?: boolean;
   onClickLogo?: () => void;
-  onToggleTraceList?: () => void;
-  traceListOpen?: boolean;
 }
 
-export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onToggleActivityBar, activityBarOpen, onClickLogo, onToggleTraceList, traceListOpen }: HeaderProps) {
+export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggleChatList, chatListOpen, onToggleActivityBar, activityBarOpen, onClickLogo }: HeaderProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     (window as any).google.accounts.id.renderButton(node, {
@@ -31,16 +29,6 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
         <button onClick={onClickLogo} className="h-8 w-8 shrink-0 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm cursor-pointer hover:bg-sol-base01 transition-colors">
           <span className="text-lg font-bold text-sol-blue">Y</span>
         </button>
-        {/* Mobile-only: Trace list toggle */}
-        {isLoggedIn && onToggleTraceList && (
-          <button
-            onClick={onToggleTraceList}
-            className={`md:hidden h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${traceListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
-            title="Todo"
-          >
-            <span className="text-lg font-bold leading-none">#</span>
-          </button>
-        )}
         {/* Mobile-only: Sidebar drawer toggle (files, git, apps) */}
         {isLoggedIn && onToggleActivityBar && (
           <button
