@@ -209,7 +209,7 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} />
+      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} onOpenFileSearch={() => setFileSearchOpen(true)} />
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
