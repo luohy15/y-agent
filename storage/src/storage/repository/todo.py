@@ -1,5 +1,6 @@
 """Function-based todo repository using SQLAlchemy sessions."""
 
+from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy import case, func
 from storage.entity.todo import TodoEntity
@@ -42,9 +43,23 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
             query = query.filter_by(status=status)
         if priority:
             query = query.filter_by(priority=priority)
-        if status in ("active", "pending"):
-            # active/pending: due_date asc, priority asc, updated_at desc
-            # Treat empty string as NULL so items without due_date sort last
+        if status == "pending":
+            # pending: two-group sorting
+            # Group 0: has due_date within today + 14 days → sort by due_date ASC
+            # Group 1: everything else → sort by priority ASC, updated_at DESC
+            cutoff = (date.today() + timedelta(days=14)).isoformat()
+            is_soon = case(
+                (TodoEntity.due_date.isnot(None) & (TodoEntity.due_date != "") & (TodoEntity.due_date <= cutoff), 0),
+                else_=1,
+            )
+            query = query.order_by(
+                is_soon.asc(),
+                case((is_soon == 0, TodoEntity.due_date), else_=None).asc(),
+                case((is_soon == 1, _PRIORITY_ORDER), else_=None).asc(),
+                case((is_soon == 1, TodoEntity.updated_at), else_=None).desc(),
+            )
+        elif status == "active":
+            # active: due_date asc (nulls last), priority asc, updated_at desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
             query = query.order_by(due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
         else:
