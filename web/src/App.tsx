@@ -47,6 +47,9 @@ export default function App() {
   const [chatSkill, setChatSkill] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
+  const [chatRefreshKey, setChatRefreshKey] = useState(0);
+  const [chatListSpinning, setChatListSpinning] = useState(false);
+  const [chatSpinning, setChatSpinning] = useState(false);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
@@ -346,6 +349,13 @@ export default function App() {
                 </button>
                 <div className="w-px h-4 bg-sol-base02 mx-0.5" />
                 <button
+                  onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
+                  className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                  title="Refresh chat list"
+                >
+                  <svg className={`w-4 h-4 sm:w-3.5 sm:h-3.5 transition-transform ${chatListSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+                <button
                   onClick={() => { setSelectedChatId(null); setChatListTraceId(null); }}
                   className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                   title="New chat"
@@ -373,15 +383,16 @@ export default function App() {
               <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
                 {/* Chat (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
-                  {/* Chat header: trace_id, chat_id, skill */}
-                  {selectedChatId && (chatTraceId || chatSkill) && (
+                  {/* Chat header: trace_id, chat_id, skill, refresh */}
+                  {selectedChatId && (
                     <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
                       {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className="inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="View todo">#{chatTraceId.slice(0, 8)}</button>}
                       {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className="inline-flex items-center gap-0.5 hover:text-sol-base0 cursor-pointer shrink-0" title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                       {chatSkill && <span className="shrink-0">{chatSkill}</span>}
+                      <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
                     </div>
                   )}
-                  <ChatView isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={setChatTraceId} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
+                  <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={setChatTraceId} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} />
                 </div>
                 {/* Terminal (kept mounted, toggled via CSS) */}
                 <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
