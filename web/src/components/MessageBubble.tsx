@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
+import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -13,6 +14,8 @@ interface MessageBubbleProps {
   timestamp?: string;
   dimmed?: boolean;
   onOpenFile?: (path: string) => void;
+  onSelectChat?: (chatId: string) => void;
+  onSelectTrace?: (traceId: string) => void;
 }
 
 function truncate(s: string, n: number): string {
@@ -137,10 +140,23 @@ function formatDateTime(ts?: string): string {
   }
 }
 
-function TimestampLine({ timestamp }: { timestamp?: string }) {
+function parseTracePrefix(content: string): { traceId: string; fromSkill: string; fromChatId: string; cleanContent: string } | null {
+  const match = content.match(/^\[trace:(\S+)\s+from:(\S+)\s+to:\S+\s+from_chat:(\S+)\s+to_chat:\S+\]\n?/);
+  if (!match) return null;
+  return { traceId: match[1], fromSkill: match[2], fromChatId: match[3], cleanContent: content.slice(match[0].length) };
+}
+
+function TimestampLine({ timestamp, traceId, fromSkill, fromChatId, onSelectChat, onSelectTrace }: { timestamp?: string; traceId?: string; fromSkill?: string; fromChatId?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
   const formatted = formatDateTime(timestamp);
-  if (!formatted) return null;
-  return <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1">{formatted}</div>;
+  if (!formatted && !fromSkill) return null;
+  return (
+    <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1 flex items-center">
+      {formatted && <span>{formatted}</span>}
+      {traceId && <span className={`ml-1.5 text-[0.6rem] ${TRACE_BADGE} ${onSelectTrace ? "hover:bg-sol-orange/30 cursor-pointer" : ""}`} onClick={() => onSelectTrace?.(traceId)}>#{traceId}</span>}
+      {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${skillBadgeClass(fromSkill)}`}>{fromSkill}</span>}
+      {fromChatId && <span className={`ml-1 text-[0.6rem] ${CHAT_BADGE} hover:bg-sol-blue/30 cursor-pointer`} onClick={() => onSelectChat?.(fromChatId)}>{fromChatId}</span>}
+    </div>
+  );
 }
 
 // --- Compact tool call display (Claude Code desktop style) ---
@@ -266,10 +282,13 @@ function ToolCallCompact({
 
 const USER_MSG_MAX_LINES = 3;
 
-function UserMessage({ content, timestamp }: { content: string; timestamp?: string }) {
+function UserMessage({ content, timestamp, onSelectChat, onSelectTrace }: { content: string; timestamp?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
+
+  const traceInfo = parseTracePrefix(content);
+  const displayContent = traceInfo ? traceInfo.cleanContent : content;
 
   useEffect(() => {
     const el = contentRef.current;
@@ -277,11 +296,11 @@ function UserMessage({ content, timestamp }: { content: string; timestamp?: stri
     // Compare scrollHeight vs line-height * max lines
     const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 16;
     setClamped(el.scrollHeight > lineHeight * USER_MSG_MAX_LINES + 1);
-  }, [content]);
+  }, [displayContent]);
 
   return (
     <div>
-      <TimestampLine timestamp={timestamp} />
+      <TimestampLine timestamp={timestamp} traceId={traceInfo?.traceId} fromSkill={traceInfo?.fromSkill} fromChatId={traceInfo?.fromChatId} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
       <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
         <div className="flex items-baseline">
           <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
@@ -290,7 +309,7 @@ function UserMessage({ content, timestamp }: { content: string; timestamp?: stri
               ref={contentRef}
               className={`text-sm sm:text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}
             >
-              {content}
+              {displayContent}
             </div>
             {clamped && (
               <button
@@ -307,7 +326,7 @@ function UserMessage({ content, timestamp }: { content: string; timestamp?: stri
   );
 }
 
-export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, dimmed, onOpenFile }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, dimmed, onOpenFile, onSelectChat, onSelectTrace }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
@@ -325,7 +344,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
 
   // User message: terminal input style with > prompt and grey background
   if (role === "user") {
-    return <UserMessage content={content} timestamp={timestamp} />;
+    return <UserMessage content={content} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
   }
 
   // Assistant message: rendered markdown like CLI

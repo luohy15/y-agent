@@ -289,11 +289,13 @@ interface MessageListProps {
   centered?: boolean;
   showProgress: boolean;
   onOpenFile?: (path: string) => void;
+  onSelectChat?: (chatId: string) => void;
+  onSelectTrace?: (traceId: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   inline?: boolean;
 }
 
-export default function MessageList({ messages, running, centered, showProgress, onOpenFile, scrollContainerRef, inline }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onSelectChat, onSelectTrace, scrollContainerRef, inline }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
@@ -317,7 +319,7 @@ export default function MessageList({ messages, running, centered, showProgress,
         const isUser = item.message.role === "user";
         return (
           <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
-            <MessageBubble role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} />
+            <MessageBubble role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
           </div>
         );
       })}

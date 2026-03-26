@@ -18,9 +18,11 @@ interface ChatViewProps {
   onTraceIdChange?: (traceId: string | null) => void;
   onComplete?: () => void;
   onOpenFile?: (path: string) => void;
+  onSelectChat?: (chatId: string) => void;
+  onSelectTrace?: (traceId: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onSkillChange, onTraceIdChange, onComplete, onOpenFile }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onSkillChange, onTraceIdChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -314,7 +316,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
-        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} scrollContainerRef={scrollRef} />
+        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
         {showScrollBottom && (
           <button

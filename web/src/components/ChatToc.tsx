@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { type Message, extractContent } from "./MessageList";
+import { stripTracePrefix } from "./badges";
 
 interface ChatTocProps {
   messages: Message[];
@@ -23,7 +24,7 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
     const items: { index: number; text: string }[] = [];
     for (let i = 0; i < messages.length; i++) {
       if (messages[i].role === "user") {
-        const raw = extractContent(messages[i].content);
+        const raw = stripTracePrefix(extractContent(messages[i].content));
         const firstLine = raw.split("\n")[0].trim();
         const text = firstLine.length > 30 ? firstLine.slice(0, 30) + "..." : firstLine;
         items.push({ index: i, text });

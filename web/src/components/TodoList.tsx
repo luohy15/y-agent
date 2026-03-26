@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
+import { TRACE_BADGE } from "./badges";
 
 interface Todo {
   todo_id: string;
@@ -113,7 +114,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
               <div className="flex items-center gap-1.5 mb-0.5">
                 <button
                   onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(t.todo_id); else navigator.clipboard.writeText(t.todo_id); }}
-                  className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.6rem] font-mono cursor-pointer shrink-0"
+                  className={`text-[0.6rem] cursor-pointer ${TRACE_BADGE}`}
                   title="View trace"
                 >
                   #{t.todo_id}
