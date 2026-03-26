@@ -1,7 +1,9 @@
 import json
+import uuid
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from storage.repository.chat import find_chats_by_trace_id, find_chats_with_messages_by_trace_id
 
@@ -81,6 +83,90 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
         })
 
     # Lookup todo info (trace_id = todo_id)
+    todo_info = None
+    from storage.repository.todo import find_todos_by_ids
+    todo_map = find_todos_by_ids(user_id, [trace_id])
+    todo = todo_map.get(trace_id)
+    if todo:
+        todo_info = {
+            "todo_id": todo.todo_id,
+            "name": todo.name,
+            "status": todo.status,
+            "desc": todo.desc,
+            "tags": todo.tags,
+            "priority": todo.priority,
+            "due_date": todo.due_date,
+            "progress": todo.progress,
+            "completed_at": todo.completed_at,
+            "created_at": todo.created_at,
+            "updated_at": todo.updated_at,
+            "history": [
+                {"timestamp": h.timestamp, "action": h.action, "note": h.note}
+                for h in (todo.history or [])
+            ],
+        }
+
+    return {
+        "chats": result_chats,
+        "todo_name": todo.name if todo else None,
+        "todo_status": todo.status if todo else None,
+        "todo": todo_info,
+    }
+
+
+def _strip_tool_results(messages: list) -> list:
+    """Strip tool result content from messages to avoid leaking sensitive data."""
+    stripped = []
+    for m in messages:
+        msg = dict(m)
+        if msg.get("role") == "tool":
+            msg["content"] = ""
+        stripped.append(msg)
+    return stripped
+
+
+class CreateShareRequest(BaseModel):
+    trace_id: str
+
+
+@router.post("/share")
+async def create_share(req: CreateShareRequest, request: Request):
+    """Create a shareable link for a trace."""
+    user_id = _get_user_id(request)
+    from storage.repository.trace_share import get_by_trace_id, create
+    existing = get_by_trace_id(user_id, req.trace_id)
+    if existing:
+        return {"share_id": existing.share_id}
+    share_id = uuid.uuid4().hex[:12]
+    create(user_id, share_id, req.trace_id)
+    return {"share_id": share_id}
+
+
+@router.get("/share")
+async def get_share(share_id: str = Query(...)):
+    """Public endpoint: get trace data by share_id."""
+    from storage.repository.trace_share import get_by_share_id
+    share = get_by_share_id(share_id)
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+
+    user_id = share.user_id
+    trace_id = share.trace_id
+
+    chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
+    result_chats = []
+    for chat_id, title, skill, json_content in chats:
+        messages = json.loads(json_content).get("messages", []) if json_content else []
+        segments = _extract_segments(messages)
+        result_chats.append({
+            "chat_id": chat_id,
+            "title": title,
+            "skill": skill,
+            "segments": segments,
+            "messages": _strip_tool_results(messages),
+        })
+
+    # Lookup todo info
     todo_info = None
     from storage.repository.todo import find_todos_by_ids
     todo_map = find_todos_by_ids(user_id, [trace_id])

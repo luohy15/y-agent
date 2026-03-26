@@ -22,8 +22,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(p) for p in PUBLIC_PREFIXES):
             return await call_next(request)
 
-        # Allow public share GET endpoint
+        # Allow public share GET endpoints
         if path == "/api/chat/share" and request.method == "GET":
+            return await call_next(request)
+        if path == "/api/trace/share" and request.method == "GET":
             return await call_next(request)
 
         # Protected routes require JWT (header or query param for SSE)
