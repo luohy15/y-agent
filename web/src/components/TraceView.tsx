@@ -1,7 +1,8 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
-import WaterfallChart, { getSkillColors, type TraceChat } from "./WaterfallChart";
+import WaterfallChart, { type TraceChat } from "./WaterfallChart";
+import { skillBadgeClass } from "./badges";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -118,7 +119,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
               {traceChats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
                   {[...new Set(traceChats.map((c) => c.skill).filter(Boolean))].map((s) => (
-                    <span key={s} className={`text-[0.6rem] px-1 rounded ${getSkillColors(s).bg} ${getSkillColors(s).text}`}>
+                    <span key={s} className={`text-[0.6rem] ${skillBadgeClass(s)}`}>
                       {s}
                     </span>
                   ))}

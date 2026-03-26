@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { getSkillChartColors } from "./badges";
 
 export interface Segment {
   start_unix: number;
@@ -13,16 +14,8 @@ export interface TraceChat {
   messages?: unknown[];
 }
 
-// Skill color mapping
-export const SKILL_COLORS: Record<string, { bg: string; border: string; text: string; dot: string; bar: string }> = {
-  "dev-manager": { bg: "bg-sol-blue/10", border: "border-sol-blue/30", text: "text-sol-blue", dot: "bg-sol-blue", bar: "bg-sol-blue/60" },
-  "dev": { bg: "bg-sol-green/10", border: "border-sol-green/30", text: "text-sol-green", dot: "bg-sol-green", bar: "bg-sol-green/60" },
-  "git": { bg: "bg-sol-yellow/10", border: "border-sol-yellow/30", text: "text-sol-yellow", dot: "bg-sol-yellow", bar: "bg-sol-yellow/60" },
-  "default": { bg: "bg-sol-cyan/10", border: "border-sol-cyan/30", text: "text-sol-cyan", dot: "bg-sol-cyan", bar: "bg-sol-cyan/60" },
-};
-
 export function getSkillColors(skill: string) {
-  return SKILL_COLORS[skill] || SKILL_COLORS["default"];
+  return getSkillChartColors(skill);
 }
 
 // Format time for axis labels

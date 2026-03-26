@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
+import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
 
 interface Chat {
   chat_id: string;
@@ -153,10 +154,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             }`}
           >
             <div className="flex items-center gap-1 mb-0.5">
-              <span className="text-[0.55rem] text-sol-blue font-mono">DM</span>
+              <span className={`text-[0.55rem] ${skillBadgeClass("DM")}`}>DM</span>
               <button
                 onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(pinnedDm.chat_id); }}
-                className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                className={`gap-0.5 text-[0.55rem] cursor-pointer ${CHAT_BADGE}`}
                 title="Copy chat ID"
               >
                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -208,7 +209,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       {firstTraceId && (
                         <button
                           onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(firstTraceId); else navigator.clipboard.writeText(firstTraceId); }}
-                          className="inline-flex items-center px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                          className={`text-[0.55rem] cursor-pointer ${TRACE_BADGE}`}
                           title="View trace"
                         >
                           #{firstTraceId.slice(0, 8)}
@@ -216,13 +217,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.chat_id); }}
-                        className="inline-flex items-center gap-0.5 px-1 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 text-[0.55rem] font-mono cursor-pointer shrink-0"
+                        className={`gap-0.5 text-[0.55rem] cursor-pointer ${CHAT_BADGE}`}
                         title="Copy chat ID"
                       >
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.skill && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{c.skill}</span>}
+                      {c.skill && <span className={`text-[0.55rem] truncate ${skillBadgeClass(c.skill)}`}>{c.skill}</span>}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
