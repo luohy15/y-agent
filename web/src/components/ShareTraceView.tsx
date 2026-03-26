@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
 import { API, getToken } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
+import ChatToc from "./ChatToc";
 import WaterfallChart, { getSkillColors, type TraceChat } from "./WaterfallChart";
 
 interface TodoHistoryEntry {
@@ -81,6 +82,7 @@ export default function ShareTraceView() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
   const [shareLabel, setShareLabel] = useState("share");
+  const scrollRef = useRef<HTMLDivElement>(null);
   const isLoggedIn = !!getToken();
 
   useEffect(() => {
@@ -139,7 +141,8 @@ export default function ShareTraceView() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex min-h-0 relative">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full px-6 py-4">
           {/* Todo header */}
           <div className="mb-4">
@@ -308,6 +311,8 @@ export default function ShareTraceView() {
             <MessageList messages={selectedMessages} showProgress={showProgress} inline />
           )}
         </div>
+      </div>
+      <ChatToc messages={selectedMessages} containerRef={scrollRef} />
       </div>
 
       {/* Bottom bar */}
