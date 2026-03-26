@@ -9,7 +9,7 @@ export default defineConfig({
   },
   server: {
     port: 5174,
-    allowedHosts: ["unreached-choppier-lakita.ngrok-free.dev", "f9fb-52-205-167-181.ngrok-free.app", "971f-52-205-167-181.ngrok-free.app", "93bc-52-205-167-181.ngrok-free.app", "3121-52-205-167-181.ngrok-free.app", "7f86-52-205-167-181.ngrok-free.app", "da84-52-205-167-181.ngrok-free.app", "7155-52-205-167-181.ngrok-free.app", "df62-52-205-167-181.ngrok-free.app", "80c5-52-205-167-181.ngrok-free.app", "d0c4-52-205-167-181.ngrok-free.app", "591e-52-205-167-181.ngrok-free.app", "luohy15.ngrok.app"],
+    allowedHosts: ["unreached-choppier-lakita.ngrok-free.dev", "y-agent.ngrok.app", "f9fb-52-205-167-181.ngrok-free.app", "971f-52-205-167-181.ngrok-free.app", "93bc-52-205-167-181.ngrok-free.app", "3121-52-205-167-181.ngrok-free.app", "7f86-52-205-167-181.ngrok-free.app", "da84-52-205-167-181.ngrok-free.app", "7155-52-205-167-181.ngrok-free.app", "df62-52-205-167-181.ngrok-free.app", "80c5-52-205-167-181.ngrok-free.app", "d0c4-52-205-167-181.ngrok-free.app", "591e-52-205-167-181.ngrok-free.app", "luohy15.ngrok.app"],
     proxy: {
       "/api": "http://localhost:8001",
     },

@@ -1,6 +1,10 @@
 import { useState, useMemo } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 interface AccountNode {
   account: string;
@@ -16,6 +20,18 @@ interface BalanceSheetData {
 interface IncomeStatementData {
   income: AccountNode;
   expenses: AccountNode;
+}
+
+interface BalanceSheetHistoryItem {
+  period: string;
+  assets: Record<string, number>;
+  liabilities: Record<string, number>;
+}
+
+interface IncomeStatementHistoryItem {
+  period: string;
+  income: Record<string, number>;
+  expenses: Record<string, number>;
 }
 
 interface PositionData {
@@ -66,8 +82,34 @@ const fetcher = async (url: string) => {
 
 type Tab = "balance-sheet" | "income-statement" | "holdings" | "position";
 
+// Solarized dark colors
+const SOL = {
+  base03: "#002b36",
+  base02: "#073642",
+  base01: "#586e75",
+  base0: "#839496",
+  base1: "#93a1a1",
+  blue: "#268bd2",
+  red: "#dc322f",
+  green: "#859900",
+  yellow: "#b58900",
+  cyan: "#2aa198",
+  magenta: "#d33682",
+  violet: "#6c71c4",
+  orange: "#cb4b16",
+};
+
+const STOCK_COLORS = [SOL.blue, SOL.green, SOL.red, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange];
+
 function formatAmount(amount: number): string {
   return (amount === 0 ? 0 : amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPeriodLabel(period: string, fullYear = true): string {
+  const [year, month] = period.split("-");
+  if (!month) return year;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[parseInt(month, 10) - 1]} ${fullYear ? year : year.slice(2)}`;
 }
 
 function shortName(account: string): string {
@@ -339,6 +381,254 @@ function PositionView({ data }: { data: PositionData }) {
   );
 }
 
+type Granularity = "monthly" | "yearly";
+
+function GranularityToggle({ value, onChange }: { value: Granularity; onChange: (v: Granularity) => void }) {
+  return (
+    <div className="flex gap-1">
+      {(["monthly", "yearly"] as const).map((g) => (
+        <button
+          key={g}
+          onClick={() => onChange(g)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            value === g
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+        >
+          {g === "monthly" ? "M" : "Y"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// --- Chart Components ---
+
+function tooltipLabel(payload: any[] | undefined, fallback?: string): string {
+  const raw = payload?.[0]?.payload?.rawPeriod;
+  if (raw) return formatPeriodLabel(raw, true);
+  return fallback ?? "";
+}
+
+function ChartTooltipContent({ active, payload, label, formatter }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string; payload?: any }>;
+  label?: string;
+  formatter?: (value: number) => string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span style={{ color: SOL.base0 }}>{p.name}: {formatter ? formatter(p.value) : p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BalanceSheetChart({ data, granularity, onGranularityChange }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
+  const chartData = useMemo(() =>
+    data.map((item) => ({
+      period: formatPeriodLabel(item.period),
+      rawPeriod: item.period,
+      "Net Worth": (item.assets.USD || 0) + (item.liabilities.USD || 0),
+    })),
+    [data]
+  );
+
+  return (
+    <div className="relative">
+      <div className="absolute top-0 right-2 z-10">
+        <GranularityToggle value={granularity} onChange={onGranularityChange} />
+      </div>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+          <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+          <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+          <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} />
+          <Line type="linear" dataKey="Net Worth" stroke={SOL.green} dot={false} strokeWidth={2} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type ISChartTab = "net-profit" | "income" | "expenses";
+
+function NetProfitTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const dataPoint = payload[0]?.payload;
+  if (!dataPoint) return null;
+  const netProfit = dataPoint["Net Profit"] as number;
+  const income = Math.abs(dataPoint["Income"] as number);
+  const expenses = dataPoint["Expenses"] as number;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: netProfit >= 0 ? SOL.green : SOL.red }} />
+        <span style={{ color: SOL.base1, fontWeight: 500 }}>Net Profit: {formatAmount(netProfit)} USD</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.green }} />
+        <span style={{ color: SOL.base0 }}>Income: {formatAmount(income)} USD</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.red }} />
+        <span style={{ color: SOL.base0 }}>Expenses: {formatAmount(expenses)} USD</span>
+      </div>
+    </div>
+  );
+}
+
+function IncomeStatementChart({ data, granularity, onGranularityChange }: { data: IncomeStatementHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
+  const [chartTab, setChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
+
+  const chartData = useMemo(() =>
+    data.map((item) => {
+      const income = Math.abs(item.income.USD || 0);
+      const expenses = item.expenses.USD || 0;
+      return {
+        period: formatPeriodLabel(item.period),
+        rawPeriod: item.period,
+        Income: -income,       // downward
+        Expenses: expenses,    // upward
+        "Net Profit": income - expenses,
+      };
+    }),
+    [data]
+  );
+
+  return (
+    <div className="relative">
+      <div className="absolute top-0 right-2 z-10">
+        <GranularityToggle value={granularity} onChange={onGranularityChange} />
+      </div>
+      <ResponsiveContainer width="100%" height={300}>
+        {chartTab === "net-profit" ? (
+          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(Math.abs(v) / 1000).toFixed(0)}k`} />
+            <Tooltip content={<NetProfitTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <Bar dataKey="Income" fill={SOL.green} isAnimationActive={false} />
+            <Bar dataKey="Expenses" fill={SOL.red} isAnimationActive={false} />
+          </BarChart>
+        ) : chartTab === "income" ? (
+          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(Math.abs(v) / 1000).toFixed(0)}k`} />
+            <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(Math.abs(v)) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <Bar dataKey="Income" fill={SOL.green} isAnimationActive={false} />
+          </BarChart>
+        ) : (
+          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <Bar dataKey="Expenses" fill={SOL.red} isAnimationActive={false} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+      <div className="flex justify-center gap-1 mt-1">
+        {([["net-profit", "Net Profit"], ["income", "Income"], ["expenses", "Expenses"]] as const).map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => { setChartTab(t); localStorage.setItem("finance-is-chart-tab", t); }}
+            className={`px-2 py-0.5 rounded text-xs cursor-pointer ${
+              chartTab === t
+                ? "bg-sol-blue text-sol-base03"
+                : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HoldingsChart({ data }: { data: Record<string, { date: string; price: number }[]> }) {
+  const { chartData, symbols } = useMemo(() => {
+    const symbols = Object.keys(data).sort();
+    if (symbols.length === 0) return { chartData: [], symbols: [] };
+
+    // Collect all unique dates
+    const dateSet = new Set<string>();
+    for (const sym of symbols) {
+      for (const pt of data[sym]) dateSet.add(pt.date);
+    }
+    const dates = [...dateSet].sort();
+
+    // Build first price lookup
+    const firstPrice: Record<string, number> = {};
+    for (const sym of symbols) {
+      if (data[sym].length > 0) firstPrice[sym] = data[sym][0].price;
+    }
+
+    // Build price lookup per symbol
+    const priceLookup: Record<string, Record<string, number>> = {};
+    for (const sym of symbols) {
+      priceLookup[sym] = {};
+      for (const pt of data[sym]) {
+        priceLookup[sym][pt.date] = pt.price;
+      }
+    }
+
+    // Build chart data with normalized % change
+    const chartData: Record<string, string | number>[] = [];
+    const lastKnown: Record<string, number> = {};
+    for (const date of dates) {
+      const row: Record<string, string | number> = { date: formatPeriodLabel(date.slice(0, 7)), rawPeriod: date.slice(0, 7) };
+      for (const sym of symbols) {
+        if (priceLookup[sym][date] !== undefined) {
+          lastKnown[sym] = priceLookup[sym][date];
+        }
+        if (lastKnown[sym] !== undefined && firstPrice[sym]) {
+          row[sym] = parseFloat(((lastKnown[sym] / firstPrice[sym] - 1) * 100).toFixed(2));
+        }
+      }
+      chartData.push(row);
+    }
+
+    return { chartData, symbols };
+  }, [data]);
+
+  if (symbols.length === 0) {
+    return <p className="text-sol-base01 italic px-3">No price history data available</p>;
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+        <XAxis dataKey="date" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+        <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${v}%`} />
+        <Tooltip content={<ChartTooltipContent formatter={(v) => `${v.toFixed(2)}%`} />} />
+        <Legend wrapperStyle={{ color: SOL.base0, fontSize: 12 }} />
+        {symbols.map((sym, i) => (
+          <Line key={sym} type="monotone" dataKey={sym} stroke={STOCK_COLORS[i % STOCK_COLORS.length]} dot={false} strokeWidth={1.5} />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// --- Main Component ---
+
 interface FinanceViewerProps {
   vmName?: string | null;
 }
@@ -347,23 +637,43 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem("finance-tab") as Tab) || "balance-sheet");
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
+  const [granularity, setGranularity] = useState<Granularity>(() => (localStorage.getItem("finance-granularity") as Granularity) || "monthly");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
+  const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
 
+  const handleGranularityChange = (v: Granularity) => {
+    setGranularity(v);
+    localStorage.setItem("finance-granularity", v);
+  };
+
+  // Table data fetches (always fetch for active tab)
   const bsKey = tab === "balance-sheet"
-    ? `${API}/api/finance/balance-sheet?convert=USD${vmQuery}`
+    ? `${API}/api/finance/balance-sheet?time=${encodeURIComponent(committedTime)}&convert=USD${vmQuery}`
     : null;
 
   const isKey = tab === "income-statement"
     ? `${API}/api/finance/income-statement?time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const vmQueryHoldings = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
   const holdingsKey = tab === "holdings"
-    ? `${API}/api/finance/holdings${vmQueryHoldings}`
+    ? `${API}/api/finance/holdings${vmQueryOnly}`
     : null;
 
   const posKey = tab === "position"
     ? `${API}/api/finance/position?convert=USD${vmQuery}`
+    : null;
+
+  // Chart data fetches (also always fetch for active tab, except position)
+  const bsHistKey = tab === "balance-sheet"
+    ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    : null;
+
+  const isHistKey = tab === "income-statement"
+    ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    : null;
+
+  const priceHistKey = tab === "holdings"
+    ? `${API}/api/finance/price-history${vmQueryOnly}`
     : null;
 
   const { data: bsData, isLoading: bsLoading, error: bsError } = useSWR<BalanceSheetData>(bsKey, fetcher, { revalidateOnFocus: false });
@@ -371,8 +681,18 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const { data: holdingsData, isLoading: holdingsLoading, error: holdingsError } = useSWR<HoldingsData>(holdingsKey, fetcher, { revalidateOnFocus: false });
   const { data: posData, isLoading: posLoading, error: posError } = useSWR<PositionData>(posKey, fetcher, { revalidateOnFocus: false });
 
-  const loading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "holdings" ? holdingsLoading : posLoading;
-  const error = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "holdings" ? holdingsError : posError;
+  const { data: bsHistData, isLoading: bsHistLoading, error: bsHistError } = useSWR<BalanceSheetHistoryItem[]>(bsHistKey, fetcher, { revalidateOnFocus: false });
+  const { data: isHistData, isLoading: isHistLoading, error: isHistError } = useSWR<IncomeStatementHistoryItem[]>(isHistKey, fetcher, { revalidateOnFocus: false });
+  const { data: priceHistData, isLoading: priceHistLoading, error: priceHistError } = useSWR<Record<string, { date: string; price: number }[]>>(priceHistKey, fetcher, { revalidateOnFocus: false });
+
+  // Combined loading/error: table OR chart loading
+  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "holdings" ? holdingsLoading : posLoading;
+  const chartLoading = tab === "balance-sheet" ? bsHistLoading : tab === "income-statement" ? isHistLoading : tab === "holdings" ? priceHistLoading : false;
+  const loading = tableLoading && chartLoading;
+
+  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "holdings" ? holdingsError : posError;
+  const chartError = tab === "balance-sheet" ? bsHistError : tab === "income-statement" ? isHistError : tab === "holdings" ? priceHistError : null;
+  const error = tableError && chartError;
 
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 text-sm">
@@ -412,33 +732,68 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           <p className="text-sol-base01 italic px-3">Loading...</p>
         ) : error ? (
           <p className="text-sol-red px-3">Error loading data</p>
-        ) : tab === "balance-sheet" && bsData ? (
-          <div className="flex gap-2">
-            <div className="flex-1 min-w-0">
-              <AccountTree root={bsData.assets} title="Assets" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <AccountTree root={bsData.liabilities} title="Liabilities" />
-              <EquitySummary assets={bsData.assets} liabilities={bsData.liabilities} />
-            </div>
-          </div>
-        ) : tab === "income-statement" && isData ? (
-          <div className="flex gap-2">
-            <div className="flex-1 min-w-0">
-              <AccountTree root={isData.income} title="Income" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <AccountTree root={isData.expenses} title="Expenses" />
-            </div>
-          </div>
-        ) : tab === "holdings" && holdingsData ? (
-          <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
+        ) : tab === "balance-sheet" ? (
+          <>
+            {bsHistLoading ? (
+              <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
+            ) : bsHistError ? null : bsHistData ? (
+              <div className="mb-3"><BalanceSheetChart data={bsHistData} granularity={granularity} onGranularityChange={handleGranularityChange} /></div>
+            ) : null}
+            {bsLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : bsData ? (
+              <div className="flex gap-2">
+                <div className="flex-1 min-w-0">
+                  <AccountTree root={bsData.assets} title="Assets" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <AccountTree root={bsData.liabilities} title="Liabilities" />
+                  <EquitySummary assets={bsData.assets} liabilities={bsData.liabilities} />
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : tab === "income-statement" ? (
+          <>
+            {isHistLoading ? (
+              <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
+            ) : isHistError ? null : isHistData ? (
+              <div className="mb-3"><IncomeStatementChart data={isHistData} granularity={granularity} onGranularityChange={handleGranularityChange} /></div>
+            ) : null}
+            {isLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : isData ? (
+              <div className="flex gap-2">
+                <div className="flex-1 min-w-0">
+                  <AccountTree root={isData.income} title="Income" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <AccountTree root={isData.expenses} title="Expenses" />
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : tab === "holdings" ? (
+          <>
+            {priceHistLoading ? (
+              <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
+            ) : priceHistError ? null : priceHistData ? (
+              <div className="mb-3"><HoldingsChart data={priceHistData} /></div>
+            ) : null}
+            {holdingsLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : holdingsData ? (
+              <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
+            ) : null}
+          </>
         ) : tab === "position" && posData ? (
           <div className="flex justify-center">
             <div className="w-full max-w-md">
               <PositionView data={posData} />
             </div>
           </div>
+        ) : posLoading ? (
+          <p className="text-sol-base01 italic px-3">Loading...</p>
         ) : null}
       </div>
     </div>
