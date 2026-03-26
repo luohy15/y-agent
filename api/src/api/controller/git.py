@@ -27,7 +27,21 @@ async def git_status(request: Request, vm_name: str = Query(None), work_dir: str
         # Handle renames: "R  old -> new"
         if " -> " in rest:
             rest = rest.split(" -> ")[-1]
-        files.append({"status": status, "path": rest})
+        # Expand untracked directories into individual files
+        if status == "??" and rest.endswith("/"):
+            try:
+                dir_files = await _exec(
+                    user_id, ["find", rest, "-type", "f"],
+                    vm_name=vm_name, work_dir=work_dir
+                )
+                for f in dir_files.strip().splitlines():
+                    f = f.strip()
+                    if f:
+                        files.append({"status": status, "path": f})
+            except Exception:
+                files.append({"status": status, "path": rest})
+        else:
+            files.append({"status": status, "path": rest})
     return {"files": files}
 
 

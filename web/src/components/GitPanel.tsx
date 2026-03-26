@@ -121,11 +121,11 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
               <span className={`text-xs font-mono font-bold shrink-0 w-4 text-center ${info.color}`}>
                 {info.label}
               </span>
-              <span className="text-sm text-sol-base1 truncate">
+              <span className="text-sm text-sol-base1 shrink-0">
                 {getFileName(file.path)}
               </span>
               {dir && (
-                <span className="text-xs text-sol-base01 truncate ml-auto shrink-0">
+                <span className="text-xs text-sol-base01 truncate min-w-0 ml-auto">
                   {dir}
                 </span>
               )}
