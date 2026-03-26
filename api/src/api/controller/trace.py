@@ -1,11 +1,11 @@
 import json
-import uuid
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.repository.chat import find_chats_by_trace_id, find_chats_with_messages_by_trace_id
+from storage.util import generate_id
 
 router = APIRouter(prefix="/trace")
 
@@ -137,7 +137,7 @@ async def create_share(req: CreateShareRequest, request: Request):
     existing = get_by_trace_id(user_id, req.trace_id)
     if existing:
         return {"share_id": existing.share_id}
-    share_id = uuid.uuid4().hex[:12]
+    share_id = generate_id()
     create(user_id, share_id, req.trace_id)
     return {"share_id": share_id}
 
