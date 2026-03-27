@@ -57,6 +57,8 @@ function getToolMeta(toolName: string): ToolMeta {
     return { icon: "\u25CE", label: toolName, color: "text-sol-orange", iconBg: "bg-sol-orange/15" };
   if (n === "todowrite")
     return { icon: "\u2713", label: "Todo", color: "text-sol-green", iconBg: "bg-sol-green/15" };
+  if (n === "askuserquestion")
+    return { icon: "?", label: "Question", color: "text-sol-cyan", iconBg: "bg-sol-cyan/15" };
   return { icon: "\u25C6", label: toolName, color: "text-sol-base01", iconBg: "bg-sol-base01/15" };
 }
 
@@ -92,6 +94,11 @@ function getBadgeText(toolName: string, args?: Record<string, unknown>): string 
     if (active) parts.push(`${active} active`);
     if (pending) parts.push(`${pending} pending`);
     return parts.join(", ") || `${todos.length} items`;
+  }
+  // AskUserQuestion: show first question header or text
+  if (n === "askuserquestion" && Array.isArray(args?.questions)) {
+    const q = args.questions as { header?: string; question?: string }[];
+    if (q.length > 0) return truncate(String(q[0].header || q[0].question || ""), 40);
   }
   // Bash: show truncated command
   if (n === "bash") return truncate(String(args?.command || ""), 60);
@@ -184,6 +191,9 @@ function ToolCallCompact({
   const isTodo = n === "todowrite";
   const todoItems = isTodo && Array.isArray(args?.todos) ? (args.todos as { content?: string; status?: string; activeForm?: string }[]) : null;
 
+  const isQuestion = n === "askuserquestion";
+  const questions = isQuestion && Array.isArray(args?.questions) ? (args.questions as { question?: string; header?: string; options?: { label?: string; description?: string }[]; multiSelect?: boolean }[]) : null;
+
   const isBash = n === "bash";
   const bashCommand = isBash ? String(args?.command || "") : "";
   const expandContent = isBash && bashCommand ? (bashCommand + (content ? "\n" + content : "")) : content;
@@ -193,7 +203,7 @@ function ToolCallCompact({
   const editNew = isEdit ? String(args?.new_string || "") : "";
   const hasDiff = isEdit && (editOld || editNew);
   const isSkill = n === "skill";
-  const hasContent = !isSkill && (expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0));
+  const hasContent = !isSkill && (expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0) || (questions && questions.length > 0));
 
   const isDenied = status === "denied";
   const isPending = status === "pending";
@@ -250,7 +260,26 @@ function ToolCallCompact({
 
       {/* Expandable detail content */}
       {expanded && hasContent && (
-        todoItems && todoItems.length > 0 ? (
+        questions && questions.length > 0 ? (
+          <div className="mt-1 ml-6.5 max-h-60 overflow-y-auto rounded bg-sol-base02 px-2 py-1.5 text-[0.7rem] font-mono flex flex-col gap-2">
+            {questions.map((q, qi) => (
+              <div key={qi}>
+                {q.header && <div className="text-sol-cyan font-semibold text-[0.65rem] uppercase tracking-wide mb-0.5">{q.header}</div>}
+                {q.question && <div className="text-sol-base0 mb-1">{q.question}</div>}
+                {Array.isArray(q.options) && (
+                  <div className="flex flex-col gap-0.5">
+                    {q.options.map((opt, oi) => (
+                      <div key={oi} className="flex items-start gap-1.5">
+                        <span className="text-sol-base01 shrink-0">○</span>
+                        <span className="text-sol-base0">{opt.label}{opt.description ? <span className="text-sol-base01"> — {opt.description}</span> : null}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : todoItems && todoItems.length > 0 ? (
           <div className="mt-1 ml-6.5 max-h-60 overflow-y-auto rounded bg-sol-base02 px-2 py-1.5 text-[0.7rem] font-mono flex flex-col gap-0.5">
             {todoItems.map((t, i) => {
               const st = t.status || "pending";
