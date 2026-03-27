@@ -275,10 +275,10 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       return (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <a
-            href="/s/425162"
+            href="/t/7ef7c6"
             className="px-4 py-2 bg-sol-cyan text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
           >
-            Demo
+            Demo Trace
           </a>
           <div className="relative inline-flex items-center justify-center">
             <span className="px-5 py-2.5 bg-sol-base02 border border-sol-base021 text-sol-base1 rounded-md text-sm font-semibold pointer-events-none">
