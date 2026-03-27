@@ -37,8 +37,8 @@ export function getSkillChartColors(skill: string) {
 // --- Badge base classes ---
 const BADGE_BASE = "inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0";
 
-// trace_id: orange
-export const TRACE_BADGE = `${BADGE_BASE} bg-sol-orange/20 text-sol-orange`;
+// trace_id: gray
+export const TRACE_BADGE = `${BADGE_BASE} bg-sol-base01/20 text-sol-base01`;
 
 // chat_id: blue
 export const CHAT_BADGE = `${BADGE_BASE} bg-sol-blue/20 text-sol-blue`;
@@ -47,6 +47,41 @@ export const CHAT_BADGE = `${BADGE_BASE} bg-sol-blue/20 text-sol-blue`;
 export function skillBadgeClass(skill: string) {
   const c = getSkillColor(skill);
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
+}
+
+// --- Status badge (todo status) ---
+const STATUS_COLOR: Record<string, string> = {
+  active: "bg-sol-blue/20 text-sol-blue",
+  pending: "bg-sol-base02 text-sol-base01",
+  completed: "bg-sol-green/20 text-sol-green",
+};
+
+export function statusBadgeClass(status: string): string {
+  return STATUS_COLOR[status] || "bg-sol-base02 text-sol-base01";
+}
+
+// --- Priority color ---
+const PRIORITY_COLOR: Record<string, string> = {
+  high: "text-sol-red",
+  medium: "text-sol-yellow",
+  low: "text-sol-green",
+};
+
+export function priorityColorClass(priority: string): string {
+  return PRIORITY_COLOR[priority] || "text-sol-base0";
+}
+
+// --- History action badge ---
+const ACTION_COLOR: Record<string, string> = {
+  created: "bg-sol-cyan/20 text-sol-cyan",
+  completed: "bg-sol-green/20 text-sol-green",
+  updated: "bg-sol-yellow/20 text-sol-yellow",
+  activated: "bg-sol-blue/20 text-sol-blue",
+  deleted: "bg-sol-red/20 text-sol-red",
+};
+
+export function actionBadgeClass(action: string): string {
+  return ACTION_COLOR[action] || "bg-sol-base02 text-sol-base0";
 }
 
 // Strip [trace:... from:... to:... from_chat:... to_chat:...] prefix from message content

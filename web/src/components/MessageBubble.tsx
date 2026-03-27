@@ -152,7 +152,7 @@ function TimestampLine({ timestamp, traceId, fromSkill, fromChatId, onSelectChat
   return (
     <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1 flex items-center">
       {formatted && <span>{formatted}</span>}
-      {traceId && <span className={`ml-1.5 text-[0.6rem] ${TRACE_BADGE} ${onSelectTrace ? "hover:bg-sol-orange/30 cursor-pointer" : ""}`} onClick={() => onSelectTrace?.(traceId)}>#{traceId}</span>}
+      {traceId && <span className={`ml-1.5 text-[0.6rem] ${TRACE_BADGE} ${onSelectTrace ? "hover:bg-sol-base01/30 cursor-pointer" : ""}`} onClick={() => onSelectTrace?.(traceId)}>#{traceId}</span>}
       {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${skillBadgeClass(fromSkill)}`}>{fromSkill}</span>}
       {fromChatId && <span className={`ml-1 text-[0.6rem] ${CHAT_BADGE} hover:bg-sol-blue/30 cursor-pointer`} onClick={() => onSelectChat?.(fromChatId)}>{fromChatId}</span>}
     </div>
