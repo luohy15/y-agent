@@ -18,10 +18,7 @@ def balance_sheet(ctx):
     start_date, end_date = obj["start_date"], obj["end_date"]
 
     if not obj["history"]:
-        filtered = [e for e in entries if not hasattr(e, "date") or (
-            (start_date is None or e.date >= start_date) and
-            (end_date is None or e.date < end_date)
-        )]
+        filtered = [e for e in entries if not hasattr(e, "date") or (end_date is None or e.date < end_date)]
         real = realization.realize(filtered)
         result = {
             "assets": extract_tree(realization, real, options["name_assets"]),
