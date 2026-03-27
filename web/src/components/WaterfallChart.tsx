@@ -112,18 +112,26 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
       <div className="flex">
         <div style={{ width: LABEL_W }} className="shrink-0" />
         <div className={`flex-1 relative ${multiDay ? "h-7" : "h-5"} border-b border-sol-base02`}>
+          {/* Full ticks — hidden on small screens */}
           {ticks.map((t) => {
             const pct = ((t - minTs) / range) * 100;
             return (
               <div
                 key={t}
-                className="absolute text-[0.55rem] text-sol-base01 font-mono -translate-x-1/2"
+                className="absolute text-[0.55rem] text-sol-base01 font-mono -translate-x-1/2 hidden sm:block"
                 style={{ left: `${pct}%` }}
               >
                 {formatTime(t, multiDay)}
               </div>
             );
           })}
+          {/* Mobile: start & end only */}
+          <div className="sm:hidden absolute left-0 text-[0.55rem] text-sol-base01 font-mono">
+            {formatTime(minTs, multiDay)}
+          </div>
+          <div className="sm:hidden absolute right-0 text-[0.55rem] text-sol-base01 font-mono">
+            {formatTime(maxTs, multiDay)}
+          </div>
         </div>
       </div>
 
