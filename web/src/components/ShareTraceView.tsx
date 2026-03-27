@@ -131,7 +131,7 @@ export default function ShareTraceView() {
       })
       .then((d: TraceShareResponse) => {
         setData(d);
-        // Default to last chat
+        // Default to latest chat (last in timeline)
         if (d.chats.length > 0) {
           setSelectedChatId(d.chats[d.chats.length - 1].chat_id);
         }
