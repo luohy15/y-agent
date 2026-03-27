@@ -17,21 +17,39 @@ export function getSkillSolColor(skill: string): string {
   return SKILL_SOL_COLOR[skill] || DEFAULT_SOL_COLOR;
 }
 
+// Static color maps — TailwindCSS needs complete class strings in source
+const SKILL_COLOR_MAP: Record<string, { bg: string; text: string }> = {
+  blue:    { bg: "bg-sol-blue/20",    text: "text-sol-blue" },
+  green:   { bg: "bg-sol-green/20",   text: "text-sol-green" },
+  cyan:    { bg: "bg-sol-cyan/20",    text: "text-sol-cyan" },
+  yellow:  { bg: "bg-sol-yellow/20",  text: "text-sol-yellow" },
+  magenta: { bg: "bg-sol-magenta/20", text: "text-sol-magenta" },
+  orange:  { bg: "bg-sol-orange/20",  text: "text-sol-orange" },
+  violet:  { bg: "bg-sol-violet/20",  text: "text-sol-violet" },
+  red:     { bg: "bg-sol-red/20",     text: "text-sol-red" },
+};
+
+const SKILL_CHART_COLOR_MAP: Record<string, { bg: string; border: string; text: string; dot: string; bar: string }> = {
+  blue:    { bg: "bg-sol-blue/10",    border: "border-sol-blue/30",    text: "text-sol-blue",    dot: "bg-sol-blue",    bar: "bg-sol-blue/60" },
+  green:   { bg: "bg-sol-green/10",   border: "border-sol-green/30",   text: "text-sol-green",   dot: "bg-sol-green",   bar: "bg-sol-green/60" },
+  cyan:    { bg: "bg-sol-cyan/10",    border: "border-sol-cyan/30",    text: "text-sol-cyan",    dot: "bg-sol-cyan",    bar: "bg-sol-cyan/60" },
+  yellow:  { bg: "bg-sol-yellow/10",  border: "border-sol-yellow/30",  text: "text-sol-yellow",  dot: "bg-sol-yellow",  bar: "bg-sol-yellow/60" },
+  magenta: { bg: "bg-sol-magenta/10", border: "border-sol-magenta/30", text: "text-sol-magenta", dot: "bg-sol-magenta", bar: "bg-sol-magenta/60" },
+  orange:  { bg: "bg-sol-orange/10",  border: "border-sol-orange/30",  text: "text-sol-orange",  dot: "bg-sol-orange",  bar: "bg-sol-orange/60" },
+  violet:  { bg: "bg-sol-violet/10",  border: "border-sol-violet/30",  text: "text-sol-violet",  dot: "bg-sol-violet",  bar: "bg-sol-violet/60" },
+  red:     { bg: "bg-sol-red/10",     border: "border-sol-red/30",     text: "text-sol-red",     dot: "bg-sol-red",     bar: "bg-sol-red/60" },
+};
+
+const DEFAULT_SKILL_COLOR = SKILL_COLOR_MAP["violet"];
+const DEFAULT_CHART_COLOR = SKILL_CHART_COLOR_MAP["violet"];
+
 export function getSkillColor(skill: string) {
-  const c = getSkillSolColor(skill);
-  return { bg: `bg-sol-${c}/20`, text: `text-sol-${c}` };
+  return SKILL_COLOR_MAP[getSkillSolColor(skill)] || DEFAULT_SKILL_COLOR;
 }
 
 // Extended color set for waterfall chart / trace views
 export function getSkillChartColors(skill: string) {
-  const c = getSkillSolColor(skill);
-  return {
-    bg: `bg-sol-${c}/10`,
-    border: `border-sol-${c}/30`,
-    text: `text-sol-${c}`,
-    dot: `bg-sol-${c}`,
-    bar: `bg-sol-${c}/60`,
-  };
+  return SKILL_CHART_COLOR_MAP[getSkillSolColor(skill)] || DEFAULT_CHART_COLOR;
 }
 
 // --- Badge base classes ---
