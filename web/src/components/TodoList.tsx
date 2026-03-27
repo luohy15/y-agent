@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
-import { TRACE_BADGE } from "./badges";
+import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 
 interface Todo {
   todo_id: string;
@@ -19,18 +19,6 @@ const fetcher = async (url: string) => {
     throw new Error("Unauthorized");
   }
   return res.json();
-};
-
-const statusColor: Record<string, string> = {
-  active: "bg-sol-blue/20 text-sol-blue",
-  pending: "bg-sol-base02 text-sol-base01",
-  completed: "bg-sol-green/20 text-sol-green",
-};
-
-const priorityColor: Record<string, string> = {
-  high: "text-sol-red",
-  medium: "text-sol-yellow",
-  low: "text-sol-green",
 };
 
 type StatusFilter = "pending" | "active" | "completed" | "all";
@@ -122,11 +110,11 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
                 <span className="truncate text-sol-base0 text-[0.7rem]">{t.name}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
-                <span className={`px-1 rounded ${statusColor[t.status] || "bg-sol-base02 text-sol-base01"}`}>
+                <span className={`px-1 rounded ${statusBadgeClass(t.status)}`}>
                   {t.status}
                 </span>
                 {t.priority && (
-                  <span className={priorityColor[t.priority] || "text-sol-base0"}>{t.priority}</span>
+                  <span className={priorityColorClass(t.priority)}>{t.priority}</span>
                 )}
                 {t.due_date && <span>{t.due_date}</span>}
               </div>

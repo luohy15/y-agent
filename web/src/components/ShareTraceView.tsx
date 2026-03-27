@@ -4,7 +4,7 @@ import { API } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import { skillBadgeClass, getSkillColor, stripTracePrefix } from "./badges";
+import { skillBadgeClass, getSkillColor, stripTracePrefix, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
 
 interface TodoHistoryEntry {
   timestamp: string;
@@ -160,12 +160,6 @@ export default function ShareTraceView() {
   const selectedChat = data.chats.find((c) => c.chat_id === selectedChatId);
   const selectedMessages = selectedChat ? parseMessages((selectedChat.messages as any[]) || []) : [];
 
-  const priorityColor: Record<string, string> = {
-    high: "text-sol-red",
-    medium: "text-sol-yellow",
-    low: "text-sol-green",
-  };
-
   return (
     <div className="h-full flex flex-col bg-sol-base03">
       {/* Header */}
@@ -211,11 +205,7 @@ export default function ShareTraceView() {
                 {data.todo_name || "Trace"}
               </span>
               {data.todo_status && (
-                <span className={`text-[0.6rem] px-1 rounded ${
-                  data.todo_status === "completed" ? "bg-sol-green/20 text-sol-green" :
-                  data.todo_status === "active" ? "bg-sol-blue/20 text-sol-blue" :
-                  "bg-sol-base02 text-sol-base01"
-                }`}>
+                <span className={`text-[0.6rem] px-1 rounded ${statusBadgeClass(data.todo_status)}`}>
                   {data.todo_status}
                 </span>
               )}
@@ -251,7 +241,7 @@ export default function ShareTraceView() {
                     {todoInfo.priority && (
                       <>
                         <span className="text-sol-base01">Priority</span>
-                        <span className={priorityColor[todoInfo.priority] || "text-sol-base0"}>{todoInfo.priority}</span>
+                        <span className={priorityColorClass(todoInfo.priority)}>{todoInfo.priority}</span>
                       </>
                     )}
                     {todoInfo.due_date && (
@@ -308,21 +298,13 @@ export default function ShareTraceView() {
                       {historyOpen && (
                         <div className="ml-1 border-l border-sol-base02 pl-2 space-y-1.5">
                           {todoInfo.history.map((h, i) => {
-                            const actionColor: Record<string, string> = {
-                              created: "bg-sol-cyan/20 text-sol-cyan",
-                              completed: "bg-sol-green/20 text-sol-green",
-                              updated: "bg-sol-yellow/20 text-sol-yellow",
-                              activated: "bg-sol-blue/20 text-sol-blue",
-                              deleted: "bg-sol-red/20 text-sol-red",
-                            };
-                            const badge = actionColor[h.action] || "bg-sol-base02 text-sol-base0";
                             return (
                               <div key={i} className="flex items-start gap-1.5 relative">
                                 <div className="absolute -left-[calc(0.5rem+1px)] top-1 w-1.5 h-1.5 rounded-full bg-sol-base01 border border-sol-base02" />
                                 <span className="text-[0.6rem] text-sol-base01 font-mono shrink-0">
                                   {new Date(h.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                                 </span>
-                                <span className={`text-[0.55rem] px-1 rounded shrink-0 ${badge}`}>{h.action}</span>
+                                <span className={`text-[0.55rem] px-1 rounded shrink-0 ${actionBadgeClass(h.action)}`}>{h.action}</span>
                                 {h.note && <span className="text-[0.6rem] text-sol-base0 break-all">{h.note}</span>}
                               </div>
                             );
