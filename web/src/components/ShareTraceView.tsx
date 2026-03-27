@@ -91,7 +91,7 @@ function ShareToc({ messages, containerRef }: { messages: Message[]; containerRe
   };
 
   return (
-    <div className="hidden lg:flex flex-col shrink-0 w-48 overflow-y-auto py-1">
+    <div className="hidden lg:flex flex-col shrink-0 w-48 border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
       {userMessages.length >= 2 && userMessages.map((um, i) => (
         <button
           key={um.index}
@@ -173,7 +173,7 @@ export default function ShareTraceView() {
       <div className="flex-1 flex min-h-0 justify-center">
         {/* Left: chat selector list */}
         {data.chats.length > 1 && (
-          <div className="hidden lg:flex flex-col shrink-0 w-48 border-r border-sol-base02 overflow-y-auto py-1">
+          <div className="hidden lg:flex flex-col shrink-0 w-48 border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
             {data.chats.map((c) => {
               const skillColor = getSkillColor(c.skill);
               const isSelected = c.chat_id === selectedChatId;
