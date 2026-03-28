@@ -91,14 +91,29 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # Short-circuit: DM callback messages get auto-ack without LLM
     if req.skill == 'DM':
+        ack_content = "已收到"
         ack_msg = Message.from_dict({
             "role": "assistant",
-            "content": "已收到",
+            "content": ack_content,
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
         })
         await chat_service.append_message(chat_id, ack_msg)
+
+        # Send both user message and ack to Telegram
+        try:
+            from storage.util import get_telegram_bot_token, send_telegram_message
+            from storage.repository.user import get_user_by_id
+            bot_token = get_telegram_bot_token()
+            if bot_token:
+                user = get_user_by_id(user_id)
+                if user and user.telegram_id:
+                    send_telegram_message(bot_token, user.telegram_id, msg_content)
+                    send_telegram_message(bot_token, user.telegram_id, ack_content)
+        except Exception as e:
+            logger.exception("DM short-circuit telegram notify failed: {}", e)
+
         return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
 
     # Enqueue worker
