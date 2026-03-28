@@ -89,6 +89,18 @@ async def post_notify(req: NotifyRequest, request: Request):
     else:
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
 
+    # Short-circuit: DM callback messages get auto-ack without LLM
+    if req.skill == 'DM':
+        ack_msg = Message.from_dict({
+            "role": "assistant",
+            "content": "已收到",
+            "timestamp": get_utc_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+        })
+        await chat_service.append_message(chat_id, ack_msg)
+        return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
+
     # Enqueue worker
     send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill)
 
