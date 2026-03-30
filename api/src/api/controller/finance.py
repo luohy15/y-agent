@@ -84,16 +84,6 @@ async def position(
     output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
     return _parse_json(output)
 
-@router.get("/price-history")
-async def price_history(
-    request: Request,
-    vm_name: str = Query(None),
-):
-    user_id = _get_user_id(request)
-    cmd = ["y", "beancount", "price-history"]
-    output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
-    return _parse_json(output)
-
 @router.get("/holdings")
 async def holdings(
     request: Request,
