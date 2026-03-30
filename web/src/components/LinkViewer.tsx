@@ -38,6 +38,15 @@ function getRange(range: DateRange): { start?: number; end?: number } {
   }
 }
 
+function stripFragment(url: string): string {
+  const i = url.indexOf('#');
+  return i === -1 ? url : url.substring(0, i);
+}
+
+function isActivityLevel(url: string, baseUrl: string): boolean {
+  return stripFragment(url) !== baseUrl;
+}
+
 function getDomain(url: string): string {
   try {
     return new URL(url).hostname;
@@ -83,24 +92,28 @@ async function downloadLinks(urls: string[]): Promise<any> {
   return res.json();
 }
 
-async function fetchLinkContent(linkId: string): Promise<string> {
-  const res = await authFetch(`${API}/api/link/content?link_id=${encodeURIComponent(linkId)}`);
+async function fetchLinkContent(linkId: string, url?: string, baseUrl?: string): Promise<string> {
+  let endpoint = `${API}/api/link/content?link_id=${encodeURIComponent(linkId)}`;
+  if (url && baseUrl && isActivityLevel(url, baseUrl)) {
+    endpoint += `&url=${encodeURIComponent(url)}`;
+  }
+  const res = await authFetch(endpoint);
   if (!res.ok) throw new Error("Failed to fetch content");
   const data = await res.json();
   return data.content;
 }
 
-function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: (baseUrl: string, status: string) => void }) {
+function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: (url: string, status: string) => void }) {
   const status = link.download_status;
   const isLoading = status === "pending" || status === "downloading";
 
   const handleClick = async () => {
     if (isLoading || status === "done") return;
-    onStatusChange(link.base_url, "pending");
+    onStatusChange(link.url, "pending");
     try {
-      await downloadLinks([link.base_url]);
+      await downloadLinks([link.url]);
     } catch {
-      onStatusChange(link.base_url, "failed");
+      onStatusChange(link.url, "failed");
     }
   };
 
@@ -247,15 +260,17 @@ export default function LinkViewer() {
     setOffset((prev) => prev + LIMIT);
   }, []);
 
-  const handleDownloadStatusChange = useCallback((baseUrl: string, status: string) => {
+  const handleDownloadStatusChange = useCallback((url: string, status: string) => {
     setAllLinks((prev) =>
-      prev.map((l) => l.base_url === baseUrl ? { ...l, download_status: status } : l)
+      prev.map((l) => l.url === url ? { ...l, download_status: status } : l)
     );
   }, []);
 
   const handlePreview = useCallback(async (link: Link) => {
     setPreviewLink(link);
-    const cached = contentCache.current.get(link.link_id);
+    // Use url as cache key for activity-level content, link_id for link-level
+    const cacheKey = isActivityLevel(link.url, link.base_url) ? link.url : link.link_id;
+    const cached = contentCache.current.get(cacheKey);
     if (cached) {
       setPreviewContent(cached);
       return;
@@ -263,8 +278,8 @@ export default function LinkViewer() {
     setPreviewContent(null);
     setPreviewLoading(true);
     try {
-      const content = await fetchLinkContent(link.link_id);
-      contentCache.current.set(link.link_id, content);
+      const content = await fetchLinkContent(link.link_id, link.url, link.base_url);
+      contentCache.current.set(cacheKey, content);
       setPreviewContent(content);
     } catch {
       setPreviewContent(null);

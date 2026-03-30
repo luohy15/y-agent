@@ -1,5 +1,6 @@
 """Download link content via SSH to EC2 running y link download."""
 
+import hashlib
 import json
 import os
 
@@ -21,9 +22,18 @@ class _CmdRunner(Tool):
         pass
 
 
+def _s3_key_for_url(link_id: str, url: str) -> str:
+    """Generate S3 key. Use url hash for activity-level (url != base_url)."""
+    base_url = url.split('?')[0].split('#')[0]
+    if url.split('#')[0] != base_url:
+        url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+        return f"links/{link_id}/{url_hash}/content.md"
+    return f"links/{link_id}/content.md"
+
+
 async def run_link_download(user_id: int, link_id: str, url: str):
     """SSH to EC2 and run y link download to fetch content via opencli."""
-    link_service.update_download_status(link_id, "downloading")
+    link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
         vm_config = resolve_vm_config(user_id)
@@ -37,7 +47,7 @@ async def run_link_download(user_id: int, link_id: str, url: str):
         result = json.loads(output.strip())
         if result.get("status") == "done":
             content = result.get("content", "")
-            s3_key = f"links/{link_id}/content.md"
+            s3_key = _s3_key_for_url(link_id, url)
             s3 = boto3.client("s3")
             s3.put_object(
                 Bucket=S3_BUCKET,
@@ -46,14 +56,14 @@ async def run_link_download(user_id: int, link_id: str, url: str):
                 ContentType="text/markdown",
             )
             link_service.update_download_status(
-                link_id, "done", content_key=s3_key
+                link_id, "done", content_key=s3_key, url=url
             )
             if result.get("title"):
                 link_service.update_link_title(link_id, result["title"])
         else:
-            link_service.update_download_status(link_id, "failed")
+            link_service.update_download_status(link_id, "failed", url=url)
 
     except Exception as e:
         logger.exception("Link download failed: {}", e)
-        link_service.update_download_status(link_id, "failed")
+        link_service.update_download_status(link_id, "failed", url=url)
         raise
