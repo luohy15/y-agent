@@ -23,6 +23,8 @@ class LinkActivityEntity(Base, BaseEntity):
     url = Column(String, nullable=False)        # full URL for this visit
     title = Column(String, nullable=True)
     timestamp = Column(BigInteger, nullable=False, index=True)  # unix ms from browser
+    download_status = Column(String, nullable=True)  # per-activity download status (for url != base_url)
+    content_key = Column(String, nullable=True)       # per-activity S3 key (for url != base_url)
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id"),

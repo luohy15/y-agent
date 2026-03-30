@@ -63,21 +63,37 @@ def delete_link(user_id: int, activity_id: str) -> bool:
 
 def request_downloads(urls: List[str]) -> List[dict]:
     """For each URL: upsert LinkEntity if needed, set download_status='pending'.
-    Returns list of {link_id, base_url, download_status}."""
+    Returns list of {link_id, base_url, url, download_status, is_activity_level}."""
     results = []
     for url in urls:
-        entity = link_repo.upsert_link_for_download(url)
-        results.append({
-            'link_id': entity.link_id,
-            'base_url': entity.base_url,
-            'download_status': entity.download_status,
-        })
+        info = link_repo.upsert_link_for_download(url)
+        info['url'] = url
+        results.append(info)
     return results
 
 
-def update_download_status(link_id: str, status: str, content_key: Optional[str] = None):
-    """Update download status for a link."""
+def update_download_status(link_id: str, status: str, content_key: Optional[str] = None, url: Optional[str] = None):
+    """Update download status for a link. If url differs from base_url, update at activity level."""
+    if url is not None:
+        base_url = url.split('?')[0].split('#')[0]
+        if url.split('#')[0] != base_url:
+            link_repo.update_link_activity_download_status(url, status, content_key=content_key)
+            return
     link_repo.update_link_download_status(link_id, status, content_key=content_key)
+
+
+def get_content_key_for_url(link_id: str, url: Optional[str] = None) -> Optional[str]:
+    """Get content_key, checking activity-level first if url has query params."""
+    if url:
+        base_url = url.split('?')[0].split('#')[0]
+        if url.split('#')[0] != base_url:
+            key = link_repo.get_activity_content_key(url)
+            if key:
+                return key
+    entity = get_link_by_id(link_id)
+    if entity and entity.content_key:
+        return entity.content_key
+    return None
 
 
 def update_link_title(link_id: str, title: str):

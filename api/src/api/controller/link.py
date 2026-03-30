@@ -75,7 +75,7 @@ async def download_links(req: DownloadLinksRequest, request: Request):
     results = link_service.request_downloads(req.urls)
     for item in results:
         if item['download_status'] == 'pending':
-            link_service.send_download_task(user_id, item['link_id'], item['base_url'])
+            link_service.send_download_task(user_id, item['link_id'], item['url'])
     return results
 
 
@@ -83,13 +83,14 @@ async def download_links(req: DownloadLinksRequest, request: Request):
 async def get_link_content(
     request: Request,
     link_id: str = Query(...),
+    url: Optional[str] = Query(None),
 ):
     _get_user_id(request)
-    link = link_service.get_link_by_id(link_id)
-    if not link or not link.content_key:
+    content_key = link_service.get_content_key_for_url(link_id, url=url)
+    if not content_key:
         raise HTTPException(status_code=404, detail="Content not available")
     s3 = boto3.client("s3")
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=link.content_key)
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=content_key)
     content = obj["Body"].read().decode("utf-8")
     return {"content": content}
 

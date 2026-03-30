@@ -20,8 +20,8 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         updated_at=activity.updated_at if activity.updated_at else None,
         created_at_unix=activity.created_at_unix if activity.created_at_unix else None,
         updated_at_unix=activity.updated_at_unix if activity.updated_at_unix else None,
-        download_status=link.download_status,
-        content_key=link.content_key,
+        download_status=activity.download_status or link.download_status,
+        content_key=activity.content_key or link.content_key,
     )
 
 
@@ -308,26 +308,49 @@ def update_link_title(link_id: str, title: str):
             entity.title = title
 
 
-def upsert_link_for_download(url: str) -> LinkEntity:
-    """Upsert a link by base_url and set download_status to pending. Returns the entity."""
+def upsert_link_for_download(url: str) -> dict:
+    """Upsert a link by base_url. Set download_status to pending at link or activity level.
+    Returns dict with link_id, base_url, download_status, is_activity_level."""
     base_url = _strip_query(url)
+    is_activity_level = (url.split('#')[0] != base_url)
     with get_db() as session:
         entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
-        if entity:
-            entity.download_status = 'pending'
-        else:
+        if not entity:
             link_id = generate_id()
             while session.query(LinkEntity).filter_by(link_id=link_id).first():
                 link_id = generate_id()
-            entity = LinkEntity(link_id=link_id, base_url=base_url, download_status='pending')
+            entity = LinkEntity(link_id=link_id, base_url=base_url)
             session.add(entity)
             session.flush()
-        # Return detached data
-        return LinkEntity(
-            id=entity.id,
-            link_id=entity.link_id,
-            base_url=entity.base_url,
-            title=entity.title,
-            download_status=entity.download_status,
-            content_key=entity.content_key,
-        )
+        if is_activity_level:
+            # Set pending on all activities matching this exact URL
+            activities = session.query(LinkActivityEntity).filter_by(url=url).all()
+            for act in activities:
+                act.download_status = 'pending'
+        else:
+            entity.download_status = 'pending'
+        return {
+            'link_id': entity.link_id,
+            'base_url': entity.base_url,
+            'download_status': 'pending',
+            'is_activity_level': is_activity_level,
+        }
+
+
+def update_link_activity_download_status(url: str, status: str, content_key: Optional[str] = None):
+    """Update download_status on all activities matching this exact URL."""
+    with get_db() as session:
+        activities = session.query(LinkActivityEntity).filter_by(url=url).all()
+        for act in activities:
+            act.download_status = status
+            if content_key is not None:
+                act.content_key = content_key
+
+
+def get_activity_content_key(url: str) -> Optional[str]:
+    """Get content_key from an activity matching this exact URL."""
+    with get_db() as session:
+        act = session.query(LinkActivityEntity).filter_by(url=url).first()
+        if act and act.content_key:
+            return act.content_key
+        return None
