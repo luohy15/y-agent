@@ -1,12 +1,9 @@
+import hashlib
 import json
-import os
 import subprocess
 import sys
 
-import boto3
 import click
-
-from yagent.settings import load_config
 
 
 def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
@@ -22,13 +19,10 @@ def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
 
 @click.command("download")
 @click.argument("url")
-@click.option("--link-id", required=True, help="Link ID for S3 storage path")
-def link_download(url: str, link_id: str):
-    """Download a URL's content via opencli and store to S3."""
-    cfg = load_config()
-    s3_bucket = cfg.get("s3_bucket", "")
-
-    output_dir = f"/tmp/link-dl-{link_id}"
+def link_download(url: str):
+    """Download a URL's content via opencli and output JSON result to stdout."""
+    url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+    output_dir = f"/tmp/link-dl-{url_hash}"
 
     try:
         opencli_cmd = _get_opencli_cmd(url, output_dir)
@@ -94,19 +88,9 @@ def link_download(url: str, link_id: str):
             }))
             sys.exit(1)
 
-        # Upload to S3
-        s3_key = f"links/{link_id}/content.md"
-        s3 = boto3.client("s3")
-        s3.put_object(
-            Bucket=s3_bucket,
-            Key=s3_key,
-            Body=content.encode("utf-8"),
-            ContentType="text/markdown",
-        )
-
         click.echo(json.dumps({
             "status": "done",
-            "content_key": s3_key,
+            "content": content,
             "title": title,
         }))
 
