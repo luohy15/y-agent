@@ -36,6 +36,8 @@ class LinkActivity:
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
     updated_at_unix: Optional[int] = None
+    download_status: Optional[str] = None
+    content_key: Optional[str] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -55,6 +57,10 @@ class LinkActivity:
             result['created_at_unix'] = self.created_at_unix
         if self.updated_at_unix is not None:
             result['updated_at_unix'] = self.updated_at_unix
+        if self.download_status is not None:
+            result['download_status'] = self.download_status
+        if self.content_key is not None:
+            result['content_key'] = self.content_key
         return result
 
 @dataclass
@@ -63,6 +69,8 @@ class LinkSummary:
     base_url: str
     title: Optional[str]
     timestamps: List[int]
+    download_status: Optional[str] = None
+    content_key: Optional[str] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -72,4 +80,8 @@ class LinkSummary:
         }
         if self.title is not None:
             result['title'] = self.title
+        if self.download_status is not None:
+            result['download_status'] = self.download_status
+        if self.content_key is not None:
+            result['content_key'] = self.content_key
         return result

@@ -9,6 +9,8 @@ class LinkEntity(Base, BaseEntity):
     link_id = Column(String, nullable=False, unique=True)
     base_url = Column(String, nullable=False, unique=True)  # URL without query params
     title = Column(String, nullable=True)
+    download_status = Column(String, nullable=True)  # pending/downloading/done/failed
+    content_key = Column(String, nullable=True)       # S3 key for stored content
 
 
 class LinkActivityEntity(Base, BaseEntity):

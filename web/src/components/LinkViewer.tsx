@@ -9,6 +9,8 @@ interface Link {
   base_url: string;
   title?: string;
   timestamp?: number; // unix ms
+  download_status?: string | null; // pending/downloading/done/failed
+  content_key?: string | null;
 }
 
 const fetcher = async (url: string) => {
@@ -70,6 +72,58 @@ function groupByDay(links: Link[]): [string, Link[]][] {
   return entries;
 }
 
+async function downloadLinks(urls: string[]): Promise<any> {
+  const res = await authFetch(`${API}/api/link/download`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  });
+  return res.json();
+}
+
+function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: (baseUrl: string, status: string) => void }) {
+  const status = link.download_status;
+  const isLoading = status === "pending" || status === "downloading";
+
+  const handleClick = async () => {
+    if (isLoading || status === "done") return;
+    onStatusChange(link.base_url, "pending");
+    try {
+      await downloadLinks([link.base_url]);
+    } catch {
+      onStatusChange(link.base_url, "failed");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <span className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-yellow" title="Downloading...">
+        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round"/></svg>
+      </span>
+    );
+  }
+  if (status === "done") {
+    return (
+      <span className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-green" title="Downloaded">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <button onClick={handleClick} className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-red hover:text-sol-orange cursor-pointer" title="Failed - click to retry">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/></svg>
+      </button>
+    );
+  }
+  // No status or null — show archive button
+  return (
+    <button onClick={handleClick} className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-blue cursor-pointer" title="Download content">
+      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/></svg>
+    </button>
+  );
+}
+
 const LIMIT = 50;
 
 export default function LinkViewer() {
@@ -120,6 +174,12 @@ export default function LinkViewer() {
 
   const handleLoadMore = useCallback(() => {
     setOffset((prev) => prev + LIMIT);
+  }, []);
+
+  const handleDownloadStatusChange = useCallback((baseUrl: string, status: string) => {
+    setAllLinks((prev) =>
+      prev.map((l) => l.base_url === baseUrl ? { ...l, download_status: status } : l)
+    );
   }, []);
 
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
@@ -196,6 +256,7 @@ export default function LinkViewer() {
                       <span className="text-sol-base01 text-xs truncate shrink-0 hidden sm:inline">
                         {getDomain(link.base_url)}
                       </span>
+                      <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
                     </div>
                   ))}
                 </div>
