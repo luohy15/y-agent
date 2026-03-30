@@ -51,6 +51,12 @@ def list_link_summaries(
     )
 
 
+def get_link_by_id(link_id: str):
+    """Get a LinkEntity by link_id. Returns entity or None."""
+    entities = link_repo.get_links_by_ids([link_id])
+    return entities[0] if entities else None
+
+
 def delete_link(user_id: int, activity_id: str) -> bool:
     return link_repo.delete_link(user_id, activity_id)
 
