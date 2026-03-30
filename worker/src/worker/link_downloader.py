@@ -1,12 +1,16 @@
 """Download link content via SSH to EC2 running y link download."""
 
 import json
+import os
 
+import boto3
 from loguru import logger
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
 from storage.service import link as link_service
+
+S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 
 
 class _CmdRunner(Tool):
@@ -25,15 +29,24 @@ async def run_link_download(user_id: int, link_id: str, url: str):
         vm_config = resolve_vm_config(user_id)
         runner = _CmdRunner(vm_config)
         output = await runner.run_cmd(
-            ["y", "link", "download", url, "--link-id", link_id],
+            ["y", "link", "download", url],
             timeout=300,
         )
-        logger.info("y link download output: {}", output)
+        logger.info("y link download output (truncated): {}", output[:200])
 
         result = json.loads(output.strip())
         if result.get("status") == "done":
+            content = result.get("content", "")
+            s3_key = f"links/{link_id}/content.md"
+            s3 = boto3.client("s3")
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_key,
+                Body=content.encode("utf-8"),
+                ContentType="text/markdown",
+            )
             link_service.update_download_status(
-                link_id, "done", content_key=result.get("content_key")
+                link_id, "done", content_key=s3_key
             )
             if result.get("title"):
                 link_service.update_link_title(link_id, result["title"])
