@@ -5,6 +5,7 @@ import { API, authFetch, clearToken } from "../api";
 interface Link {
   activity_id: string;
   link_id: string;
+  url: string;
   base_url: string;
   title?: string;
   timestamp?: number; // unix ms
@@ -184,11 +185,11 @@ export default function LinkViewer() {
                         loading="lazy"
                       />
                       <a
-                        href={link.base_url}
+                        href={link.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sol-base0 hover:text-sol-blue truncate"
-                        title={link.base_url}
+                        title={link.url}
                       >
                         {link.title || link.base_url}
                       </a>
