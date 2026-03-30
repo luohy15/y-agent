@@ -60,6 +60,16 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  FetcherUrl:
+    Type: String
+    Description: URL of the local fetcher service (via ngrok) for link content downloading
+    Default: ""
+
+  YAgentS3Bucket:
+    Type: String
+    Description: S3 bucket name for storing link content
+    Default: ""
+
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -286,8 +296,8 @@ Resources:
           DYNAMODB_TABLE: !Ref CacheTable
           SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
-          FETCHER_URL: ""
-          Y_AGENT_S3_BUCKET: ""
+          FETCHER_URL: !Ref FetcherUrl
+          Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
