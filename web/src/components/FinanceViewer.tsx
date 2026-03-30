@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts";
 
@@ -98,8 +98,6 @@ const SOL = {
   violet: "#6c71c4",
   orange: "#cb4b16",
 };
-
-const STOCK_COLORS = [SOL.blue, SOL.green, SOL.red, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange];
 
 function formatAmount(amount: number): string {
   return (amount === 0 ? 0 : amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -561,72 +559,6 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
   );
 }
 
-function HoldingsChart({ data }: { data: Record<string, { date: string; price: number }[]> }) {
-  const { chartData, symbols } = useMemo(() => {
-    const symbols = Object.keys(data).sort();
-    if (symbols.length === 0) return { chartData: [], symbols: [] };
-
-    // Collect all unique dates
-    const dateSet = new Set<string>();
-    for (const sym of symbols) {
-      for (const pt of data[sym]) dateSet.add(pt.date);
-    }
-    const dates = [...dateSet].sort();
-
-    // Build first price lookup
-    const firstPrice: Record<string, number> = {};
-    for (const sym of symbols) {
-      if (data[sym].length > 0) firstPrice[sym] = data[sym][0].price;
-    }
-
-    // Build price lookup per symbol
-    const priceLookup: Record<string, Record<string, number>> = {};
-    for (const sym of symbols) {
-      priceLookup[sym] = {};
-      for (const pt of data[sym]) {
-        priceLookup[sym][pt.date] = pt.price;
-      }
-    }
-
-    // Build chart data with normalized % change
-    const chartData: Record<string, string | number>[] = [];
-    const lastKnown: Record<string, number> = {};
-    for (const date of dates) {
-      const row: Record<string, string | number> = { date: formatPeriodLabel(date.slice(0, 7)), rawPeriod: date.slice(0, 7) };
-      for (const sym of symbols) {
-        if (priceLookup[sym][date] !== undefined) {
-          lastKnown[sym] = priceLookup[sym][date];
-        }
-        if (lastKnown[sym] !== undefined && firstPrice[sym]) {
-          row[sym] = parseFloat(((lastKnown[sym] / firstPrice[sym] - 1) * 100).toFixed(2));
-        }
-      }
-      chartData.push(row);
-    }
-
-    return { chartData, symbols };
-  }, [data]);
-
-  if (symbols.length === 0) {
-    return <p className="text-sol-base01 italic px-3">No price history data available</p>;
-  }
-
-  return (
-    <ResponsiveContainer width="100%" height={300}>
-      <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
-        <XAxis dataKey="date" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
-        <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${v}%`} />
-        <Tooltip content={<ChartTooltipContent formatter={(v) => `${v.toFixed(2)}%`} />} />
-        <Legend wrapperStyle={{ color: SOL.base0, fontSize: 12 }} />
-        {symbols.map((sym, i) => (
-          <Line key={sym} type="monotone" dataKey={sym} stroke={STOCK_COLORS[i % STOCK_COLORS.length]} dot={false} strokeWidth={1.5} />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
 // --- Main Component ---
 
 interface FinanceViewerProps {
@@ -672,10 +604,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const priceHistKey = tab === "holdings"
-    ? `${API}/api/finance/price-history${vmQueryOnly}`
-    : null;
-
   const { data: bsData, isLoading: bsLoading, error: bsError } = useSWR<BalanceSheetData>(bsKey, fetcher, { revalidateOnFocus: false });
   const { data: isData, isLoading: isLoading, error: isError } = useSWR<IncomeStatementData>(isKey, fetcher, { revalidateOnFocus: false });
   const { data: holdingsData, isLoading: holdingsLoading, error: holdingsError } = useSWR<HoldingsData>(holdingsKey, fetcher, { revalidateOnFocus: false });
@@ -683,15 +611,14 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const { data: bsHistData, isLoading: bsHistLoading, error: bsHistError } = useSWR<BalanceSheetHistoryItem[]>(bsHistKey, fetcher, { revalidateOnFocus: false });
   const { data: isHistData, isLoading: isHistLoading, error: isHistError } = useSWR<IncomeStatementHistoryItem[]>(isHistKey, fetcher, { revalidateOnFocus: false });
-  const { data: priceHistData, isLoading: priceHistLoading, error: priceHistError } = useSWR<Record<string, { date: string; price: number }[]>>(priceHistKey, fetcher, { revalidateOnFocus: false });
 
   // Combined loading/error: table OR chart loading
   const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "holdings" ? holdingsLoading : posLoading;
-  const chartLoading = tab === "balance-sheet" ? bsHistLoading : tab === "income-statement" ? isHistLoading : tab === "holdings" ? priceHistLoading : false;
+  const chartLoading = tab === "balance-sheet" ? bsHistLoading : tab === "income-statement" ? isHistLoading : false;
   const loading = tableLoading && chartLoading;
 
   const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "holdings" ? holdingsError : posError;
-  const chartError = tab === "balance-sheet" ? bsHistError : tab === "income-statement" ? isHistError : tab === "holdings" ? priceHistError : null;
+  const chartError = tab === "balance-sheet" ? bsHistError : tab === "income-statement" ? isHistError : null;
   const error = tableError && chartError;
 
   return (
@@ -774,18 +701,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
             ) : null}
           </>
         ) : tab === "holdings" ? (
-          <>
-            {priceHistLoading ? (
-              <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
-            ) : priceHistError ? null : priceHistData ? (
-              <div className="mb-3"><HoldingsChart data={priceHistData} /></div>
-            ) : null}
-            {holdingsLoading ? (
-              <p className="text-sol-base01 italic px-3">Loading...</p>
-            ) : holdingsData ? (
-              <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
-            ) : null}
-          </>
+          holdingsLoading ? (
+            <p className="text-sol-base01 italic px-3">Loading...</p>
+          ) : holdingsData ? (
+            <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
+          ) : null
         ) : tab === "position" && posData ? (
           <div className="flex justify-center">
             <div className="w-full max-w-md">
