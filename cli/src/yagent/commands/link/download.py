@@ -28,7 +28,8 @@ def link_download(url: str):
         opencli_cmd = _get_opencli_cmd(url, output_dir)
         cmd_str = " ".join(f"'{c}'" for c in opencli_cmd)
 
-        # SSH to opencli and run the command
+        # SSH to opencli and run the command (prepend PATH for non-interactive shell)
+        cmd_str = f"export PATH=/opt/homebrew/bin:$PATH; {cmd_str}"
         result = subprocess.run(
             ["ssh", "opencli", cmd_str],
             capture_output=True,
