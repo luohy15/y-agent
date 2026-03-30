@@ -12,7 +12,5 @@ A personal AI agent platform with multi-skill orchestration, task management, an
 
 - **Remote Development** — Connect to Claude Code running on AWS EC2 as a frontend for remote cloud-based development.
 
-- **Multi-LLM Support** — Pluggable providers for Anthropic and OpenAI models with a unified internal message format.
-
 - **Web UI + CLI** — React SPA with real-time SSE streaming, file browser, and trace timeline; plus a full-featured CLI (`y`) for terminal-first workflows.
 
