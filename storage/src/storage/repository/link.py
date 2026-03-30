@@ -20,6 +20,8 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         updated_at=activity.updated_at if activity.updated_at else None,
         created_at_unix=activity.created_at_unix if activity.created_at_unix else None,
         updated_at_unix=activity.updated_at_unix if activity.updated_at_unix else None,
+        download_status=link.download_status,
+        content_key=link.content_key,
     )
 
 
@@ -106,6 +108,8 @@ def list_link_summaries(
                     base_url=lnk.base_url,
                     title=lnk.title,
                     timestamps=[act.timestamp],
+                    download_status=lnk.download_status,
+                    content_key=lnk.content_key,
                 )
             else:
                 grouped[lnk.id].timestamps.append(act.timestamp)
@@ -266,3 +270,64 @@ def delete_link(user_id: int, activity_id: str) -> bool:
             return False
         session.delete(entity)
         return True
+
+
+def get_links_by_ids(link_ids: List[str]) -> List[LinkEntity]:
+    """Fetch LinkEntity rows by link_id list."""
+    if not link_ids:
+        return []
+    with get_db() as session:
+        return session.query(LinkEntity).filter(LinkEntity.link_id.in_(link_ids)).all()
+
+
+def get_links_by_urls(urls: List[str]) -> List[LinkEntity]:
+    """Fetch LinkEntity rows by base_url (strips query params first)."""
+    if not urls:
+        return []
+    base_urls = [_strip_query(u) for u in urls]
+    with get_db() as session:
+        return session.query(LinkEntity).filter(LinkEntity.base_url.in_(base_urls)).all()
+
+
+def update_link_download_status(link_id: str, status: str, content_key: Optional[str] = None):
+    """Update download_status and optionally content_key for a link."""
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
+        if not entity:
+            return
+        entity.download_status = status
+        if content_key is not None:
+            entity.content_key = content_key
+
+
+def update_link_title(link_id: str, title: str):
+    """Update title for a link."""
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
+        if entity:
+            entity.title = title
+
+
+def upsert_link_for_download(url: str) -> LinkEntity:
+    """Upsert a link by base_url and set download_status to pending. Returns the entity."""
+    base_url = _strip_query(url)
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
+        if entity:
+            entity.download_status = 'pending'
+        else:
+            link_id = generate_id()
+            while session.query(LinkEntity).filter_by(link_id=link_id).first():
+                link_id = generate_id()
+            entity = LinkEntity(link_id=link_id, base_url=base_url, download_status='pending')
+            session.add(entity)
+            session.flush()
+        # Return detached data
+        return LinkEntity(
+            id=entity.id,
+            link_id=entity.link_id,
+            base_url=entity.base_url,
+            title=entity.title,
+            download_status=entity.download_status,
+            content_key=entity.content_key,
+        )

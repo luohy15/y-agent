@@ -22,6 +22,10 @@ class BatchCreateLinksRequest(BaseModel):
     links: List[CreateLinkRequest]
 
 
+class DownloadLinksRequest(BaseModel):
+    urls: List[str]
+
+
 class ActivityIdRequest(BaseModel):
     activity_id: str
 
@@ -59,6 +63,16 @@ async def batch_create_links(req: BatchCreateLinksRequest, request: Request):
         user_id, [l.model_dump() for l in req.links],
     )
     return {"count": count}
+
+
+@router.post("/download")
+async def download_links(req: DownloadLinksRequest, request: Request):
+    user_id = _get_user_id(request)
+    results = link_service.request_downloads(req.urls)
+    for item in results:
+        if item['download_status'] == 'pending':
+            link_service.send_download_task(user_id, item['link_id'], item['base_url'])
+    return results
 
 
 @router.post("/delete")

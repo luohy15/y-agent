@@ -286,6 +286,8 @@ Resources:
           DYNAMODB_TABLE: !Ref CacheTable
           SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          FETCHER_URL: ""
+          Y_AGENT_S3_BUCKET: ""
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
@@ -389,3 +391,4 @@ Outputs:
     Value: !GetAtt JobQueue.Arn
     Export:
       Name: !Sub ${AWS::StackName}-job-queue-arn
+
