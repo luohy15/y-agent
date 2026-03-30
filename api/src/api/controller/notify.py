@@ -91,6 +91,13 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # Short-circuit: DM callback messages get auto-ack without LLM
     if req.skill == 'DM':
+        # Ensure skill is persisted on the chat (normally done by worker)
+        chat = await chat_service.get_chat_by_id(chat_id)
+        if chat and not chat.skill:
+            chat.skill = 'DM'
+            from storage.repository import chat as chat_repo
+            await chat_repo.save_chat_by_id(chat)
+
         ack_content = "已收到"
         ack_msg = Message.from_dict({
             "role": "assistant",
