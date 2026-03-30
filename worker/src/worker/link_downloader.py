@@ -1,46 +1,46 @@
-"""Download link content via fetcher service, store to S3, update DB."""
+"""Download link content via SSH to EC2 running y link download."""
 
-import os
+import json
 
-import boto3
-import httpx
+from loguru import logger
 
+from agent.config import resolve_vm_config
+from agent.tool_base import Tool
 from storage.service import link as link_service
 
-FETCHER_URL = os.environ.get("FETCHER_URL", "")
-S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
+
+class _CmdRunner(Tool):
+    name = "_cmd_runner"
+    description = ""
+    parameters = {}
+    async def execute(self, arguments):
+        pass
 
 
 async def run_link_download(user_id: int, link_id: str, url: str):
-    """Download link content via fetcher, store to S3, update DB."""
+    """SSH to EC2 and run y link download to fetch content via opencli."""
     link_service.update_download_status(link_id, "downloading")
 
     try:
-        # Call fetcher service
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"{FETCHER_URL}/fetch", json={"url": url})
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["content"]  # markdown string
-            title = data.get("title", "")
-
-        # Store to S3
-        s3_key = f"links/{link_id}/content.md"
-        s3 = boto3.client("s3")
-        s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=s3_key,
-            Body=content.encode("utf-8"),
-            ContentType="text/markdown",
+        vm_config = resolve_vm_config(user_id)
+        runner = _CmdRunner(vm_config)
+        output = await runner.run_cmd(
+            ["y", "link", "download", url, "--link-id", link_id],
+            timeout=300,
         )
+        logger.info("y link download output: {}", output)
 
-        # Update DB: done + content_key
-        link_service.update_download_status(link_id, "done", content_key=s3_key)
-
-        # Update title if fetcher returned one
-        if title:
-            link_service.update_link_title(link_id, title)
+        result = json.loads(output.strip())
+        if result.get("status") == "done":
+            link_service.update_download_status(
+                link_id, "done", content_key=result.get("content_key")
+            )
+            if result.get("title"):
+                link_service.update_link_title(link_id, result["title"])
+        else:
+            link_service.update_download_status(link_id, "failed")
 
     except Exception as e:
+        logger.exception("Link download failed: {}", e)
         link_service.update_download_status(link_id, "failed")
         raise
