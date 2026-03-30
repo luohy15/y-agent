@@ -49,6 +49,7 @@ POLICIES=(
     "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
     "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
     "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+    "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 )
 
 for POLICY_ARN in "${POLICIES[@]}"; do
@@ -69,3 +70,4 @@ echo "- AmazonSQSFullAccess"
 echo "- AmazonDynamoDBFullAccess"
 echo "- AWSLambda_FullAccess"
 echo "- AmazonEC2FullAccess"
+echo "- AmazonS3FullAccess"
