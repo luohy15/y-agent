@@ -1,5 +1,7 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import useSWR from "swr";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { API, authFetch, clearToken } from "../api";
 
 interface Link {
@@ -81,6 +83,13 @@ async function downloadLinks(urls: string[]): Promise<any> {
   return res.json();
 }
 
+async function fetchLinkContent(linkId: string): Promise<string> {
+  const res = await authFetch(`${API}/api/link/content?link_id=${encodeURIComponent(linkId)}`);
+  if (!res.ok) throw new Error("Failed to fetch content");
+  const data = await res.json();
+  return data.content;
+}
+
 function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: (baseUrl: string, status: string) => void }) {
   const status = link.download_status;
   const isLoading = status === "pending" || status === "downloading";
@@ -124,6 +133,62 @@ function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: 
   );
 }
 
+function PreviewButton({ link, onPreview }: { link: Link; onPreview: (link: Link) => void }) {
+  if (link.download_status !== "done") return null;
+  return (
+    <button
+      onClick={() => onPreview(link)}
+      className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-cyan cursor-pointer"
+      title="Preview content"
+    >
+      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+      </svg>
+    </button>
+  );
+}
+
+function PreviewPanel({ link, content, loading, onClose }: {
+  link: Link;
+  content: string | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="h-full flex flex-col bg-sol-base03 border-l border-sol-base02">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-sol-base02 shrink-0">
+        <button
+          onClick={onClose}
+          className="shrink-0 w-5 h-5 flex items-center justify-center text-sol-base01 hover:text-sol-base1 cursor-pointer"
+          title="Close preview"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
+          </svg>
+        </button>
+        <span className="text-sol-base1 text-xs font-medium truncate">{link.title || link.base_url}</span>
+      </div>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sol-base01">
+            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round"/></svg>
+            <span className="text-xs">Loading content...</span>
+          </div>
+        ) : content ? (
+          <div className="prose prose-sm prose-invert max-w-none text-sol-base0 [&_h1]:text-sol-base1 [&_h2]:text-sol-base1 [&_h3]:text-sol-base1 [&_a]:text-sol-blue [&_code]:text-sol-cyan [&_pre]:bg-sol-base02 [&_pre]:rounded [&_blockquote]:border-sol-base01 [&_hr]:border-sol-base02 [&_table]:text-sol-base0 [&_th]:text-sol-base1 [&_img]:rounded">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        ) : (
+          <p className="text-sol-base01 text-xs italic">No content available</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const LIMIT = 50;
 
 export default function LinkViewer() {
@@ -133,6 +198,12 @@ export default function LinkViewer() {
   const [offset, setOffset] = useState(0);
   const [allLinks, setAllLinks] = useState<Link[]>([]);
   const [loadedOnce, setLoadedOnce] = useState(false);
+
+  // Preview state
+  const [previewLink, setPreviewLink] = useState<Link | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const contentCache = useRef<Map<string, string>>(new Map());
 
   const { start, end } = getRange(range);
   const params = new URLSearchParams();
@@ -182,98 +253,139 @@ export default function LinkViewer() {
     );
   }, []);
 
+  const handlePreview = useCallback(async (link: Link) => {
+    setPreviewLink(link);
+    const cached = contentCache.current.get(link.link_id);
+    if (cached) {
+      setPreviewContent(cached);
+      return;
+    }
+    setPreviewContent(null);
+    setPreviewLoading(true);
+    try {
+      const content = await fetchLinkContent(link.link_id);
+      contentCache.current.set(link.link_id, content);
+      setPreviewContent(content);
+    } catch {
+      setPreviewContent(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewLink(null);
+    setPreviewContent(null);
+  }, []);
+
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
 
   return (
-    <div className="h-full overflow-y-auto bg-sol-base03 text-sm">
-      {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 flex items-center gap-2 flex-wrap">
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-          placeholder="Search links..."
-          className="px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01 w-48"
-        />
-        <button
-          onClick={handleSearch}
-          className="px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer"
-        >Search</button>
-        <div className="flex gap-1 ml-2">
-          {(["today", "7d", "30d", "all"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => handleRangeChange(r)}
-              className={`px-2 py-1 rounded text-xs cursor-pointer ${
-                range === r
-                  ? "bg-sol-blue text-sol-base03"
-                  : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
-              }`}
-            >
-              {r === "today" ? "Today" : r === "7d" ? "7 days" : r === "30d" ? "30 days" : "All"}
-            </button>
-          ))}
+    <div className="h-full flex">
+      {/* Link list */}
+      <div className={`h-full overflow-y-auto bg-sol-base03 text-sm ${previewLink ? "w-1/2" : "w-full"}`}>
+        {/* Top bar */}
+        <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+            placeholder="Search links..."
+            className="px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01 w-48"
+          />
+          <button
+            onClick={handleSearch}
+            className="px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer"
+          >Search</button>
+          <div className="flex gap-1 ml-2">
+            {(["today", "7d", "30d", "all"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => handleRangeChange(r)}
+                className={`px-2 py-1 rounded text-xs cursor-pointer ${
+                  range === r
+                    ? "bg-sol-blue text-sol-base03"
+                    : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                }`}
+              >
+                {r === "today" ? "Today" : r === "7d" ? "7 days" : r === "30d" ? "30 days" : "All"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="px-3 py-2">
+          {isLoading && !loadedOnce ? (
+            <p className="text-sol-base01 italic">Loading...</p>
+          ) : error ? (
+            <p className="text-sol-red">Error loading links</p>
+          ) : grouped.length === 0 ? (
+            <p className="text-sol-base01 italic">No links found</p>
+          ) : (
+            <>
+              {grouped.map(([day, links]) => (
+                <div key={day} className="mb-4">
+                  <h3 className="text-sol-base1 text-xs font-medium mb-1.5 sticky top-[41px] bg-sol-base03 py-1 z-[5] border-b border-sol-base02">
+                    {formatDayHeader(day)}
+                  </h3>
+                  <div className="space-y-0.5">
+                    {links.map((link) => (
+                      <div key={link.activity_id} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-sol-base02/50 group">
+                        <span className="text-sol-base01 text-xs shrink-0 w-10 text-right">
+                          {link.timestamp ? formatTime(link.timestamp) : ""}
+                        </span>
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
+                          alt=""
+                          className="w-4 h-4 shrink-0"
+                          loading="lazy"
+                        />
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sol-base0 hover:text-sol-blue truncate"
+                          title={link.url}
+                        >
+                          {link.title || link.base_url}
+                        </a>
+                        <span className="text-sol-base01 text-xs truncate shrink-0 hidden sm:inline">
+                          {getDomain(link.base_url)}
+                        </span>
+                        <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
+                        <PreviewButton link={link} onPreview={handlePreview} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {hasMore && (
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoading}
+                  className="w-full py-2 text-center text-xs rounded bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer disabled:opacity-50 mb-4"
+                >
+                  {isLoading ? "Loading..." : "Load more"}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="px-3 py-2">
-        {isLoading && !loadedOnce ? (
-          <p className="text-sol-base01 italic">Loading...</p>
-        ) : error ? (
-          <p className="text-sol-red">Error loading links</p>
-        ) : grouped.length === 0 ? (
-          <p className="text-sol-base01 italic">No links found</p>
-        ) : (
-          <>
-            {grouped.map(([day, links]) => (
-              <div key={day} className="mb-4">
-                <h3 className="text-sol-base1 text-xs font-medium mb-1.5 sticky top-[41px] bg-sol-base03 py-1 z-[5] border-b border-sol-base02">
-                  {formatDayHeader(day)}
-                </h3>
-                <div className="space-y-0.5">
-                  {links.map((link) => (
-                    <div key={link.activity_id} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-sol-base02/50 group">
-                      <span className="text-sol-base01 text-xs shrink-0 w-10 text-right">
-                        {link.timestamp ? formatTime(link.timestamp) : ""}
-                      </span>
-                      <img
-                        src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
-                        alt=""
-                        className="w-4 h-4 shrink-0"
-                        loading="lazy"
-                      />
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sol-base0 hover:text-sol-blue truncate"
-                        title={link.url}
-                      >
-                        {link.title || link.base_url}
-                      </a>
-                      <span className="text-sol-base01 text-xs truncate shrink-0 hidden sm:inline">
-                        {getDomain(link.base_url)}
-                      </span>
-                      <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {hasMore && (
-              <button
-                onClick={handleLoadMore}
-                disabled={isLoading}
-                className="w-full py-2 text-center text-xs rounded bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer disabled:opacity-50 mb-4"
-              >
-                {isLoading ? "Loading..." : "Load more"}
-              </button>
-            )}
-          </>
-        )}
-      </div>
+      {/* Preview panel */}
+      {previewLink && (
+        <div className="w-1/2 h-full">
+          <PreviewPanel
+            link={previewLink}
+            content={previewContent}
+            loading={previewLoading}
+            onClose={handleClosePreview}
+          />
+        </div>
+      )}
     </div>
   );
 }

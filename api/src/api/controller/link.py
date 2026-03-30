@@ -1,9 +1,13 @@
+import os
 from typing import List, Optional
 
+import boto3
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.service import link as link_service
+
+S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 
 router = APIRouter(prefix="/link")
 
@@ -73,6 +77,21 @@ async def download_links(req: DownloadLinksRequest, request: Request):
         if item['download_status'] == 'pending':
             link_service.send_download_task(user_id, item['link_id'], item['base_url'])
     return results
+
+
+@router.get("/content")
+async def get_link_content(
+    request: Request,
+    link_id: str = Query(...),
+):
+    _get_user_id(request)
+    link = link_service.get_link_by_id(link_id)
+    if not link or not link.content_key:
+        raise HTTPException(status_code=404, detail="Content not available")
+    s3 = boto3.client("s3")
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=link.content_key)
+    content = obj["Body"].read().decode("utf-8")
+    return {"content": content}
 
 
 @router.post("/delete")
