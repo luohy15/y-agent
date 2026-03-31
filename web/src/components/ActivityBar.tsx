@@ -1,4 +1,4 @@
-export type SidebarPanel = "files" | "git" | "todo" | "links";
+export type SidebarPanel = "todo" | "chats" | "links";
 
 interface ActivityBarProps {
   isLoggedIn: boolean;
@@ -66,22 +66,9 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   return (
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
-      {/* Group 1: Todo + Terminal toggle */}
+      {/* Group 1: Global panels */}
       {!hideGroup1 && (
         <>
-          {onToggleChatHide && (
-            <button
-              onClick={onToggleChatHide}
-              className={btnClass(!chatHide)}
-              title={chatHide ? "Open terminal (Ctrl+`)" : "Close terminal (Ctrl+`)"}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <polyline points="2,4 6,7 2,10" />
-                <line x1="7" y1="11" x2="12" y2="11" />
-              </svg>
-              {mobile && <span>Terminal</span>}
-            </button>
-          )}
           <button
             onClick={() => handlePanelClick("todo")}
             className={btnClass(sidebarOpen && activePanel === "todo")}
@@ -89,6 +76,16 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           >
             <span className="text-base font-bold leading-none">#</span>
             {mobile && <span>Todo</span>}
+          </button>
+          <button
+            onClick={() => handlePanelClick("chats")}
+            className={btnClass(sidebarOpen && activePanel === "chats")}
+            title="Chats"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
+            </svg>
+            {mobile && <span>Chats</span>}
           </button>
           <button
             onClick={() => handlePanelClick("links")}
@@ -103,32 +100,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
         </>
       )}
-      {/* Group 2: Files, Git */}
-      <button
-        onClick={() => handlePanelClick("files")}
-        className={btnClass(sidebarOpen && activePanel === "files")}
-        title="Files"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-        </svg>
-        {mobile && <span>Files</span>}
-      </button>
-      <button
-        onClick={() => handlePanelClick("git")}
-        className={btnClass(sidebarOpen && activePanel === "git")}
-        title="Source Control"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="18" cy="18" r="3" />
-          <circle cx="6" cy="6" r="3" />
-          <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-          <line x1="6" y1="9" x2="6" y2="21" />
-        </svg>
-        {mobile && <span>Source Control</span>}
-      </button>
-      {/* Group 3: Apps */}
-      <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
+      {/* Group 2: Apps */}
       {viewerShortcuts.map((v) => (
         <button
           key={v.key}

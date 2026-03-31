@@ -30,10 +30,11 @@ def list_links(
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    link_ids: Optional[List[str]] = None,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
         user_id, start=start, end=end, query=query,
-        limit=limit, offset=offset,
+        limit=limit, offset=offset, link_ids=link_ids,
     )
 
 

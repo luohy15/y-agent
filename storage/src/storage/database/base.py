@@ -65,6 +65,7 @@ def init_tables():
     import storage.entity.dev_worktree  # noqa: F401
     import storage.entity.tg_topic  # noqa: F401
     import storage.entity.trace_share  # noqa: F401
+    import storage.entity.link_todo_relation  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 

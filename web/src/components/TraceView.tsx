@@ -8,6 +8,7 @@ interface TraceViewProps {
   isLoggedIn: boolean;
   selectedTraceId: string | null;
   onSelectChat?: (chatId: string) => void;
+  onPreviewLink?: (path: string) => void;
 }
 
 const fetcher = async (url: string) => {
@@ -40,14 +41,31 @@ interface TodoInfo {
   history?: TodoHistoryEntry[];
 }
 
+interface TraceLink {
+  link_id: string;
+  base_url: string;
+  title?: string;
+  download_status?: string;
+  activity_id?: string;
+}
+
 interface TraceChatsResponse {
   chats: TraceChat[];
   todo_name: string | null;
   todo_status: string | null;
   todo: TodoInfo | null;
+  links?: TraceLink[];
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }: TraceViewProps) {
+function getDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, onPreviewLink }: TraceViewProps) {
   // Fetch chats for selected trace
   const { data: traceData } = useSWR<TraceChatsResponse>(
     selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
@@ -58,7 +76,9 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
   const todoName = traceData?.todo_name;
   const todoStatus = traceData?.todo_status;
   const todoInfo = traceData?.todo;
+  const traceLinks = traceData?.links;
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
+  const [linksOpen, setLinksOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareLabel, setShareLabel] = useState("share");
 
@@ -237,6 +257,57 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat }:
               <WaterfallChart chats={traceChats} onClickSkill={onSelectChat} />
             ) : (
               <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
+            )}
+
+            {/* Related Links */}
+            {traceLinks && traceLinks.length > 0 && (
+              <div className="mt-3 border border-sol-base02 rounded">
+                <button
+                  onClick={() => setLinksOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 px-2 py-1 text-xs text-sol-base01 hover:text-sol-base0 cursor-pointer"
+                >
+                  <span className="text-[0.6rem]">{linksOpen ? "▼" : "▶"}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  <span className="font-medium text-sol-base0">Related Links ({traceLinks.length})</span>
+                </button>
+                {linksOpen && (
+                  <div className="px-2 pb-2 space-y-1">
+                    {traceLinks.map((link) => (
+                      <div key={link.link_id} className="flex items-center gap-1.5 py-0.5 group">
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
+                          alt=""
+                          className="w-3.5 h-3.5 shrink-0"
+                          loading="lazy"
+                        />
+                        <a
+                          href={link.base_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1"
+                          title={link.base_url}
+                        >
+                          {link.title || getDomain(link.base_url)}
+                        </a>
+                        {link.download_status === "done" && link.activity_id && onPreviewLink && (
+                          <button
+                            onClick={() => onPreviewLink(`link:${link.activity_id}:${link.title || link.base_url}`)}
+                            className="shrink-0 w-4 h-4 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-cyan cursor-pointer"
+                            title="Preview content"
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                              <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

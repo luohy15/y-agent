@@ -21,6 +21,8 @@ interface VmConfigItem {
   work_dir: string;
 }
 
+type RightPanel = "files" | "git" | "chats" | "links";
+
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
   const auth = useAuth();
@@ -43,7 +45,10 @@ export default function App() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [bottomTab, setBottomTab] = useState<"chat" | "terminal">(() => { const saved = localStorage.getItem("bottomTab"); return saved === "chat" || saved === "terminal" ? saved : "chat"; });
-  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => (localStorage.getItem("sidebarPanel") as SidebarPanel) || "files");
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
+    const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
+    return saved === "todo" || saved === "chats" || saved === "links" ? saved : "todo";
+  });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatSkill, setChatSkill] = useState<string | null>(null);
@@ -56,12 +61,16 @@ export default function App() {
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
-  const [chatListWidth, setChatListWidth] = useState(() => {
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
   });
-  const [chatListCollapsed, setChatListCollapsed] = useState(() => localStorage.getItem("chatListCollapsed") === "true");
-  const chatListResizingRef = useRef(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => localStorage.getItem("chatListCollapsed") === "true");
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    const saved = localStorage.getItem("rightPanel") as RightPanel;
+    return saved === "files" || saved === "git" || saved === "chats" || saved === "links" ? saved : "chats";
+  });
+  const rightPanelResizingRef = useRef(false);
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -103,11 +112,12 @@ export default function App() {
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
-  useEffect(() => { localStorage.setItem("chatListWidth", String(chatListWidth)); }, [chatListWidth]);
-  useEffect(() => { localStorage.setItem("chatListCollapsed", String(chatListCollapsed)); }, [chatListCollapsed]);
+  useEffect(() => { localStorage.setItem("chatListWidth", String(rightPanelWidth)); }, [rightPanelWidth]);
+  useEffect(() => { localStorage.setItem("chatListCollapsed", String(rightPanelCollapsed)); }, [rightPanelCollapsed]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
   useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
+  useEffect(() => { localStorage.setItem("rightPanel", rightPanel); }, [rightPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
   useEffect(() => {
     if (!vmDropdownOpen) return;
@@ -182,17 +192,17 @@ export default function App() {
     document.body.style.userSelect = "none";
   }, [sidebarWidth]);
 
-  const handleChatListResizeStart = useCallback((e: React.PointerEvent) => {
+  const handleRightPanelResizeStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
-    chatListResizingRef.current = true;
+    rightPanelResizingRef.current = true;
     const startX = e.clientX;
-    const startWidth = chatListWidth;
+    const startWidth = rightPanelWidth;
     const onMove = (ev: PointerEvent) => {
       const newWidth = Math.max(150, Math.min(400, startWidth - (ev.clientX - startX)));
-      setChatListWidth(newWidth);
+      setRightPanelWidth(newWidth);
     };
     const onUp = () => {
-      chatListResizingRef.current = false;
+      rightPanelResizingRef.current = false;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.body.style.cursor = "";
@@ -202,7 +212,7 @@ export default function App() {
     document.addEventListener("pointerup", onUp);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [chatListWidth]);
+  }, [rightPanelWidth]);
 
   const handleChatCreated = useCallback((chatId: string) => {
     setSelectedChatId(chatId);
@@ -211,6 +221,9 @@ export default function App() {
   const handleLogout = useCallback(() => {
     auth.logout();
   }, [auth]);
+
+  const rightPanelBtnClass = (active: boolean) =>
+    `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
@@ -259,7 +272,7 @@ export default function App() {
             onToggleChatHide={() => { setChatHide((v) => !v); setActivityBarOpen(false); }}
           />
         </div>
-        {/* Left: FileTree */}
+        {/* Left: Sidebar (global views) */}
         <div
           className={`
             fixed inset-y-0 left-0 z-30 transform transition-transform duration-200 md:relative md:z-auto shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-hidden max-w-[280px] md:max-w-none
@@ -268,14 +281,12 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          {sidebarPanel === "files" ? (
-            <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
-          ) : sidebarPanel === "todo" ? (
+          {sidebarPanel === "todo" ? (
             <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false); setBottomTab("chat"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-          ) : sidebarPanel === "links" ? (
-            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} />
+          ) : sidebarPanel === "chats" ? (
+            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           ) : (
-            <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
+            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} />
           )}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
@@ -284,142 +295,181 @@ export default function App() {
             <div className="absolute top-0 right-2 lg:right-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
           </div>
         </div>
-        {/* Right */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          {/* Right top: FileViewer (shown when chat hidden) */}
-          <div className={`${chatHide ? "flex-1" : "hidden"} min-h-0 overflow-hidden`}>
-            <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
-          </div>
-          {/* Toolbar (hidden when chatHide) */}
-          <div className={`items-center justify-end gap-1.5 sm:gap-1 px-3 py-1 sm:py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0 ${chatHide ? "hidden" : "flex"}`}>
-            {!chatHide && <div className="font-mono text-sm sm:text-xs mr-auto flex items-center gap-2 p-2 sm:p-1 text-sol-base01 min-w-0">
-              {/* VM selector */}
-              <div className="relative shrink-0" ref={vmDropdownRef}>
-                <button
-                  onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
-                  className={`inline-flex items-center gap-1 shrink-0 p-0 bg-transparent border-0 ${selectedChatId ? "text-sol-base01 cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
-                  title={`VM: ${selectedVM || "default"}`}
-                >
-                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h5v2H5a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H9v-2h5a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2z"/></svg>
-                  <span>{selectedVM || "default"}</span>
-                </button>
-                {vmDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
-                    <button
-                      onClick={() => { setSelectedVM(null); setSelectedChatId(null); setVmDropdownOpen(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                    >
-                      default
-                    </button>
-                    {vmList.filter((vm) => vm.name !== "default").map((vm) => (
-                      <button
-                        key={vm.name}
-                        onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setVmDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                      >
-                        {vm.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {/* Work dir */}
-              <span className="inline-flex items-center gap-1 min-w-0">
-                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
-                <span className="hidden sm:inline truncate min-w-0">{effectiveWorkDir}</span>
-              </span>
-            </div>}
-            {!chatHide && (
-              <>
-                {/* Tab switcher */}
-                <button
-                  onClick={() => setBottomTab("chat")}
-                  className={`p-1.5 sm:p-1 rounded cursor-pointer ${bottomTab === "chat" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
-                  title="Chat"
-                >
-                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setBottomTab("terminal")}
-                  className={`p-1.5 sm:p-1 rounded cursor-pointer ${bottomTab === "terminal" ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
-                  title="Terminal"
-                >
-                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <polyline points="2,4 6,7 2,10" />
-                    <line x1="7" y1="11" x2="12" y2="11" />
-                  </svg>
-                </button>
-                <div className="w-px h-4 bg-sol-base02 mx-0.5" />
-                <button
-                  onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
-                  className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
-                  title="Refresh chat list"
-                >
-                  <svg className={`w-4 h-4 sm:w-3.5 sm:h-3.5 transition-transform ${chatListSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                </button>
-                <button
-                  onClick={() => { setSelectedChatId(null); setChatListTraceId(null); }}
-                  className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-                  title="New chat"
-                >
-                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <line x1="7" y1="2" x2="7" y2="12" />
-                    <line x1="2" y1="7" x2="12" y2="7" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setChatListCollapsed((v) => !v)}
-                  className={`hidden sm:block p-1.5 sm:p-1 rounded cursor-pointer ${!chatListCollapsed ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`}
-                  title={chatListCollapsed ? "Show chat list" : "Hide chat list"}
-                >
-                  <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm-1 12h-3V3h3v10zM2 3h7v10H2V3z"/>
-                  </svg>
-                </button>
-              </>
-            )}
-          </div>
-          {/* Right bottom: ChatView / TerminalView + ChatList */}
-          <div className={`flex flex-col min-h-0 flex-1 ${chatHide ? "hidden" : ""}`}>
-            <div className="flex flex-1 min-h-0 relative">
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
-                {/* Chat (kept mounted, toggled via CSS) */}
-                <div className={`absolute inset-0 flex flex-col ${bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
-                  {/* Chat header: trace_id, chat_id, skill, refresh */}
-                  {selectedChatId && (
-                    <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                      {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
-                      {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
-                      {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
-                      <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-                    </div>
-                  )}
-                  <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setBottomTab("chat"); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-                </div>
-                {/* Terminal (kept mounted, toggled via CSS) */}
-                <div className={`absolute inset-0 flex flex-col ${bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
-                  <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
-                </div>
-              </div>
-              {/* Desktop: chat list panel (only when chat tab active) */}
-              {!chatHide && bottomTab === "chat" && !chatListCollapsed && (
-                <div
-                  className="hidden sm:block shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative"
-                  style={{ width: chatListWidth }}
-                >
-                  <div
-                    className="absolute top-0 -left-2 w-4 lg:w-1 lg:left-0 h-full cursor-col-resize z-10 group"
-                    onPointerDown={handleChatListResizeStart}
+        {/* Center + Right */}
+        <div className="flex-1 flex min-w-0 min-h-0">
+          {/* Center column */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            {/* Center mode switcher header */}
+            <div className="flex items-center gap-1 px-2 py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
+              <button
+                onClick={() => setChatHide(true)}
+                className={rightPanelBtnClass(chatHide)}
+                title="Files (Ctrl+`)"
+              >
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+                </svg>
+              </button>
+              <button
+                onClick={() => { setChatHide(false); setBottomTab("chat"); }}
+                className={rightPanelBtnClass(!chatHide && bottomTab === "chat")}
+                title="Chat"
+              >
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
+                </svg>
+              </button>
+              <button
+                onClick={() => { setChatHide(false); setBottomTab("terminal"); }}
+                className={rightPanelBtnClass(!chatHide && bottomTab === "terminal")}
+                title="Terminal"
+              >
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <polyline points="2,4 6,7 2,10" />
+                  <line x1="7" y1="11" x2="12" y2="11" />
+                </svg>
+              </button>
+              <div className="w-px h-4 bg-sol-base02 mx-0.5" />
+              <button
+                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); }}
+                className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
+                title="New chat"
+              >
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <line x1="7" y1="2" x2="7" y2="12" />
+                  <line x1="2" y1="7" x2="12" y2="7" />
+                </svg>
+              </button>
+              {rightPanelCollapsed && (
+                <>
+                  <div className="w-px h-4 bg-sol-base02 mx-0.5" />
+                  <button
+                    onClick={() => setRightPanelCollapsed(false)}
+                    className="hidden sm:block p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                    title="Show right panel"
                   >
-                    <div className="absolute top-0 left-2 lg:left-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
-                  </div>
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-                </div>
+                    <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm-1 12h-3V3h3v10zM2 3h7v10H2V3z"/>
+                    </svg>
+                  </button>
+                </>
               )}
             </div>
+            {/* Center content: FileViewer / ChatView / TerminalView */}
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
+              {/* FileViewer (shown when chat hidden) */}
+              <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
+              </div>
+              {/* Chat (kept mounted, toggled via CSS) */}
+              <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
+                {/* Chat header: VM, workdir, trace_id, chat_id, skill, refresh */}
+                <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
+                  {/* VM selector */}
+                  <div className="relative shrink-0" ref={vmDropdownRef}>
+                    <button
+                      onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
+                      className={`inline-flex items-center gap-1 shrink-0 p-0 bg-transparent border-0 ${selectedChatId ? "text-sol-base01 cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+                      title={`VM: ${selectedVM || "default"}`}
+                    >
+                      <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h5v2H5a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H9v-2h5a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2z"/></svg>
+                      <span className="text-[0.65rem]">{selectedVM || "default"}</span>
+                    </button>
+                    {vmDropdownOpen && (
+                      <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                        <button
+                          onClick={() => { setSelectedVM(null); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                          className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                        >
+                          default
+                        </button>
+                        {vmList.filter((vm) => vm.name !== "default").map((vm) => (
+                          <button
+                            key={vm.name}
+                            onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                            className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                          >
+                            {vm.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Work dir */}
+                  <span className="inline-flex items-center gap-1 min-w-0 text-[0.65rem]">
+                    <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
+                    <span className="hidden sm:inline truncate min-w-0">{effectiveWorkDir}</span>
+                  </span>
+                  {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
+                  {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
+                  {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
+                  {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
+                </div>
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setBottomTab("chat"); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+              </div>
+              {/* Terminal (kept mounted, toggled via CSS) */}
+              <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
+                <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
+              </div>
+            </div>
           </div>
+          {/* Right panel (scoped views, always visible independent of chatHide) */}
+          {!rightPanelCollapsed && (
+            <div
+              className="hidden sm:flex shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative flex-col"
+              style={{ width: rightPanelWidth }}
+            >
+              <div
+                className="absolute top-0 -left-2 w-4 lg:w-1 lg:left-0 h-full cursor-col-resize z-10 group"
+                onPointerDown={handleRightPanelResizeStart}
+              >
+                <div className="absolute top-0 left-2 lg:left-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
+              </div>
+              {/* Right panel tab header */}
+              <div className="flex items-center gap-1 px-2 py-0.5 border-b border-sol-base02 shrink-0">
+                <button onClick={() => setRightPanel("files")} className={rightPanelBtnClass(rightPanel === "files")} title="Files">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button onClick={() => setRightPanel("git")} className={rightPanelBtnClass(rightPanel === "git")} title="Source Control">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg>
+                </button>
+                <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Filtered Chats">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/></svg>
+                </button>
+                <button onClick={() => setRightPanel("links")} className={rightPanelBtnClass(rightPanel === "links")} title="Filtered Links">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                </button>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
+                    className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                    title="Refresh"
+                  >
+                    <svg className={`w-3.5 h-3.5 transition-transform ${chatListSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  </button>
+                  <button
+                    onClick={() => setRightPanelCollapsed(true)}
+                    className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                    title="Hide right panel"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              </div>
+              {/* Right panel content */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {rightPanel === "files" ? (
+                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+                ) : rightPanel === "git" ? (
+                  <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
+                ) : rightPanel === "chats" ? (
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                ) : (
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} todoId={chatListTraceId} />
+                )}
+              </div>
+            </div>
+          )}
           {/* Mobile: chat/trace list drawer (visible even when chat is hidden) */}
           {chatListOpen && (
             <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
@@ -432,7 +482,7 @@ export default function App() {
               max-w-[280px]
               ${chatListOpen ? "translate-x-0" : "translate-x-full"}
             `}
-            style={{ width: chatListWidth }}
+            style={{ width: rightPanelWidth }}
           >
             <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           </div>

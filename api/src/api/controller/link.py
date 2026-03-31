@@ -47,11 +47,18 @@ async def list_links(
     query: Optional[str] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
+    todo_id: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
+    link_ids = None
+    if todo_id:
+        from storage.repository.link_todo_relation import list_by_todo
+        link_ids = list_by_todo(user_id, todo_id)
+        if not link_ids:
+            return []
     links = link_service.list_links(
         user_id, start=start, end=end, query=query,
-        limit=limit, offset=offset,
+        limit=limit, offset=offset, link_ids=link_ids,
     )
     return [l.to_dict() for l in links]
 

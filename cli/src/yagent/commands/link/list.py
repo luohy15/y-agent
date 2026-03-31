@@ -27,7 +27,8 @@ def _parse_time(value):
 @click.option('--start', '-s', default=None, help='Start time: today, yesterday, 3d, or YYYY-MM-DD')
 @click.option('--end', '-e', default=None, help='End time: today, yesterday, 3d, or YYYY-MM-DD')
 @click.option('--limit', '-l', default=10000, help='Max raw activities from API')
-def link_list(query, start, end, limit):
+@click.option('--todo', '-t', default=None, help='Filter by todo ID')
+def link_list(query, start, end, limit, todo):
     """List browser history links."""
     params = {"limit": limit}
     if query is not None:
@@ -36,6 +37,8 @@ def link_list(query, start, end, limit):
         params["start"] = _parse_time(start)
     if end is not None:
         params["end"] = _parse_time(end)
+    if todo is not None:
+        params["todo_id"] = todo
 
     resp = api_request("GET", "/api/link/list", params=params)
     links = resp.json()
