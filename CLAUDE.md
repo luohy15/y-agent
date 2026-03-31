@@ -138,3 +138,19 @@ cd web && npm run build
 - All tool_calls use OpenAI format internally; providers convert to native format
 - Cross-skill communication: `y notify <skill> -m "msg"` with trace context auto-propagation
 - Env vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`, `TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID`
+
+### ID Convention
+
+Every entity has two kinds of identifier:
+
+| Kind | Type | Where to use |
+|------|------|-------------|
+| **Internal ID** | Integer (autoincrement PK) | DB foreign keys, ORM joins, internal queries only |
+| **Public ID** | String/UUID (`chat_id`, `todo_id`, `user_id`, etc.) | API requests/responses, JWT payloads, S3 keys, cache keys, URLs, logs |
+
+**Rules:**
+- API controllers MUST NOT expose integer `id` or integer FK fields (e.g. `user_id` as int) in request/response payloads or URL path params
+- JWT tokens MUST use the string `user_id` (from UserEntity.user_id), not the integer PK
+- S3 keys and cache keys MUST use public string IDs
+- DTOs returned to the API layer MUST omit internal integer IDs; use dedicated response dicts or filter fields in the controller
+- Entities without a public string ID (BotConfig, VmConfig, TgTopic) should be addressed by their natural key (e.g. `name`, `group_id+topic_name`) rather than exposing the integer PK
