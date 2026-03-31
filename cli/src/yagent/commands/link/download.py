@@ -6,6 +6,11 @@ import sys
 import click
 
 
+def _get_article_cmd(url: str) -> list[str]:
+    """Get the opencli twitter article command."""
+    return ["/opt/homebrew/bin/opencli", "twitter", "article", url, "-f", "json"]
+
+
 def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
     """Determine the opencli command based on URL domain."""
     opencli = "/opt/homebrew/bin/opencli"
@@ -14,7 +19,7 @@ def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
     elif "youtube.com" in url or "youtu.be" in url:
         return [opencli, "youtube", "transcript", url, "-f", "json"]
     elif "twitter.com" in url or "x.com/" in url:
-        return [opencli, "web", "read", "--url", url, "--output", output_dir, "--download-images", "false", "--use-browser"]
+        return [opencli, "twitter", "thread", url, "-f", "json", "--limit", "1"]
     else:
         return [opencli, "web", "read", "--url", url, "--output", output_dir, "--download-images", "false"]
 
@@ -54,6 +59,40 @@ def link_download(url: str):
                 yt_data = json.loads(content)
                 if isinstance(yt_data, list) and yt_data:
                     title = yt_data[0].get("title", "")
+            except (json.JSONDecodeError, KeyError, IndexError):
+                pass
+        elif "twitter.com" in url or "x.com/" in url:
+            # thread command returns JSON array; extract only the original post
+            title = ""
+            content = result.stdout
+            try:
+                tweets = json.loads(result.stdout)
+                if isinstance(tweets, list) and tweets:
+                    post_text = tweets[0].get("text", "").strip()
+                    # If post text is just a t.co link, it's likely an article — try article command
+                    if post_text.startswith("https://t.co/") and "\n" not in post_text:
+                        article_cmd = _get_article_cmd(url)
+                        article_cmd_str = " ".join(f"'{c}'" for c in article_cmd)
+                        article_cmd_str = f"export PATH=/opt/homebrew/bin:$PATH; {article_cmd_str}"
+                        article_result = subprocess.run(
+                            ["ssh", "opencli", article_cmd_str],
+                            capture_output=True, text=True, timeout=240,
+                        )
+                        if article_result.returncode == 0 and article_result.stdout.strip():
+                            try:
+                                articles = json.loads(article_result.stdout)
+                                if isinstance(articles, list) and articles:
+                                    article = articles[0]
+                                    title = article.get("title", "")
+                                    content = article.get("content", article_result.stdout)
+                                else:
+                                    content = article_result.stdout
+                            except (json.JSONDecodeError, KeyError, IndexError):
+                                content = article_result.stdout
+                        else:
+                            content = post_text
+                    else:
+                        content = post_text
             except (json.JSONDecodeError, KeyError, IndexError):
                 pass
         else:
