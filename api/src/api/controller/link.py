@@ -30,6 +30,11 @@ class DownloadLinksRequest(BaseModel):
     urls: List[str]
 
 
+class CreatePageLinkRequest(BaseModel):
+    path: str
+    title: Optional[str] = None
+
+
 class ActivityIdRequest(BaseModel):
     activity_id: str
 
@@ -77,6 +82,19 @@ async def download_links(req: DownloadLinksRequest, request: Request):
         if item['download_status'] == 'pending':
             link_service.send_download_task(user_id, item['link_id'], item['url'], activity_id=item.get('activity_id'))
     return results
+
+
+@router.post("/from-page")
+async def create_page_link(req: CreatePageLinkRequest, request: Request):
+    user_id = _get_user_id(request)
+    import time
+    url = f"page://{req.path}"
+    title = req.title or req.path.rsplit("/", 1)[-1].removesuffix(".md")
+    timestamp = int(time.time() * 1000)
+    link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
+    link_service.update_download_status(link.link_id, "done", content_key=req.path)
+    updated = link_service.get_link(user_id, link.activity_id)
+    return updated.to_dict()
 
 
 @router.get("/content")
