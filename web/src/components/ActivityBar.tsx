@@ -69,14 +69,6 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       {/* Group 1: Todo + Terminal toggle */}
       {!hideGroup1 && (
         <>
-          <button
-            onClick={() => handlePanelClick("todo")}
-            className={btnClass(sidebarOpen && activePanel === "todo")}
-            title="Todo"
-          >
-            <span className="text-base font-bold leading-none">#</span>
-            {mobile && <span>Todo</span>}
-          </button>
           {onToggleChatHide && (
             <button
               onClick={onToggleChatHide}
@@ -90,6 +82,14 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
               {mobile && <span>Terminal</span>}
             </button>
           )}
+          <button
+            onClick={() => handlePanelClick("todo")}
+            className={btnClass(sidebarOpen && activePanel === "todo")}
+            title="Todo"
+          >
+            <span className="text-base font-bold leading-none">#</span>
+            {mobile && <span>Todo</span>}
+          </button>
           <button
             onClick={() => handlePanelClick("links")}
             className={btnClass(sidebarOpen && activePanel === "links")}
