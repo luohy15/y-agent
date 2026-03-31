@@ -259,6 +259,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     return (localStorage.getItem("todoViewMode") as "table" | "kanban") || "table";
   });
   const [zoom, setZoom] = useState(100);
+  const [linkAdded, setLinkAdded] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -452,6 +453,34 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
             >
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
+            </button>
+          )}
+          {activeFileName.startsWith("pages/") && (
+            <button
+              onClick={async () => {
+                const path = activeFileName;
+                const filename = path.rsplit ? path.split("/").pop()?.replace(/\.md$/, "") : path.split("/").pop()?.replace(/\.md$/, "");
+                try {
+                  const res = await authFetch(`${API}/api/link/from-page`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path, title: filename }),
+                  });
+                  if (res.ok) {
+                    setLinkAdded((prev) => ({ ...prev, [activeFile!]: true }));
+                    setTimeout(() => setLinkAdded((prev) => ({ ...prev, [activeFile!]: false })), 2000);
+                  }
+                } catch {}
+              }}
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title="Add to Links"
+            >
+              {linkAdded[activeFile] ? "Added!" : (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+              )}
             </button>
           )}
           {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && (
