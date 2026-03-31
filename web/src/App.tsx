@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import { API, authFetch } from "./api";
-import Header from "./components/Header";
 import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
@@ -227,7 +226,38 @@ export default function App() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      <Header key={String(auth.isLoggedIn)} email={auth.email} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} onLogout={handleLogout} onClickLogo={() => { setSelectedChatId(null); setChatListTraceId(null); setSelectedTraceId(null); }} onToggleChatList={() => setChatListOpen((v) => !v)} chatListOpen={chatListOpen} onToggleActivityBar={() => setActivityBarOpen((v) => !v)} activityBarOpen={activityBarOpen} onOpenFileSearch={() => setFileSearchOpen(true)} />
+      {/* Mobile-only nav bar */}
+      {auth.isLoggedIn && (
+        <div className="md:hidden flex items-center gap-1 px-2 py-1.5 border-b border-sol-base02 bg-sol-base03 shrink-0">
+          <button
+            onClick={() => setActivityBarOpen((v) => !v)}
+            className={`h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${activityBarOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
+            title="Menu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setFileSearchOpen(true)}
+            className="h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 text-sol-base01 hover:text-sol-base1"
+            title="Search files (Ctrl+P)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setChatListOpen((v) => !v)}
+            className={`h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${chatListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
+            title={chatListOpen ? "Hide chat list" : "Show chat list"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
         <ActivityBar
@@ -244,6 +274,9 @@ export default function App() {
           activeFile={activeFile}
           chatHide={chatHide}
           onToggleChatHide={() => setChatHide((v) => !v)}
+          email={auth.email}
+          gsiReady={auth.gsiReady}
+          onLogout={handleLogout}
         />
         {/* Mobile overlay backdrop (sidebar or activity bar) */}
         {(sidebarOpen || activityBarOpen) && (
@@ -270,6 +303,9 @@ export default function App() {
             activeFile={activeFile}
             chatHide={chatHide}
             onToggleChatHide={() => { setChatHide((v) => !v); setActivityBarOpen(false); }}
+            email={auth.email}
+            gsiReady={auth.gsiReady}
+            onLogout={handleLogout}
           />
         </div>
         {/* Left: Sidebar (global views) */}
@@ -300,7 +336,7 @@ export default function App() {
           {/* Center column */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Center mode switcher header */}
-            <div className="flex items-center gap-1 px-2 py-0.5 border-t border-sol-base02 bg-sol-base03 shrink-0">
+            <div className="flex items-center gap-1 px-2 py-2 bg-sol-base03 shrink-0">
               <button
                 onClick={() => setChatHide(true)}
                 className={rightPanelBtnClass(chatHide)}
@@ -463,9 +499,9 @@ export default function App() {
                 ) : rightPanel === "git" ? (
                   <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
                 ) : rightPanel === "chats" ? (
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} todoId={chatListTraceId} />
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} todoId={chatListTraceId} hideFilters />
                 )}
               </div>
             </div>

@@ -21,6 +21,7 @@ interface ChatListProps {
   traceId?: string | null;
   onClearTraceId?: () => void;
   onSelectTrace?: (traceId: string) => void;
+  hideFilters?: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -34,7 +35,7 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [internalTraceId, setInternalTraceId] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
@@ -97,54 +98,56 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
-      <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
-        <input
-          type="text"
-          placeholder="Search tasks..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-        />
-        <div className="flex gap-1.5">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Todo ID..."
-              value={traceId}
-              onChange={(e) => setInternalTraceId(e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-              readOnly={!!externalTraceId}
-            />
-            {(externalTraceId || internalTraceId) && (
-              <button
-                onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                title="Clear todo filter"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          <div className="relative w-24">
-            <input
-              type="text"
-              placeholder="Skill..."
-              value={skillFilter}
-              onChange={(e) => setSkillFilter(e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-            />
-            {skillFilter && (
-              <button
-                onClick={() => setSkillFilter("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                title="Clear skill filter"
-              >
-                ✕
-              </button>
-            )}
+      {!hideFilters && (
+        <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+          />
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Todo ID..."
+                value={traceId}
+                onChange={(e) => setInternalTraceId(e.target.value)}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                readOnly={!!externalTraceId}
+              />
+              {(externalTraceId || internalTraceId) && (
+                <button
+                  onClick={() => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(""); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                  title="Clear todo filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="relative w-24">
+              <input
+                type="text"
+                placeholder="Skill..."
+                value={skillFilter}
+                onChange={(e) => setSkillFilter(e.target.value)}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              {skillFilter && (
+                <button
+                  onClick={() => setSkillFilter("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                  title="Clear skill filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       {pinnedDm && (
         <div className="border-b border-sol-base02 p-1.5">
           <div
