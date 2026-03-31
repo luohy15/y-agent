@@ -32,6 +32,7 @@ def list_links(
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    link_ids: Optional[List[str]] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -39,6 +40,8 @@ def list_links(
             .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
             .filter(LinkActivityEntity.user_id == user_id)
         )
+        if link_ids is not None:
+            q = q.filter(LinkEntity.link_id.in_(link_ids))
         if start is not None:
             q = q.filter(LinkActivityEntity.timestamp >= start)
         if end is not None:
@@ -278,6 +281,44 @@ def get_links_by_ids(link_ids: List[str]) -> List[LinkEntity]:
         return []
     with get_db() as session:
         return session.query(LinkEntity).filter(LinkEntity.link_id.in_(link_ids)).all()
+
+
+def get_links_with_latest_activity(user_id: int, link_ids: List[str]) -> List[dict]:
+    """Fetch links with their latest activity_id for a given user."""
+    if not link_ids:
+        return []
+    from sqlalchemy import func
+    with get_db() as session:
+        links = session.query(LinkEntity).filter(LinkEntity.link_id.in_(link_ids)).all()
+        link_id_to_entity = {l.link_id: l for l in links}
+        # Get latest activity_id per link (by internal id)
+        link_internal_ids = [l.id for l in links]
+        activity_rows = (
+            session.query(
+                LinkActivityEntity.link_id,
+                func.max(LinkActivityEntity.activity_id).label("activity_id"),
+            )
+            .filter(
+                LinkActivityEntity.user_id == user_id,
+                LinkActivityEntity.link_id.in_(link_internal_ids),
+            )
+            .group_by(LinkActivityEntity.link_id)
+            .all()
+        )
+        internal_to_activity = {r.link_id: r.activity_id for r in activity_rows}
+        result = []
+        for link_id_str in link_ids:
+            entity = link_id_to_entity.get(link_id_str)
+            if not entity:
+                continue
+            result.append({
+                "link_id": entity.link_id,
+                "base_url": entity.base_url,
+                "title": entity.title,
+                "download_status": entity.download_status,
+                "activity_id": internal_to_activity.get(entity.id),
+            })
+        return result
 
 
 def get_links_by_urls(urls: List[str]) -> List[LinkEntity]:

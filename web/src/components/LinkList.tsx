@@ -143,9 +143,10 @@ const LIMIT = 50;
 interface LinkListProps {
   isLoggedIn: boolean;
   onPreview: (link: Link) => void;
+  todoId?: string | null;
 }
 
-export default function LinkList({ isLoggedIn, onPreview }: LinkListProps) {
+export default function LinkList({ isLoggedIn, onPreview, todoId }: LinkListProps) {
   const [range, setRange] = useState<DateRange>(() => {
     const saved = localStorage.getItem("linkListDateRange");
     return (saved === "today" || saved === "7d" || saved === "30d" || saved === "all") ? saved : "7d";
@@ -157,12 +158,14 @@ export default function LinkList({ isLoggedIn, onPreview }: LinkListProps) {
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [spinning, setSpinning] = useState(false);
   useEffect(() => { localStorage.setItem("linkListDateRange", range); }, [range]);
+  useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId]);
 
   const { start, end } = getRange(range);
   const params = new URLSearchParams();
   if (start !== undefined) params.set("start", String(start));
   if (end !== undefined) params.set("end", String(end));
   if (query) params.set("query", query);
+  if (todoId) params.set("todo_id", todoId);
   params.set("limit", String(LIMIT));
   params.set("offset", String(offset));
 

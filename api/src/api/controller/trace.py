@@ -106,11 +106,18 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             ],
         }
 
+    # Fetch associated links
+    from storage.repository.link_todo_relation import list_by_todo as list_link_relations
+    from storage.repository.link import get_links_with_latest_activity
+    link_ids = list_link_relations(user_id, trace_id)
+    links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
         "todo_status": todo.status if todo else None,
         "todo": todo_info,
+        "links": links,
     }
 
 
@@ -190,9 +197,16 @@ async def get_share(share_id: str = Query(...)):
             ],
         }
 
+    # Fetch associated links
+    from storage.repository.link_todo_relation import list_by_todo as list_link_relations
+    from storage.repository.link import get_links_with_latest_activity
+    link_ids = list_link_relations(user_id, trace_id)
+    links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
         "todo_status": todo.status if todo else None,
         "todo": todo_info,
+        "links": links,
     }
