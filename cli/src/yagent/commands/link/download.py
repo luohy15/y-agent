@@ -13,6 +13,8 @@ def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
         return [opencli, "weixin", "download", "--url", url, "--output", output_dir, "--download-images", "false"]
     elif "youtube.com" in url or "youtu.be" in url:
         return [opencli, "youtube", "transcript", url, "-f", "json"]
+    elif "twitter.com" in url or "x.com/" in url:
+        return [opencli, "web", "read", "--url", url, "--output", output_dir, "--download-images", "false", "--use-browser"]
     else:
         return [opencli, "web", "read", "--url", url, "--output", output_dir, "--download-images", "false"]
 
