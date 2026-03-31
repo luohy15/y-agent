@@ -33,6 +33,7 @@ def lambda_handler(event, context):
             user_id=body["user_id"],
             link_id=body["link_id"],
             url=body["url"],
+            activity_id=body.get("activity_id"),
         ))
         return {"status": "ok", "link_id": body["link_id"]}
 

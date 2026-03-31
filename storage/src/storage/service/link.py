@@ -75,8 +75,9 @@ def request_downloads(urls: List[str]) -> List[dict]:
 def update_download_status(link_id: str, status: str, content_key: Optional[str] = None, url: Optional[str] = None):
     """Update download status for a link. If url differs from base_url, update at activity level."""
     if url is not None:
-        base_url = url.split('?')[0].split('#')[0]
-        if url.split('#')[0] != base_url:
+        url = url.split('#')[0]  # strip fragment
+        base_url = url.split('?')[0]
+        if url != base_url:
             link_repo.update_link_activity_download_status(url, status, content_key=content_key)
             return
     link_repo.update_link_download_status(link_id, status, content_key=content_key)
@@ -96,12 +97,17 @@ def get_content_key_for_url(link_id: str, url: Optional[str] = None) -> Optional
     return None
 
 
+def get_content_key_by_activity_id(activity_id: str) -> Optional[str]:
+    """Get content_key by activity_id. Checks activity-level first, then link-level."""
+    return link_repo.get_content_key_by_activity_id(activity_id)
+
+
 def update_link_title(link_id: str, title: str):
     """Update title for a link."""
     link_repo.update_link_title(link_id, title)
 
 
-def send_download_task(user_id: int, link_id: str, url: str):
+def send_download_task(user_id: int, link_id: str, url: str, activity_id: Optional[str] = None):
     """Enqueue a link download task via SQS or Celery."""
     import json
     import os
@@ -111,6 +117,8 @@ def send_download_task(user_id: int, link_id: str, url: str):
         "link_id": link_id,
         "url": url,
     }
+    if activity_id:
+        payload["activity_id"] = activity_id
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
