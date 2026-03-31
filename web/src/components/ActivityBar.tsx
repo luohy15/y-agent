@@ -1,3 +1,6 @@
+import { useCallback, type RefCallback } from "react";
+import { isPreview } from "../hooks/useAuth";
+
 export type SidebarPanel = "todo" | "chats" | "links";
 
 interface ActivityBarProps {
@@ -12,6 +15,9 @@ interface ActivityBarProps {
   hideGroup1?: boolean;
   chatHide?: boolean;
   onToggleChatHide?: () => void;
+  email?: string | null;
+  gsiReady?: boolean;
+  onLogout?: () => void;
 }
 
 const viewerShortcuts = [
@@ -42,8 +48,56 @@ const viewerShortcuts = [
   )},
 ];
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1, chatHide, onToggleChatHide }: ActivityBarProps) {
-  if (!isLoggedIn) return null;
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1, chatHide, onToggleChatHide, email, gsiReady, onLogout }: ActivityBarProps) {
+  const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
+    if (!node || isLoggedIn || !gsiReady) return;
+    if (!isPreview && (window as any).google?.accounts?.id) {
+      (window as any).google.accounts.id.renderButton(node, {
+        theme: "filled_black",
+        size: "small",
+        shape: "pill",
+      });
+    }
+  }, [isLoggedIn, gsiReady]);
+
+  // Show minimal bar with just GitHub + login when not logged in
+  if (!isLoggedIn) {
+    return (
+      <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
+        <div className="mt-auto" />
+        <a
+          href="https://github.com/luohy15/y-agent"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={mobile
+            ? "w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+            : "w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          }
+          title="GitHub"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          {mobile && <span>GitHub</span>}
+        </a>
+        {mobile ? (
+          <div ref={signinRef} className="px-3 py-1" />
+        ) : (
+          <button
+            onClick={() => {
+              if (!isPreview && (window as any).google?.accounts?.id) {
+                (window as any).google.accounts.id.prompt();
+              }
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded cursor-pointer text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+            title="Sign in with Google"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const handlePanelClick = (panel: SidebarPanel) => {
     if (mobile) {
@@ -65,7 +119,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     : `w-8 h-8 flex items-center justify-center rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"}`;
 
   return (
-    <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
+    <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
       {/* Group 1: Global panels */}
       {!hideGroup1 && (
         <>
@@ -112,6 +166,60 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           {mobile && <span>{v.label}</span>}
         </button>
       ))}
+      {/* Bottom: GitHub + Auth */}
+      <div className={mobile ? "w-full border-t border-sol-base02 my-1 mt-auto" : "w-6 border-t border-sol-base02 my-1 mt-auto"} />
+      <a
+        href="https://github.com/luohy15/y-agent"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={mobile
+          ? "w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          : "w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+        }
+        title="GitHub"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        {mobile && <span>GitHub</span>}
+      </a>
+      {isLoggedIn ? (
+        <button
+          onClick={onLogout}
+          className={mobile
+            ? "w-full h-9 flex items-center gap-3 px-3 rounded cursor-pointer text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+            : "w-8 h-8 flex items-center justify-center rounded cursor-pointer text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          }
+          title={email ? `${email} — Logout` : "Logout"}
+        >
+          {email ? (
+            <span className={mobile ? "w-5 h-5 rounded-full bg-sol-base02 flex items-center justify-center text-xs font-bold text-sol-base1 shrink-0" : "w-5 h-5 rounded-full bg-sol-base02 flex items-center justify-center text-[10px] font-bold text-sol-base1"}>
+              {email[0].toUpperCase()}
+            </span>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          )}
+          {mobile && <span>{email || "Logout"}</span>}
+        </button>
+      ) : (
+        mobile ? (
+          <div ref={signinRef} className="px-3 py-1" />
+        ) : (
+          <button
+            onClick={() => {
+              if (!isPreview && (window as any).google?.accounts?.id) {
+                (window as any).google.accounts.id.prompt();
+              }
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded cursor-pointer text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+            title="Sign in with Google"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" />
+            </svg>
+          </button>
+        )
+      )}
     </div>
   );
 }
