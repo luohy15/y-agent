@@ -11,6 +11,7 @@ import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import TerminalView from "./components/TerminalView";
 import TodoList from "./components/TodoList";
+import LinkList from "./components/LinkList";
 import GitPanel from "./components/GitPanel";
 import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./components/badges";
 
@@ -271,6 +272,8 @@ export default function App() {
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
           ) : sidebarPanel === "todo" ? (
             <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false); setBottomTab("chat"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+          ) : sidebarPanel === "links" ? (
+            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} />
           ) : (
             <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
           )}
