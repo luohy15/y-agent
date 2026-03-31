@@ -222,7 +222,7 @@ async function fetchLinkContent(activityId: string): Promise<string> {
   return data.content;
 }
 
-function LinkContentView({ filePath, cache, setCache }: { filePath: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>> }) {
+function LinkContentView({ filePath, cache, setCache, raw }: { filePath: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean }) {
   const fileData = cache[filePath];
 
   useEffect(() => {
@@ -245,7 +245,7 @@ function LinkContentView({ filePath, cache, setCache }: { filePath: string; cach
     return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
   }
   if (fileData.content !== undefined) {
-    return <MarkdownPreview content={fileData.content} />;
+    return raw ? <FileContentTable filePath={filePath} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />;
   }
   return null;
 }
@@ -445,6 +445,15 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {todoViewMode === "table" ? "Kanban" : "Table"}
             </button>
           )}
+          {isLinkPreview && (
+            <button
+              onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
+            >
+              {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
+            </button>
+          )}
           {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
@@ -509,7 +518,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />
               ) : fileLinkPreview ? (
-                <LinkContentView filePath={filePath} cache={cache} setCache={setCache} />
+                <LinkContentView filePath={filePath} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
