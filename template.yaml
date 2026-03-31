@@ -254,6 +254,7 @@ Resources:
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
+          Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
           PORT: "8000"
