@@ -20,10 +20,10 @@ def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_nam
 
 
 @app.task(name="worker.tasks.process_link_download")
-def process_link_download(user_id: int = None, link_id: str = None, url: str = None, **kwargs):
+def process_link_download(user_id: int = None, link_id: str = None, url: str = None, activity_id: str = None, **kwargs):
     """Download link content via fetcher service."""
     try:
-        asyncio.run(run_link_download(user_id=user_id, link_id=link_id, url=url))
+        asyncio.run(run_link_download(user_id=user_id, link_id=link_id, url=url, activity_id=activity_id))
         logger.info("Finished link download {}", link_id)
     except Exception as e:
         logger.exception("Link download {} failed: {}", link_id, e)

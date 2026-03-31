@@ -92,12 +92,8 @@ async function downloadLinks(urls: string[]): Promise<any> {
   return res.json();
 }
 
-async function fetchLinkContent(linkId: string, url?: string, baseUrl?: string): Promise<string> {
-  let endpoint = `${API}/api/link/content?link_id=${encodeURIComponent(linkId)}`;
-  if (url && baseUrl && isActivityLevel(url, baseUrl)) {
-    endpoint += `&url=${encodeURIComponent(url)}`;
-  }
-  const res = await authFetch(endpoint);
+async function fetchLinkContent(activityId: string): Promise<string> {
+  const res = await authFetch(`${API}/api/link/content?activity_id=${encodeURIComponent(activityId)}`);
   if (!res.ok) throw new Error("Failed to fetch content");
   const data = await res.json();
   return data.content;
@@ -268,9 +264,7 @@ export default function LinkViewer() {
 
   const handlePreview = useCallback(async (link: Link) => {
     setPreviewLink(link);
-    // Use url as cache key for activity-level content, link_id for link-level
-    const cacheKey = isActivityLevel(link.url, link.base_url) ? link.url : link.link_id;
-    const cached = contentCache.current.get(cacheKey);
+    const cached = contentCache.current.get(link.activity_id);
     if (cached) {
       setPreviewContent(cached);
       return;
@@ -278,8 +272,8 @@ export default function LinkViewer() {
     setPreviewContent(null);
     setPreviewLoading(true);
     try {
-      const content = await fetchLinkContent(link.link_id, link.url, link.base_url);
-      contentCache.current.set(cacheKey, content);
+      const content = await fetchLinkContent(link.activity_id);
+      contentCache.current.set(link.activity_id, content);
       setPreviewContent(content);
     } catch {
       setPreviewContent(null);

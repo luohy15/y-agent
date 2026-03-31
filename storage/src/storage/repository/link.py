@@ -11,7 +11,7 @@ from storage.util import generate_id, generate_long_id
 def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
     return LinkActivity(
         activity_id=activity.activity_id,
-        link_id=link.id,
+        link_id=link.link_id,
         url=activity.url,
         base_url=link.base_url,
         title=activity.title or link.title,
@@ -310,9 +310,10 @@ def update_link_title(link_id: str, title: str):
 
 def upsert_link_for_download(url: str) -> dict:
     """Upsert a link by base_url. Set download_status to pending at link or activity level.
-    Returns dict with link_id, base_url, download_status, is_activity_level."""
+    Returns dict with link_id, base_url, download_status, is_activity_level, activity_id."""
+    url = url.split('#')[0]  # strip fragment
     base_url = _strip_query(url)
-    is_activity_level = (url.split('#')[0] != base_url)
+    is_activity_level = (url != base_url)
     with get_db() as session:
         entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
         if not entity:
@@ -322,11 +323,14 @@ def upsert_link_for_download(url: str) -> dict:
             entity = LinkEntity(link_id=link_id, base_url=base_url)
             session.add(entity)
             session.flush()
+        activity_id = None
         if is_activity_level:
-            # Set pending on all activities matching this exact URL
+            # Set pending on all activities matching this URL, pick first activity_id
             activities = session.query(LinkActivityEntity).filter_by(url=url).all()
             for act in activities:
                 act.download_status = 'pending'
+                if activity_id is None:
+                    activity_id = act.activity_id
         else:
             entity.download_status = 'pending'
         return {
@@ -334,6 +338,7 @@ def upsert_link_for_download(url: str) -> dict:
             'base_url': entity.base_url,
             'download_status': 'pending',
             'is_activity_level': is_activity_level,
+            'activity_id': activity_id,
         }
 
 
@@ -353,4 +358,26 @@ def get_activity_content_key(url: str) -> Optional[str]:
         act = session.query(LinkActivityEntity).filter_by(url=url).first()
         if act and act.content_key:
             return act.content_key
+        return None
+
+
+def get_content_key_by_activity_id(activity_id: str) -> Optional[str]:
+    """Get content_key for a given activity_id.
+    Checks activity-level content_key first, then falls back to link-level."""
+    with get_db() as session:
+        row = (
+            session.query(LinkActivityEntity, LinkEntity)
+            .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
+            .filter(LinkActivityEntity.activity_id == activity_id)
+            .first()
+        )
+        if not row:
+            return None
+        act, link = row
+        # Activity-level content takes priority
+        if act.content_key:
+            return act.content_key
+        # Fall back to link-level content
+        if link.content_key:
+            return link.content_key
         return None

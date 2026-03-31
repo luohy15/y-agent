@@ -1,6 +1,5 @@
 """Download link content via SSH to EC2 running y link download."""
 
-import hashlib
 import json
 import os
 
@@ -22,17 +21,16 @@ class _CmdRunner(Tool):
         pass
 
 
-def _s3_key_for_url(link_id: str, url: str) -> str:
-    """Generate S3 key. Use url hash for activity-level (url != base_url)."""
-    base_url = url.split('?')[0].split('#')[0]
-    if url.split('#')[0] != base_url:
-        url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
-        return f"links/{link_id}/{url_hash}/content.md"
+def _s3_key(link_id: str, activity_id: str = None) -> str:
+    """Generate S3 key. Use activity_id for activity-level content."""
+    if activity_id:
+        return f"links/{link_id}/{activity_id}/content.md"
     return f"links/{link_id}/content.md"
 
 
-async def run_link_download(user_id: int, link_id: str, url: str):
+async def run_link_download(user_id: int, link_id: str, url: str, activity_id: str = None):
     """SSH to EC2 and run y link download to fetch content via opencli."""
+    url = url.split('#')[0]  # strip fragment
     link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
@@ -47,7 +45,7 @@ async def run_link_download(user_id: int, link_id: str, url: str):
         result = json.loads(output.strip())
         if result.get("status") == "done":
             content = result.get("content", "")
-            s3_key = _s3_key_for_url(link_id, url)
+            s3_key = _s3_key(link_id, activity_id)
             s3 = boto3.client("s3")
             s3.put_object(
                 Bucket=S3_BUCKET,

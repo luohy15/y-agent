@@ -75,18 +75,17 @@ async def download_links(req: DownloadLinksRequest, request: Request):
     results = link_service.request_downloads(req.urls)
     for item in results:
         if item['download_status'] == 'pending':
-            link_service.send_download_task(user_id, item['link_id'], item['url'])
+            link_service.send_download_task(user_id, item['link_id'], item['url'], activity_id=item.get('activity_id'))
     return results
 
 
 @router.get("/content")
 async def get_link_content(
     request: Request,
-    link_id: str = Query(...),
-    url: Optional[str] = Query(None),
+    activity_id: str = Query(...),
 ):
     _get_user_id(request)
-    content_key = link_service.get_content_key_for_url(link_id, url=url)
+    content_key = link_service.get_content_key_by_activity_id(activity_id)
     if not content_key:
         raise HTTPException(status_code=404, detail="Content not available")
     s3 = boto3.client("s3")
