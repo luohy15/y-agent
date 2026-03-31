@@ -1,4 +1,4 @@
-export type SidebarPanel = "files" | "git" | "todo";
+export type SidebarPanel = "files" | "git" | "todo" | "links";
 
 interface ActivityBarProps {
   isLoggedIn: boolean;
@@ -28,11 +28,6 @@ const viewerShortcuts = [
   { key: "finance.bean", label: "Finance", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  )},
-  { key: "links.md", label: "Links", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </svg>
   )},
   { key: "emails.md", label: "Email", icon: (
@@ -95,6 +90,16 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
               {mobile && <span>Terminal</span>}
             </button>
           )}
+          <button
+            onClick={() => handlePanelClick("links")}
+            className={btnClass(sidebarOpen && activePanel === "links")}
+            title="Links"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            {mobile && <span>Links</span>}
+          </button>
           <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
         </>
       )}

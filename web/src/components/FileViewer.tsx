@@ -5,7 +5,6 @@ import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
 import TodoViewer from "./TodoViewer";
 import CalendarViewer from "./CalendarViewer";
-import LinkViewer from "./LinkViewer";
 import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
@@ -216,6 +215,41 @@ function MarkdownPreview({ content }: { content: string }) {
   );
 }
 
+async function fetchLinkContent(activityId: string): Promise<string> {
+  const res = await authFetch(`${API}/api/link/content?activity_id=${encodeURIComponent(activityId)}`);
+  if (!res.ok) throw new Error("Failed to fetch content");
+  const data = await res.json();
+  return data.content;
+}
+
+function LinkContentView({ filePath, cache, setCache }: { filePath: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>> }) {
+  const fileData = cache[filePath];
+
+  useEffect(() => {
+    if (fileData && !fileData.error) return;
+    // Parse activity_id from link:{activity_id}:{title}
+    const parts = filePath.replace(/^\.\//, "").slice(5); // remove "link:"
+    const colonIdx = parts.indexOf(":");
+    const activityId = colonIdx >= 0 ? parts.slice(0, colonIdx) : parts;
+
+    setCache((prev) => ({ ...prev, [filePath]: { loading: true } }));
+    fetchLinkContent(activityId)
+      .then((content) => setCache((prev) => ({ ...prev, [filePath]: { content, loading: false } })))
+      .catch((e) => setCache((prev) => ({ ...prev, [filePath]: { loading: false, error: e.message } })));
+  }, [filePath, fileData, setCache]);
+
+  if (!fileData || fileData.loading) {
+    return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
+  }
+  if (fileData.error) {
+    return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
+  }
+  if (fileData.content !== undefined) {
+    return <MarkdownPreview content={fileData.content} />;
+  }
+  return null;
+}
+
 export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, onSelectChat }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
@@ -233,7 +267,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isTrace = !isDiff && activeFileName === "trace.md";
   const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
-  const isLink = !isDiff && !isTrace && activeFileName.endsWith("links.md");
+  const isLinkPreview = !isDiff && !isTrace && activeFileName.startsWith("link:");
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
@@ -241,7 +275,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTrace || isTodo || isCalendar || isLink || isFinance || isEmail || isDev) return;
+    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -306,8 +340,9 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/calendar/"));
       return;
     }
-    if (isLink) {
-      mutate((key) => typeof key === "string" && key.includes("/api/link/"));
+    if (isLinkPreview) {
+      // Clear cache so it re-fetches
+      setCache((prev) => { const next = { ...prev }; delete next[activeFile]; return next; });
       return;
     }
     if (isFinance) {
@@ -332,7 +367,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLink, isFinance, isEmail, isDev, mutate]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isFinance, isEmail, isDev, mutate]);
 
 
   if (openFiles.length === 0) {
@@ -378,7 +413,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
+            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : filePath.startsWith("link:") ? (() => { const parts = filePath.slice(5); const colonIdx = parts.indexOf(":"); return colonIdx >= 0 ? parts.slice(colonIdx + 1) : parts; })() : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -410,7 +445,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {todoViewMode === "table" ? "Kanban" : "Table"}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isLink && !isEmail && (
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
@@ -450,7 +485,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileTrace = !fileDiff && fileName === "trace.md";
           const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
-          const fileLink = !fileDiff && !fileTrace && fileName.endsWith("links.md");
+          const fileLinkPreview = !fileDiff && !fileTrace && fileName.startsWith("link:");
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
@@ -463,7 +498,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLink || fileFinance || fileEmail || fileDev || fileDiff || fileTrace ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileLinkPreview || fileFinance || fileEmail || fileDev || fileDiff || fileTrace ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -473,8 +508,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />
-              ) : fileLink ? (
-                <LinkViewer />
+              ) : fileLinkPreview ? (
+                <LinkContentView filePath={filePath} cache={cache} setCache={setCache} />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
