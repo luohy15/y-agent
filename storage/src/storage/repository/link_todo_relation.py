@@ -31,6 +31,21 @@ def delete_relation(user_id: int, activity_id: str, todo_id: str) -> bool:
         return True
 
 
+def batch_create_relations(user_id: int, activity_ids: List[str], todo_id: str) -> int:
+    """Insert multiple link-todo relations. Returns count of newly created."""
+    created = 0
+    with get_db() as session:
+        for activity_id in activity_ids:
+            entity = LinkTodoRelationEntity(user_id=user_id, activity_id=activity_id, todo_id=todo_id)
+            session.add(entity)
+            try:
+                session.flush()
+                created += 1
+            except IntegrityError:
+                session.rollback()
+    return created
+
+
 def list_by_todo(user_id: int, todo_id: str) -> List[str]:
     """Return list of activity_ids associated with a todo."""
     with get_db() as session:
