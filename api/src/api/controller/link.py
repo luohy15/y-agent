@@ -104,6 +104,32 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     return updated.to_dict()
 
 
+@router.get("/detail")
+async def get_link_detail(
+    request: Request,
+    activity_id: Optional[str] = Query(None),
+    link_id: Optional[str] = Query(None),
+):
+    user_id = _get_user_id(request)
+    if activity_id:
+        link = link_service.get_link(user_id, activity_id)
+    elif link_id:
+        link = link_service.get_link_by_id(link_id)
+    else:
+        raise HTTPException(status_code=400, detail="activity_id or link_id required")
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    if hasattr(link, 'to_dict'):
+        return link.to_dict()
+    return {
+        "link_id": link.link_id,
+        "base_url": link.base_url,
+        "title": link.title,
+        "download_status": link.download_status,
+        "content_key": link.content_key,
+    }
+
+
 @router.get("/content")
 async def get_link_content(
     request: Request,
