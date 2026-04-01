@@ -8,6 +8,10 @@ def create_relation(user_id: int, activity_id: str, todo_id: str) -> bool:
     return relation_repo.create_relation(user_id, activity_id, todo_id)
 
 
+def batch_create_relations(user_id: int, activity_ids: List[str], todo_id: str) -> int:
+    return relation_repo.batch_create_relations(user_id, activity_ids, todo_id)
+
+
 def delete_relation(user_id: int, activity_id: str, todo_id: str) -> bool:
     return relation_repo.delete_relation(user_id, activity_id, todo_id)
 

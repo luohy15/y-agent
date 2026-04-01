@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
@@ -15,11 +17,23 @@ class RelationRequest(BaseModel):
     todo_id: str
 
 
+class BatchRelationRequest(BaseModel):
+    activity_ids: List[str]
+    todo_id: str
+
+
 @router.post("")
 async def create_relation(req: RelationRequest, request: Request):
     user_id = _get_user_id(request)
     created = relation_service.create_relation(user_id, req.activity_id, req.todo_id)
     return {"ok": True, "created": created}
+
+
+@router.post("/batch")
+async def batch_create_relations(req: BatchRelationRequest, request: Request):
+    user_id = _get_user_id(request)
+    count = relation_service.batch_create_relations(user_id, req.activity_ids, req.todo_id)
+    return {"ok": True, "created": count}
 
 
 @router.post("/delete")

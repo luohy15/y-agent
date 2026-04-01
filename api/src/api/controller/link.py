@@ -104,8 +104,8 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     return updated.to_dict()
 
 
-@router.get("/detail")
-async def get_link_detail(
+@router.get("/content")
+async def get_link_content(
     request: Request,
     activity_id: Optional[str] = Query(None),
     link_id: Optional[str] = Query(None),
@@ -119,9 +119,8 @@ async def get_link_detail(
         raise HTTPException(status_code=400, detail="activity_id or link_id required")
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
-    if hasattr(link, 'to_dict'):
-        return link.to_dict()
-    return {
+
+    result = link.to_dict() if hasattr(link, 'to_dict') else {
         "link_id": link.link_id,
         "base_url": link.base_url,
         "title": link.title,
@@ -129,20 +128,18 @@ async def get_link_detail(
         "content_key": link.content_key,
     }
 
+    content_key = result.get("content_key")
+    if content_key:
+        try:
+            s3 = boto3.client("s3")
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=content_key)
+            result["content"] = obj["Body"].read().decode("utf-8")
+        except Exception:
+            result["content"] = None
+    else:
+        result["content"] = None
 
-@router.get("/content")
-async def get_link_content(
-    request: Request,
-    activity_id: str = Query(...),
-):
-    _get_user_id(request)
-    content_key = link_service.get_content_key_by_activity_id(activity_id)
-    if not content_key:
-        raise HTTPException(status_code=404, detail="Content not available")
-    s3 = boto3.client("s3")
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=content_key)
-    content = obj["Body"].read().decode("utf-8")
-    return {"content": content}
+    return result
 
 
 @router.post("/delete")
