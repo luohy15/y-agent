@@ -33,6 +33,7 @@ class DownloadLinksRequest(BaseModel):
 class CreatePageLinkRequest(BaseModel):
     path: str
     title: Optional[str] = None
+    content: Optional[str] = None
 
 
 class ActivityIdRequest(BaseModel):
@@ -99,7 +100,13 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     title = req.title or req.path.rsplit("/", 1)[-1].removesuffix(".md")
     timestamp = int(time.time() * 1000)
     link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
-    link_service.update_download_status(link.link_id, "done", content_key=req.path)
+    if req.content:
+        s3_key = f"links/{link.link_id}/content.md"
+        s3 = boto3.client("s3")
+        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=req.content.encode("utf-8"), ContentType="text/markdown")
+        link_service.update_download_status(link.link_id, "done", content_key=s3_key)
+    else:
+        link_service.update_download_status(link.link_id, "done", content_key=req.path)
     updated = link_service.get_link(user_id, link.activity_id)
     return updated.to_dict()
 

@@ -19,7 +19,9 @@ def link_import_page(paths):
 
         title = os.path.basename(path).removesuffix('.md')
         try:
-            resp = api_request("POST", "/api/link/from-page", json={"path": path, "title": title})
+            with open(path, 'r') as f:
+                content = f.read()
+            resp = api_request("POST", "/api/link/from-page", json={"path": path, "title": title, "content": content})
             data = resp.json()
             click.echo(f"  + {path} -> {data.get('link_id', '?')}")
         except Exception as e:

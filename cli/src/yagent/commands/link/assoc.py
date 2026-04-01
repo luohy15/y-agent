@@ -13,7 +13,9 @@ def _resolve_activity_id(id_value):
             click.echo(f"File not found: {id_value}", err=True)
             raise SystemExit(1)
         title = os.path.basename(id_value).removesuffix('.md')
-        resp = api_request("POST", "/api/link/from-page", json={"path": id_value, "title": title})
+        with open(id_value, 'r') as f:
+            content = f.read()
+        resp = api_request("POST", "/api/link/from-page", json={"path": id_value, "title": title, "content": content})
         data = resp.json()
         activity_id = data.get('activity_id')
         click.echo(f"Imported: {id_value} -> {data.get('link_id', '?')}")
