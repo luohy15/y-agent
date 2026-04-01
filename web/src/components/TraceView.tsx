@@ -8,7 +8,7 @@ interface TraceViewProps {
   isLoggedIn: boolean;
   selectedTraceId: string | null;
   onSelectChat?: (chatId: string) => void;
-  onPreviewLink?: (path: string) => void;
+  onPreviewLink?: (activityId: string) => void;
 }
 
 const fetcher = async (url: string) => {
@@ -293,7 +293,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, o
                         </a>
                         {link.download_status === "done" && link.activity_id && onPreviewLink && (
                           <button
-                            onClick={() => onPreviewLink(`link:${link.activity_id}:${link.title || link.base_url}`)}
+                            onClick={() => onPreviewLink(link.activity_id!)}
                             className="shrink-0 w-4 h-4 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-cyan cursor-pointer"
                             title="Preview content"
                           >

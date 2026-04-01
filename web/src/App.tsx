@@ -43,7 +43,6 @@ export default function App() {
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
-  const [bottomTab, setBottomTab] = useState<"chat" | "terminal">(() => { const saved = localStorage.getItem("bottomTab"); return saved === "chat" || saved === "terminal" ? saved : "chat"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
     return saved === "todo" || saved === "chats" || saved === "links" ? saved : "todo";
@@ -52,6 +51,7 @@ export default function App() {
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatSkill, setChatSkill] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
   const [chatListSpinning, setChatListSpinning] = useState(false);
@@ -60,6 +60,12 @@ export default function App() {
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
+  const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(() => localStorage.getItem("bottomPanelCollapsed") === "true");
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
+    const saved = localStorage.getItem("bottomPanelHeight");
+    return saved ? parseInt(saved, 10) : 200;
+  });
+  const bottomPanelResizingRef = useRef(false);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = localStorage.getItem("chatListWidth");
     return saved ? parseInt(saved, 10) : 220;
@@ -113,8 +119,9 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(rightPanelWidth)); }, [rightPanelWidth]);
   useEffect(() => { localStorage.setItem("chatListCollapsed", String(rightPanelCollapsed)); }, [rightPanelCollapsed]);
+  useEffect(() => { localStorage.setItem("bottomPanelCollapsed", String(bottomPanelCollapsed)); }, [bottomPanelCollapsed]);
+  useEffect(() => { localStorage.setItem("bottomPanelHeight", String(bottomPanelHeight)); }, [bottomPanelHeight]);
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
-  useEffect(() => { localStorage.setItem("bottomTab", bottomTab); }, [bottomTab]);
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { localStorage.setItem("rightPanel", rightPanel); }, [rightPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
@@ -213,6 +220,28 @@ export default function App() {
     document.body.style.userSelect = "none";
   }, [rightPanelWidth]);
 
+  const handleBottomPanelResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    bottomPanelResizingRef.current = true;
+    const startY = e.clientY;
+    const startHeight = bottomPanelHeight;
+    const onMove = (ev: PointerEvent) => {
+      const newHeight = Math.max(100, Math.min(500, startHeight - (ev.clientY - startY)));
+      setBottomPanelHeight(newHeight);
+    };
+    const onUp = () => {
+      bottomPanelResizingRef.current = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }, [bottomPanelHeight]);
+
   const handleChatCreated = useCallback((chatId: string) => {
     setSelectedChatId(chatId);
   }, []);
@@ -256,6 +285,90 @@ export default function App() {
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </button>
+        </div>
+      )}
+      {/* Desktop-only header bar */}
+      {auth.isLoggedIn && (
+        <div className="hidden md:flex items-center px-2 py-1 bg-sol-base03 border-b border-sol-base02 shrink-0">
+          {/* Center: trace ID, VM, workdir */}
+          <div className="flex-1 flex justify-center items-center gap-2 text-sol-base01 font-mono text-xs">
+            {chatListTraceId && (
+              <button
+                onClick={() => { setSelectedTraceId(chatListTraceId); handleOpenFile("trace.md"); }}
+                className="text-sol-base01 hover:text-sol-base1 text-xs font-mono cursor-pointer"
+              >
+                #{chatListTraceId.slice(0, 8)}
+              </button>
+            )}
+            <div className="relative shrink-0" ref={vmDropdownRef}>
+              <button
+                onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
+                className={`p-0 bg-transparent border-0 ${selectedChatId ? "cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
+                title={`VM: ${selectedVM || "default"}`}
+              >
+                {selectedVM || "default"}
+              </button>
+              {vmDropdownOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                  <button
+                    onClick={() => { setSelectedVM(null); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                  >
+                    default
+                  </button>
+                  {vmList.filter((vm) => vm.name !== "default").map((vm) => (
+                    <button
+                      key={vm.name}
+                      onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setVmDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                    >
+                      {vm.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span>{effectiveWorkDir}</span>
+          </div>
+          {/* Right: panel toggle buttons */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Left sidebar toggle */}
+            <button
+              onClick={() => setDesktopSidebarOpen(v => !v)}
+              className={`p-1 rounded cursor-pointer ${desktopSidebarOpen ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
+              title={desktopSidebarOpen ? "Hide left sidebar" : "Show left sidebar"}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
+                <rect x="1" y="1" width="14" height="14" rx="1" />
+                <line x1="5" y1="1" x2="5" y2="15" />
+                {desktopSidebarOpen && <rect x="1" y="1" width="4" height="14" rx="1" fill="currentColor" stroke="none" />}
+              </svg>
+            </button>
+            {/* Bottom panel toggle */}
+            <button
+              onClick={() => setBottomPanelCollapsed(v => !v)}
+              className={`p-1 rounded cursor-pointer ${!bottomPanelCollapsed ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
+              title={bottomPanelCollapsed ? "Show bottom panel" : "Hide bottom panel"}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
+                <rect x="1" y="1" width="14" height="14" rx="1" />
+                <line x1="1" y1="11" x2="15" y2="11" />
+                {!bottomPanelCollapsed && <rect x="1" y="11" width="14" height="4" rx="1" fill="currentColor" stroke="none" />}
+              </svg>
+            </button>
+            {/* Right panel toggle */}
+            <button
+              onClick={() => setRightPanelCollapsed(v => !v)}
+              className={`p-1 rounded cursor-pointer ${!rightPanelCollapsed ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
+              title={rightPanelCollapsed ? "Show right panel" : "Hide right panel"}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
+                <rect x="1" y="1" width="14" height="14" rx="1" />
+                <line x1="11" y1="1" x2="11" y2="15" />
+                {!rightPanelCollapsed && <rect x="11" y="1" width="4" height="14" rx="1" fill="currentColor" stroke="none" />}
+              </svg>
+            </button>
+          </div>
         </div>
       )}
       <div className="flex flex-1 min-h-0">
@@ -318,11 +431,11 @@ export default function App() {
           style={{ width: sidebarWidth }}
         >
           {sidebarPanel === "todo" ? (
-            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false); setBottomTab("chat"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           ) : sidebarPanel === "chats" ? (
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           ) : (
-            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} />
+            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); handleOpenFile("link.md"); }} />
           )}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
@@ -342,27 +455,17 @@ export default function App() {
                 className={rightPanelBtnClass(chatHide)}
                 title="Files (Ctrl+`)"
               >
-                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 0v3a1.5 1.5 0 0 0 1.5 1.5h3"/>
                 </svg>
               </button>
               <button
-                onClick={() => { setChatHide(false); setBottomTab("chat"); }}
-                className={rightPanelBtnClass(!chatHide && bottomTab === "chat")}
+                onClick={() => setChatHide(false)}
+                className={rightPanelBtnClass(!chatHide)}
                 title="Chat"
               >
                 <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
-                </svg>
-              </button>
-              <button
-                onClick={() => { setChatHide(false); setBottomTab("terminal"); }}
-                className={rightPanelBtnClass(!chatHide && bottomTab === "terminal")}
-                title="Terminal"
-              >
-                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <polyline points="2,4 6,7 2,10" />
-                  <line x1="7" y1="11" x2="12" y2="11" />
                 </svg>
               </button>
               <div className="w-px h-4 bg-sol-base02 mx-0.5" />
@@ -376,78 +479,43 @@ export default function App() {
                   <line x1="2" y1="7" x2="12" y2="7" />
                 </svg>
               </button>
-              {rightPanelCollapsed && (
-                <>
-                  <div className="w-px h-4 bg-sol-base02 mx-0.5" />
-                  <button
-                    onClick={() => setRightPanelCollapsed(false)}
-                    className="hidden sm:block p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
-                    title="Show right panel"
-                  >
-                    <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M14 1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zm-1 12h-3V3h3v10zM2 3h7v10H2V3z"/>
-                    </svg>
-                  </button>
-                </>
-              )}
             </div>
-            {/* Center content: FileViewer / ChatView / TerminalView */}
+            {/* Center top: FileViewer / ChatView */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
-              <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : bottomTab === "chat" ? "" : "invisible pointer-events-none"}`}>
+              <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
                 {/* Chat header: VM, workdir, trace_id, chat_id, skill, refresh */}
                 <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                  {/* VM selector */}
-                  <div className="relative shrink-0" ref={vmDropdownRef}>
-                    <button
-                      onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
-                      className={`inline-flex items-center gap-1 shrink-0 p-0 bg-transparent border-0 ${selectedChatId ? "text-sol-base01 cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
-                      title={`VM: ${selectedVM || "default"}`}
-                    >
-                      <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h5v2H5a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H9v-2h5a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2z"/></svg>
-                      <span className="text-[0.65rem]">{selectedVM || "default"}</span>
-                    </button>
-                    {vmDropdownOpen && (
-                      <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
-                        <button
-                          onClick={() => { setSelectedVM(null); setSelectedChatId(null); setVmDropdownOpen(false); }}
-                          className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                        >
-                          default
-                        </button>
-                        {vmList.filter((vm) => vm.name !== "default").map((vm) => (
-                          <button
-                            key={vm.name}
-                            onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setVmDropdownOpen(false); }}
-                            className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                          >
-                            {vm.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* Work dir */}
-                  <span className="inline-flex items-center gap-1 min-w-0 text-[0.65rem]">
-                    <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
-                    <span className="hidden sm:inline truncate min-w-0">{effectiveWorkDir}</span>
-                  </span>
                   {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
                   {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                   {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setBottomTab("chat"); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-              </div>
-              {/* Terminal (kept mounted, toggled via CSS) */}
-              <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : bottomTab === "terminal" ? "" : "invisible pointer-events-none"}`}>
-                <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
+            {/* Bottom panel: Terminal (VS Code style) */}
+            {!bottomPanelCollapsed && (
+              <>
+                {/* Resize handle */}
+                <div
+                  className="hidden md:block h-1 cursor-row-resize shrink-0 group relative"
+                  onPointerDown={handleBottomPanelResizeStart}
+                >
+                  <div className="absolute inset-x-0 top-0 h-1 hover:bg-sol-blue/40 active:bg-sol-blue/60" />
+                </div>
+                <div
+                  className="hidden md:flex shrink-0 border-t border-sol-base02 bg-sol-base03 overflow-hidden flex-col"
+                  style={{ height: bottomPanelHeight }}
+                >
+                  <TerminalView isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} />
+                </div>
+              </>
+            )}
           </div>
           {/* Right panel (scoped views, always visible independent of chatHide) */}
           {!rightPanelCollapsed && (
@@ -499,9 +567,9 @@ export default function App() {
                 ) : rightPanel === "git" ? (
                   <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
                 ) : rightPanel === "chats" ? (
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { const virtualPath = `link:${link.activity_id}:${link.title || link.base_url}`; handleOpenFile(virtualPath); }} todoId={chatListTraceId} hideFilters />
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 )}
               </div>
             </div>
@@ -520,7 +588,7 @@ export default function App() {
             `}
             style={{ width: rightPanelWidth }}
           >
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); setBottomTab("chat"); }} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           </div>
         </div>
       </div>
