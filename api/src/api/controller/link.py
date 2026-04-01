@@ -50,15 +50,15 @@ async def list_links(
     todo_id: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
-    link_ids = None
+    activity_ids = None
     if todo_id:
         from storage.repository.link_todo_relation import list_by_todo
-        link_ids = list_by_todo(user_id, todo_id)
-        if not link_ids:
+        activity_ids = list_by_todo(user_id, todo_id)
+        if not activity_ids:
             return []
     links = link_service.list_links(
         user_id, start=start, end=end, query=query,
-        limit=limit, offset=offset, link_ids=link_ids,
+        limit=limit, offset=offset, activity_ids=activity_ids,
     )
     return [l.to_dict() for l in links]
 
