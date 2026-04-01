@@ -25,7 +25,9 @@ interface FileViewerProps {
   diffFiles?: Set<string>;
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
+  selectedLinkId?: string | null;
   onSelectChat?: (chatId: string) => void;
+  onPreviewLink?: (activityId: string) => void;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -222,21 +224,19 @@ async function fetchLinkContent(activityId: string): Promise<string> {
   return data.content;
 }
 
-function LinkContentView({ filePath, cache, setCache, raw }: { filePath: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean }) {
-  const fileData = cache[filePath];
+function LinkContentView({ activityId, cache, setCache, raw }: { activityId: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean }) {
+  const cacheKey = `link:${activityId}`;
+  const fileData = cache[cacheKey];
 
   useEffect(() => {
+    if (!activityId) return;
     if (fileData && !fileData.error) return;
-    // Parse activity_id from link:{activity_id}:{title}
-    const parts = filePath.replace(/^\.\//, "").slice(5); // remove "link:"
-    const colonIdx = parts.indexOf(":");
-    const activityId = colonIdx >= 0 ? parts.slice(0, colonIdx) : parts;
 
-    setCache((prev) => ({ ...prev, [filePath]: { loading: true } }));
+    setCache((prev) => ({ ...prev, [cacheKey]: { loading: true } }));
     fetchLinkContent(activityId)
-      .then((content) => setCache((prev) => ({ ...prev, [filePath]: { content, loading: false } })))
-      .catch((e) => setCache((prev) => ({ ...prev, [filePath]: { loading: false, error: e.message } })));
-  }, [filePath, fileData, setCache]);
+      .then((content) => setCache((prev) => ({ ...prev, [cacheKey]: { content, loading: false } })))
+      .catch((e) => setCache((prev) => ({ ...prev, [cacheKey]: { loading: false, error: e.message } })));
+  }, [activityId, fileData, setCache, cacheKey]);
 
   if (!fileData || fileData.loading) {
     return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
@@ -245,12 +245,12 @@ function LinkContentView({ filePath, cache, setCache, raw }: { filePath: string;
     return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
   }
   if (fileData.content !== undefined) {
-    return raw ? <FileContentTable filePath={filePath} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />;
+    return raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />;
   }
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, onSelectChat }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, onSelectChat, onPreviewLink }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -268,7 +268,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isTrace = !isDiff && activeFileName === "trace.md";
   const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
-  const isLinkPreview = !isDiff && !isTrace && activeFileName.startsWith("link:");
+  const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
@@ -414,7 +414,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onClick={() => onSelectFile(filePath)}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : filePath.startsWith("link:") ? (() => { const parts = filePath.slice(5); const colonIdx = parts.indexOf(":"); return colonIdx >= 0 ? parts.slice(colonIdx + 1) : parts; })() : getFileName(filePath)}</span>
+            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -523,7 +523,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileTrace = !fileDiff && fileName === "trace.md";
           const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
-          const fileLinkPreview = !fileDiff && !fileTrace && fileName.startsWith("link:");
+          const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
@@ -541,13 +541,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileTrace ? (
-                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} onSelectChat={onSelectChat} onPreviewLink={onSelectFile} />
+                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} />
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />
               ) : fileLinkPreview ? (
-                <LinkContentView filePath={filePath} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} />
+                <LinkContentView activityId={selectedLinkId || ""} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
