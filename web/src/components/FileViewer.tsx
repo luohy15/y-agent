@@ -26,6 +26,7 @@ interface FileViewerProps {
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
   selectedLinkId?: string | null;
+  selectedLinkContentKey?: string | null;
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
 }
@@ -250,7 +251,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, onSelectChat, onPreviewLink }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -446,6 +447,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {todoViewMode === "table" ? "Kanban" : "Table"}
             </button>
           )}
+          {isLinkPreview && selectedLinkContentKey && (
+            <span className="text-sol-base01 text-[0.6rem] ml-2 shrink-0">
+              {selectedLinkContentKey}
+            </span>
+          )}
           {isLinkPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
@@ -483,7 +489,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               )}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && (
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"

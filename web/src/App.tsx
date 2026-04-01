@@ -52,6 +52,7 @@ export default function App() {
   const [chatSkill, setChatSkill] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
+  const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
   const [chatListSpinning, setChatListSpinning] = useState(false);
@@ -435,7 +436,7 @@ export default function App() {
           ) : sidebarPanel === "chats" ? (
             <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           ) : (
-            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); handleOpenFile("link.md"); }} />
+            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           )}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
@@ -484,7 +485,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -569,7 +570,7 @@ export default function App() {
                 ) : rightPanel === "chats" ? (
                   <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 )}
               </div>
             </div>
