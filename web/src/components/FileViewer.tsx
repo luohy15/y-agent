@@ -68,7 +68,7 @@ function FileContentTable({ filePath, content }: { filePath: string; content: st
     }
   }, [content, filePath]);
 
-  const lines = content.split("\n");
+  const lines = (content ?? "").split("\n");
   const highlightedLines = highlightedHtml?.split("\n");
 
   return (
@@ -119,7 +119,7 @@ function MarkdownPreview({ content }: { content: string }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const headings = useMemo(() => {
-    const lines = content.split("\n");
+    const lines = (content ?? "").split("\n");
     const result: { text: string; id: string }[] = [];
     for (const line of lines) {
       const m = line.match(/^## (.+)/);
