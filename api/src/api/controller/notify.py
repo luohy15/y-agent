@@ -38,8 +38,10 @@ async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
     # Resolve target chat: explicit chat_id > skill+trace lookup > new
+    # DM special case: always resolve to latest DM chat (ignore explicit chat_id)
+    # because DM sessions restart frequently and stale chat_ids would miss the active session
     existing_chat = None
-    if req.chat_id:
+    if req.chat_id and req.skill != 'DM':
         existing_chat = await chat_service.get_chat_by_id(req.chat_id)
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
