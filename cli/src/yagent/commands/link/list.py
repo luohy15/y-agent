@@ -28,7 +28,8 @@ def _parse_time(value):
 @click.option('--end', '-e', default=None, help='End time: today, yesterday, 3d, or YYYY-MM-DD')
 @click.option('--limit', '-l', default=10000, help='Max raw activities from API')
 @click.option('--todo', '-t', default=None, help='Filter by todo ID')
-def link_list(query, start, end, limit, todo):
+@click.option('--show-id', is_flag=True, default=False, help='Show activity_id in output')
+def link_list(query, start, end, limit, todo, show_id):
     """List browser history links."""
     params = {"limit": limit}
     if query is not None:
@@ -50,4 +51,7 @@ def link_list(query, start, end, limit, todo):
         local_tz = _get_configured_tz()
         time = datetime.fromtimestamp(l["timestamp"] / 1000, tz=local_tz).strftime("%H:%M")
         title = l.get("title") or "-"
-        click.echo(f"[{time}] {title} {l['base_url']}")
+        if show_id:
+            click.echo(f"[{time}] ({l['activity_id']}) {title} {l['base_url']}")
+        else:
+            click.echo(f"[{time}] {title} {l['base_url']}")
