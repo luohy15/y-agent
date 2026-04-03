@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
@@ -23,14 +23,17 @@ class _CmdRunner(Tool):
 async def _exec(user_id: int, cmd: list[str], timeout: float = 30, vm_name: str = None) -> str:
     vm_config = resolve_vm_config(user_id, vm_name)
     runner = _CmdRunner(vm_config)
-    return await runner.run_cmd(cmd, timeout=timeout)
+    try:
+        return await runner.run_cmd(cmd, timeout=timeout)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 def _parse_json(output: str):
     try:
         return json.loads(output)
     except json.JSONDecodeError:
-        raise ValueError(f"Script failed:\n{output}")
+        raise HTTPException(status_code=502, detail=f"Script failed:\n{output}")
 
 
 def _beancount_cmd(subcommand: str, time: str, history: bool, granularity: str, convert: str) -> list[str]:
