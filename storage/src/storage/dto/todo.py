@@ -38,6 +38,7 @@ class Todo:
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
     priority: Optional[str] = None
+    pinned: bool = False
     status: str = "pending"
     progress: Optional[str] = None
     completed_at: Optional[str] = None
@@ -59,6 +60,7 @@ class Todo:
             tags=data.get('tags'),
             due_date=data.get('due_date'),
             priority=data.get('priority'),
+            pinned=data.get('pinned', False),
             status=data.get('status', 'pending'),
             progress=data.get('progress'),
             completed_at=data.get('completed_at'),
@@ -73,6 +75,7 @@ class Todo:
         result = {
             'todo_id': self.todo_id,
             'name': self.name,
+            'pinned': self.pinned,
             'status': self.status,
         }
         if self.desc is not None:

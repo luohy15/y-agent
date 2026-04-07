@@ -25,6 +25,7 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         tags=entity.tags,
         due_date=entity.due_date,
         priority=entity.priority,
+        pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
         progress=entity.progress,
         completed_at=entity.completed_at,
@@ -53,6 +54,7 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
                 else_=1,
             )
             query = query.order_by(
+                TodoEntity.pinned.desc(),
                 is_soon.asc(),
                 case((is_soon == 0, TodoEntity.due_date), else_=None).asc(),
                 case((is_soon == 1, _PRIORITY_ORDER), else_=None).asc(),
@@ -61,10 +63,10 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
         elif status == "active":
             # active: due_date asc (nulls last), priority asc, updated_at desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
-            query = query.order_by(due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
+            query = query.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
         else:
             # completed or no filter: updated_at desc
-            query = query.order_by(TodoEntity.updated_at.desc())
+            query = query.order_by(TodoEntity.pinned.desc(), TodoEntity.updated_at.desc())
         query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]
 
@@ -86,6 +88,7 @@ def save_todo(user_id: int, todo: Todo) -> Todo:
             tags=todo.tags,
             due_date=todo.due_date,
             priority=todo.priority,
+            pinned=todo.pinned,
             status=todo.status,
             progress=todo.progress,
             completed_at=todo.completed_at,

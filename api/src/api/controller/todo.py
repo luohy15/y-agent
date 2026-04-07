@@ -77,6 +77,20 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     return todo.to_dict()
 
 
+class PinTodoRequest(BaseModel):
+    todo_id: str
+    pinned: bool
+
+
+@router.post("/pin")
+async def pin_todo(req: PinTodoRequest, request: Request):
+    user_id = _get_user_id(request)
+    todo = todo_service.pin_todo(user_id, req.todo_id, req.pinned)
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return todo.to_dict()
+
+
 class UpdateStatusRequest(BaseModel):
     todo_id: str
     status: str

@@ -23,9 +23,10 @@ def todo_list(status, priority, limit):
 
     table = []
     for t in todos:
+        pin_marker = "[P] " if t.get("pinned") else ""
         table.append([
             t["todo_id"],
-            t["name"],
+            f"{pin_marker}{t['name']}",
             t["status"],
             t.get("priority") or "-",
             t.get("due_date") or "-",

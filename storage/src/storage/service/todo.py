@@ -69,6 +69,22 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     return todo
 
 
+def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
+    todo = todo_repo.get_todo(user_id, todo_id)
+    if not todo:
+        return None
+    todo.pinned = pinned
+    history = todo.history or []
+    action = "pinned" if pinned else "unpinned"
+    history.append(TodoHistoryEntry(
+        timestamp=get_utc_iso8601_timestamp(),
+        unix_timestamp=get_unix_timestamp(),
+        action=action,
+    ))
+    todo.history = history
+    return todo_repo.save_todo(user_id, todo)
+
+
 STATUS_ACTION = {
     "pending": "deactivated",
     "active": "activated",

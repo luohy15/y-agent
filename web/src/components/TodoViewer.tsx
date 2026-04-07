@@ -5,6 +5,7 @@ import { API, authFetch, clearToken } from "../api";
 interface Todo {
   todo_id: string;
   name: string;
+  pinned?: boolean;
   desc?: string;
   tags?: string[];
   due_date?: string;
@@ -88,12 +89,13 @@ function ActivityHistory({ todos, collapsed, onToggle }: { todos: Todo[]; collap
 function KanbanCard({ t, className, draggable, onDragStart, onClickName }: { t: Todo; className?: string; draggable?: boolean; onDragStart?: (e: DragEvent) => void; onClickName?: () => void }) {
   return (
     <div
-      className={`bg-sol-base02 rounded p-2 border border-sol-base01/20 ${className || ""}`}
+      className={`bg-sol-base02 rounded p-2 border ${t.pinned ? "border-sol-yellow/40" : "border-sol-base01/20"} ${className || ""}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
       <div className="flex items-start justify-between">
         <span className="text-sol-base1 text-sm sm:text-xs font-medium leading-tight">
+          {t.pinned && <span className="text-sol-yellow mr-0.5" title="Pinned">{"\u{1F4CC}"}</span>}
           <span className="text-sol-base01 mr-1 cursor-pointer hover:text-sol-blue" onClick={() => navigator.clipboard.writeText(t.todo_id)} title="Copy ID">#{t.todo_id}</span>
           {onClickName ? (
             <span className="cursor-pointer hover:text-sol-blue" onClick={onClickName}>{t.name}</span>
@@ -115,6 +117,15 @@ function KanbanCard({ t, className, draggable, onDragStart, onClickName }: { t: 
   );
 }
 
+async function togglePin(todoId: string, pinned: boolean): Promise<boolean> {
+  const res = await authFetch(`${API}/api/todo/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ todo_id: todoId, pinned }),
+  });
+  return res.ok;
+}
+
 function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(t.name);
   const [desc, setDesc] = useState(t.desc || "");
@@ -123,6 +134,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
   const [tags, setTags] = useState(t.tags?.join(", ") || "");
   const [progress, setProgress] = useState(t.progress || "");
   const [saving, setSaving] = useState(false);
+  const [pinning, setPinning] = useState(false);
 
   const dirty = name !== t.name || desc !== (t.desc || "") || dueDate !== (t.due_date || "") || priority !== (t.priority || "") || tags !== (t.tags?.join(", ") || "") || progress !== (t.progress || "");
 
@@ -180,6 +192,14 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
         <label className="text-sol-base01 pt-1">Status</label>
         <div className="flex items-center gap-1.5">
           <span className={`px-1.5 py-0.5 rounded text-xs ${statusColor[t.status] || "bg-sol-base02 text-sol-base0"}`}>{t.status}</span>
+          <button
+            onClick={async () => { setPinning(true); const ok = await togglePin(t.todo_id, !t.pinned); setPinning(false); if (ok) onSaved(); }}
+            disabled={pinning}
+            className={`px-1.5 py-0.5 rounded text-xs cursor-pointer border ${t.pinned ? "bg-sol-yellow/20 text-sol-yellow border-sol-yellow/30" : "bg-sol-base02 text-sol-base01 border-sol-base01/30 hover:text-sol-base0"}`}
+            title={t.pinned ? "Unpin" : "Pin"}
+          >
+            {pinning ? "..." : t.pinned ? "\u{1F4CC} Pinned" : "Pin"}
+          </button>
           {t.updated_at && <span className="text-sol-base01 text-xs">updated {new Date(t.updated_at).toLocaleString()}</span>}
         </div>
       </div>
@@ -525,7 +545,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
                 <Fragment key={t.todo_id}>
                   <tr
                     id={`todo-row-${t.todo_id}`}
-                    className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""}`}
+                    className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""} ${t.pinned ? "border-l-2 border-l-sol-yellow" : ""}`}
                   >
                     <td
                       className="py-1 px-1.5 text-sol-base01 cursor-pointer hover:text-sol-blue"
@@ -536,7 +556,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
                     <td
                       className="py-1 px-1.5 text-sol-base0 cursor-pointer hover:text-sol-blue"
                       onClick={() => setExpandedId(expandedId === t.todo_id ? null : t.todo_id)}
-                    >{t.name}</td>
+                    >{t.pinned && <span className="text-sol-yellow mr-1" title="Pinned">{"\u{1F4CC}"}</span>}{t.name}</td>
                     <td className="py-1 px-1.5">
                       <span className={`px-2 py-0.5 rounded text-xs ${statusColor[t.status] || "bg-sol-base02 text-sol-base0"}`}>
                         {t.status}
