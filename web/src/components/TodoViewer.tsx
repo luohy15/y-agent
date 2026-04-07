@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, Fragment, DragEvent } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment, DragEvent } from "react";
 import useSWR, { mutate } from "swr";
+import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 
 interface Todo {
@@ -398,23 +399,50 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   const sortKey = sortState[bottomFilter].key;
   const sortDir = sortState[bottomFilter].dir;
 
-  const bottomParam = bottomFilter === "all" ? "" : `?status=${bottomFilter}`;
-  const { data: bottomTodos, isLoading, error } = useSWR<Todo[]>(
-    `${API}/api/todo/list${bottomParam}`,
-    fetcher,
+  const [nameFilter, setNameFilter] = useState("");
+
+  const TABLE_PAGE_SIZE = 50;
+  const bottomStatusParam = bottomFilter === "all" ? "" : `&status=${bottomFilter}`;
+  const nameQueryParam = nameFilter.trim() ? `&query=${encodeURIComponent(nameFilter.trim())}` : "";
+  const getTableKey = (pageIndex: number, previousPageData: Todo[] | null) => {
+    if (previousPageData && previousPageData.length < TABLE_PAGE_SIZE) return null;
+    return `${API}/api/todo/list?offset=${pageIndex * TABLE_PAGE_SIZE}&limit=${TABLE_PAGE_SIZE}${bottomStatusParam}${nameQueryParam}`;
+  };
+  const { data: bottomPages, isLoading, error, size: tableSize, setSize: setTableSize, isValidating: tableValidating } = useSWRInfinite<Todo[]>(getTableKey, fetcher);
+  const bottomTodos = bottomPages ? bottomPages.flat() : undefined;
+  const tableReachingEnd = bottomPages && bottomPages[bottomPages.length - 1]?.length < TABLE_PAGE_SIZE;
+
+  const tableObserver = useRef<IntersectionObserver | null>(null);
+  const tableSentinelRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (tableValidating) return;
+      if (tableObserver.current) tableObserver.current.disconnect();
+      tableObserver.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !tableReachingEnd) {
+          setTableSize((s) => s + 1);
+        }
+      });
+      if (node) tableObserver.current.observe(node);
+    },
+    [tableValidating, tableReachingEnd, setTableSize],
   );
 
-  // Kanban fetches all non-deleted todos
+  useEffect(() => {
+    setTableSize(1);
+  }, [bottomFilter, nameFilter, setTableSize]);
+
+  // Kanban fetches all non-deleted todos (high limit per status)
+  const kanbanQueryParam = nameFilter.trim() ? `&query=${encodeURIComponent(nameFilter.trim())}` : "";
   const { data: kanbanPending } = useSWR<Todo[]>(
-    viewMode === "kanban" ? `${API}/api/todo/list?status=pending` : null,
+    viewMode === "kanban" ? `${API}/api/todo/list?status=pending&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
   const { data: kanbanActive } = useSWR<Todo[]>(
-    viewMode === "kanban" ? `${API}/api/todo/list?status=active` : null,
+    viewMode === "kanban" ? `${API}/api/todo/list?status=active&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
   const { data: kanbanCompleted } = useSWR<Todo[]>(
-    viewMode === "kanban" ? `${API}/api/todo/list?status=completed` : null,
+    viewMode === "kanban" ? `${API}/api/todo/list?status=completed&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
   const kanbanTodos = viewMode === "kanban"
@@ -425,9 +453,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
     mutate((key: string) => typeof key === "string" && key.includes("/api/todo/"), undefined, { revalidate: true });
   };
 
-  const [nameFilter, setNameFilter] = useState("");
-  const filteredTodos = bottomTodos?.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
-  const sortedTodos = filteredTodos ? sortTodos(filteredTodos, sortKey, sortDir) : undefined;
+  const sortedTodos = bottomTodos ? sortTodos(bottomTodos, sortKey, sortDir) : undefined;
 
   useEffect(() => {
     if (scrollToId.current && sortedTodos) {
@@ -464,7 +490,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   const extraColClass = "hidden md:table-cell";
   const colCount = 7;
 
-  const filteredKanbanTodos = kanbanTodos.filter((t) => !nameFilter || t.name.toLowerCase().includes(nameFilter.toLowerCase()));
+  const filteredKanbanTodos = kanbanTodos;
 
   // Collect all loaded todos for activity history
   const allTodosForHistory = viewMode === "kanban" ? kanbanTodos : (bottomTodos || []);
@@ -585,6 +611,11 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
               ))}
             </tbody>
           </table>
+        )}
+        {sortedTodos && sortedTodos.length > 0 && !tableReachingEnd && (
+          <div ref={tableSentinelRef} className="py-2 text-center text-sol-base01 italic text-xs">
+            {tableValidating ? "Loading..." : ""}
+          </div>
         )}
       </div>
       {modalTodo && (
