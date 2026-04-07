@@ -31,6 +31,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
   const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
+  const [contextUsage, setContextUsage] = useState<{ used: number; window: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
@@ -89,6 +90,12 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         onWorkDirChange?.(wd);
         onSkillChange?.(data.skill ?? null);
         onTraceIdChange?.(data.trace_id ?? null);
+        if (data.context_window) {
+          const used = (data.input_tokens || 0) + (data.output_tokens || 0) + (data.cache_read_input_tokens || 0) + (data.cache_creation_input_tokens || 0);
+          setContextUsage({ used, window: data.context_window });
+        } else {
+          setContextUsage(null);
+        }
       })
       .catch(() => {});
   }, [chatId, completed, onWorkDirChange]);
@@ -304,6 +311,21 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     );
   }
 
+  const formatTokens = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n);
+
+  const contextBadge = contextUsage ? (() => {
+    const pct = Math.min(100, Math.round((contextUsage.used / contextUsage.window) * 100));
+    const color = pct >= 80 ? "bg-sol-red" : pct >= 50 ? "bg-sol-yellow" : "bg-sol-green";
+    return (
+      <span className="inline-flex items-center gap-1.5 font-mono px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01" title={`${formatTokens(contextUsage.used)} / ${formatTokens(contextUsage.window)} context`}>
+        <span className="relative w-12 h-1.5 rounded-full bg-sol-base01/30 overflow-hidden">
+          <span className={`absolute inset-y-0 left-0 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        </span>
+        {pct}%
+      </span>
+    );
+  })() : null;
+
   const processDetailButtons = (
     <button
       onClick={() => { const next = !showProgress; setShowProgress(next); localStorage.setItem("showProgress", String(next)); }}
@@ -333,6 +355,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       {!completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
+          {contextBadge}
           <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
@@ -347,6 +370,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           autoFocus
           extraButtons={<>
             {processDetailButtons}
+            {contextBadge}
             <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
           </>}
         />

@@ -315,12 +315,19 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         )
         cb(error_msg)
 
-    # Save session_id for future resume
+    # Save session_id and token usage
     # Reload fresh chat from DB to avoid overwriting messages appended via callback
-    if result.session_id:
+    if result.session_id or result.input_tokens is not None:
         fresh_chat = await chat_service.get_chat_by_id(chat_id)
         if fresh_chat:
-            fresh_chat.external_id = result.session_id
+            if result.session_id:
+                fresh_chat.external_id = result.session_id
+            if result.input_tokens is not None:
+                fresh_chat.input_tokens = result.input_tokens
+                fresh_chat.output_tokens = result.output_tokens
+                fresh_chat.cache_read_input_tokens = result.cache_read_input_tokens
+                fresh_chat.cache_creation_input_tokens = result.cache_creation_input_tokens
+                fresh_chat.context_window = result.context_window
             from storage.repository import chat as chat_repo
             await chat_repo.save_chat_by_id(fresh_chat)
 

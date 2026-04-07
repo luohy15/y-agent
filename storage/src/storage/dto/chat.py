@@ -137,6 +137,11 @@ class Chat:
     interrupted: bool = False
     running: bool = False
     post_hooks: Optional[List[Dict]] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_read_input_tokens: Optional[int] = None
+    cache_creation_input_tokens: Optional[int] = None
+    context_window: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -160,6 +165,11 @@ class Chat:
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
             post_hooks=data.get('post_hooks'),
+            input_tokens=data.get('input_tokens'),
+            output_tokens=data.get('output_tokens'),
+            cache_read_input_tokens=data.get('cache_read_input_tokens'),
+            cache_creation_input_tokens=data.get('cache_creation_input_tokens'),
+            context_window=data.get('context_window'),
         )
 
     def to_dict(self) -> Dict:
@@ -193,6 +203,16 @@ class Chat:
             result['running'] = self.running
         if self.post_hooks:
             result['post_hooks'] = self.post_hooks
+        if self.input_tokens is not None:
+            result['input_tokens'] = self.input_tokens
+        if self.output_tokens is not None:
+            result['output_tokens'] = self.output_tokens
+        if self.cache_read_input_tokens is not None:
+            result['cache_read_input_tokens'] = self.cache_read_input_tokens
+        if self.cache_creation_input_tokens is not None:
+            result['cache_creation_input_tokens'] = self.cache_creation_input_tokens
+        if self.context_window is not None:
+            result['context_window'] = self.context_window
         return result
 
     def update_messages(self, messages: List[Message]) -> None:
