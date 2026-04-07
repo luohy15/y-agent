@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import useSWR from "swr";
+import { useState, useEffect, useCallback, useRef } from "react";
+import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 
@@ -22,6 +22,8 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
+const PAGE_SIZE = 50;
+
 type StatusFilter = "pending" | "active" | "completed" | "all";
 
 interface TodoListProps {
@@ -39,15 +41,38 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
   });
   useEffect(() => { localStorage.setItem("todoListStatusFilter", statusFilter); }, [statusFilter]);
 
-  const statusParam = statusFilter === "all" ? "" : `?status=${statusFilter}`;
-  const { data: todos, isLoading, error, mutate } = useSWR<Todo[]>(
-    isLoggedIn ? `${API}/api/todo/list${statusParam}` : null,
-    fetcher,
+  const statusParam = statusFilter === "all" ? "" : `&status=${statusFilter}`;
+  const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
+
+  const getKey = (pageIndex: number, previousPageData: Todo[] | null) => {
+    if (!isLoggedIn) return null;
+    if (previousPageData && previousPageData.length < PAGE_SIZE) return null;
+    return `${API}/api/todo/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${statusParam}${queryParam}`;
+  };
+
+  const { data, isLoading, error, size, setSize, isValidating, mutate } = useSWRInfinite<Todo[]>(getKey, fetcher);
+
+  const todos = data ? data.flat() : [];
+  const isReachingEnd = data && data[data.length - 1]?.length < PAGE_SIZE;
+
+  const observer = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (isValidating) return;
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !isReachingEnd) {
+          setSize((s) => s + 1);
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [isValidating, isReachingEnd, setSize],
   );
 
-  const filtered = todos?.filter(
-    (t) => !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.todo_id.includes(search),
-  );
+  useEffect(() => {
+    setSize(1);
+  }, [statusFilter, search, setSize]);
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
@@ -91,37 +116,44 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
           <p className="text-sol-base01 italic p-2">Error loading todos</p>
-        ) : !filtered || filtered.length === 0 ? (
+        ) : todos.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No todos</p>
         ) : (
-          filtered.map((t) => (
-            <div
-              key={t.todo_id}
-              onClick={() => onSelectTodo(t.todo_id)}
-              className="px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(t.todo_id); else navigator.clipboard.writeText(t.todo_id); }}
-                  className={`text-[0.6rem] cursor-pointer ${TRACE_BADGE}`}
-                  title="View trace"
-                >
-                  #{t.todo_id}
-                </button>
-                {t.pinned && <span className="text-sol-yellow text-[0.6rem] shrink-0" title="Pinned">{"\u{1F4CC}"}</span>}
-                <span className="truncate text-sol-base0 text-[0.7rem]">{t.name}</span>
+          <>
+            {todos.map((t) => (
+              <div
+                key={t.todo_id}
+                onClick={() => onSelectTodo(t.todo_id)}
+                className="px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(t.todo_id); else navigator.clipboard.writeText(t.todo_id); }}
+                    className={`text-[0.6rem] cursor-pointer ${TRACE_BADGE}`}
+                    title="View trace"
+                  >
+                    #{t.todo_id}
+                  </button>
+                  {t.pinned && <span className="text-sol-yellow text-[0.6rem] shrink-0" title="Pinned">{"\u{1F4CC}"}</span>}
+                  <span className="truncate text-sol-base0 text-[0.7rem]">{t.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
+                  <span className={`px-1 rounded ${statusBadgeClass(t.status)}`}>
+                    {t.status}
+                  </span>
+                  {t.priority && (
+                    <span className={priorityColorClass(t.priority)}>{t.priority}</span>
+                  )}
+                  {t.due_date && <span>{t.due_date}</span>}
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
-                <span className={`px-1 rounded ${statusBadgeClass(t.status)}`}>
-                  {t.status}
-                </span>
-                {t.priority && (
-                  <span className={priorityColorClass(t.priority)}>{t.priority}</span>
-                )}
-                {t.due_date && <span>{t.due_date}</span>}
+            ))}
+            {!isReachingEnd && (
+              <div ref={sentinelRef} className="py-2 text-center text-sol-base01 italic">
+                {isValidating ? "Loading..." : ""}
               </div>
-            </div>
-          ))
+            )}
+          </>
         )}
       </div>
     </div>

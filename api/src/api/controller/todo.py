@@ -39,10 +39,12 @@ async def list_todos(
     request: Request,
     status: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
     limit: int = Query(50),
+    offset: int = Query(0),
 ):
     user_id = _get_user_id(request)
-    todos = todo_service.list_todos(user_id, status=status, priority=priority, limit=limit)
+    todos = todo_service.list_todos(user_id, status=status, priority=priority, query=query, limit=limit, offset=offset)
     return [t.to_dict() for t in todos]
 
 

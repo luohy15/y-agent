@@ -37,13 +37,18 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
     )
 
 
-def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, limit: int = 50) -> List[Todo]:
+def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
     with get_db() as session:
-        query = session.query(TodoEntity).filter_by(user_id=user_id)
+        q = session.query(TodoEntity).filter_by(user_id=user_id)
         if status:
-            query = query.filter_by(status=status)
+            q = q.filter_by(status=status)
         if priority:
-            query = query.filter_by(priority=priority)
+            q = q.filter_by(priority=priority)
+        if query:
+            pattern = f"%{query}%"
+            q = q.filter(
+                TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+            )
         if status == "pending":
             # pending: two-group sorting
             # Group 0: has due_date within today + 14 days → sort by due_date ASC
@@ -53,7 +58,7 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
                 (TodoEntity.due_date.isnot(None) & (TodoEntity.due_date != "") & (TodoEntity.due_date <= cutoff), 0),
                 else_=1,
             )
-            query = query.order_by(
+            q = q.order_by(
                 TodoEntity.pinned.desc(),
                 is_soon.asc(),
                 case((is_soon == 0, TodoEntity.due_date), else_=None).asc(),
@@ -63,12 +68,12 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
         elif status == "active":
             # active: due_date asc (nulls last), priority asc, updated_at desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
-            query = query.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
+            q = q.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
         else:
             # completed or no filter: updated_at desc
-            query = query.order_by(TodoEntity.pinned.desc(), TodoEntity.updated_at.desc())
-        query = query.limit(limit)
-        return [_entity_to_dto(row) for row in query.all()]
+            q = q.order_by(TodoEntity.pinned.desc(), TodoEntity.updated_at.desc())
+        q = q.offset(offset).limit(limit)
+        return [_entity_to_dto(row) for row in q.all()]
 
 
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
