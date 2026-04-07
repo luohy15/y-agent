@@ -31,7 +31,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
   const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
-  const [contextUsage, setContextUsage] = useState<{ used: number; window: number } | null>(null);
+  const [contextUsage, setContextUsage] = useState<{ used: number; window: number; input: number; output: number; cacheRead: number; cacheCreation: number } | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
   const inputRef = useRef<ChatInputHandle | null>(null);
@@ -91,8 +91,12 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         onSkillChange?.(data.skill ?? null);
         onTraceIdChange?.(data.trace_id ?? null);
         if (data.context_window) {
-          const used = (data.input_tokens || 0) + (data.output_tokens || 0) + (data.cache_read_input_tokens || 0) + (data.cache_creation_input_tokens || 0);
-          setContextUsage({ used, window: data.context_window });
+          const input = data.input_tokens || 0;
+          const output = data.output_tokens || 0;
+          const cacheRead = data.cache_read_input_tokens || 0;
+          const cacheCreation = data.cache_creation_input_tokens || 0;
+          const used = input + output + cacheRead + cacheCreation;
+          setContextUsage({ used, window: data.context_window, input, output, cacheRead, cacheCreation });
         } else {
           setContextUsage(null);
         }
@@ -317,7 +321,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     const pct = Math.min(100, Math.round((contextUsage.used / contextUsage.window) * 100));
     const color = pct >= 80 ? "bg-sol-red" : pct >= 50 ? "bg-sol-yellow" : "bg-sol-green";
     return (
-      <span className="inline-flex items-center gap-1.5 font-mono px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01" title={`${formatTokens(contextUsage.used)} / ${formatTokens(contextUsage.window)} context`}>
+      <span className="inline-flex items-center gap-1.5 font-mono px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01" title={`${formatTokens(contextUsage.used)} / ${formatTokens(contextUsage.window)} context\nInput: ${formatTokens(contextUsage.input)}\nOutput: ${formatTokens(contextUsage.output)}\nCache read: ${formatTokens(contextUsage.cacheRead)}\nCache creation: ${formatTokens(contextUsage.cacheCreation)}`}>
         <span className="relative w-12 h-1.5 rounded-full bg-sol-base01/30 overflow-hidden">
           <span className={`absolute inset-y-0 left-0 rounded-full ${color}`} style={{ width: `${pct}%` }} />
         </span>
