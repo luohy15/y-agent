@@ -475,16 +475,18 @@ async def _run_claude_process(
         if status == "error":
             logger.error("claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
         model_usage = result_data.get("modelUsage", {})
+        num_turns = result_data.get("num_turns") or 1
         return ClaudeCodeResult(
             status=status,
             session_id=result_data.get("session_id") or session_id,
             result_text=result_data.get("result"),
             cost_usd=result_data.get("total_cost_usd"),
-            num_turns=result_data.get("num_turns"),
-            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            num_turns=num_turns,
+            # modelUsage sums across all turns; divide by num_turns to approximate per-turn (current context) usage
+            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
             context_window=max((v.get("contextWindow", 0) for v in model_usage.values()), default=None) if model_usage else None,
         )
 
@@ -635,16 +637,18 @@ async def _run_claude_ssh(
         if status == "error":
             logger.error("ssh claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
         model_usage = result_data.get("modelUsage", {})
+        num_turns = result_data.get("num_turns") or 1
         return ClaudeCodeResult(
             status=status,
             session_id=result_data.get("session_id") or session_id,
             result_text=result_data.get("result"),
             cost_usd=result_data.get("total_cost_usd"),
-            num_turns=result_data.get("num_turns"),
-            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) if model_usage else None,
-            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            num_turns=num_turns,
+            # modelUsage sums across all turns; divide by num_turns to approximate per-turn (current context) usage
+            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
+            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
             context_window=max((v.get("contextWindow", 0) for v in model_usage.values()), default=None) if model_usage else None,
         )
 
