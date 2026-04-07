@@ -321,11 +321,22 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     const pct = Math.min(100, Math.round((contextUsage.used / contextUsage.window) * 100));
     const color = pct >= 80 ? "bg-sol-red" : pct >= 50 ? "bg-sol-yellow" : "bg-sol-green";
     return (
-      <span className="inline-flex items-center gap-1.5 font-mono px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01" title={`${formatTokens(contextUsage.used)} / ${formatTokens(contextUsage.window)} context\nInput: ${formatTokens(contextUsage.input)}\nOutput: ${formatTokens(contextUsage.output)}\nCache read: ${formatTokens(contextUsage.cacheRead)}\nCache creation: ${formatTokens(contextUsage.cacheCreation)}`}>
+      <span className="relative group inline-flex items-center gap-1.5 font-mono px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01 cursor-default">
         <span className="relative w-12 h-1.5 rounded-full bg-sol-base01/30 overflow-hidden">
           <span className={`absolute inset-y-0 left-0 rounded-full ${color}`} style={{ width: `${pct}%` }} />
         </span>
         {pct}%
+        <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50">
+          <div className="bg-sol-base02 border border-sol-base01/30 rounded px-2.5 py-1.5 text-xs font-mono text-sol-base1 whitespace-nowrap shadow-lg">
+            <div className="font-semibold text-sol-base2 mb-1">{formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)}</div>
+            <div className="flex flex-col gap-0.5 text-[0.65rem]">
+              <span>Input: {formatTokens(contextUsage.input)}</span>
+              <span>Output: {formatTokens(contextUsage.output)}</span>
+              <span>Cache read: {formatTokens(contextUsage.cacheRead)}</span>
+              <span>Cache write: {formatTokens(contextUsage.cacheCreation)}</span>
+            </div>
+          </div>
+        </div>
       </span>
     );
   })() : null;
