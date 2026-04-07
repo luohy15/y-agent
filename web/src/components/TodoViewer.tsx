@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment, DragEvent } from "r
 import useSWR, { mutate } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
+import TodoContextMenu from "./TodoContextMenu";
 
 interface Todo {
   todo_id: string;
@@ -87,12 +88,13 @@ function ActivityHistory({ todos, collapsed, onToggle }: { todos: Todo[]; collap
   );
 }
 
-function KanbanCard({ t, className, draggable, onDragStart, onClickName }: { t: Todo; className?: string; draggable?: boolean; onDragStart?: (e: DragEvent) => void; onClickName?: () => void }) {
+function KanbanCard({ t, className, draggable, onDragStart, onClickName, onContextMenu }: { t: Todo; className?: string; draggable?: boolean; onDragStart?: (e: DragEvent) => void; onClickName?: () => void; onContextMenu?: (e: React.MouseEvent) => void }) {
   return (
     <div
       className={`bg-sol-base02 rounded p-2 border ${t.pinned ? "border-sol-yellow/40" : "border-sol-base01/20"} ${className || ""}`}
       draggable={draggable}
       onDragStart={onDragStart}
+      onContextMenu={onContextMenu}
     >
       <div className="flex items-start justify-between">
         <span className="text-sol-base1 text-sm sm:text-xs font-medium leading-tight">
@@ -283,6 +285,7 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -347,6 +350,7 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
                 draggable
                 onDragStart={(e) => handleDragStart(e, t)}
                 onClickName={() => setModalTodo(t)}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
                 className={`cursor-grab active:cursor-grabbing ${moving === t.todo_id ? "opacity-50" : ""}`}
               />
             ))}
@@ -360,6 +364,15 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
             <TodoDetail t={modalTodo} onClose={() => setModalTodo(null)} onSaved={() => { setModalTodo(null); onMoved(); }} />
           </div>
         </div>
+      )}
+      {contextMenu && (
+        <TodoContextMenu
+          todo={contextMenu.todo}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onAction={onMoved}
+        />
       )}
     </div>
   );
@@ -408,7 +421,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
     if (previousPageData && previousPageData.length < TABLE_PAGE_SIZE) return null;
     return `${API}/api/todo/list?offset=${pageIndex * TABLE_PAGE_SIZE}&limit=${TABLE_PAGE_SIZE}${bottomStatusParam}${nameQueryParam}`;
   };
-  const { data: bottomPages, isLoading, error, size: tableSize, setSize: setTableSize, isValidating: tableValidating } = useSWRInfinite<Todo[]>(getTableKey, fetcher);
+  const { data: bottomPages, isLoading, error, size: tableSize, setSize: setTableSize, isValidating: tableValidating, mutate: mutateTable } = useSWRInfinite<Todo[]>(getTableKey, fetcher);
   const bottomTodos = bottomPages ? bottomPages.flat() : undefined;
   const tableReachingEnd = bottomPages && bottomPages[bottomPages.length - 1]?.length < TABLE_PAGE_SIZE;
 
@@ -450,6 +463,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
     : [];
 
   const revalidateTodos = () => {
+    mutateTable();
     mutate((key: string) => typeof key === "string" && key.includes("/api/todo/"), undefined, { revalidate: true });
   };
 
@@ -475,11 +489,13 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
   };
 
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (modalTodo) setModalTodo(null);
+        if (contextMenu) setContextMenu(null);
+        else if (modalTodo) setModalTodo(null);
         else setExpandedId(null);
       }
     };
@@ -572,6 +588,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
                   <tr
                     id={`todo-row-${t.todo_id}`}
                     className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""} ${t.pinned ? "border-l-2 border-l-sol-yellow" : ""}`}
+                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
                   >
                     <td
                       className="py-1 px-1.5 text-sol-base01 cursor-pointer hover:text-sol-blue"
@@ -625,6 +642,15 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
             <TodoDetail t={modalTodo} onClose={() => setModalTodo(null)} onSaved={() => { setModalTodo(null); revalidateTodos(); }} />
           </div>
         </div>
+      )}
+      {contextMenu && (
+        <TodoContextMenu
+          todo={contextMenu.todo}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onAction={revalidateTodos}
+        />
       )}
     </div>
     <ActivityHistory todos={allTodosForHistory} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
