@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -132,10 +132,17 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   });
   const weekStart = useMemo(() => getMonday(selectedDate), [selectedDate.getTime()]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const jumpTo = (d: Date) => {
     setSelectedDate(d);
-    localStorage.setItem(STORAGE_KEY, toISODate(d));
+    const currentWeekStart = getMonday(new Date());
+    const targetWeekStart = getMonday(d);
+    if (currentWeekStart.getTime() === targetWeekStart.getTime()) {
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, toISODate(d));
+    }
   };
 
   const weekEnd = addDays(weekStart, 7);
@@ -205,6 +212,15 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
     ? ((now.getHours() + now.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT
     : null;
 
+  const hasScrolled = useRef(false);
+  useEffect(() => {
+    if (!isLoading && scrollRef.current && todayColIdx >= 0 && !hasScrolled.current) {
+      hasScrolled.current = true;
+      const currentHour = new Date().getHours();
+      scrollRef.current.scrollTop = Math.max(0, (currentHour - 1) * HOUR_HEIGHT);
+    }
+  }, [isLoading, todayColIdx]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSelectedEvent(null);
@@ -245,7 +261,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
       ) : error ? (
         <p className="text-sol-red p-3">Error loading events</p>
       ) : (
-        <div className="flex-1 min-h-0 overflow-auto" onClick={() => setSelectedEvent(null)}>
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto" onClick={() => setSelectedEvent(null)}>
           {/* Event detail popover */}
           {selectedEvent && (
             <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
