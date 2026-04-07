@@ -6,6 +6,7 @@ import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 interface Todo {
   todo_id: string;
   name: string;
+  pinned?: boolean;
   status: string;
   priority?: string;
   due_date?: string;
@@ -107,6 +108,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
                 >
                   #{t.todo_id}
                 </button>
+                {t.pinned && <span className="text-sol-yellow text-[0.6rem] shrink-0" title="Pinned">{"\u{1F4CC}"}</span>}
                 <span className="truncate text-sol-base0 text-[0.7rem]">{t.name}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">

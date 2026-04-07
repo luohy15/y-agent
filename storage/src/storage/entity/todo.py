@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Boolean, Column, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
 from .base import Base, BaseEntity
 
 
@@ -16,6 +16,7 @@ class TodoEntity(Base, BaseEntity):
     status = Column(String, nullable=False, default="pending")
     progress = Column(Text, nullable=True)
     completed_at = Column(String, nullable=True)
+    pinned = Column(Boolean, default=False)
     history = Column(JSON, nullable=False, default=list)
 
     __table_args__ = (
