@@ -8,7 +8,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
-from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
@@ -135,6 +135,71 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
     if reply_text:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
         logger.info("telegram reply: sent to skill={} tg_chat_id={}", chat.skill, tg_chat_id)
+
+
+async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_window: int, num_turns: int = 0) -> None:
+    """Auto-restart DM session when context usage exceeds 50% or turns exceed 50.
+
+    Creates a new DM chat placeholder so find_chat_by_skill returns the fresh
+    chat for subsequent messages, effectively starting a new Claude Code session.
+    """
+    usage_ratio = (input_tokens / context_window) if context_window else 0.0
+    context_exceeded = context_window and usage_ratio > 0.5
+    turns_exceeded = num_turns > 50
+
+    if not context_exceeded and not turns_exceeded:
+        logger.info("DM context usage {:.1%}, turns={}, no restart needed", usage_ratio, num_turns)
+        return
+
+    reason = []
+    if context_exceeded:
+        reason.append(f"context {usage_ratio:.0%}")
+    if turns_exceeded:
+        reason.append(f"turns {num_turns}")
+    reason_str = " & ".join(reason)
+    logger.info("DM restart triggered: {}", reason_str)
+
+    # Create new DM chat with initial message (mirrors y notify DM --new behavior)
+    new_chat_id = generate_id()
+    restart_msg = Message(
+        id=generate_message_id(),
+        role="user",
+        content="load DM skill",
+        timestamp=get_utc_iso8601_timestamp(),
+        unix_timestamp=get_unix_timestamp(),
+    )
+    await chat_service.create_chat(user_id, messages=[restart_msg], chat_id=new_chat_id)
+
+    # Mark skill on new chat
+    from storage.repository import chat as chat_repo
+    new_chat = await chat_service.get_chat_by_id(new_chat_id)
+    if new_chat:
+        new_chat.skill = 'DM'
+        await chat_repo.save_chat_by_id(new_chat)
+
+    # Auto-ack (same as DM short-circuit in notify controller)
+    ack_msg = Message(
+        id=generate_message_id(),
+        role="assistant",
+        content=f"DM session restarted ({reason_str})",
+        timestamp=get_utc_iso8601_timestamp(),
+        unix_timestamp=get_unix_timestamp(),
+    )
+    await chat_service.append_message(new_chat_id, ack_msg)
+
+    # Send Telegram notification about restart
+    try:
+        from storage.util import get_telegram_bot_token, send_telegram_message
+        from storage.repository.user import get_user_by_id
+        bot_token = get_telegram_bot_token()
+        if bot_token:
+            user = get_user_by_id(user_id)
+            if user and user.telegram_id:
+                send_telegram_message(bot_token, user.telegram_id, f"DM session restarted ({reason_str})")
+    except Exception as e:
+        logger.exception("DM restart telegram notify failed: {}", e)
+
+    logger.info("DM restart: new chat_id={}", new_chat_id)
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None) -> None:
@@ -330,4 +395,9 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
                 fresh_chat.context_window = result.context_window
             from storage.repository import chat as chat_repo
             await chat_repo.save_chat_by_id(fresh_chat)
+
+            # Auto-restart DM session if context usage exceeds 50% or turns exceed 50
+            if skill == 'DM':
+                num_turns = sum(1 for m in fresh_chat.messages if m.role == "user") if fresh_chat.messages else 0
+                await _maybe_restart_dm_session(user_id, result.input_tokens or 0, result.context_window or 0, num_turns)
 

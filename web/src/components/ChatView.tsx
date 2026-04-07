@@ -317,6 +317,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   const formatTokens = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n);
 
+  const numTurns = messages.filter((m) => m.role === "user").length;
   const contextBadge = contextUsage ? (() => {
     const pct = Math.min(100, Math.round((contextUsage.used / contextUsage.window) * 100));
     const color = pct >= 80 ? "bg-sol-red" : pct >= 50 ? "bg-sol-yellow" : "bg-sol-green";
@@ -334,6 +335,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
               <span>Output: {formatTokens(contextUsage.output)}</span>
               <span>Cache read: {formatTokens(contextUsage.cacheRead)}</span>
               <span>Cache write: {formatTokens(contextUsage.cacheCreation)}</span>
+              <span>Turns: {numTurns}</span>
             </div>
           </div>
         </div>
