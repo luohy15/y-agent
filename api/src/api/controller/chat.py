@@ -189,6 +189,12 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["skill"] = chat.skill
     if chat.trace_id:
         result["trace_id"] = chat.trace_id
+    if chat.context_window is not None:
+        result["input_tokens"] = chat.input_tokens
+        result["output_tokens"] = chat.output_tokens
+        result["cache_read_input_tokens"] = chat.cache_read_input_tokens
+        result["cache_creation_input_tokens"] = chat.cache_creation_input_tokens
+        result["context_window"] = chat.context_window
     return result
 
 

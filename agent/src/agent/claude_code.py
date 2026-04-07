@@ -35,6 +35,11 @@ class ClaudeCodeResult:
     result_text: Optional[str] = None
     cost_usd: Optional[float] = None
     num_turns: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_read_input_tokens: Optional[int] = None
+    cache_creation_input_tokens: Optional[int] = None
+    context_window: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -469,12 +474,18 @@ async def _run_claude_process(
         status = "completed" if not result_data.get("is_error") else "error"
         if status == "error":
             logger.error("claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
+        model_usage = result_data.get("modelUsage", {})
         return ClaudeCodeResult(
             status=status,
             session_id=result_data.get("session_id") or session_id,
             result_text=result_data.get("result"),
             cost_usd=result_data.get("total_cost_usd"),
             num_turns=result_data.get("num_turns"),
+            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            context_window=max((v.get("contextWindow", 0) for v in model_usage.values()), default=None) if model_usage else None,
         )
 
     if proc.returncode != 0:
@@ -623,12 +634,18 @@ async def _run_claude_ssh(
         status = "completed" if not result_data.get("is_error") else "error"
         if status == "error":
             logger.error("ssh claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
+        model_usage = result_data.get("modelUsage", {})
         return ClaudeCodeResult(
             status=status,
             session_id=result_data.get("session_id") or session_id,
             result_text=result_data.get("result"),
             cost_usd=result_data.get("total_cost_usd"),
             num_turns=result_data.get("num_turns"),
+            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) if model_usage else None,
+            context_window=max((v.get("contextWindow", 0) for v in model_usage.values()), default=None) if model_usage else None,
         )
 
     if exit_code != 0:
