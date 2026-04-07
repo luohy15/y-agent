@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import { API, authFetch } from "./api";
@@ -8,6 +8,7 @@ import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
+import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import TodoList from "./components/TodoList";
 import LinkList from "./components/LinkList";
@@ -41,6 +42,7 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
@@ -157,7 +159,12 @@ export default function App() {
         e.preventDefault();
         setChatHide((v) => !v);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "p") {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "p") {
         e.preventDefault();
         setFileSearchOpen(true);
       }
@@ -250,6 +257,14 @@ export default function App() {
   const handleLogout = useCallback(() => {
     auth.logout();
   }, [auth]);
+
+  const commandActions: CommandAction[] = useMemo(() => [
+    {
+      id: 'close-all-editors',
+      label: 'Close All Editors',
+      execute: () => { setOpenFiles([]); setActiveFile(null); },
+    },
+  ], []);
 
   const rightPanelBtnClass = (active: boolean) =>
     `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
@@ -594,6 +609,7 @@ export default function App() {
         </div>
       </div>
       <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} />
+      <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={commandActions} />
     </div>
   );
 }
