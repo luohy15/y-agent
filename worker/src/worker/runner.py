@@ -2,7 +2,6 @@
 
 import os
 import re
-from typing import List
 
 from loguru import logger
 
@@ -12,8 +11,6 @@ from storage.util import generate_id, generate_message_id, get_utc_iso8601_times
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
-from agent.loop import run_agent_loop
-from agent.tools import get_tools_map, get_openai_tools
 
 
 def message_callback(chat_id: str, message: Message):
@@ -249,10 +246,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         bot_config.api_type = backend
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
-    # Route: SSH claude-code/codex → detached tmux mode (if "detach" feature flag exists)
+    # Route: SSH claude_code → detached tmux mode (if "detach" feature flag exists)
     # A vm_config named "detach" for this user acts as a feature flag.
     # Present → detached mode; absent → inline (safe fallback).
-    if bot_config.api_type in ("claude_code", "codex"):
+    if bot_config.api_type == "claude_code":
         vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
         if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
             from storage.service import vm_config as vm_service
@@ -265,12 +262,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     # Inline mode
     error_occurred = False
     try:
-        if bot_config.api_type == "claude_code":
-            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
-        elif bot_config.api_type == "codex":
-            await _run_chat_codex(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
-        else:
-            await _run_chat_agent_loop(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir)
+        await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
     except Exception:
         error_occurred = True
         raise
@@ -294,37 +286,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     return "done"
 
 
-async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:
-    """Run chat through the custom agent loop."""
-    provider = agent_config.make_provider(bot_config)
-
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    ensure_and_touch_vm(vm_config)
-    tools_map = get_tools_map(vm_config)
-    openai_tools = get_openai_tools(vm_config)
-    system_prompt = await agent_config.build_system_prompt(vm_config)
-    logger.info("Loaded {} tools, system_prompt length={}", len(tools_map), len(system_prompt) if system_prompt else 0)
-
-    messages: List[Message] = list(chat.messages)
-    logger.info("Loaded {} messages from chat {}", len(messages), chat_id)
-
-    result = await run_agent_loop(
-        provider=provider,
-        messages=messages,
-        system_prompt=system_prompt,
-        tools_map=tools_map,
-        openai_tools=openai_tools,
-        message_callback=lambda msg: message_callback(chat_id, msg),
-        check_interrupted_fn=lambda: check_interrupted(chat_id),
-    )
-
-    logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
-
 
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
-    from agent.claude_code import run_claude_code
-
     messages = list(chat.messages)
 
     # Extract the latest user message as the prompt
