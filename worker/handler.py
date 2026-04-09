@@ -191,7 +191,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     from storage.service import chat as chat_service
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
-    backend_type = proc.get("backend_type", "claude_code")
+    backend_type = proc.get("backend_type", "claude-code")
     vm_name = proc["vm_name"]
     user_id = proc["user_id"]
     offset = proc.get("stdout_offset", 0)
