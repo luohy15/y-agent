@@ -30,6 +30,8 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     chat = Chat.from_dict(json.loads(entity.json_content))
     if entity.trace_id is not None:
         chat.trace_id = entity.trace_id
+    if entity.backend is not None:
+        chat.backend = entity.backend
     return chat
 
 
