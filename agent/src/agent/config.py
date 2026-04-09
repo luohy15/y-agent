@@ -7,20 +7,6 @@ from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
 from storage.service.user import get_default_user_id
 
-from agent.provider import OpenAIFormatProvider, AnthropicFormatProvider
-from agent.skills import discover_skills, skills_to_prompt
-
-
-async def build_system_prompt(vm_config: VmConfig | None = None) -> str:
-    skills_block = skills_to_prompt(await discover_skills(vm_config=vm_config))
-    return ("\n" + skills_block) if skills_block else ""
-
-
-def make_provider(bot_config: BotConfig):
-    if bot_config.api_type == "anthropic":
-        return AnthropicFormatProvider(bot_config)
-    return OpenAIFormatProvider(bot_config)
-
 
 def resolve_bot_config(user_id: int, bot_name: str = None) -> BotConfig:
     bot_config = None

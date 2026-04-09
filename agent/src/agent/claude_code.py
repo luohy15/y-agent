@@ -371,136 +371,6 @@ class StreamConverter:
 
 
 # ---------------------------------------------------------------------------
-# Core subprocess runner
-# ---------------------------------------------------------------------------
-
-async def _run_claude_process(
-    cmd: List[str],
-    prompt: str,
-    cwd: Optional[str],
-    last_message_id: Optional[str],
-    message_callback: Optional[Callable[[Message], None]],
-    check_interrupted_fn: Optional[Callable[[], bool]],
-    env: Optional[Dict[str, str]] = None,
-) -> ClaudeCodeResult:
-    """Spawn claude -p, stream output, convert messages, return result."""
-    proc_env = dict(os.environ)
-    if env:
-        proc_env.update(env)
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        env=proc_env,
-        limit=10 * 1024 * 1024,  # 10MB line limit for large JSON output
-    )
-
-    converter = StreamConverter(last_message_id=last_message_id)
-    result_data: Optional[Dict] = None
-    session_id: Optional[str] = None
-    stderr_chunks: List[bytes] = []
-
-    async def _drain_stderr():
-        """Drain stderr concurrently to prevent pipe buffer deadlock."""
-        while proc.stderr:
-            chunk = await proc.stderr.read(4096)
-            if not chunk:
-                break
-            stderr_chunks.append(chunk)
-
-    try:
-        if proc.stdin:
-            proc.stdin.write(prompt.encode("utf-8"))
-            await proc.stdin.drain()
-            proc.stdin.close()
-
-        stderr_task = asyncio.create_task(_drain_stderr())
-
-        while proc.stdout:
-            line_bytes = await proc.stdout.readline()
-            if not line_bytes:
-                break
-
-            line = line_bytes.decode("utf-8", errors="replace")
-
-            if check_interrupted_fn and check_interrupted_fn():
-                proc.kill()
-                await proc.wait()
-                stderr_task.cancel()
-                return ClaudeCodeResult(status="interrupted", session_id=session_id)
-
-            obj = parse_stream_line(line)
-            if not obj:
-                continue
-
-            # Extract session_id from system init message
-            if obj.get("type") == "system":
-                session_id = obj.get("session_id")
-                continue
-
-            if obj.get("type") == "result":
-                result_data = obj
-                continue
-
-            if message_callback:
-                for msg in converter.process_line(line):
-                    message_callback(msg)
-
-        await stderr_task
-
-    except Exception as e:
-        logger.error("claude-code process exception: {}", e)
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        await proc.wait()
-        stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
-        if stderr_text:
-            logger.error("claude-code stderr: {}", stderr_text)
-        error_detail = f"Claude Code process error: {e}"
-        if stderr_text:
-            error_detail += f"\n{stderr_text}"
-        return ClaudeCodeResult(status="error", session_id=session_id, result_text=error_detail)
-
-    await proc.wait()
-
-    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
-
-    if result_data:
-        status = "completed" if not result_data.get("is_error") else "error"
-        if status == "error":
-            logger.error("claude-code result error: result={} stderr={}", result_data.get("result"), stderr_text)
-        model_usage = result_data.get("modelUsage", {})
-        num_turns = result_data.get("num_turns") or 1
-        return ClaudeCodeResult(
-            status=status,
-            session_id=result_data.get("session_id") or session_id,
-            result_text=result_data.get("result"),
-            cost_usd=result_data.get("total_cost_usd"),
-            num_turns=num_turns,
-            # modelUsage sums across all turns; divide by num_turns to approximate per-turn (current context) usage
-            input_tokens=sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
-            output_tokens=sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
-            cache_read_input_tokens=sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
-            cache_creation_input_tokens=sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns if model_usage else None,
-            context_window=max((v.get("contextWindow", 0) for v in model_usage.values()), default=None) if model_usage else None,
-        )
-
-    if proc.returncode != 0:
-        logger.error("claude-code exited with code {} stderr={}", proc.returncode, stderr_text)
-        error_detail = f"Claude Code exited with code {proc.returncode}"
-        if stderr_text:
-            error_detail += f": {stderr_text}"
-        return ClaudeCodeResult(status="error", session_id=session_id, result_text=error_detail)
-
-    return ClaudeCodeResult(status="completed", session_id=session_id)
-
-
-# ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
@@ -950,25 +820,6 @@ def _decode_data_url(data_url: str) -> tuple:
         return None, None
 
 
-def _materialize_images_local(images: List[str], cwd: str) -> List[str]:
-    """Decode base64 data URLs and write to local files. Returns list of file paths."""
-    img_dir = os.path.join(cwd, ".y-agent-images")
-    os.makedirs(img_dir, exist_ok=True)
-
-    paths = []
-    for data_url in images:
-        img_bytes, ext = _decode_data_url(data_url)
-        if img_bytes is None:
-            continue
-        filename = f"img_{uuid.uuid4().hex[:8]}.{ext}"
-        filepath = os.path.join(img_dir, filename)
-        with open(filepath, "wb") as f:
-            f.write(img_bytes)
-        paths.append(filepath)
-        logger.info("Materialized image: {} ({} bytes)", filepath, len(img_bytes))
-
-    return paths
-
 
 def _materialize_images_ssh(images: List[str], cwd: str, vm_config: "VmConfig") -> List[str]:
     """Upload base64 data URLs to remote host via SFTP. Returns list of remote file paths."""
@@ -1096,31 +947,16 @@ async def run_claude_code(
     # Materialize images as files and prepend paths to prompt
     effective_cwd = cwd or (vm_config.work_dir if vm_config else None) or os.getcwd()
     if images:
-        is_ssh = vm_config and vm_config.vm_name and vm_config.vm_name.startswith("ssh:")
-        if is_ssh:
-            image_paths = _materialize_images_ssh(images, effective_cwd, vm_config)
-        else:
-            image_paths = _materialize_images_local(images, effective_cwd)
+        image_paths = _materialize_images_ssh(images, effective_cwd, vm_config)
         prompt = _prepend_image_paths(prompt, image_paths)
 
-    if vm_config and vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
-        return await _run_claude_ssh(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=cwd or (vm_config.work_dir if vm_config else None),
-            last_message_id=last_message_id,
-            message_callback=message_callback,
-            check_interrupted_fn=check_interrupted_fn,
-            vm_config=vm_config,
-            env=env,
-        )
-
-    return await _run_claude_process(
+    return await _run_claude_ssh(
         cmd=cmd,
         prompt=prompt,
-        cwd=cwd,
+        cwd=cwd or (vm_config.work_dir if vm_config else None),
         last_message_id=last_message_id,
         message_callback=message_callback,
         check_interrupted_fn=check_interrupted_fn,
+        vm_config=vm_config,
         env=env,
     )
