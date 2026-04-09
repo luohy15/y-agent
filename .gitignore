@@ -22,4 +22,5 @@ wheels/
 .venv
 
 .DS_Store
-node_modules/.codex
+node_modules/
+.codex
