@@ -16,7 +16,13 @@ interface DevWorktree {
   worktree_path: string;
   branch: string;
   status: string;
-  chat_ids: string[];
+  todo_id?: string;
+  server_state?: {
+    frontend?: { pid?: string; port?: string };
+    ngrok_frontend?: { pid?: string; domain?: string; url?: string };
+    backend?: { pid?: string; port?: string };
+    ngrok_backend?: { pid?: string; domain?: string; url?: string };
+  };
   history: HistoryEntry[];
   created_at: string;
   updated_at: string;
@@ -35,6 +41,7 @@ const fetcher = async (url: string) => {
 
 const statusColor: Record<string, string> = {
   active: "bg-sol-blue text-sol-base03",
+  serving: "bg-sol-green text-sol-base03",
   removed: "bg-sol-red text-sol-base03",
 };
 
@@ -139,6 +146,7 @@ export default function DevViewer() {
                   <th className="py-1 px-1.5">Project</th>
                   <th className="py-1 px-1.5">Branch</th>
                   <th className="py-1 px-1.5">Status</th>
+                  <th className="py-1 px-1.5">Todo</th>
                   <th className="py-1 px-1.5 hidden md:table-cell">Updated</th>
                 </tr>
               </thead>
@@ -157,21 +165,35 @@ export default function DevViewer() {
                           {w.status}
                         </span>
                       </td>
+                      <td className="py-1 px-1.5 text-sol-base01">{w.todo_id || "-"}</td>
                       <td className="py-1 px-1.5 text-sol-base01 hidden md:table-cell">{w.updated_at ? new Date(w.updated_at).toLocaleString() : "-"}</td>
                     </tr>
                     {expandedId === w.worktree_id && (
                       <tr key={`${w.worktree_id}-expand`} className="border-b border-sol-base02">
-                        <td colSpan={5} className="p-2">
+                        <td colSpan={6} className="p-2">
                           <div className="bg-sol-base02 rounded p-3 border border-sol-base01/20 text-xs space-y-2" data-dev-card>
                             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                               <span className="text-sol-base01">Path</span>
                               <span className="text-sol-base0 break-all">{w.worktree_path}</span>
                               <span className="text-sol-base01">Created</span>
                               <span className="text-sol-base0">{w.created_at ? new Date(w.created_at).toLocaleString() : "-"}</span>
-                              {w.chat_ids && w.chat_ids.length > 0 && (
+                              {w.todo_id && (
                                 <>
-                                  <span className="text-sol-base01">Chats</span>
-                                  <span className="text-sol-base0">{w.chat_ids.join(", ")}</span>
+                                  <span className="text-sol-base01">Todo</span>
+                                  <span className="text-sol-base0">{w.todo_id}</span>
+                                </>
+                              )}
+                              {w.server_state && (
+                                <>
+                                  <span className="text-sol-base01">Services</span>
+                                  <span className="text-sol-base0">
+                                    {[
+                                      w.server_state.frontend && `vite:${w.server_state.frontend.port || '?'}`,
+                                      w.server_state.ngrok_frontend && w.server_state.ngrok_frontend.url,
+                                      w.server_state.backend && `api:${w.server_state.backend.port || '?'}`,
+                                      w.server_state.ngrok_backend && w.server_state.ngrok_backend.url,
+                                    ].filter(Boolean).join(' · ') || 'none'}
+                                  </span>
                                 </>
                               )}
                             </div>
