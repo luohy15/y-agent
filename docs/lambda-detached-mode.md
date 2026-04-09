@@ -75,7 +75,7 @@ tmux session name: `cc-{chat_id}`
 `run_chat()` decides detached vs inline after resolving config:
 
 ```
-bot_config.api_type == "claude-code"
+bot_config.api_type == "claude_code"
   AND vm_config.vm_name.startswith("ssh:")
   AND vm_config "detach" feature flag exists for user
 → detached mode
