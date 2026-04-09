@@ -245,10 +245,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
-    # Route: SSH claude-code → detached tmux mode (if "detach" feature flag exists)
+    # Route: SSH claude-code/codex → detached tmux mode (if "detach" feature flag exists)
     # A vm_config named "detach" for this user acts as a feature flag.
     # Present → detached mode; absent → inline (safe fallback).
-    if bot_config.api_type == "claude-code":
+    if bot_config.api_type in ("claude-code", "codex"):
         vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
         if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
             from storage.service import vm_config as vm_service
@@ -263,6 +263,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     try:
         if bot_config.api_type == "claude-code":
             await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
+        elif bot_config.api_type == "codex":
+            await _run_chat_codex(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
         else:
             await _run_chat_agent_loop(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir)
     except Exception:
@@ -484,11 +486,128 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
                 await _maybe_restart_dm_session(user_id, result.input_tokens or 0, result.context_window or 0, num_turns)
 
 
+def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
+    messages = list(chat.messages)
+
+    # Extract the latest user message as the prompt
+    user_prompt = ""
+    for msg in reversed(messages):
+        if msg.role == "user":
+            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
+            break
+
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    last_message_id = messages[-1].id if messages else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+
+    # Resume support: thread_id stored in chat.external_id
+    thread_id = chat.external_id
+    resume = bool(thread_id) and chat.work_dir == cwd
+
+    # Build cmd (resume subcommand doesn't support -C)
+    if resume and thread_id:
+        cmd = ["codex", "exec", "resume", thread_id, "--json", "--full-auto"]
+    else:
+        cmd = ["codex", "exec", "--json", "--full-auto"]
+        thread_id = None
+        if cwd:
+            cmd.extend(["-C", cwd])
+    if model:
+        cmd.extend(["-m", model])
+
+    # Build env
+    env = {}
+    if bot_config.api_key:
+        env["OPENAI_API_KEY"] = bot_config.api_key
+
+    return {
+        "prompt": user_prompt,
+        "cmd": cmd,
+        "env": env if env else None,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "thread_id": thread_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
+async def _run_chat_codex(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> None:
+    """Run chat through OpenAI Codex CLI (codex exec)."""
+    from agent.codex import run_codex
+
+    params = _build_codex_params(chat, chat_id, user_id, bot_config,
+                                  vm_name=vm_name, work_dir=work_dir,
+                                  trace_id=trace_id, skill=skill)
+
+    if not params["prompt"]:
+        logger.error("No user message found in chat {}", chat_id)
+        return
+
+    cwd = params["cwd"]
+    thread_id = params.get("thread_id")
+    resume = params.get("resume", False)
+
+    # Set backend and work_dir on chat
+    chat.backend = "codex"
+    if not chat.work_dir:
+        chat.work_dir = cwd
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+
+    logger.info("codex start chat_id={} thread_id={} resume={} prompt={}", chat_id, thread_id, resume, params["prompt"][:200])
+
+    cb = lambda msg: message_callback(chat_id, msg)
+    interrupted_fn = lambda: check_interrupted(chat_id)
+
+    result = await run_codex(
+        prompt=params["prompt"],
+        message_callback=cb,
+        cwd=cwd,
+        last_message_id=params["last_message_id"],
+        check_interrupted_fn=interrupted_fn,
+        model=params["model"],
+        api_key=bot_config.api_key if bot_config.api_key else None,
+        thread_id=thread_id,
+    )
+
+    logger.info("codex done status={} thread_id={}", result.status, result.thread_id)
+
+    # Surface error as visible message
+    if result.status == "error":
+        error_text = result.result_text or "Codex exited with an error."
+        error_msg = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=error_text,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        )
+        cb(error_msg)
+
+    # Save thread_id (for resume) and token usage
+    if result.thread_id or result.input_tokens is not None:
+        fresh_chat = await chat_service.get_chat_by_id(chat_id)
+        if fresh_chat:
+            if result.thread_id:
+                fresh_chat.external_id = result.thread_id
+            if result.input_tokens is not None:
+                fresh_chat.input_tokens = result.input_tokens
+                fresh_chat.output_tokens = result.output_tokens
+            from storage.repository import chat as chat_repo
+            await chat_repo.save_chat_by_id(fresh_chat)
+
+
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
                            skill: str = None) -> None:
-    """Start claude-code as a detached tmux process on EC2.
+    """Start claude-code or codex as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -498,9 +617,15 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
 
-    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
-                                        vm_name=vm_name, work_dir=work_dir,
-                                        trace_id=trace_id, skill=skill)
+    # Build params based on backend type
+    if bot_config.api_type == "codex":
+        params = _build_codex_params(chat, chat_id, user_id, bot_config,
+                                      vm_name=vm_name, work_dir=work_dir,
+                                      trace_id=trace_id, skill=skill)
+    else:
+        params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
+                                            vm_name=vm_name, work_dir=work_dir,
+                                            trace_id=trace_id, skill=skill)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)
@@ -533,5 +658,6 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].vm_name,
         bot_name=bot_config.name, trace_id=trace_id, skill=skill,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
+        backend_type=bot_config.api_type,
     )
 

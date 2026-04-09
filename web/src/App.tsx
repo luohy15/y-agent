@@ -21,6 +21,12 @@ interface VmConfigItem {
   work_dir: string;
 }
 
+interface BotConfigItem {
+  name: string;
+  api_type: string | null;
+  model: string;
+}
+
 type RightPanel = "files" | "git" | "chats" | "links";
 
 export default function App() {
@@ -81,6 +87,10 @@ export default function App() {
   const rightPanelResizingRef = useRef(false);
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
+  const [botList, setBotList] = useState<BotConfigItem[]>([]);
+  const [selectedBot, setSelectedBot] = useState<string | null>(() => localStorage.getItem("selectedBot") || null);
+  const [botDropdownOpen, setBotDropdownOpen] = useState(false);
+  const botDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
@@ -128,6 +138,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { localStorage.setItem("rightPanel", rightPanel); }, [rightPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
+  useEffect(() => { if (selectedBot) localStorage.setItem("selectedBot", selectedBot); else localStorage.removeItem("selectedBot"); }, [selectedBot]);
   useEffect(() => {
     if (!vmDropdownOpen) return;
     const handler = (e: MouseEvent) => {
@@ -137,8 +148,17 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [vmDropdownOpen]);
   useEffect(() => {
-    if (!auth.isLoggedIn) { setVmList([]); return; }
+    if (!botDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (botDropdownRef.current && !botDropdownRef.current.contains(e.target as Node)) setBotDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [botDropdownOpen]);
+  useEffect(() => {
+    if (!auth.isLoggedIn) { setVmList([]); setBotList([]); return; }
     authFetch(`${API}/api/vm-config/list`).then(r => r.json()).then(data => setVmList(data || [])).catch(() => setVmList([]));
+    authFetch(`${API}/api/bot/list`).then(r => r.json()).then(data => setBotList(data || [])).catch(() => setBotList([]));
   }, [auth.isLoggedIn]);
 
   // URL /trace/:traceId → open trace as file
@@ -344,6 +364,36 @@ export default function App() {
                 </div>
               )}
             </div>
+            {botList.length > 1 && (
+              <div className="relative shrink-0" ref={botDropdownRef}>
+                <button
+                  onClick={() => { if (!selectedChatId) setBotDropdownOpen((v) => !v); }}
+                  className={`p-0 bg-transparent border-0 ${selectedChatId ? "cursor-default" : botDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
+                  title={`Bot: ${selectedBot || "default"}`}
+                >
+                  {selectedBot || "default"}
+                </button>
+                {botDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                    <button
+                      onClick={() => { setSelectedBot(null); setBotDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedBot ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                    >
+                      default
+                    </button>
+                    {botList.filter((b) => b.name !== "default").map((b) => (
+                      <button
+                        key={b.name}
+                        onClick={() => { setSelectedBot(b.name); setBotDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedBot === b.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                      >
+                        {b.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <span>{effectiveWorkDir}</span>
           </div>
           {/* Right: panel toggle buttons */}
@@ -511,7 +561,7 @@ export default function App() {
                   {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}
