@@ -852,6 +852,11 @@ async def tail_ssh_output(
                     return "interrupted"
 
                 if check_deadline_fn and check_deadline_fn():
+                    # Kill remote tail process tree before closing channel
+                    try:
+                        client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                    except Exception:
+                        pass
                     stdout_ch.channel.close()
                     return "deadline"
 

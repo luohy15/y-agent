@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from loguru import logger
 
-from worker.runner import run_chat, start_detached_chat, message_callback, check_interrupted
+from worker.runner import run_chat, message_callback, check_interrupted
 from worker.link_downloader import run_link_download
 from worker.process_manager import (
     get_running_processes, try_acquire_lease, renew_lease,
@@ -28,13 +28,40 @@ IDLE_EXIT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 10
 
 
-def is_ssh_claude_code(body: dict) -> bool:
-    """Check if this task should use the detached SSH mode.
+async def _process_record(body: dict) -> str:
+    """Process a single SQS record body.
 
-    Condition: vm_name starts with 'ssh:'.
+    Returns 'done', 'detached', or 'continuation'.
     """
-    vm_name = body.get("vm_name", "")
-    return vm_name.startswith("ssh:")
+    task_type = body.get("task_type", "chat")
+
+    if task_type == "link_download":
+        print(f"[worker] SQS trigger for link_download link_id={body['link_id']} url={body['url']}")
+        await run_link_download(
+            user_id=body["user_id"],
+            link_id=body["link_id"],
+            url=body["url"],
+            activity_id=body.get("activity_id"),
+        )
+        return "done"
+
+    if task_type == "continuation":
+        return "continuation"
+
+    # All chat tasks go through run_chat (detached vs inline decided internally)
+    chat_id = body["chat_id"]
+    print(f"[worker] SQS trigger for chat {chat_id}")
+    result = await run_chat(
+        user_id=body.get("user_id"),
+        chat_id=chat_id,
+        bot_name=body.get("bot_name"),
+        vm_name=body.get("vm_name"),
+        work_dir=body.get("work_dir"),
+        post_hooks=body.get("post_hooks"),
+        trace_id=body.get("trace_id"),
+        skill=body.get("skill"),
+    )
+    return result
 
 
 def lambda_handler(event, context):
@@ -49,67 +76,29 @@ def lambda_handler(event, context):
             deadline_at = time.monotonic() + (remaining_ms - CONTINUATION_THRESHOLD_MS) / 1000
         lambda_req_id = context.aws_request_id if context and hasattr(context, "aws_request_id") else "local"
 
-        # === Phase 1: Process SQS records ===
-        has_detached = False
-        failures = []
-
+        # === Phase 1: Process SQS records concurrently ===
+        tasks = []
         for record in records:
             body = json.loads(record["body"])
-            task_type = body.get("task_type", "chat")
+            tasks.append(_process_record(body))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            try:
-                if task_type == "link_download":
-                    print(f"[worker] SQS trigger for link_download link_id={body['link_id']} url={body['url']}")
-                    await run_link_download(
-                        user_id=body["user_id"],
-                        link_id=body["link_id"],
-                        url=body["url"],
-                        activity_id=body.get("activity_id"),
-                    )
-                elif task_type == "continuation":
-                    # Continuation trigger — just enter monitor loop
-                    has_detached = True
-                elif is_ssh_claude_code(body):
-                    # SSH claude-code: start detached tmux + register in DynamoDB
-                    chat_id = body["chat_id"]
-                    print(f"[worker] SQS trigger for detached chat {chat_id}")
-                    await start_detached_chat(
-                        user_id=body.get("user_id"),
-                        chat_id=chat_id,
-                        bot_name=body.get("bot_name"),
-                        vm_name=body.get("vm_name"),
-                        work_dir=body.get("work_dir"),
-                        post_hooks=body.get("post_hooks"),
-                        trace_id=body.get("trace_id"),
-                        skill=body.get("skill"),
-                    )
-                    has_detached = True
-                else:
-                    # Non-SSH task: run inline (original path)
-                    chat_id = body["chat_id"]
-                    print(f"[worker] SQS trigger for chat {chat_id}")
-                    await run_chat(
-                        user_id=body.get("user_id"),
-                        chat_id=chat_id,
-                        bot_name=body.get("bot_name"),
-                        vm_name=body.get("vm_name"),
-                        work_dir=body.get("work_dir"),
-                        post_hooks=body.get("post_hooks"),
-                        trace_id=body.get("trace_id"),
-                        skill=body.get("skill"),
-                    )
-            except Exception as e:
+        # Collect failures and check for detached processes
+        failures = []
+        has_detached = False
+        for record, result in zip(records, results):
+            if isinstance(result, Exception):
                 message_id = record["messageId"]
-                print(f"[worker] Record {message_id} failed in phase 1: {e}")
+                print(f"[worker] Record {message_id} failed in phase 1: {result}")
                 failures.append({"itemIdentifier": message_id})
+            elif result in ("continuation", "detached"):
+                has_detached = True
 
         # === Phase 2: Event loop (only when there are detached processes) ===
-        if not has_detached:
-            # Check for any running processes that need monitoring
-            if not get_running_processes():
-                if failures:
-                    return {"batchItemFailures": failures}
-                return {"status": "ok", "processed": len(records)}
+        if not has_detached and not get_running_processes():
+            if failures:
+                return {"batchItemFailures": failures}
+            return {"status": "ok", "processed": len(records)}
 
         await _monitor_loop(deadline_at, lambda_req_id)
 
@@ -169,11 +158,17 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
             else:
                 idle_since = None
 
-            # 2d. Deadline — cancel tails, send continuation
+            # 2d. Deadline — let check_deadline_fn trigger natural exit, then cancel stragglers
             if deadline_at and time.monotonic() > deadline_at:
-                for cid, task in list(tail_tasks.items()):
-                    task.cancel()
                 if tail_tasks:
+                    # Wait for tail tasks to finish naturally (check_deadline_fn returns True)
+                    done, pending = await asyncio.wait(
+                        tail_tasks.values(),
+                        timeout=10,
+                    )
+                    # Force-cancel any that didn't exit in time
+                    for task in pending:
+                        task.cancel()
                     _send_sqs_continuation()
                 break
 
