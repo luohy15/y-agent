@@ -202,10 +202,11 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
     logger.info("DM restart: new chat_id={}", new_chat_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Returns 'detached' or 'done'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
+    backend overrides bot_config.api_type for routing (e.g. 'claude-code', 'codex').
     Routing (detached SSH vs inline) is decided internally after resolving bot/vm config.
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
@@ -243,6 +244,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         logger.exception("telegram user message failed: {}", e)
 
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
+    # Override api_type if backend is explicitly specified
+    if backend:
+        bot_config.api_type = backend
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
     # Route: SSH claude-code/codex → detached tmux mode (if "detach" feature flag exists)

@@ -26,6 +26,7 @@ class NotifyRequest(BaseModel):
     force_new: Optional[bool] = False
     chat_id: Optional[str] = None
     from_chat_id: Optional[str] = None
+    backend: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):
@@ -126,6 +127,6 @@ async def post_notify(req: NotifyRequest, request: Request):
         return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
 
     # Enqueue worker
-    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill)
+    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill, backend=req.backend)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)

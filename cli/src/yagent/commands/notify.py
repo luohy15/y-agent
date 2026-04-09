@@ -12,7 +12,8 @@ from yagent.api_client import api_request
 @click.option('--from-skill', default='DM', help='Caller skill name')
 @click.option('--chat-id', default=None, help='Target chat ID to resume (skips skill+trace lookup)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
-def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_skill: str, chat_id: str, from_chat_id: str):
+@click.option('--backend', default=None, type=click.Choice(['claude-code', 'codex'], case_sensitive=False), help='Backend to use (default: claude-code)')
+def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_skill: str, chat_id: str, from_chat_id: str, backend: str):
     """Send a message to a skill via trace-based communication."""
     # Default from_chat_id to Y_CHAT_ID env var
     if not from_chat_id:
@@ -33,6 +34,8 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
         payload["chat_id"] = chat_id
     if from_chat_id:
         payload["from_chat_id"] = from_chat_id
+    if backend:
+        payload["backend"] = backend
     resp = api_request("POST", "/api/notify", json=payload)
     data = resp.json()
     click.echo(data["chat_id"])

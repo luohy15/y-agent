@@ -60,6 +60,7 @@ async def _process_record(body: dict) -> str:
         post_hooks=body.get("post_hooks"),
         trace_id=body.get("trace_id"),
         skill=body.get("skill"),
+        backend=body.get("backend"),
     )
     return result
 
