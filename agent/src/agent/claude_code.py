@@ -690,23 +690,31 @@ async def start_detached_ssh(
     chat_id: str,
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
+    ssh_client=None,
 ) -> Optional[str]:
     """Start claude -p in a detached tmux session on remote host.
+
+    If ssh_client is provided, reuses that connection (from a pool).
+    Otherwise creates and closes its own connection.
 
     Prompt is written via SFTP to a stdin file.
     stdout/stderr redirected to /tmp/cc-{chat_id}.* files.
 
     Returns session_id if found in initial output, else None.
     """
-    import io
-    import paramiko
+    owns_client = ssh_client is None
+    if owns_client:
+        import io
+        import paramiko
 
-    user, host, port = _parse_ssh_target(vm_config.vm_name)
-    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+        user, host, port = _parse_ssh_target(vm_config.vm_name)
+        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(host, port=port, username=user, pkey=key)
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_client.connect(host, port=port, username=user, pkey=key)
+
+    client = ssh_client
 
     try:
         # 1. Write prompt to stdin file via SFTP (avoids shell line length limits)
@@ -764,7 +772,8 @@ async def start_detached_ssh(
 
         return session_id
     finally:
-        client.close()
+        if owns_client:
+            client.close()
 
 
 async def tail_ssh_output(
@@ -775,8 +784,12 @@ async def tail_ssh_output(
     message_callback: Optional[Callable[[Message], None]] = None,
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
     check_deadline_fn: Optional[Callable[[], bool]] = None,
+    ssh_client=None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
+
+    If ssh_client is provided, reuses that connection (from a pool).
+    Otherwise creates and closes its own connection.
 
     Returns dict with:
       - offset: new line offset
@@ -786,16 +799,19 @@ async def tail_ssh_output(
       - result_data: the "result" stream-json object (if process completed)
       - status: "completed" | "error" | "interrupted" | "monitoring"
     """
-    import io
-    import paramiko
+    owns_client = ssh_client is None
+    if owns_client:
+        import io
+        import paramiko
 
-    user, host, port = _parse_ssh_target(vm_config.vm_name)
-    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+        user, host, port = _parse_ssh_target(vm_config.vm_name)
+        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(host, port=port, username=user, pkey=key)
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_client.connect(host, port=port, username=user, pkey=key)
 
+    client = ssh_client
     stdout_file = f"/tmp/cc-{chat_id}.stdout"
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
@@ -859,7 +875,8 @@ async def tail_ssh_output(
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
 
-        client.close()
+        if owns_client:
+            client.close()
 
         if exit_reason == "interrupted":
             return {
@@ -897,10 +914,11 @@ async def tail_ssh_output(
 
     except Exception as e:
         logger.error("tail_ssh_output error: {} {}", type(e).__name__, e)
-        try:
-            client.close()
-        except Exception:
-            pass
+        if owns_client:
+            try:
+                client.close()
+            except Exception:
+                pass
         return {
             "offset": current_offset,
             "last_message_id": converter.last_message_id if converter else last_message_id,
