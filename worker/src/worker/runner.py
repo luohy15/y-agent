@@ -296,16 +296,11 @@ async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_
     logger.info("run_chat finished chat_id={} status={}", chat_id, result.status)
 
 
-async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> None:
-    """Run chat through Claude Code CLI with stateful session resume.
-
-    First message creates a new session. Subsequent messages resume via
-    session_id stored in chat.external_id.
-    """
+def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     from agent.claude_code import run_claude_code
 
-    messages: List[Message] = list(chat.messages)
-    logger.info("Loaded {} messages from chat {}", len(messages), chat_id)
+    messages = list(chat.messages)
 
     # Extract the latest user message as the prompt
     user_prompt = ""
@@ -316,17 +311,86 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
             user_images = msg.images
             break
 
-    if not user_prompt:
-        logger.error("No user message found in chat {}", chat_id)
-        return
-
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    ensure_and_touch_vm(vm_config)
-    logger.info("Resolved vm config: name={} vm_name={} work_dir={}", vm_config.name, vm_config.vm_name, vm_config.work_dir)
     last_message_id = messages[-1].id if messages else None
     cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
     model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None  # treat empty string as None
+    model = model or None
+
+    # Build session_id / resume
+    session_id = chat.external_id
+    resume = bool(session_id) and chat.work_dir == cwd
+
+    # Build cmd
+    if resume and session_id:
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "-r", session_id, "--permission-mode", "bypassPermissions"]
+    else:
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"]
+        session_id = None
+
+    if model:
+        cmd.extend(["--model", model])
+    if skill and skill != "DM" and not resume:
+        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{skill}' skill."])
+
+    # Build env
+    env = None
+    api_base_url = bot_config.base_url if bot_config.base_url else None
+    api_key = bot_config.api_key if bot_config.api_key else None
+    if api_base_url or api_key or chat_id or trace_id or skill or last_message_id:
+        env = {}
+        if api_base_url:
+            env["ANTHROPIC_BASE_URL"] = api_base_url
+        if api_key:
+            env["ANTHROPIC_AUTH_TOKEN"] = api_key
+        if chat_id:
+            env["Y_CHAT_ID"] = chat_id
+        if trace_id:
+            env["Y_TRACE_ID"] = trace_id
+        if skill:
+            env["Y_SKILL"] = skill
+        if last_message_id:
+            env["Y_MESSAGE_ID"] = last_message_id
+
+    return {
+        "prompt": user_prompt,
+        "images": user_images,
+        "cmd": cmd,
+        "env": env,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "session_id": session_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
+async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> None:
+    """Run chat through Claude Code CLI with stateful session resume.
+
+    First message creates a new session. Subsequent messages resume via
+    session_id stored in chat.external_id.
+    """
+    from agent.claude_code import run_claude_code
+
+    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
+                                        vm_name=vm_name, work_dir=work_dir,
+                                        trace_id=trace_id, skill=skill)
+
+    if not params["prompt"]:
+        logger.error("No user message found in chat {}", chat_id)
+        return
+
+    cwd = params["cwd"]
+    vm_config = params["vm_config"]
+    session_id = params["session_id"]
+    resume = params["resume"]
+
+    ensure_and_touch_vm(vm_config)
+    logger.info("Resolved vm config: name={} vm_name={} work_dir={}", vm_config.name, vm_config.vm_name, vm_config.work_dir)
+
     cb = lambda msg: message_callback(chat_id, msg)
     interrupted_fn = lambda: check_interrupted(chat_id)
 
@@ -336,9 +400,8 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat_by_id(chat)
 
-    # Resume existing session only if work_dir matches (session files are path-specific)
-    session_id = chat.external_id
-    if session_id and chat.work_dir != cwd:
+    # work_dir mismatch check (session files are path-specific)
+    if chat.external_id and chat.work_dir != cwd:
         error_msg = f"work_dir mismatch: chat has '{chat.work_dir}', got '{cwd}'"
         logger.error("claude-code {}, aborting", error_msg)
         message_callback(chat_id, Message.from_dict({
@@ -346,22 +409,22 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
             "content": f"Error: {error_msg}. Cannot resume session with a different work_dir.",
         }))
         return
-    resume = bool(session_id)
-    logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, user_prompt[:200])
+
+    logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, params["prompt"][:200])
 
     result = await run_claude_code(
-        prompt=user_prompt,
+        prompt=params["prompt"],
         message_callback=cb,
         cwd=cwd,
         session_id=session_id,
         resume=resume,
-        last_message_id=last_message_id,
+        last_message_id=params["last_message_id"],
         check_interrupted_fn=interrupted_fn,
-        model=model,
+        model=params["model"],
         vm_config=vm_config,
         api_base_url=bot_config.base_url if bot_config.base_url else None,
         api_key=bot_config.api_key if bot_config.api_key else None,
-        images=user_images,
+        images=params["images"],
         chat_id=chat_id,
         trace_id=trace_id,
         skill=skill,
@@ -400,4 +463,88 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
             if skill == 'DM':
                 num_turns = sum(1 for m in fresh_chat.messages if m.role == "user") if fresh_chat.messages else 0
                 await _maybe_restart_dm_session(user_id, result.input_tokens or 0, result.context_window or 0, num_turns)
+
+
+async def start_detached_chat(user_id: int, chat_id: str, bot_name: str = None,
+                               vm_name: str = None, work_dir: str = None,
+                               post_hooks: list = None, trace_id: str = None,
+                               skill: str = None) -> None:
+    """Start a claude-code chat as a detached tmux process on EC2.
+
+    1. Load chat, resolve config (same as run_chat)
+    2. SSH start tmux detached claude-code
+    3. Register process in DynamoDB
+    4. Return immediately (monitoring happens in handler event loop)
+    """
+    from agent.claude_code import start_detached_ssh
+    from agent.ec2_wake import ensure_and_touch_vm
+    from worker.process_manager import register_process
+
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if not chat:
+        logger.error("Chat {} not found", chat_id)
+        return
+
+    # Fallback: read trace_id from chat if not passed via queue
+    if not trace_id and chat.trace_id:
+        trace_id = chat.trace_id
+
+    # Persist trace context on the chat
+    from storage.repository import chat as chat_repo
+    if trace_id and skill != 'DM':
+        chat.trace_id = trace_id
+    if skill and not chat.skill:
+        chat.skill = skill
+    elif not skill and chat.skill:
+        skill = chat.skill
+
+    # Reset interrupted flag and mark as running
+    chat.interrupted = False
+    chat.running = True
+    await chat_repo.save_chat_by_id(chat)
+
+    # Send user message to Telegram immediately
+    try:
+        _send_telegram_user_message(chat, user_id)
+    except Exception as e:
+        logger.exception("telegram user message failed: {}", e)
+
+    bot_config = agent_config.resolve_bot_config(user_id, bot_name)
+    logger.info("start_detached_chat: bot={} api_type={}", bot_config.name, bot_config.api_type)
+
+    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
+                                        vm_name=vm_name, work_dir=work_dir,
+                                        trace_id=trace_id, skill=skill)
+
+    if not params["prompt"]:
+        logger.error("No user message found in chat {}", chat_id)
+        return
+
+    # Set work_dir early
+    cwd = params["cwd"]
+    if not chat.work_dir:
+        chat.work_dir = cwd
+        await chat_repo.save_chat_by_id(chat)
+
+    # Wake EC2 if needed
+    ensure_and_touch_vm(params["vm_config"])
+
+    # Start detached tmux session
+    session_id = await start_detached_ssh(
+        cmd=params["cmd"],
+        prompt=params["prompt"],
+        cwd=cwd,
+        chat_id=chat_id,
+        vm_config=params["vm_config"],
+        env=params["env"],
+    )
+
+    logger.info("start_detached_chat: tmux started chat_id={} session_id={}", chat_id, session_id)
+
+    # Register in DynamoDB for monitoring
+    register_process(
+        chat_id=chat_id, user_id=user_id, vm_name=vm_name,
+        bot_name=bot_name, trace_id=trace_id, skill=skill,
+        post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
+    )
 
