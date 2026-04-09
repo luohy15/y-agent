@@ -11,6 +11,7 @@ interface Chat {
   updated_at?: string;
   skill?: string;
   trace_id?: string;
+  backend?: string;
 }
 
 interface ChatListProps {
@@ -227,6 +228,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         {c.chat_id.slice(0, 8)}
                       </button>
                       {c.skill && <span className={`text-[0.55rem] truncate ${skillBadgeClass(c.skill)}`}>{c.skill}</span>}
+                      {c.backend && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.backend}</span>}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">

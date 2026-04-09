@@ -10,6 +10,7 @@ export interface TraceChat {
   chat_id: string;
   title: string;
   skill: string;
+  backend?: string;
   segments: Segment[];
   messages?: unknown[];
 }
@@ -60,17 +61,19 @@ function generateTicks(minTs: number, maxTs: number): number[] {
 export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSkill?: (chatId: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  // Group chats by skill, preserving order of first appearance
+  // Group chats by skill+backend, preserving order of first appearance
   const skillGroups = useMemo(() => {
     const groups: Record<string, TraceChat[]> = {};
     const order: string[] = [];
     for (const c of chats) {
       const skill = c.skill || "unknown";
-      if (!groups[skill]) {
-        groups[skill] = [];
-        order.push(skill);
+      const backend = c.backend || "";
+      const key = backend ? `${skill}:${backend}` : skill;
+      if (!groups[key]) {
+        groups[key] = [];
+        order.push(key);
       }
-      groups[skill].push(c);
+      groups[key].push(c);
     }
     return { groups, order };
   }, [chats]);
@@ -139,17 +142,19 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
       <div className="flex">
         {/* Skill labels column */}
         <div style={{ width: LABEL_W }} className="shrink-0">
-          {skillGroups.order.map((skill) => {
+          {skillGroups.order.map((key) => {
+            const [skill, backend] = key.includes(":") ? [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)] : [key, ""];
             const colors = getSkillColors(skill);
-            const firstChat = skillGroups.groups[skill][0];
+            const firstChat = skillGroups.groups[key][0];
             return (
               <div
-                key={skill}
-                className="flex items-center min-h-[1.75rem] px-2 gap-1.5 cursor-pointer hover:bg-sol-base02/50 rounded"
+                key={key}
+                className="flex items-center min-h-[1.75rem] px-2 gap-1 cursor-pointer hover:bg-sol-base02/50 rounded"
                 onClick={() => firstChat && onClickSkill?.(firstChat.chat_id)}
               >
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
                 <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{skill}</span>
+                {backend && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{backend}</span>}
               </div>
             );
           })}
@@ -161,17 +166,18 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
           className="flex-1 relative"
         >
           {/* Skill row bars */}
-          {skillGroups.order.map((skill) => {
+          {skillGroups.order.map((key) => {
+            const skill = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
             const colors = getSkillColors(skill);
-            const skillChats = skillGroups.groups[skill];
+            const skillChats = skillGroups.groups[key];
             return (
-              <div key={skill} className="relative h-[1.75rem]">
+              <div key={key} className="relative h-[1.75rem]">
                 {/* Grid lines */}
                 {ticks.map((t) => {
                   const pct = ((t - minTs) / range) * 100;
                   return (
                     <div
-                      key={`${skill}-tick-${t}`}
+                      key={`${key}-tick-${t}`}
                       className="absolute top-0 bottom-0 border-l border-sol-base02/30"
                       style={{ left: `${pct}%` }}
                     />
