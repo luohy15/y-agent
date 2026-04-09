@@ -15,7 +15,8 @@ def _entity_to_dto(entity: DevWorktreeEntity) -> DevWorktree:
         worktree_path=entity.worktree_path,
         branch=entity.branch,
         status=entity.status,
-        chat_ids=entity.chat_ids,
+        todo_id=entity.todo_id,
+        server_state=entity.server_state,
         history=[DevWorktreeHistoryEntry.from_dict(h) for h in history],
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
@@ -59,7 +60,8 @@ def save_worktree(user_id: int, worktree: DevWorktree) -> DevWorktree:
             worktree_path=worktree.worktree_path,
             branch=worktree.branch,
             status=worktree.status,
-            chat_ids=worktree.chat_ids,
+            todo_id=worktree.todo_id,
+            server_state=worktree.server_state,
             history=[h.to_dict() for h in (worktree.history or [])],
         )
         if entity:

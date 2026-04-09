@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -17,6 +17,7 @@ class CreateDevWorktreeRequest(BaseModel):
     project_path: str
     worktree_path: str
     branch: str
+    todo_id: Optional[str] = None
 
 
 class UpdateDevWorktreeRequest(BaseModel):
@@ -26,7 +27,8 @@ class UpdateDevWorktreeRequest(BaseModel):
     worktree_path: Optional[str] = None
     branch: Optional[str] = None
     status: Optional[str] = None
-    chat_ids: Optional[List[str]] = None
+    todo_id: Optional[str] = None
+    server_state: Optional[dict] = None
 
 
 class WorktreeIdRequest(BaseModel):
@@ -70,6 +72,7 @@ async def create_worktree(req: CreateDevWorktreeRequest, request: Request):
         project_path=req.project_path,
         worktree_path=req.worktree_path,
         branch=req.branch,
+        todo_id=req.todo_id,
     )
     return wt.to_dict()
 

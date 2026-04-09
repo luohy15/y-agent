@@ -62,23 +62,22 @@ def get_worktree(name: str) -> dict:
         return registry[name]
 
 
-def create_worktree(name: str, project_path: str, worktree_path: str, branch: str) -> dict:
+def create_worktree(name: str, project_path: str, worktree_path: str, branch: str, todo_id: str = None) -> dict:
     """Create a worktree via API, fallback to local JSON."""
+    body = {
+        "name": name,
+        "project_path": project_path,
+        "worktree_path": worktree_path,
+        "branch": branch,
+    }
+    if todo_id:
+        body["todo_id"] = todo_id
     try:
-        resp = api_request("POST", "/api/dev-worktree", json={
-            "name": name,
-            "project_path": project_path,
-            "worktree_path": worktree_path,
-            "branch": branch,
-        })
+        resp = api_request("POST", "/api/dev-worktree", json=body)
         return resp.json()
     except Exception:
         registry = _load_local_registry()
-        registry[name] = {
-            "project_path": project_path,
-            "worktree_path": worktree_path,
-            "branch": branch,
-        }
+        registry[name] = body
         _save_local_registry(registry)
         return registry[name]
 
@@ -108,3 +107,8 @@ def update_worktree(name: str, **fields):
         if name in registry:
             registry[name].update(fields)
             _save_local_registry(registry)
+
+
+def server_sync(name: str, server_state: dict):
+    """Sync server state (PIDs, ports, domains) to registry."""
+    update_worktree(name, server_state=server_state)

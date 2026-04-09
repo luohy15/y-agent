@@ -13,7 +13,8 @@ class DevWorktreeEntity(Base, BaseEntity):
     worktree_path = Column(String, nullable=False)
     branch = Column(String, nullable=False)
     status = Column(String, nullable=False, default="active")
-    chat_ids = Column(JSON, nullable=True)
+    todo_id = Column(String, nullable=True)
+    server_state = Column(JSON, nullable=True)
     history = Column(JSON, nullable=False, default=list)
 
     __table_args__ = (

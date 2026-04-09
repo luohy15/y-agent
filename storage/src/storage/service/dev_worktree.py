@@ -24,6 +24,7 @@ def create_worktree(
     project_path: str,
     worktree_path: str,
     branch: str,
+    todo_id: Optional[str] = None,
 ) -> DevWorktree:
     wt = DevWorktree(
         worktree_id=generate_id(),
@@ -32,6 +33,7 @@ def create_worktree(
         worktree_path=worktree_path,
         branch=branch,
         status="active",
+        todo_id=todo_id,
         history=[DevWorktreeHistoryEntry(
             timestamp=get_utc_iso8601_timestamp(),
             unix_timestamp=get_unix_timestamp(),
