@@ -125,66 +125,71 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     """Event loop: monitor detached processes, poll for new ones, handle deadlines."""
     from agent.claude_code import tail_ssh_output
     from agent.config import resolve_vm_config
+    from agent.ssh_pool import SSHPool
     from storage.entity.dto import VmConfig
 
+    ssh_pool = SSHPool()
     tail_tasks = {}  # chat_id -> asyncio.Task
     proc_meta = {}   # chat_id -> proc dict (from DynamoDB)
     idle_since = None
 
-    while True:
-        # 2a. Poll DynamoDB for running processes, acquire new ones
-        if len(tail_tasks) < MAX_PROCESSES_PER_LAMBDA:
-            procs = get_running_processes()
-            for proc in procs:
-                cid = proc["chat_id"]
-                if cid in tail_tasks:
-                    continue
-                if len(tail_tasks) >= MAX_PROCESSES_PER_LAMBDA:
+    try:
+        while True:
+            # 2a. Poll DynamoDB for running processes, acquire new ones
+            if len(tail_tasks) < MAX_PROCESSES_PER_LAMBDA:
+                procs = get_running_processes()
+                for proc in procs:
+                    cid = proc["chat_id"]
+                    if cid in tail_tasks:
+                        continue
+                    if len(tail_tasks) >= MAX_PROCESSES_PER_LAMBDA:
+                        break
+                    if try_acquire_lease(cid, lambda_req_id):
+                        proc_meta[cid] = proc
+                        task = asyncio.create_task(_tail_and_process(cid, proc, lambda_req_id, deadline_at, ssh_pool))
+                        tail_tasks[cid] = task
+                        idle_since = None
+
+            # 2b. Reap completed tail tasks
+            done = [cid for cid, t in tail_tasks.items() if t.done()]
+            for cid in done:
+                try:
+                    tail_tasks.pop(cid).result()
+                except Exception as e:
+                    tail_tasks.pop(cid, None)
+                    logger.error("tail task {} error: {}", cid, e)
+                proc_meta.pop(cid, None)
+
+            # 2c. Idle exit (scale to 0)
+            if not tail_tasks:
+                if idle_since is None:
+                    idle_since = time.monotonic()
+                elif time.monotonic() - idle_since > IDLE_EXIT_SECONDS:
                     break
-                if try_acquire_lease(cid, lambda_req_id):
-                    proc_meta[cid] = proc
-                    task = asyncio.create_task(_tail_and_process(cid, proc, lambda_req_id, deadline_at))
-                    tail_tasks[cid] = task
-                    idle_since = None
+            else:
+                idle_since = None
 
-        # 2b. Reap completed tail tasks
-        done = [cid for cid, t in tail_tasks.items() if t.done()]
-        for cid in done:
-            try:
-                tail_tasks.pop(cid).result()
-            except Exception as e:
-                tail_tasks.pop(cid, None)
-                logger.error("tail task {} error: {}", cid, e)
-            proc_meta.pop(cid, None)
-
-        # 2c. Idle exit (scale to 0)
-        if not tail_tasks:
-            if idle_since is None:
-                idle_since = time.monotonic()
-            elif time.monotonic() - idle_since > IDLE_EXIT_SECONDS:
+            # 2d. Deadline — cancel tails, send continuation
+            if deadline_at and time.monotonic() > deadline_at:
+                for cid, task in list(tail_tasks.items()):
+                    task.cancel()
+                if tail_tasks:
+                    _send_sqs_continuation()
                 break
-        else:
-            idle_since = None
 
-        # 2d. Deadline — cancel tails, send continuation
-        if deadline_at and time.monotonic() > deadline_at:
-            for cid, task in list(tail_tasks.items()):
-                task.cancel()
-            if tail_tasks:
-                _send_sqs_continuation()
-            break
+            # 2e. Renew leases
+            for cid in list(tail_tasks.keys()):
+                try:
+                    renew_lease(cid, lambda_req_id)
+                except Exception:
+                    pass
 
-        # 2e. Renew leases
-        for cid in list(tail_tasks.keys()):
-            try:
-                renew_lease(cid, lambda_req_id)
-            except Exception:
-                pass
-
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    finally:
+        ssh_pool.close_all()
 
 
-async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float):
+async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
     """Tail a single detached process and handle completion."""
     from agent.claude_code import tail_ssh_output
     from agent.config import resolve_vm_config
@@ -199,6 +204,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     session_id = proc.get("session_id")
 
     vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
+
+    # Get pooled SSH client if pool is available
+    client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
 
     def _check_deadline():
         if deadline_at and time.monotonic() > deadline_at:
@@ -221,6 +229,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         message_callback=_msg_callback,
         check_interrupted_fn=_check_interrupted,
         check_deadline_fn=_check_deadline,
+        ssh_client=client,
     )
 
     # Save offset to DynamoDB
