@@ -202,15 +202,19 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
     logger.info("DM restart: new chat_id={}", new_chat_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None) -> None:
-    """Execute a chat round. bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message."""
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None) -> str:
+    """Execute a chat round. Returns 'detached' or 'done'.
+
+    bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
+    Routing (detached SSH vs inline) is decided internally after resolving bot/vm config.
+    """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
     # Load chat from DB (with user_id access check)
     chat = await chat_service.get_chat(user_id, chat_id)
     if not chat:
         logger.error("Chat {} not found", chat_id)
-        return
+        return "done"
 
     # Fallback: read trace_id from chat if not passed via queue
     if not trace_id and chat.trace_id:
@@ -241,7 +245,20 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
-    # Route to Claude Code worker or agent loop based on api_type
+    # Route: SSH claude-code → detached tmux mode (if "detach" feature flag exists)
+    # A vm_config named "detach" for this user acts as a feature flag.
+    # Present → detached mode; absent → inline (safe fallback).
+    if bot_config.api_type == "claude-code":
+        vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+        if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
+            from storage.service import vm_config as vm_service
+            if vm_service.get_config(user_id, "detach"):
+                await _start_detached(chat, chat_id, user_id, bot_config,
+                                       vm_name=vm_name, work_dir=work_dir,
+                                       post_hooks=post_hooks, trace_id=trace_id, skill=skill)
+                return "detached"
+
+    # Inline mode
     error_occurred = False
     try:
         if bot_config.api_type == "claude-code":
@@ -267,6 +284,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
             if not fresh.interrupted and post_hooks:
                 logger.info("Running {} post hooks for chat {}", len(post_hooks), chat_id)
                 _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
+
+    return "done"
 
 
 async def _run_chat_agent_loop(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None) -> None:
@@ -465,52 +484,19 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
                 await _maybe_restart_dm_session(user_id, result.input_tokens or 0, result.context_window or 0, num_turns)
 
 
-async def start_detached_chat(user_id: int, chat_id: str, bot_name: str = None,
-                               vm_name: str = None, work_dir: str = None,
-                               post_hooks: list = None, trace_id: str = None,
-                               skill: str = None) -> None:
-    """Start a claude-code chat as a detached tmux process on EC2.
+async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
+                           vm_name: str = None, work_dir: str = None,
+                           post_hooks: list = None, trace_id: str = None,
+                           skill: str = None) -> None:
+    """Start claude-code as a detached tmux process on EC2.
 
-    1. Load chat, resolve config (same as run_chat)
-    2. SSH start tmux detached claude-code
-    3. Register process in DynamoDB
-    4. Return immediately (monitoring happens in handler event loop)
+    Called from run_chat after chat loading, trace setup, and running flag are done.
+    Starts tmux, registers in DynamoDB, returns immediately.
+    Monitoring happens in the handler event loop.
     """
     from agent.claude_code import start_detached_ssh
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
-
-    chat = await chat_service.get_chat(user_id, chat_id)
-    if not chat:
-        logger.error("Chat {} not found", chat_id)
-        return
-
-    # Fallback: read trace_id from chat if not passed via queue
-    if not trace_id and chat.trace_id:
-        trace_id = chat.trace_id
-
-    # Persist trace context on the chat
-    from storage.repository import chat as chat_repo
-    if trace_id and skill != 'DM':
-        chat.trace_id = trace_id
-    if skill and not chat.skill:
-        chat.skill = skill
-    elif not skill and chat.skill:
-        skill = chat.skill
-
-    # Reset interrupted flag and mark as running
-    chat.interrupted = False
-    chat.running = True
-    await chat_repo.save_chat_by_id(chat)
-
-    # Send user message to Telegram immediately
-    try:
-        _send_telegram_user_message(chat, user_id)
-    except Exception as e:
-        logger.exception("telegram user message failed: {}", e)
-
-    bot_config = agent_config.resolve_bot_config(user_id, bot_name)
-    logger.info("start_detached_chat: bot={} api_type={}", bot_config.name, bot_config.api_type)
 
     params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                         vm_name=vm_name, work_dir=work_dir,
@@ -524,6 +510,7 @@ async def start_detached_chat(user_id: int, chat_id: str, bot_name: str = None,
     cwd = params["cwd"]
     if not chat.work_dir:
         chat.work_dir = cwd
+        from storage.repository import chat as chat_repo
         await chat_repo.save_chat_by_id(chat)
 
     # Wake EC2 if needed
@@ -539,12 +526,12 @@ async def start_detached_chat(user_id: int, chat_id: str, bot_name: str = None,
         env=params["env"],
     )
 
-    logger.info("start_detached_chat: tmux started chat_id={} session_id={}", chat_id, session_id)
+    logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
 
     # Register in DynamoDB for monitoring
     register_process(
         chat_id=chat_id, user_id=user_id, vm_name=vm_name,
-        bot_name=bot_name, trace_id=trace_id, skill=skill,
+        bot_name=bot_config.name, trace_id=trace_id, skill=skill,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
     )
 
