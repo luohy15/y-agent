@@ -15,6 +15,7 @@ Maps these events to y-agent Message DTOs using the same format as claude_code.p
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
@@ -23,6 +24,23 @@ from loguru import logger
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+
+_SHELL_WRAPPER_RE = re.compile(
+    r'^(/\S+/(?:bash|zsh|sh|fish|dash))\s+-\w*c\s+(.+)$',
+    re.DOTALL,
+)
+
+
+def _strip_shell_wrapper(command: str) -> str:
+    """Strip shell wrapper (e.g. '/usr/bin/zsh -lc pwd') to extract the actual command."""
+    m = _SHELL_WRAPPER_RE.match(command)
+    if m:
+        inner = m.group(2)
+        if (inner.startswith("'") and inner.endswith("'")) or \
+           (inner.startswith('"') and inner.endswith('"')):
+            inner = inner[1:-1]
+        return inner
+    return command
 
 
 @dataclass
@@ -43,6 +61,7 @@ class CodexStreamConverter:
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
         self.num_turns: int = 0
+        self._pending_items: Dict[str, str] = {}  # codex item_id -> tool_call_id
 
     def _emit(self, msg: Message) -> Message:
         msg.parent_id = self.last_message_id
@@ -66,7 +85,8 @@ class CodexStreamConverter:
             item_id = item.get("id") or generate_message_id()
 
             if item_type == "command_execution":
-                command = item.get("command", "")
+                command = _strip_shell_wrapper(item.get("command", ""))
+                self._pending_items[item_id] = item_id
                 msg = Message.from_dict({
                     "role": "assistant",
                     "content": "",
@@ -88,6 +108,7 @@ class CodexStreamConverter:
 
             elif item_type == "file_change":
                 file_path = item.get("file_path", "")
+                self._pending_items[item_id] = item_id
                 msg = Message.from_dict({
                     "role": "assistant",
                     "content": "",
@@ -110,7 +131,10 @@ class CodexStreamConverter:
         elif event_type == "item.completed":
             item = obj.get("item", {})
             item_type = item.get("type")
-            item_id = item.get("id") or generate_message_id()
+            item_id = item.get("id")
+            tool_call_id = self._pending_items.pop(item_id, None) if item_id else None
+            if not tool_call_id:
+                tool_call_id = item_id or generate_message_id()
 
             if item_type == "agent_message":
                 text = item.get("text", "")
@@ -127,7 +151,7 @@ class CodexStreamConverter:
 
             elif item_type == "command_execution":
                 output = item.get("output", "")
-                command = item.get("command", "")
+                command = _strip_shell_wrapper(item.get("command", ""))
                 msg = Message.from_dict({
                     "role": "tool",
                     "content": output if isinstance(output, str) else json.dumps(output),
@@ -136,7 +160,7 @@ class CodexStreamConverter:
                     "id": generate_message_id(),
                     "tool": "Bash",
                     "arguments": {"command": command},
-                    "tool_call_id": item_id,
+                    "tool_call_id": tool_call_id,
                 })
                 messages.append(self._emit(msg))
 
@@ -151,7 +175,7 @@ class CodexStreamConverter:
                     "id": generate_message_id(),
                     "tool": "Edit",
                     "arguments": {"file_path": file_path},
-                    "tool_call_id": item_id,
+                    "tool_call_id": tool_call_id,
                 })
                 messages.append(self._emit(msg))
 
