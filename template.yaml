@@ -301,8 +301,10 @@ Resources:
           Type: SQS
           Properties:
             Queue: !GetAtt JobQueue.Arn
-            BatchSize: 1
-            MaximumBatchingWindowInSeconds: 0
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations

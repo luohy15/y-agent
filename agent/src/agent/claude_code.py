@@ -667,6 +667,250 @@ def _shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
+def _ssh_exec(client, cmd: str) -> str:
+    """Execute a command via SSH and return stdout. Raises on non-zero exit."""
+    stdin, stdout, stderr = client.exec_command(cmd)
+    exit_code = stdout.channel.recv_exit_status()
+    output = stdout.read().decode("utf-8", errors="replace")
+    if exit_code != 0:
+        err = stderr.read().decode("utf-8", errors="replace")
+        if "no server running" not in err and "session not found" not in err:
+            raise RuntimeError(f"SSH command failed (exit {exit_code}): {err}")
+    return output
+
+
+# ---------------------------------------------------------------------------
+# Detached SSH runner (tmux-based, for Lambda timeout resilience)
+# ---------------------------------------------------------------------------
+
+async def start_detached_ssh(
+    cmd: List[str],
+    prompt: str,
+    cwd: Optional[str],
+    chat_id: str,
+    vm_config: "VmConfig",
+    env: Optional[Dict[str, str]] = None,
+) -> Optional[str]:
+    """Start claude -p in a detached tmux session on remote host.
+
+    Prompt is written via SFTP to a stdin file.
+    stdout/stderr redirected to /tmp/cc-{chat_id}.* files.
+
+    Returns session_id if found in initial output, else None.
+    """
+    import io
+    import paramiko
+
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(host, port=port, username=user, pkey=key)
+
+    try:
+        # 1. Write prompt to stdin file via SFTP (avoids shell line length limits)
+        stdin_file = f"/tmp/cc-{chat_id}.stdin"
+        sftp = client.open_sftp()
+        with sftp.open(stdin_file, "w") as f:
+            f.write(prompt)
+        sftp.close()
+
+        # 2. Build the claude command
+        inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
+        if env:
+            for k, v in env.items():
+                inner_parts.append(f"export {k}={_shell_quote(v)};")
+        if cwd:
+            inner_parts.append(f"cd {_shell_quote(cwd)} &&")
+
+        claude_cmd = " ".join(_shell_quote(c) for c in cmd)
+        stdout_file = f"/tmp/cc-{chat_id}.stdout"
+        stderr_file = f"/tmp/cc-{chat_id}.stderr"
+        exit_file = f"/tmp/cc-{chat_id}.exit"
+
+        inner_parts.append(
+            f"{claude_cmd} < {_shell_quote(stdin_file)} "
+            f"> {_shell_quote(stdout_file)} "
+            f"2> {_shell_quote(stderr_file)}; "
+            f"echo $? > {_shell_quote(exit_file)}"
+        )
+
+        tmux_cmd = (
+            f"tmux new-session -d -s {_shell_quote(f'cc-{chat_id}')} "
+            f"{_shell_quote(' '.join(inner_parts))}"
+        )
+
+        # 3. Clean up any stale files/session
+        _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
+                         f"rm -f /tmp/cc-{chat_id}.* 2>/dev/null")
+
+        # 4. Start tmux session
+        _ssh_exec(client, tmux_cmd)
+
+        # 5. Wait briefly for stdout file to appear and check for session_id
+        await asyncio.sleep(2)
+
+        session_id = None
+        try:
+            output = _ssh_exec(client, f"head -5 {_shell_quote(stdout_file)} 2>/dev/null")
+            for line in output.strip().split("\n"):
+                obj = parse_stream_line(line)
+                if obj and obj.get("type") == "system":
+                    session_id = obj.get("session_id")
+                    break
+        except Exception:
+            pass
+
+        return session_id
+    finally:
+        client.close()
+
+
+async def tail_ssh_output(
+    chat_id: str,
+    vm_config: "VmConfig",
+    offset: int = 0,
+    last_message_id: Optional[str] = None,
+    message_callback: Optional[Callable[[Message], None]] = None,
+    check_interrupted_fn: Optional[Callable[[], bool]] = None,
+    check_deadline_fn: Optional[Callable[[], bool]] = None,
+) -> dict:
+    """Tail a detached claude-code process's stdout file via SSH.
+
+    Returns dict with:
+      - offset: new line offset
+      - last_message_id: last processed message id
+      - session_id: claude code session id (if found)
+      - is_done: True if process exited
+      - result_data: the "result" stream-json object (if process completed)
+      - status: "completed" | "error" | "interrupted" | "monitoring"
+    """
+    import io
+    import paramiko
+
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(host, port=port, username=user, pkey=key)
+
+    stdout_file = f"/tmp/cc-{chat_id}.stdout"
+    exit_file = f"/tmp/cc-{chat_id}.exit"
+
+    converter = StreamConverter(last_message_id=last_message_id)
+    result_data = None
+    session_id = None
+    current_offset = offset
+
+    try:
+        # tail from offset, follow until exit file appears or deadline/interrupt
+        tail_cmd = (
+            f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
+            f"(while ! test -f {_shell_quote(exit_file)}; do sleep 2; done; "
+            f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
+            f"wait $TAIL_PID 2>/dev/null"
+        )
+
+        stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
+
+        def _read_lines():
+            nonlocal result_data, session_id, current_offset
+            for raw_line in stdout_ch:
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                current_offset += 1
+
+                if check_interrupted_fn and check_interrupted_fn():
+                    try:
+                        client.exec_command(
+                            f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                        )
+                        client.exec_command(f"rm -f /tmp/cc-{chat_id}.* 2>/dev/null")
+                    except Exception:
+                        pass
+                    stdout_ch.channel.close()
+                    return "interrupted"
+
+                if check_deadline_fn and check_deadline_fn():
+                    stdout_ch.channel.close()
+                    return "deadline"
+
+                obj = parse_stream_line(line)
+                if not obj:
+                    continue
+
+                if obj.get("type") == "system":
+                    session_id = obj.get("session_id")
+                    continue
+                if obj.get("type") == "result":
+                    result_data = obj
+                    continue
+
+                if message_callback:
+                    for msg in converter.process_line(line):
+                        message_callback(msg)
+
+            return None
+
+        loop = asyncio.get_event_loop()
+        exit_reason = await loop.run_in_executor(None, _read_lines)
+
+        client.close()
+
+        if exit_reason == "interrupted":
+            return {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "session_id": session_id,
+                "is_done": True,
+                "result_data": None,
+                "status": "interrupted",
+            }
+
+        if exit_reason == "deadline":
+            return {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "session_id": session_id,
+                "is_done": False,
+                "result_data": None,
+                "status": "monitoring",
+            }
+
+        # Process finished normally
+        status = "completed"
+        if result_data and result_data.get("is_error"):
+            status = "error"
+
+        return {
+            "offset": current_offset,
+            "last_message_id": converter.last_message_id,
+            "session_id": result_data.get("session_id") or session_id if result_data else session_id,
+            "is_done": True,
+            "result_data": result_data,
+            "status": status,
+        }
+
+    except Exception as e:
+        logger.error("tail_ssh_output error: {} {}", type(e).__name__, e)
+        try:
+            client.close()
+        except Exception:
+            pass
+        return {
+            "offset": current_offset,
+            "last_message_id": converter.last_message_id if converter else last_message_id,
+            "session_id": session_id,
+            "is_done": False,
+            "result_data": None,
+            "status": "error",
+        }
+
+
 # ---------------------------------------------------------------------------
 # Image materialization helpers
 # ---------------------------------------------------------------------------
