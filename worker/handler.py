@@ -112,7 +112,6 @@ def lambda_handler(event, context):
 
 async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     """Event loop: monitor detached processes, poll for new ones, handle deadlines."""
-    from agent.claude_code import tail_ssh_output
     from agent.config import resolve_vm_config
     from agent.ssh_pool import SSHPool
     from storage.entity.dto import VmConfig
@@ -186,12 +185,12 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
 
 async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
     """Tail a single detached process and handle completion."""
-    from agent.claude_code import tail_ssh_output
     from agent.config import resolve_vm_config
     from storage.entity.dto import Message, VmConfig
     from storage.service import chat as chat_service
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
+    backend_type = proc.get("backend_type", "claude-code")
     vm_name = proc["vm_name"]
     user_id = proc["user_id"]
     offset = proc.get("stdout_offset", 0)
@@ -214,25 +213,40 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg)
 
-    logger.info("tail_and_process start chat_id={} offset={}", chat_id, offset)
+    logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
-    result = await tail_ssh_output(
-        chat_id=chat_id,
-        vm_config=vm_config,
-        offset=offset,
-        last_message_id=last_message_id,
-        message_callback=_msg_callback,
-        check_interrupted_fn=_check_interrupted,
-        check_deadline_fn=_check_deadline,
-        ssh_client=client,
-    )
+    # Dispatch to backend-specific tail function
+    if backend_type == "codex":
+        from agent.codex import tail_codex_output
+        result = await tail_codex_output(
+            chat_id=chat_id,
+            vm_config=vm_config,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            ssh_client=client,
+        )
+    else:
+        from agent.claude_code import tail_ssh_output
+        result = await tail_ssh_output(
+            chat_id=chat_id,
+            vm_config=vm_config,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            ssh_client=client,
+        )
 
     # Save offset to DynamoDB
     update_process_offset(
         chat_id=chat_id,
         offset=result["offset"],
         last_message_id=result.get("last_message_id"),
-        session_id=result.get("session_id"),
+        session_id=result.get("session_id") or result.get("thread_id"),
     )
 
     if result["is_done"]:
@@ -243,24 +257,21 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         fresh = await chat_service.get_chat_by_id(chat_id)
         if fresh:
             fresh.running = False
-            if result.get("session_id"):
-                fresh.external_id = result["session_id"]
 
-            # Save result data (token usage) if available
             result_data = result.get("result_data")
-            if result_data:
-                model_usage = result_data.get("modelUsage", {})
-                num_turns = result_data.get("num_turns") or 1
-                if model_usage:
-                    fresh.input_tokens = sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns
-                    fresh.output_tokens = sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns
-                    fresh.cache_read_input_tokens = sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns
-                    fresh.cache_creation_input_tokens = sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns
-                    fresh.context_window = max((v.get("contextWindow", 0) for v in model_usage.values()), default=None)
 
-                # Surface error as visible message
+            if backend_type == "codex":
+                # Codex: usage from turn.completed event
+                if result.get("session_id") or result.get("thread_id"):
+                    pass  # no external_id for codex
+                if result_data and not result_data.get("is_error"):
+                    usage = result_data.get("usage", {})
+                    if usage:
+                        fresh.input_tokens = usage.get("input_tokens")
+                        fresh.output_tokens = usage.get("output_tokens")
+
                 if result["status"] == "error":
-                    error_text = result_data.get("result") or "Claude Code exited with an error."
+                    error_text = (result_data.get("result") if result_data else None) or "Codex exited with an error."
                     error_msg = Message(
                         id=generate_message_id(),
                         role="assistant",
@@ -269,10 +280,35 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         unix_timestamp=get_unix_timestamp(),
                     )
                     _msg_callback(error_msg)
+            else:
+                # Claude Code: existing logic
+                if result.get("session_id"):
+                    fresh.external_id = result["session_id"]
+
+                if result_data:
+                    model_usage = result_data.get("modelUsage", {})
+                    num_turns = result_data.get("num_turns") or 1
+                    if model_usage:
+                        fresh.input_tokens = sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns
+                        fresh.output_tokens = sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns
+                        fresh.cache_read_input_tokens = sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns
+                        fresh.cache_creation_input_tokens = sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns
+                        fresh.context_window = max((v.get("contextWindow", 0) for v in model_usage.values()), default=None)
+
+                    if result["status"] == "error":
+                        error_text = result_data.get("result") or "Claude Code exited with an error."
+                        error_msg = Message(
+                            id=generate_message_id(),
+                            role="assistant",
+                            content=error_text,
+                            timestamp=get_utc_iso8601_timestamp(),
+                            unix_timestamp=get_unix_timestamp(),
+                        )
+                        _msg_callback(error_msg)
 
             await chat_repo.save_chat_by_id(fresh)
 
-            # Telegram reply + post hooks
+            # Telegram reply + post hooks (same for both backends)
             if not fresh.interrupted and result["status"] != "error":
                 try:
                     from worker.runner import _send_telegram_reply

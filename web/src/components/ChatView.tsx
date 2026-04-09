@@ -13,6 +13,7 @@ interface ChatViewProps {
   isLoggedIn: boolean;
   gsiReady?: boolean;
   vmName?: string | null;
+  botName?: string | null;
   onWorkDirChange?: (workDir: string | null) => void;
   onSkillChange?: (skill: string | null) => void;
   onTraceIdChange?: (traceId: string | null) => void;
@@ -22,7 +23,7 @@ interface ChatViewProps {
   onSelectTrace?: (traceId: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, onWorkDirChange, onSkillChange, onTraceIdChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, onWorkDirChange, onSkillChange, onTraceIdChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -226,14 +227,14 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       await authFetch(`${API}/api/chat/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(chatWorkDir ? { work_dir: chatWorkDir } : {}) }),
+        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}), ...(chatWorkDir ? { work_dir: chatWorkDir } : {}) }),
       });
       setFollowUp("");
       connectSSE(chatId, idxRef.current);
     } finally {
       setSending(false);
     }
-  }, [followUp, sending, chatId, vmName, chatWorkDir, connectSSE]);
+  }, [followUp, sending, chatId, vmName, botName, chatWorkDir, connectSSE]);
 
   const createChat = useCallback(async () => {
     const text = newPrompt.trim();
@@ -243,7 +244,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       const res = await authFetch(`${API}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, ...(vmName ? { vm_name: vmName } : {}) }),
+        body: JSON.stringify({ prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}) }),
       });
       const data = await res.json();
       const now = new Date().toISOString();
@@ -258,7 +259,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     } finally {
       setSending(false);
     }
-  }, [newPrompt, sending, vmName, mutate, onChatCreated]);
+  }, [newPrompt, sending, vmName, botName, mutate, onChatCreated]);
 
   if (!chatId) {
     if (!isLoggedIn) {

@@ -16,7 +16,8 @@ def _get_dynamodb():
 def register_process(chat_id: str, user_id: int, vm_name: str,
                      bot_name: str = None, trace_id: str = None,
                      skill: str = None, post_hooks: list = None,
-                     work_dir: str = None, session_id: str = None) -> None:
+                     work_dir: str = None, session_id: str = None,
+                     backend_type: str = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -41,6 +42,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["session_id"] = {"S": session_id}
     if post_hooks is not None:
         item["post_hooks"] = {"S": json.dumps(post_hooks)}
+    if backend_type:
+        item["backend_type"] = {"S": backend_type}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 
