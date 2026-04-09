@@ -56,6 +56,7 @@ async def get_chats(request: Request, query: Optional[str] = Query(None), trace_
             "updated_at": c.updated_at,
             "skill": c.skill,
             "trace_id": c.trace_id,
+            "backend": c.backend,
         }
         for c in chats
     ]
@@ -189,6 +190,8 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["skill"] = chat.skill
     if chat.trace_id:
         result["trace_id"] = chat.trace_id
+    if chat.backend:
+        result["backend"] = chat.backend
     if chat.context_window is not None:
         result["input_tokens"] = chat.input_tokens
         result["output_tokens"] = chat.output_tokens

@@ -59,6 +59,7 @@ export default function App() {
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatSkill, setChatSkill] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
+  const [chatBackend, setChatBackend] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
@@ -559,9 +560,10 @@ export default function App() {
                   {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
                   {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
                   {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
+                  {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => setSelectedChatId(null)} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handleOpenFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}
