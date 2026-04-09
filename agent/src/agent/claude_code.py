@@ -717,14 +717,18 @@ async def start_detached_ssh(
     client = ssh_client
 
     try:
-        # 1. Write prompt to stdin file via SFTP (avoids shell line length limits)
+        # 1. Clean up any stale files/session (before writing stdin)
+        _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
+                         f"rm -f /tmp/cc-{chat_id}.* 2>/dev/null")
+
+        # 2. Write prompt to stdin file via SFTP (avoids shell line length limits)
         stdin_file = f"/tmp/cc-{chat_id}.stdin"
         sftp = client.open_sftp()
         with sftp.open(stdin_file, "w") as f:
             f.write(prompt)
         sftp.close()
 
-        # 2. Build the claude command
+        # 3. Build the claude command
         inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
         if env:
             for k, v in env.items():
@@ -748,10 +752,6 @@ async def start_detached_ssh(
             f"tmux new-session -d -s {_shell_quote(f'cc-{chat_id}')} "
             f"{_shell_quote(' '.join(inner_parts))}"
         )
-
-        # 3. Clean up any stale files/session
-        _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
-                         f"rm -f /tmp/cc-{chat_id}.* 2>/dev/null")
 
         # 4. Start tmux session
         _ssh_exec(client, tmux_cmd)
