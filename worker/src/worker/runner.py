@@ -248,7 +248,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     # Route: SSH claude-code/codex → detached tmux mode (if "detach" feature flag exists)
     # A vm_config named "detach" for this user acts as a feature flag.
     # Present → detached mode; absent → inline (safe fallback).
-    if bot_config.api_type in ("claude-code", "codex"):
+    if bot_config.api_type in ("claude_code", "codex"):
         vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
         if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
             from storage.service import vm_config as vm_service
@@ -261,7 +261,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     # Inline mode
     error_occurred = False
     try:
-        if bot_config.api_type == "claude-code":
+        if bot_config.api_type == "claude_code":
             await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
         elif bot_config.api_type == "codex":
             await _run_chat_codex(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)

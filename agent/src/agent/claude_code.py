@@ -89,7 +89,7 @@ def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Message:
         "unix_timestamp": get_unix_timestamp(),
         "id": uuid or generate_message_id(),
         "model": model,
-        "provider": "claude-code",
+        "provider": "claude_code",
         "tool_calls": tool_calls if tool_calls else None,
     })
 
@@ -224,7 +224,7 @@ def convert_history_session(jsonl_lines: List[str]) -> Tuple[List[Message], Opti
             "unix_timestamp": _iso_to_unix_ms(ts),
             "id": pending_assistant_uuid or generate_message_id(),
             "model": pending_assistant_model,
-            "provider": "claude-code",
+            "provider": "claude_code",
             "tool_calls": tool_calls if tool_calls else None,
         }))
 
