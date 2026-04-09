@@ -40,7 +40,8 @@ class DevWorktree:
     worktree_path: str
     branch: str
     status: str = "active"
-    chat_ids: Optional[List[str]] = None
+    todo_id: Optional[str] = None
+    server_state: Optional[Dict] = None
     history: Optional[List[DevWorktreeHistoryEntry]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -59,7 +60,8 @@ class DevWorktree:
             worktree_path=data['worktree_path'],
             branch=data['branch'],
             status=data.get('status', 'active'),
-            chat_ids=data.get('chat_ids'),
+            todo_id=data.get('todo_id'),
+            server_state=data.get('server_state'),
             history=history,
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
@@ -76,8 +78,10 @@ class DevWorktree:
             'branch': self.branch,
             'status': self.status,
         }
-        if self.chat_ids is not None:
-            result['chat_ids'] = self.chat_ids
+        if self.todo_id is not None:
+            result['todo_id'] = self.todo_id
+        if self.server_state is not None:
+            result['server_state'] = self.server_state
         if self.history:
             result['history'] = [h.to_dict() for h in self.history]
         if self.created_at is not None:
