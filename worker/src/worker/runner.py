@@ -246,6 +246,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         bot_config.api_type = backend
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
+    # Persist backend on chat
+    chat.backend = bot_config.api_type
+    await chat_repo.save_chat_by_id(chat)
+
     # Route: SSH claude_code/codex → detached tmux mode (if "detach" feature flag exists)
     # A vm_config named "detach" for this user acts as a feature flag.
     # Present → detached mode; absent → inline (safe fallback).
@@ -524,8 +528,7 @@ async def _run_chat_codex(chat, chat_id: str, user_id: int, bot_config, vm_name:
     thread_id = params.get("thread_id")
     resume = params.get("resume", False)
 
-    # Set backend and work_dir on chat
-    chat.backend = "codex"
+    # Set work_dir on chat
     if not chat.work_dir:
         chat.work_dir = cwd
     from storage.repository import chat as chat_repo
