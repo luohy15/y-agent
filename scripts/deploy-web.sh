@@ -22,7 +22,7 @@ fi
 # Build the web app
 echo "Building web app..."
 npm install --prefix web
-VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID npm run build --prefix web
+VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID VITE_GA_MEASUREMENT_ID=${VITE_GA_MEASUREMENT_ID:-$GA_MEASUREMENT_ID} npm run build --prefix web
 
 STATIC_DIR="web/dist"
 
