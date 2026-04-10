@@ -1,6 +1,6 @@
 """Run OpenAI Codex CLI (`codex exec`) as a subprocess worker.
 
-Codex `codex exec --json --full-auto` emits JSONL events:
+Codex `codex exec --json --dangerously-bypass-approvals-and-sandbox` emits JSONL events:
   - thread.started  : thread_id
   - turn.started    : new turn begins
   - item.started    : tool/message item begins (command_execution, file_change, agent_message, etc.)
@@ -346,9 +346,9 @@ async def run_codex(
     """
     if thread_id:
         # resume subcommand doesn't support -C; pass cwd to subprocess instead
-        cmd = ["codex", "exec", "resume", thread_id, "--json", "--full-auto"]
+        cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
     else:
-        cmd = ["codex", "exec", "--json", "--full-auto"]
+        cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
         if cwd:
             cmd.extend(["-C", cwd])
     if model:
