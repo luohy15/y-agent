@@ -484,9 +484,9 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 
     # Build cmd (resume subcommand doesn't support -C)
     if resume and thread_id:
-        cmd = ["codex", "exec", "resume", thread_id, "--json", "--full-auto"]
+        cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
     else:
-        cmd = ["codex", "exec", "--json", "--full-auto"]
+        cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
         thread_id = None
         if cwd:
             cmd.extend(["-C", cwd])
