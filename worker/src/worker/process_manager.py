@@ -126,6 +126,15 @@ def update_process_offset(chat_id: str, offset: int, last_message_id: str = None
     )
 
 
+def release_lease(chat_id: str) -> None:
+    """Release monitoring lease so another Lambda can pick it up."""
+    _get_dynamodb().update_item(
+        TableName=TABLE_NAME,
+        Key={"id": {"S": f"proc-{chat_id}"}},
+        UpdateExpression="REMOVE monitor_owner, monitor_lease",
+    )
+
+
 def complete_process(chat_id: str, status: str = "completed") -> None:
     """Mark process as completed/error/interrupted. Clear monitor owner."""
     _get_dynamodb().update_item(

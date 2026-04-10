@@ -19,7 +19,7 @@ from worker.runner import run_chat, message_callback, check_interrupted
 from worker.link_downloader import run_link_download
 from worker.process_manager import (
     get_running_processes, try_acquire_lease, renew_lease,
-    update_process_offset, complete_process,
+    update_process_offset, complete_process, release_lease,
 )
 
 MAX_PROCESSES_PER_LAMBDA = 100
@@ -169,6 +169,8 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                     # Force-cancel any that didn't exit in time
                     for task in pending:
                         task.cancel()
+                # Always check for running processes — tail_tasks may already be reaped
+                if get_running_processes():
                     _send_sqs_continuation()
                 break
 
@@ -326,6 +328,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
         logger.info("tail_and_process done chat_id={} status={}", chat_id, result["status"])
     else:
+        release_lease(chat_id)
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
 
 
