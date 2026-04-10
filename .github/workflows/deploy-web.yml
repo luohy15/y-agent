@@ -57,3 +57,5 @@ jobs:
         run: |
           chmod +x scripts/deploy-web.sh
           ./scripts/deploy-web.sh
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ env.GA_MEASUREMENT_ID }}
