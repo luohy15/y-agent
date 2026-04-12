@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import subprocess
 import sys
 
@@ -18,6 +19,12 @@ def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
         return [opencli, "weixin", "download", "--url", url, "--output", output_dir, "--download-images", "false"]
     elif "youtube.com" in url or "youtu.be" in url:
         return [opencli, "youtube", "transcript", url, "-f", "json"]
+    elif "bilibili.com" in url:
+        bv_match = re.search(r'(BV[a-zA-Z0-9]+)', url)
+        if bv_match:
+            return [opencli, "bilibili", "subtitle", "-f", "json", bv_match.group(1)]
+        else:
+            raise ValueError(f"Cannot extract BV number from URL: {url}")
     elif "twitter.com" in url or "x.com/" in url:
         return [opencli, "twitter", "thread", url, "-f", "json", "--limit", "1"]
     else:
@@ -51,8 +58,19 @@ def link_download(url: str):
             }))
             sys.exit(1)
 
+        # For bilibili subtitle, output is in stdout (json format)
+        if "bilibili.com" in url:
+            title = ""
+            try:
+                bili_data = json.loads(result.stdout)
+                if isinstance(bili_data, list):
+                    content = "\n".join(item.get("content", "") for item in bili_data if item.get("content"))
+                else:
+                    content = result.stdout
+            except (json.JSONDecodeError, KeyError, IndexError):
+                content = result.stdout
         # For youtube transcript, output is in stdout (json format)
-        if "youtube.com" in url or "youtu.be" in url:
+        elif "youtube.com" in url or "youtu.be" in url:
             content = result.stdout
             title = ""
             try:
