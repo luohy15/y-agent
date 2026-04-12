@@ -117,7 +117,22 @@ function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: str
   );
 }
 
-function MarkdownPreview({ content }: { content: string }) {
+function resolveRelativePath(currentFilePath: string, href: string): string {
+  const dir = currentFilePath.includes("/") ? currentFilePath.substring(0, currentFilePath.lastIndexOf("/") + 1) : "";
+  const parts = (dir + href).split("/");
+  const resolved: string[] = [];
+  for (const part of parts) {
+    if (part === "..") resolved.pop();
+    else if (part !== ".") resolved.push(part);
+  }
+  return resolved.join("/");
+}
+
+function isRelativeLink(href: string): boolean {
+  return !/^(https?:\/\/|mailto:|#|\/)/.test(href);
+}
+
+function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const headings = useMemo(() => {
@@ -144,6 +159,23 @@ function MarkdownPreview({ content }: { content: string }) {
               const text = String(children).trim();
               const id = text.toLowerCase().replace(/[\s\p{P}]+/gu, "-").replace(/(^-|-$)/g, "");
               return <h2 id={id} {...props}>{children}</h2>;
+            },
+            a: ({ href, children, ...props }) => {
+              if (href && currentFilePath && onOpenFile && isRelativeLink(href)) {
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenFile(resolveRelativePath(currentFilePath, href));
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              }
+              return <a href={href} {...props}>{children}</a>;
             },
           }}
         >
@@ -635,7 +667,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
               ) : fileData.content !== undefined ? (
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
-                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} />
+                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onSelectFile} />
                 ) : (
                   <div className="flex h-full overflow-hidden">
                     <div
