@@ -45,9 +45,9 @@ def _get_user_id(request: Request) -> int:
 
 
 @router.get("/list")
-async def get_chats(request: Request, query: Optional[str] = Query(None), trace_id: Optional[str] = Query(None), skill: Optional[str] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+async def get_chats(request: Request, query: Optional[str] = Query(None), trace_id: Optional[str] = Query(None), skill: Optional[str] = Query(None), status: Optional[str] = Query(None), unread: Optional[bool] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset, trace_id=trace_id, skill=skill)
+    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset, trace_id=trace_id, skill=skill, status=status, unread=unread)
     return [
         {
             "chat_id": c.chat_id,
@@ -57,6 +57,8 @@ async def get_chats(request: Request, query: Optional[str] = Query(None), trace_
             "skill": c.skill,
             "trace_id": c.trace_id,
             "backend": c.backend,
+            "status": c.status,
+            "unread": c.unread,
         }
         for c in chats
     ]
@@ -130,6 +132,16 @@ async def post_stop_chat(req: StopChatRequest):
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
+    return {"ok": True}
+
+
+class MarkReadRequest(BaseModel):
+    chat_id: str
+
+
+@router.post("/read")
+async def post_mark_read(req: MarkReadRequest):
+    chat_service.mark_chat_read(req.chat_id)
     return {"ok": True}
 
 

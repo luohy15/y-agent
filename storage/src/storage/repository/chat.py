@@ -24,6 +24,8 @@ class ChatSummary:
     backend: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
+    status: str = "idle"
+    unread: bool = False
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
@@ -35,7 +37,7 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return chat
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -49,6 +51,10 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
             q = q.filter(ChatEntity.trace_id == trace_id)
         if skill:
             q = q.filter(ChatEntity.skill == skill)
+        if status:
+            q = q.filter(ChatEntity.status == status)
+        if unread is not None:
+            q = q.filter(ChatEntity.unread == unread)
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)
@@ -62,6 +68,8 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 skill=row.skill or "",
                 trace_id=row.trace_id or "",
                 backend=row.backend or "",
+                status=row.status or "idle",
+                unread=bool(row.unread),
             )
             for row in rows
         ]
@@ -139,6 +147,13 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
         content = json.dumps(chat.to_dict())
         title = _extract_title(chat)
         search_text = _extract_search_text(chat)
+        # Derive status from DTO
+        if chat.running:
+            status = "running"
+        elif chat.interrupted:
+            status = "interrupted"
+        else:
+            status = "idle"
         if entity:
             entity.json_content = content
             entity.title = title
@@ -148,6 +163,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.backend = chat.backend
             entity.skill = chat.skill
             entity.trace_id = chat.trace_id
+            entity.status = status
         else:
             entity = ChatEntity(
                 user_id=user_id,
@@ -160,6 +176,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 trace_id=chat.trace_id,
                 json_content=content,
                 search_text=search_text,
+                status=status,
             )
             session.add(entity)
         return chat
@@ -192,6 +209,13 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
         content = json.dumps(chat.to_dict())
         title = _extract_title(chat)
         search_text = _extract_search_text(chat)
+        # Derive status from DTO
+        if chat.running:
+            status = "running"
+        elif chat.interrupted:
+            status = "interrupted"
+        else:
+            status = "idle"
         if entity:
             entity.json_content = content
             entity.title = title
@@ -201,6 +225,7 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.backend = chat.backend
             entity.skill = chat.skill
             entity.trace_id = chat.trace_id
+            entity.status = status
         else:
             raise ValueError(f"Chat with id {chat.id} not found")
         return chat
@@ -324,6 +349,8 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 backend=row.backend or "",
                 created_at_unix=row.created_at_unix or 0,
                 updated_at_unix=row.updated_at_unix or 0,
+                status=row.status or "idle",
+                unread=bool(row.unread),
             )
             for row in rows
         ]
@@ -345,5 +372,11 @@ def find_latest_chat_by_skill(user_id: int, skill: Optional[str]) -> Optional[Ch
         except Exception as e:
             print(f"Error parsing chat JSON: {e}")
             return None
+
+
+def set_chat_unread(chat_id: str, unread: bool) -> None:
+    """Directly set the unread column on a chat by chat_id."""
+    with get_db() as session:
+        session.query(ChatEntity).filter_by(chat_id=chat_id).update({"unread": unread})
 
 

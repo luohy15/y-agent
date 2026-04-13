@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text
 from .base import Base, BaseEntity
 
 
@@ -16,6 +16,8 @@ class ChatEntity(Base, BaseEntity):
     trace_id = Column(String, nullable=True, index=True)
     json_content = Column(Text, nullable=False)
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
+    status = Column(String, nullable=False, server_default="idle")
+    unread = Column(Boolean, nullable=False, server_default=text("false"))
 
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),

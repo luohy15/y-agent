@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass, chatStatusBadgeClass } from "./badges";
 
 interface Chat {
   chat_id: string;
@@ -12,6 +12,8 @@ interface Chat {
   skill?: string;
   trace_id?: string;
   backend?: string;
+  status?: string;
+  unread?: boolean;
 }
 
 interface ChatListProps {
@@ -40,15 +42,19 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [search, setSearch] = useState("");
   const [internalTraceId, setInternalTraceId] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>(() => localStorage.getItem("chatStatusFilter") || "");
+  const [unreadFilter, setUnreadFilter] = useState<boolean>(() => localStorage.getItem("chatUnreadFilter") === "true");
   const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
+  const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
+  const unreadParam = unreadFilter ? `&unread=true` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${skillParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${skillParam}${statusParam}${unreadParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -84,7 +90,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, skillFilter, setSize]);
+  }, [search, traceId, externalTraceId, skillFilter, statusFilter, unreadFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -95,6 +101,11 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
 
   const handleClick = (id: string) => {
     onSelectChat(id);
+    // Mark as read optimistically
+    authFetch(`${API}/api/chat/read`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: id }) }).catch(() => {});
+    // Optimistically update SWR data
+    mutate((pages) => pages?.map((page) => page.map((c) => c.chat_id === id ? { ...c, unread: false } : c)), false);
+    mutatePinnedDm((dm) => dm && dm.length > 0 && dm[0].chat_id === id ? [{ ...dm[0], unread: false }] : dm, false);
   };
 
   return (
@@ -147,6 +158,20 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               )}
             </div>
           </div>
+          <div className="flex gap-1">
+            <button
+              onClick={() => { const v = statusFilter === "running" ? "" : "running"; setStatusFilter(v); localStorage.setItem("chatStatusFilter", v); }}
+              className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${statusFilter === "running" ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+            >
+              running
+            </button>
+            <button
+              onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("chatUnreadFilter", String(v)); }}
+              className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+            >
+              unread
+            </button>
+          </div>
         </div>
       )}
       {pinnedDm && (
@@ -167,8 +192,15 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 {pinnedDm.chat_id.slice(0, 8)}
               </button>
+              {pinnedDm.status && pinnedDm.status !== "idle" && (
+                <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono font-medium text-[0.55rem] ${chatStatusBadgeClass(pinnedDm.status)}`}>
+                  {pinnedDm.status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue animate-pulse" />}
+                  {pinnedDm.status}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
+              {pinnedDm.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
               <span className="flex-1 truncate">{(pinnedDm.title || "").replace(/^\[.*?\]\s*/, "")}</span>
               <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">
                 {pinnedDm.updated_at || pinnedDm.created_at
@@ -229,9 +261,16 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       </button>
                       {c.skill && <span className={`text-[0.55rem] truncate ${skillBadgeClass(c.skill)}`}>{c.skill}</span>}
                       {c.backend && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.backend}</span>}
+                      {c.status && c.status !== "idle" && (
+                        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono font-medium text-[0.55rem] ${chatStatusBadgeClass(c.status)}`}>
+                          {c.status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue animate-pulse" />}
+                          {c.status}
+                        </span>
+                      )}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
+                    {c.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
                     <span className="flex-1 truncate">{displayTitle}</span>
                     <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
                   </div>

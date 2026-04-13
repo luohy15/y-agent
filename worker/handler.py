@@ -311,6 +311,11 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             await chat_repo.save_chat_by_id(fresh)
 
+            # Mark as unread on successful completion
+            if not fresh.interrupted and result["status"] != "error":
+                from storage.repository.chat import set_chat_unread
+                set_chat_unread(chat_id, True)
+
             # Telegram reply + post hooks (same for both backends)
             if not fresh.interrupted and result["status"] != "error":
                 try:
