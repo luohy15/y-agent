@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass, chatStatusBadgeClass } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
 
 interface Chat {
   chat_id: string;
@@ -192,15 +192,15 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 {pinnedDm.chat_id.slice(0, 8)}
               </button>
-              {pinnedDm.status && pinnedDm.status !== "idle" && (
-                <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono font-medium text-[0.55rem] ${chatStatusBadgeClass(pinnedDm.status)}`}>
-                  {pinnedDm.status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue animate-pulse" />}
-                  {pinnedDm.status}
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-1.5">
               {pinnedDm.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
+              {pinnedDm.status === "running" && (
+                <svg className="w-3 h-3 text-sol-blue animate-spin shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+              )}
+              {pinnedDm.status === "interrupted" && (
+                <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+              )}
               <span className="flex-1 truncate">{(pinnedDm.title || "").replace(/^\[.*?\]\s*/, "")}</span>
               <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">
                 {pinnedDm.updated_at || pinnedDm.created_at
@@ -261,16 +261,16 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       </button>
                       {c.skill && <span className={`text-[0.55rem] truncate ${skillBadgeClass(c.skill)}`}>{c.skill}</span>}
                       {c.backend && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.backend}</span>}
-                      {c.status && c.status !== "idle" && (
-                        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono font-medium text-[0.55rem] ${chatStatusBadgeClass(c.status)}`}>
-                          {c.status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue animate-pulse" />}
-                          {c.status}
-                        </span>
-                      )}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
                     {c.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
+                    {c.status === "running" && (
+                      <svg className="w-3 h-3 text-sol-blue animate-spin shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                    )}
+                    {c.status === "interrupted" && (
+                      <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                    )}
                     <span className="flex-1 truncate">{displayTitle}</span>
                     <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>
                   </div>
