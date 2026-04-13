@@ -111,6 +111,10 @@ async def post_notify(req: NotifyRequest, request: Request):
         })
         await chat_service.append_message(chat_id, ack_msg)
 
+        # Mark chat as unread
+        from storage.repository.chat import set_chat_unread
+        set_chat_unread(chat_id, True)
+
         # Send both user message and ack to Telegram
         try:
             from storage.util import get_telegram_bot_token, send_telegram_message

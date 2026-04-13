@@ -67,6 +67,16 @@ export function skillBadgeClass(skill: string) {
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
 }
 
+// --- Chat status badge ---
+const CHAT_STATUS_COLOR: Record<string, string> = {
+  running: "bg-sol-blue/20 text-sol-blue",
+  interrupted: "bg-sol-orange/20 text-sol-orange",
+};
+
+export function chatStatusBadgeClass(status: string): string {
+  return CHAT_STATUS_COLOR[status] || "";
+}
+
 // --- Status badge (todo status) ---
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-sol-blue/20 text-sol-blue",

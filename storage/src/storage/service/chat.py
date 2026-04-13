@@ -14,8 +14,8 @@ from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_p
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, skill=skill)
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
+    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, skill=skill, status=status, unread=unread)
 
 
 async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
@@ -189,6 +189,16 @@ def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, v
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:
     return await chat_repo.delete_chat(user_id, chat_id)
+
+
+def mark_chat_read(chat_id: str) -> None:
+    from storage.repository.chat import set_chat_unread
+    set_chat_unread(chat_id, False)
+
+
+def mark_chat_unread(chat_id: str) -> None:
+    from storage.repository.chat import set_chat_unread
+    set_chat_unread(chat_id, True)
 
 
 async def generate_share_html(chat_id: str) -> str:

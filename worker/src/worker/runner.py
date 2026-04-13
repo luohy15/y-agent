@@ -279,6 +279,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         if fresh:
             fresh.running = False
             await chat_repo.save_chat_by_id(fresh)
+            # Mark as unread on successful completion
+            if not fresh.interrupted and not error_occurred:
+                from storage.repository.chat import set_chat_unread
+                set_chat_unread(chat_id, True)
             # Send assistant reply to Telegram based on skill routing
             if not fresh.interrupted and not error_occurred:
                 try:
