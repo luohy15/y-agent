@@ -86,8 +86,9 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
   const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
 
-  const { data: journalsData, isLoading: journalsLoading, error: journalsError } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
-  const { data: pagesData, isLoading: pagesLoading, error: pagesError } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
+  const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
+  const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
+  const [spinning, setSpinning] = useState(false);
 
   // Journals: filter .md files, sort by name descending
   const journalFiles = useMemo(() => {
@@ -171,9 +172,16 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center">
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
+          <button
+            onClick={() => { if (tab === "journals") mutateJournals(); else mutatePages(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+            className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            title="Refresh"
+          >
+            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
         </div>
         {tab === "journals" && journalYears.length > 0 && (
           <>
