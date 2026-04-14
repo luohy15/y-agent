@@ -1,16 +1,36 @@
 # y-agent
 
-A personal AI agent platform with multi-skill orchestration, task management, and parallel execution.
+A personal AI agent system built on coding agents. One person + a coding agent can maintain a complete, daily-use agent system with near-zero infra cost.
+
+> Renamed from [y-cli](https://luohy15.com/y-cli-introduction). y-cli was a wrapper around model APIs; y-agent is a wrapper around coding agents.
+
+## Demo
+
+![y-agent TraceView](https://cdn.luohy15.com/y-agent-demo.png)
+
+[Live trace example](https://yovy.app/t/856542)
 
 ## Core Features
 
-- **Agent Communication** — `y notify` enables cross-skill message passing and task dispatch. Skills communicate asynchronously with full trace context propagation, so you can chain workflows across multiple agents while keeping a clear execution trail.
+- **Task Management** — `y todo` CLI for creating, updating, and tracking tasks. Humans use the GUI, agents use the CLI, both operate on the same data.
 
-- **Task Management** — `y todo` CLI provides a complete task lifecycle: create, prioritize, activate, and finish tasks. Track progress across parallel workstreams with status transitions (`pending → active → completed`) and priority levels.
+- **Remote Coding Agents** — Run Claude Code directly on AWS EC2. A Lambda SSHes into EC2 to execute commands. EC2 auto-hibernates when idle — no cost when nothing is running.
 
-- **Parallel Execution** — Multiple skills run concurrently on independent tasks. A dev-manager can spin up several worktrees and dispatch work to separate dev agents simultaneously, each with its own context and trace lineage.
+- **Session Persistence & Visualization** — Claude Code output is streamed via stream-json. A Lambda monitors output, writes to DB, and a web interface displays everything in real time.
 
-- **Remote Development** — Connect to Claude Code running on AWS EC2 as a frontend for remote cloud-based development.
+- **Multi-Agent Collaboration** — Skills define each agent's role and responsibilities. Agents communicate via async fire-and-forget messaging (`y notify`) with a hub-and-spoke topology — DM dispatches tasks to specialized skills (dev, blog, finance, etc.). Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/856542).
 
-- **Web UI + CLI** — React SPA with real-time SSE streaming, file browser, and trace timeline; plus a full-featured CLI (`y`) for terminal-first workflows.
+- **Long-Running Tasks** — Agents run inside tmux detached sessions on EC2. The monitoring layer only tails stdout and writes to DB, so agents can run for hours without hitting Lambda's 15-minute timeout.
+
+- **Telegram Bot** — A Telegram bot listens for messages, triggers Lambda, and Lambda invokes Claude Code via SSH.
+
+## Design Principles
+
+- **Shared context** — Everything lives in one directory on EC2. Humans and agents share the same view via CLI tools and skills.
+- **Thin abstraction** — A minimal wrapper on top of coding agents. If something can be wrapped, don't rebuild it.
+- **Decoupled execution** — Agent loop runs on EC2; monitoring layer (Lambda) only tails and records, can disconnect/reconnect freely.
+
+## Blog Post
+
+For a detailed introduction, design rationale, and comparisons with other agent orchestration projects, see the [full blog post](https://luohy15.com/y-agent-introduction).
 
