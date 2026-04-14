@@ -355,10 +355,18 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     </button>
   );
 
+  const handleOpenFile = useCallback((path: string) => {
+    if (chatWorkDir && !path.startsWith("/")) {
+      onOpenFile?.(`${chatWorkDir}/${path}`);
+    } else {
+      onOpenFile?.(path);
+    }
+  }, [chatWorkDir, onOpenFile]);
+
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
-        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
+        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
         <ChatToc messages={messages} containerRef={scrollRef} />
         {showScrollBottom && (
           <button
