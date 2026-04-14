@@ -141,6 +141,17 @@ async def search_files(request: Request, q: str = Query(...), path: str = Query(
     return {"query": q, "files": files}
 
 
+class TouchRequest(BaseModel):
+    path: str
+
+
+@router.post("/touch")
+async def touch_file(request: Request, body: TouchRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    await _exec(user_id, ["touch", "-a", body.path], vm_name=vm_name, work_dir=work_dir)
+    return {"path": body.path, "success": True}
+
+
 class MoveRequest(BaseModel):
     sources: list[str]
     dest_dir: str

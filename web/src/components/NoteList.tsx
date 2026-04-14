@@ -35,13 +35,12 @@ function formatMonth(dateStr: string): string {
 }
 
 function formatAtime(ts: number): string {
-  const now = Date.now() / 1000;
-  const diff = now - ts;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
   const d = new Date(ts * 1000);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${min}`;
 }
 
 function groupByMonth(files: string[]): [string, string[]][] {
@@ -260,7 +259,17 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
               {pageFiles.map((file) => (
                 <button
                   key={file.name}
-                  onClick={() => onOpenFile(workDir ? `${workDir}/pages/${file.name}` : `pages/${file.name}`)}
+                  onClick={() => {
+                    const path = `pages/${file.name}`;
+                    onOpenFile(workDir ? `${workDir}/${path}` : path);
+                    const params = new URLSearchParams();
+                    if (vmName) params.set("vm_name", vmName);
+                    authFetch(`${API}/api/file/touch?${params}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ path }),
+                    }).then(() => mutatePages()).catch(() => {});
+                  }}
                   className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                 >
                   <span className="truncate flex-1">{file.name.replace(/\.md$/, "")}</span>
