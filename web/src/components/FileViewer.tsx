@@ -29,6 +29,8 @@ interface FileViewerProps {
   selectedLinkContentKey?: string | null;
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
+  previewFile?: string | null;
+  onPinFile?: (path: string) => void;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -251,7 +253,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -413,9 +415,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 : "text-sol-base01 hover:text-sol-base1"
             } ${dropIdx === i ? "border-l-2 border-l-sol-blue" : ""}`}
             onClick={() => onSelectFile(filePath)}
+            onDoubleClick={() => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
             title={filePath}
           >
-            <span className="truncate max-w-[150px]">{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
+            <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
