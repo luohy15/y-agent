@@ -377,6 +377,6 @@ def find_latest_chat_by_skill(user_id: int, skill: Optional[str]) -> Optional[Ch
 def set_chat_unread(chat_id: str, unread: bool) -> None:
     """Directly set the unread column on a chat by chat_id."""
     with get_db() as session:
-        session.query(ChatEntity).filter_by(chat_id=chat_id).update({"unread": unread})
+        session.query(ChatEntity).filter_by(chat_id=chat_id).filter(ChatEntity.unread != unread).update({"unread": unread})
 
 
