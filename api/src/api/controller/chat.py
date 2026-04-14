@@ -216,6 +216,9 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
 @router.get("/messages")
 async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0, ge=0)):
     async def event_stream():
+        # Auto mark as read when messages are fetched
+        chat_service.mark_chat_read(chat_id)
+
         idx = last_index
         while True:
             chat = await chat_service.get_chat_by_id(chat_id)

@@ -102,8 +102,6 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
 
   const handleClick = (id: string) => {
     onSelectChat(id);
-    // Mark as read optimistically
-    authFetch(`${API}/api/chat/read`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: id }) }).catch(() => {});
     // Optimistically update SWR data
     mutate((pages) => pages?.map((page) => page.map((c) => c.chat_id === id ? { ...c, unread: false } : c)), false);
     mutatePinnedDm((dm) => dm && dm.length > 0 && dm[0].chat_id === id ? [{ ...dm[0], unread: false }] : dm, false);
