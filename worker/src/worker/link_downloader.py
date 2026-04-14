@@ -1,15 +1,12 @@
 """Download link content via SSH to EC2 running y link download."""
 
 import json
-import os
 
 from loguru import logger
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
 from storage.service import link as link_service
-
-Y_AGENT_HOME = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
 class _CmdRunner(Tool):
@@ -35,20 +32,15 @@ async def run_link_download(user_id: int, link_id: str, url: str, activity_id: s
     try:
         vm_config = resolve_vm_config(user_id)
         runner = _CmdRunner(vm_config)
+        content_key = _content_path(link_id, activity_id)
         output = await runner.run_cmd(
-            ["y", "link", "download", url],
+            ["y", "link", "download", url, "--save", content_key],
             timeout=300,
         )
         logger.info("y link download output (truncated): {}", output[:200])
 
         result = json.loads(output.strip())
         if result.get("status") == "done":
-            content = result.get("content", "")
-            content_key = _content_path(link_id, activity_id)
-            full_path = os.path.join(Y_AGENT_HOME, content_key)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
             link_service.update_download_status(
                 link_id, "done", content_key=content_key, url=url
             )

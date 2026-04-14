@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,7 +34,8 @@ def _get_opencli_cmd(url: str, output_dir: str) -> list[str]:
 
 @click.command("download")
 @click.argument("url")
-def link_download(url: str):
+@click.option("--save", "save_path", default=None, help="Save content to $Y_AGENT_HOME/<path>")
+def link_download(url: str, save_path: str | None):
     """Download a URL's content via opencli and output JSON result to stdout."""
     url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
     output_dir = f"/tmp/link-dl-{url_hash}"
@@ -148,11 +150,16 @@ def link_download(url: str):
             }))
             sys.exit(1)
 
-        click.echo(json.dumps({
-            "status": "done",
-            "content": content,
-            "title": title,
-        }))
+        result = {"status": "done", "title": title}
+        if save_path:
+            home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
+            full_path = os.path.join(home, save_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        else:
+            result["content"] = content
+        click.echo(json.dumps(result))
 
     except subprocess.TimeoutExpired:
         click.echo(json.dumps({
