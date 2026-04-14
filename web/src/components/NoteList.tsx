@@ -109,19 +109,16 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
     return [...years].sort((a, b) => b.localeCompare(a));
   }, [journalFiles]);
 
-  // Default to latest year when journalYear is empty or invalid
-  const effectiveYear = journalYear && journalYears.includes(journalYear) ? journalYear : (journalYears[0] || "");
-
   // Extract months that have entries for the selected year
   const journalMonths = useMemo(() => {
-    if (!effectiveYear) return [];
+    if (!journalYear) return [];
     const months = new Set<string>();
     for (const f of journalFiles) {
       const match = f.match(/^(\d{4})-(\d{2})/);
-      if (match && match[1] === effectiveYear) months.add(match[2]);
+      if (match && match[1] === journalYear) months.add(match[2]);
     }
     return [...months].sort();
-  }, [journalFiles, effectiveYear]);
+  }, [journalFiles, journalYear]);
 
   const handleYearChange = useCallback((y: string) => {
     setJournalYear(y);
@@ -138,15 +135,15 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
 
   // Filter journals by year/month before grouping
   const filteredJournalFiles = useMemo(() => {
-    if (!effectiveYear) return journalFiles;
+    if (!journalYear) return journalFiles;
     return journalFiles.filter((f) => {
       const match = f.match(/^(\d{4})-(\d{2})/);
       if (!match) return false;
-      if (match[1] !== effectiveYear) return false;
+      if (match[1] !== journalYear) return false;
       if (journalMonth && match[2] !== journalMonth) return false;
       return true;
     });
-  }, [journalFiles, effectiveYear, journalMonth]);
+  }, [journalFiles, journalYear, journalMonth]);
 
   const journalGroups = useMemo(() => groupByMonth(filteredJournalFiles), [filteredJournalFiles]);
 
@@ -186,12 +183,12 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
         {tab === "journals" && journalYears.length > 0 && (
           <>
             <div className="flex gap-1 flex-wrap">
-              <button onClick={() => handleYearChange("")} className={pillClass(!effectiveYear || journalYear === "")}>All</button>
+              <button onClick={() => handleYearChange("")} className={pillClass(!journalYear)}>All</button>
               {journalYears.map((y) => (
-                <button key={y} onClick={() => handleYearChange(y)} className={pillClass(effectiveYear === y)}>{y}</button>
+                <button key={y} onClick={() => handleYearChange(y)} className={pillClass(journalYear === y)}>{y}</button>
               ))}
             </div>
-            {effectiveYear && journalYear !== "" && journalMonths.length > 0 && (
+            {journalYear && journalMonths.length > 0 && (
               <div className="flex gap-1 flex-wrap">
                 <button onClick={() => handleMonthChange("")} className={pillClass(!journalMonth)}>All</button>
                 {journalMonths.map((m) => (
