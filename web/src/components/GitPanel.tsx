@@ -114,7 +114,7 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
           return (
             <button
               key={file.path}
-              onClick={() => onSelectFile(file.path)}
+              onClick={() => onSelectFile(workDir ? `${workDir}/${file.path}` : file.path)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-sol-base02 cursor-pointer group"
               title={file.path}
             >

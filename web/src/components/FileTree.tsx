@@ -238,7 +238,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
   const dirRefreshMapRef = useRef<DirRefreshMap>(new Map());
   const anchorRef = useRef<string | null>(null);
   const visiblePathsRef = useRef<string[]>([]);
-  const rootPath = ".";
+  const rootPath = workDir || ".";
   // Clear visible paths at the start of each render so nodes re-register
   visiblePathsRef.current = [];
 
