@@ -48,12 +48,14 @@ async def _get_vscode_excludes(user_id: int, vm_name: str, key: str, work_dir: s
 
 
 @router.get("/list")
-async def list_files(request: Request, path: str = Query("."), vm_name: str = Query(None), work_dir: str = Query(None)):
+async def list_files(request: Request, path: str = Query("."), vm_name: str = Query(None), work_dir: str = Query(None), sort: str = Query(None)):
     user_id = _get_user_id(request)
     excludes = await _get_vscode_excludes(user_id, vm_name, "files.exclude", work_dir=work_dir)
     logger.info("list_files excludes: {}", excludes)
     # ls -1apL: one per line, show dirs with /, show hidden, dereference symlinks
-    output = await _exec(user_id, ["ls", "-1apL", path], vm_name=vm_name, work_dir=work_dir)
+    # ls -1tupL: sort by access time descending when sort=atime
+    ls_cmd = ["ls", "-1tupL", path] if sort == "atime" else ["ls", "-1apL", path]
+    output = await _exec(user_id, ls_cmd, vm_name=vm_name, work_dir=work_dir)
     entries = []
     for line in output.strip().splitlines():
         if not line or line == "./" or line == "../":
