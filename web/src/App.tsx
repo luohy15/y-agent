@@ -47,6 +47,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("openFiles") || "[]"); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
+  const [previewFile, setPreviewFile] = useState<string | null>(() => localStorage.getItem("previewFile") || null);
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -96,13 +97,64 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
+  useEffect(() => { if (previewFile) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
 
   const handleOpenFile = useCallback((path: string) => {
     const p = path.replace(/^\.\//, "");
     setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
     setActiveFile(p);
+    // Pin preview if this file is the current preview (opened via non-preview action)
+    setPreviewFile((current) => current === p ? null : current);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+
+  const openFilesRef = useRef(openFiles);
+  openFilesRef.current = openFiles;
+  const previewFileRef = useRef(previewFile);
+  previewFileRef.current = previewFile;
+
+  const handlePreviewFile = useCallback((path: string) => {
+    const p = path.replace(/^\.\//, "");
+    const files = openFilesRef.current;
+    const currentPreview = previewFileRef.current;
+    const isAlreadyOpen = files.includes(p);
+
+    if (isAlreadyOpen && currentPreview !== p) {
+      // Already open as pinned — just activate
+      setActiveFile(p);
+      setChatHide(true);
+      if (window.innerWidth < 768) setSidebarOpen(false);
+      return;
+    }
+
+    if (currentPreview === p) {
+      // Already the preview — just activate
+      setActiveFile(p);
+      setChatHide(true);
+      if (window.innerWidth < 768) setSidebarOpen(false);
+      return;
+    }
+
+    if (currentPreview && files.includes(currentPreview)) {
+      // Replace existing preview tab in-place
+      const idx = files.indexOf(currentPreview);
+      const newFiles = [...files];
+      newFiles[idx] = p;
+      setOpenFiles(newFiles);
+    } else if (!isAlreadyOpen) {
+      // No preview exists — add new tab
+      setOpenFiles((f) => f.includes(p) ? f : [...f, p]);
+    }
+
+    setPreviewFile(p);
+    setActiveFile(p);
+    setChatHide(true);
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+
+  const handlePinFile = useCallback((path: string) => {
+    setPreviewFile((current) => current === path ? null : current);
   }, []);
 
   const handleOpenDiffFile = useCallback((path: string) => {
@@ -122,6 +174,7 @@ export default function App() {
       });
       return next;
     });
+    setPreviewFile((current) => current === path ? null : current);
     if (path.startsWith("diff:")) {
       setDiffFiles((prev) => { const next = new Set(prev); next.delete(path); return next; });
     }
@@ -284,7 +337,7 @@ export default function App() {
     {
       id: 'close-all-editors',
       label: 'Close All Editors',
-      execute: () => { setOpenFiles([]); setActiveFile(null); },
+      execute: () => { setOpenFiles([]); setActiveFile(null); setPreviewFile(null); },
     },
   ], []);
 
@@ -505,7 +558,7 @@ export default function App() {
           ) : sidebarPanel === "links" ? (
             <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           ) : sidebarPanel === "notes" ? (
-            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handleOpenFile} />
+            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handlePreviewFile} />
           ) : null}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
@@ -554,7 +607,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -634,7 +687,7 @@ export default function App() {
               {/* Right panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {rightPanel === "files" ? (
-                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
                 ) : rightPanel === "git" ? (
                   <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
                 ) : rightPanel === "chats" ? (
