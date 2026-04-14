@@ -220,6 +220,41 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     # Find or create chat for this skill
     chat = find_latest_chat_by_skill(user.id, skill)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
+
+    # DM concurrency: if DM chat is busy, create new DM chat
+    if skill == 'DM' and chat and chat.running:
+        logger.info("_handle_message: DM chat {} is busy, creating overflow DM chat", chat.id)
+        chat_id = generate_id()
+        msg_dict = {
+            "role": "user",
+            "content": text,
+            "timestamp": get_utc_iso8601_timestamp(),
+            "unix_timestamp": get_unix_timestamp(),
+            "id": generate_message_id(),
+            "source": "telegram",
+        }
+        if images:
+            msg_dict["images"] = images
+        user_msg = Message.from_dict(msg_dict)
+        from storage.dto.chat import Chat as ChatDTO
+        timestamp = get_utc_iso8601_timestamp()
+        overflow_chat = ChatDTO(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=[user_msg],
+            skill='DM',
+        )
+        from storage.repository import chat as chat_repo
+        await chat_repo.save_chat(user.id, overflow_chat)
+
+        try:
+            from storage.service.chat import send_chat_message
+            send_chat_message(chat_id, user_id=user.id, skill='DM')
+        except Exception as e:
+            logger.exception("_handle_message: failed to queue overflow DM message: {}", e)
+        return {"ok": True}
+
     if chat:
         # Append message to existing chat
         msg_dict = {

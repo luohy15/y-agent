@@ -38,11 +38,13 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
+    # DM does not accept notify callbacks
+    if req.skill == 'DM':
+        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks")
+
     # Resolve target chat: explicit chat_id > skill+trace lookup > new
-    # DM special case: always resolve to latest DM chat (ignore explicit chat_id)
-    # because DM sessions restart frequently and stale chat_ids would miss the active session
     existing_chat = None
-    if req.chat_id and req.skill != 'DM':
+    if req.chat_id:
         existing_chat = await chat_service.get_chat_by_id(req.chat_id)
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
@@ -53,12 +55,9 @@ async def post_notify(req: NotifyRequest, request: Request):
             )
         chat_id = req.chat_id
     elif not req.force_new:
-        from storage.repository.chat import find_chat_by_skill_and_trace, find_chat_by_skill
+        from storage.repository.chat import find_chat_by_skill_and_trace
         found = None
-        # DM skill doesn't have trace_id on its chats, so look up by skill only
-        if req.skill == 'DM':
-            found = find_chat_by_skill(user_id, req.skill)
-        elif req.trace_id:
+        if req.trace_id:
             found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
         if found:
             chat_id = found.id
@@ -91,44 +90,6 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_service.append_message(chat_id, user_msg)
     else:
         await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
-
-    # Short-circuit: DM callback messages get auto-ack without LLM
-    if req.skill == 'DM':
-        # Ensure skill is persisted on the chat (normally done by worker)
-        chat = await chat_service.get_chat_by_id(chat_id)
-        if chat and not chat.skill:
-            chat.skill = 'DM'
-            from storage.repository import chat as chat_repo
-            await chat_repo.save_chat_by_id(chat)
-
-        ack_content = "已收到"
-        ack_msg = Message.from_dict({
-            "role": "assistant",
-            "content": ack_content,
-            "timestamp": get_utc_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-        })
-        await chat_service.append_message(chat_id, ack_msg)
-
-        # Mark chat as unread
-        from storage.repository.chat import set_chat_unread
-        set_chat_unread(chat_id, True)
-
-        # Send both user message and ack to Telegram
-        try:
-            from storage.util import get_telegram_bot_token, send_telegram_message
-            from storage.repository.user import get_user_by_id
-            bot_token = get_telegram_bot_token()
-            if bot_token:
-                user = get_user_by_id(user_id)
-                if user and user.telegram_id:
-                    send_telegram_message(bot_token, user.telegram_id, msg_content)
-                    send_telegram_message(bot_token, user.telegram_id, ack_content)
-        except Exception as e:
-            logger.exception("DM short-circuit telegram notify failed: {}", e)
-
-        return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
 
     # Enqueue worker
     send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill, backend=req.backend)
