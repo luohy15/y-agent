@@ -1,13 +1,12 @@
 import os
 from typing import List, Optional
 
-import boto3
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.service import link as link_service
 
-S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
+Y_AGENT_HOME = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 router = APIRouter(prefix="/link")
 
@@ -101,10 +100,12 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     timestamp = int(time.time() * 1000)
     link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
     if req.content:
-        s3_key = f"links/{link.link_id}/content.md"
-        s3 = boto3.client("s3")
-        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=req.content.encode("utf-8"), ContentType="text/markdown")
-        link_service.update_download_status(link.link_id, "done", content_key=s3_key)
+        content_key = f"links/{link.link_id}/content.md"
+        full_path = os.path.join(Y_AGENT_HOME, content_key)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(req.content)
+        link_service.update_download_status(link.link_id, "done", content_key=content_key)
     else:
         link_service.update_download_status(link.link_id, "done", content_key=req.path)
     updated = link_service.get_link(user_id, link.activity_id)
@@ -138,10 +139,10 @@ async def get_link_content(
     content_key = result.get("content_key")
     if content_key:
         try:
-            s3 = boto3.client("s3")
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=content_key)
-            result["content"] = obj["Body"].read().decode("utf-8")
-        except Exception:
+            full_path = os.path.join(Y_AGENT_HOME, content_key)
+            with open(full_path, "r", encoding="utf-8") as f:
+                result["content"] = f.read()
+        except FileNotFoundError:
             result["content"] = None
     else:
         result["content"] = None
