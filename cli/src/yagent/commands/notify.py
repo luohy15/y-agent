@@ -1,4 +1,5 @@
 import click
+import httpx
 
 from yagent.api_client import api_request
 
@@ -36,6 +37,15 @@ def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_ne
         payload["from_chat_id"] = from_chat_id
     if backend:
         payload["backend"] = backend
-    resp = api_request("POST", "/api/notify", json=payload)
-    data = resp.json()
-    click.echo(data["chat_id"])
+    try:
+        resp = api_request("POST", "/api/notify", json=payload)
+        data = resp.json()
+        click.echo(data["chat_id"])
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = e.response.json().get("detail", "")
+        except Exception:
+            detail = e.response.text
+        click.echo(f"Error: {detail}", err=True)
+        raise SystemExit(1)
