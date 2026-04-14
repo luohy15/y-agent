@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
@@ -89,6 +90,24 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
   const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
   const [spinning, setSpinning] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+
+  const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  const copyPath = useCallback(() => {
+    if (!ctxMenu) return;
+    navigator.clipboard.writeText(ctxMenu.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtxMenu(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [ctxMenu]);
 
   // Journals: filter .md files, sort by name descending
   const journalFiles = useMemo(() => {
@@ -229,6 +248,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
                     <button
                       key={file}
                       onClick={() => onOpenFile(workDir ? `${workDir}/journals/${file}` : `journals/${file}`)}
+                      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: workDir ? `${workDir}/journals/${file}` : `journals/${file}` }); }}
                       className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                     >
                       {(() => {
@@ -268,6 +288,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
                       body: JSON.stringify({ path }),
                     }).then(() => mutatePages()).catch(() => {});
                   }}
+                  onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: workDir ? `${workDir}/pages/${file.name}` : `pages/${file.name}` }); }}
                   className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                 >
                   <span className="truncate flex-1">{file.name.replace(/\.md$/, "")}</span>
@@ -278,6 +299,23 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
           )
         )}
       </div>
+      {ctxMenu && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
+          <div
+            className="fixed z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[120px]"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button
+              className="w-full text-left px-3 py-1 text-xs text-sol-base1 hover:bg-sol-base03 cursor-pointer"
+              onClick={copyPath}
+            >
+              Copy Path
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }
