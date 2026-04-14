@@ -38,7 +38,8 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
     setLoading(true);
     setSearched(true);
     try {
-      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}${vmQuery}`);
+      const searchPath = workDir || ".";
+      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}&path=${encodeURIComponent(searchPath)}${vmQuery}`);
       const data = await res.json();
       setResults(data.files || []);
       setSelectedIndex(0);

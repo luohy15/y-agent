@@ -461,7 +461,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {activeFileName.startsWith("pages/") && (
+          {(activeFileName.startsWith("pages/") || activeFileName.includes("/pages/")) && (
             <button
               onClick={async () => {
                 const path = activeFileName;
