@@ -5,11 +5,13 @@ import { API, authFetch, clearToken } from "../api";
 interface FileEntry {
   name: string;
   type: string;
+  atime?: number | null;
 }
 
 interface NoteListProps {
   isLoggedIn: boolean;
   vmName?: string | null;
+  workDir?: string | null;
   onOpenFile: (path: string) => void;
 }
 
@@ -32,6 +34,16 @@ function formatMonth(dateStr: string): string {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+function formatAtime(ts: number): string {
+  const now = Date.now() / 1000;
+  const diff = now - ts;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function groupByMonth(files: string[]): [string, string[]][] {
   const groups = new Map<string, string[]>();
   for (const f of files) {
@@ -40,16 +52,22 @@ function groupByMonth(files: string[]): [string, string[]][] {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(f);
   }
-  // Sort months descending
-  return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  // Sort months descending, "other" always last
+  return [...groups.entries()].sort((a, b) => {
+    if (a[0] === "other") return 1;
+    if (b[0] === "other") return -1;
+    return b[0].localeCompare(a[0]);
+  });
 }
 
-export default function NoteList({ isLoggedIn, vmName, onOpenFile }: NoteListProps) {
+export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
     return saved === "journals" || saved === "pages" ? saved : "journals";
   });
   const [searchInput, setSearchInput] = useState("");
+  const [journalYear, setJournalYear] = useState<string>(() => localStorage.getItem("noteListJournalYear") || "");
+  const [journalMonth, setJournalMonth] = useState<string>(() => localStorage.getItem("noteListJournalMonth") || "");
 
   const handleTabChange = useCallback((t: NoteTab) => {
     setTab(t);
@@ -80,23 +98,75 @@ export default function NoteList({ isLoggedIn, vmName, onOpenFile }: NoteListPro
       .sort((a, b) => b.localeCompare(a));
   }, [journalsData]);
 
-  const journalGroups = useMemo(() => groupByMonth(journalFiles), [journalFiles]);
+  // Extract unique years from journal filenames, sorted descending
+  const journalYears = useMemo(() => {
+    const years = new Set<string>();
+    for (const f of journalFiles) {
+      const match = f.match(/^(\d{4})-/);
+      if (match) years.add(match[1]);
+    }
+    return [...years].sort((a, b) => b.localeCompare(a));
+  }, [journalFiles]);
 
-  // Pages: filter .md files, apply search
+  // Default to latest year when journalYear is empty or invalid
+  const effectiveYear = journalYear && journalYears.includes(journalYear) ? journalYear : (journalYears[0] || "");
+
+  // Extract months that have entries for the selected year
+  const journalMonths = useMemo(() => {
+    if (!effectiveYear) return [];
+    const months = new Set<string>();
+    for (const f of journalFiles) {
+      const match = f.match(/^(\d{4})-(\d{2})/);
+      if (match && match[1] === effectiveYear) months.add(match[2]);
+    }
+    return [...months].sort();
+  }, [journalFiles, effectiveYear]);
+
+  const handleYearChange = useCallback((y: string) => {
+    setJournalYear(y);
+    localStorage.setItem("noteListJournalYear", y);
+    // Reset month when year changes
+    setJournalMonth("");
+    localStorage.setItem("noteListJournalMonth", "");
+  }, []);
+
+  const handleMonthChange = useCallback((m: string) => {
+    setJournalMonth(m);
+    localStorage.setItem("noteListJournalMonth", m);
+  }, []);
+
+  // Filter journals by year/month before grouping
+  const filteredJournalFiles = useMemo(() => {
+    if (!effectiveYear) return journalFiles;
+    return journalFiles.filter((f) => {
+      const match = f.match(/^(\d{4})-(\d{2})/);
+      if (!match) return false;
+      if (match[1] !== effectiveYear) return false;
+      if (journalMonth && match[2] !== journalMonth) return false;
+      return true;
+    });
+  }, [journalFiles, effectiveYear, journalMonth]);
+
+  const journalGroups = useMemo(() => groupByMonth(filteredJournalFiles), [filteredJournalFiles]);
+
+  // Pages: filter .md files, apply search, preserve FileEntry for atime
   const pageFiles = useMemo(() => {
     if (!pagesData?.entries) return [];
-    let files = pagesData.entries
-      .filter((e) => e.type === "file" && e.name.endsWith(".md"))
-      .map((e) => e.name);
+    let files = pagesData.entries.filter((e) => e.type === "file" && e.name.endsWith(".md"));
     if (searchInput) {
       const q = searchInput.toLowerCase();
-      files = files.filter((f) => f.toLowerCase().includes(q));
+      files = files.filter((f) => f.name.toLowerCase().includes(q));
     }
     return files;
   }, [pagesData, searchInput]);
 
   const tabClass = (active: boolean) =>
     `px-2 py-0.5 rounded text-[0.65rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
+
+  const pillClass = (active: boolean) =>
+    `px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
@@ -105,6 +175,24 @@ export default function NoteList({ isLoggedIn, vmName, onOpenFile }: NoteListPro
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
         </div>
+        {tab === "journals" && journalYears.length > 0 && (
+          <>
+            <div className="flex gap-1 flex-wrap">
+              <button onClick={() => handleYearChange("")} className={pillClass(!effectiveYear || journalYear === "")}>All</button>
+              {journalYears.map((y) => (
+                <button key={y} onClick={() => handleYearChange(y)} className={pillClass(effectiveYear === y)}>{y}</button>
+              ))}
+            </div>
+            {effectiveYear && journalYear !== "" && journalMonths.length > 0 && (
+              <div className="flex gap-1 flex-wrap">
+                <button onClick={() => handleMonthChange("")} className={pillClass(!journalMonth)}>All</button>
+                {journalMonths.map((m) => (
+                  <button key={m} onClick={() => handleMonthChange(m)} className={pillClass(journalMonth === m)}>{monthNames[parseInt(m) - 1]}</button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
         {tab === "pages" && (
           <input
             type="text"
@@ -135,7 +223,7 @@ export default function NoteList({ isLoggedIn, vmName, onOpenFile }: NoteListPro
                   {files.map((file) => (
                     <button
                       key={file}
-                      onClick={() => onOpenFile(`journals/${file}`)}
+                      onClick={() => onOpenFile(workDir ? `${workDir}/journals/${file}` : `journals/${file}`)}
                       className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                     >
                       {file.replace(/\.md$/, "").slice(5)}
@@ -156,11 +244,12 @@ export default function NoteList({ isLoggedIn, vmName, onOpenFile }: NoteListPro
             <div className="space-y-0">
               {pageFiles.map((file) => (
                 <button
-                  key={file}
-                  onClick={() => onOpenFile(`pages/${file}`)}
+                  key={file.name}
+                  onClick={() => onOpenFile(workDir ? `${workDir}/pages/${file.name}` : `pages/${file.name}`)}
                   className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                 >
-                  {file.replace(/\.md$/, "")}
+                  <span className="truncate flex-1">{file.name.replace(/\.md$/, "")}</span>
+                  {file.atime && <span className="text-sol-base01 text-[0.6rem] shrink-0">{formatAtime(file.atime)}</span>}
                 </button>
               ))}
             </div>

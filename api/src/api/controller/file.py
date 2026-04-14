@@ -52,9 +52,29 @@ async def list_files(request: Request, path: str = Query("."), vm_name: str = Qu
     user_id = _get_user_id(request)
     excludes = await _get_vscode_excludes(user_id, vm_name, "files.exclude", work_dir=work_dir)
     logger.info("list_files excludes: {}", excludes)
+    if sort == "atime":
+        # Use find -printf to get atime as epoch + filename, sorted descending
+        stat_cmd = ["bash", "-c", f"find {path} -maxdepth 1 -type f -printf '%A@\\t%f\\n' | sort -rn"]
+        output = await _exec(user_id, stat_cmd, vm_name=vm_name, work_dir=work_dir)
+        entries = []
+        for line in output.strip().splitlines():
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            if len(parts) != 2:
+                continue
+            atime_str, name = parts
+            if any(fnmatch.fnmatch(name, pat) for pat in excludes):
+                continue
+            try:
+                atime = int(float(atime_str))
+            except ValueError:
+                atime = None
+            entries.append({"name": name, "type": "file", "atime": atime})
+        return {"path": path, "entries": entries}
+
     # ls -1apL: one per line, show dirs with /, show hidden, dereference symlinks
-    # ls -1tupL: sort by access time descending when sort=atime
-    ls_cmd = ["ls", "-1tupL", path] if sort == "atime" else ["ls", "-1apL", path]
+    ls_cmd = ["ls", "-1apL", path]
     output = await _exec(user_id, ls_cmd, vm_name=vm_name, work_dir=work_dir)
     entries = []
     for line in output.strip().splitlines():

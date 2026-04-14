@@ -505,7 +505,7 @@ export default function App() {
           ) : sidebarPanel === "links" ? (
             <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           ) : sidebarPanel === "notes" ? (
-            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} onOpenFile={handleOpenFile} />
+            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handleOpenFile} />
           ) : null}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
