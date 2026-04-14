@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
+import { formatDateTime } from "../utils/formatTime";
 
 interface FileEntry {
   name: string;
@@ -33,16 +34,6 @@ function formatMonth(dateStr: string): string {
   if (!match) return "Other";
   const d = new Date(parseInt(match[1]), parseInt(match[2]) - 1, 1);
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-}
-
-function formatAtime(ts: number): string {
-  const d = new Date(ts * 1000);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  const yy = String(d.getFullYear()).slice(2);
-  return `${yy}-${mm}-${dd} ${hh}:${min}`;
 }
 
 function groupByMonth(files: string[]): [string, string[]][] {
@@ -289,10 +280,13 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
                     }).then(() => mutatePages()).catch(() => {});
                   }}
                   onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: workDir ? `${workDir}/pages/${file.name}` : `pages/${file.name}` }); }}
-                  className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                  className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                 >
                   <span className="truncate flex-1">{file.name.replace(/\.md$/, "")}</span>
-                  {file.atime && <span className="text-sol-base01 text-[0.6rem] shrink-0">{formatAtime(file.atime)}</span>}
+                  {file.atime && (() => {
+                    const { date, time } = formatDateTime(new Date(file.atime * 1000));
+                    return <span className="text-sol-base01 text-[0.6rem] shrink-0 text-right">{date}<br/>{time}</span>;
+                  })()}
                 </button>
               ))}
             </div>

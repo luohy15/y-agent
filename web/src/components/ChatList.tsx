@@ -3,6 +3,7 @@ import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
+import { formatDateTime } from "../utils/formatTime";
 
 interface Chat {
   chat_id: string;
@@ -210,14 +211,12 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
               )}
               <span className="flex-1 truncate">{(pinnedDm.title || "").replace(/^\[.*?\]\s*/, "")}</span>
-              <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">
-                {pinnedDm.updated_at || pinnedDm.created_at
-                  ? new Date(pinnedDm.updated_at || pinnedDm.created_at!).toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" })
-                  : ""}<br/>
-                {pinnedDm.updated_at || pinnedDm.created_at
-                  ? new Date(pinnedDm.updated_at || pinnedDm.created_at!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-                  : ""}
-              </span>
+              {(() => {
+                const dt = pinnedDm.updated_at || pinnedDm.created_at ? new Date(pinnedDm.updated_at || pinnedDm.created_at!) : null;
+                if (!dt) return null;
+                const { date, time } = formatDateTime(dt);
+                return <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>;
+              })()}
             </div>
           </div>
         </div>
@@ -236,8 +235,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             {chats.map((c) => {
               const sel = c.chat_id === selectedChatId;
               const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
-              const date = dt ? dt.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" }) : "";
-              const time = dt ? dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+              const { date, time } = dt ? formatDateTime(dt) : { date: "", time: "" };
               const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "");
               const firstTraceId = c.trace_id;
               return (

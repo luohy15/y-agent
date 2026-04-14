@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
+import { formatDateTime } from "../utils/formatTime";
 import TodoContextMenu from "./TodoContextMenu";
 
 interface Todo {
@@ -12,6 +13,8 @@ interface Todo {
   priority?: string;
   due_date?: string;
   tags?: string[];
+  updated_at?: string;
+  created_at?: string;
   has_running?: boolean;
   has_unread?: boolean;
 }
@@ -129,7 +132,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
                 key={t.todo_id}
                 onClick={() => onSelectTodo(t.todo_id)}
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
-                className="px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
+                className="px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <button
@@ -154,6 +157,10 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
                     <span className={priorityColorClass(t.priority)}>{t.priority}</span>
                   )}
                   {t.due_date && <span>{t.due_date}</span>}
+                  {(t.updated_at || t.created_at) && (() => {
+                    const { date, time } = formatDateTime(new Date(t.updated_at || t.created_at!));
+                    return <span className="ml-auto shrink-0 text-right">{date}<br/>{time}</span>;
+                  })()}
                 </div>
               </div>
             ))}
