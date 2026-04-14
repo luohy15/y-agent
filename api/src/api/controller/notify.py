@@ -40,7 +40,7 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # DM does not accept notify callbacks
     if req.skill == 'DM':
-        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks")
+        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks. Send to a specific skill instead.")
 
     # Resolve target chat: explicit chat_id > skill+trace lookup > new
     existing_chat = None
@@ -51,7 +51,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         if existing_chat.skill and existing_chat.skill != req.skill:
             raise HTTPException(
                 status_code=400,
-                detail=f"skill mismatch: chat '{req.chat_id}' belongs to skill '{existing_chat.skill}', got '{req.skill}'"
+                detail=f"skill mismatch: chat '{req.chat_id}' belongs to skill '{existing_chat.skill}', got '{req.skill}'. Use --new to create a new chat, or omit --chat-id to let the system find the right one."
             )
         chat_id = req.chat_id
     elif not req.force_new:
@@ -84,7 +84,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     if existing_chat:
         if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
-                raise HTTPException(status_code=400, detail=f"work_dir mismatch: chat has '{existing_chat.work_dir}', got '{work_dir}'")
+                raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat for skill '{req.skill}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
             if not work_dir:
                 work_dir = existing_chat.work_dir
         await chat_service.append_message(chat_id, user_msg)
