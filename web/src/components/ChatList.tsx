@@ -40,6 +40,7 @@ const fetcher = async (url: string) => {
 
 export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters }: ChatListProps) {
   const [search, setSearch] = useState("");
+  const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => localStorage.getItem("chatStatusFilter") || "");
@@ -112,13 +113,22 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       {!hideFilters && (
         <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
-          <input
-            type="text"
-            placeholder="Search tasks..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-          />
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            <button
+              onClick={() => { mutate(); mutatePinnedDm(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          </div>
           <div className="flex gap-1.5">
             <div className="relative flex-1">
               <input
