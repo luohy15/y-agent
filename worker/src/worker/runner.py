@@ -174,28 +174,6 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
         new_chat.skill = 'DM'
         await chat_repo.save_chat_by_id(new_chat)
 
-    # Auto-ack (same as DM short-circuit in notify controller)
-    ack_msg = Message(
-        id=generate_message_id(),
-        role="assistant",
-        content=f"DM session restarted ({reason_str})",
-        timestamp=get_utc_iso8601_timestamp(),
-        unix_timestamp=get_unix_timestamp(),
-    )
-    await chat_service.append_message(new_chat_id, ack_msg)
-
-    # Send Telegram notification about restart
-    try:
-        from storage.util import get_telegram_bot_token, send_telegram_message
-        from storage.repository.user import get_user_by_id
-        bot_token = get_telegram_bot_token()
-        if bot_token:
-            user = get_user_by_id(user_id)
-            if user and user.telegram_id:
-                send_telegram_message(bot_token, user.telegram_id, f"DM session restarted ({reason_str})")
-    except Exception as e:
-        logger.exception("DM restart telegram notify failed: {}", e)
-
     logger.info("DM restart: new chat_id={}", new_chat_id)
 
 
