@@ -374,6 +374,27 @@ def find_latest_chat_by_skill(user_id: int, skill: Optional[str]) -> Optional[Ch
             return None
 
 
+def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
+    """Return {trace_id: {"has_running": bool, "has_unread": bool}} for given trace_ids."""
+    from sqlalchemy import func, case
+    if not trace_ids:
+        return {}
+    with get_db() as session:
+        rows = (session.query(
+                    ChatEntity.trace_id,
+                    func.max(case((ChatEntity.status == "running", 1), else_=0)).label("has_running"),
+                    func.max(case((ChatEntity.unread == True, 1), else_=0)).label("has_unread"),
+                )
+                .filter_by(user_id=user_id)
+                .filter(ChatEntity.trace_id.in_(trace_ids))
+                .group_by(ChatEntity.trace_id)
+                .all())
+        return {
+            row.trace_id: {"has_running": bool(row.has_running), "has_unread": bool(row.has_unread)}
+            for row in rows
+        }
+
+
 def set_chat_unread(chat_id: str, unread: bool) -> None:
     """Directly set the unread column on a chat by chat_id."""
     with get_db() as session:
