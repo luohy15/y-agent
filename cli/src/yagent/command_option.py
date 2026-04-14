@@ -1,6 +1,5 @@
-import os
 import click
-from dotenv import load_dotenv
+from storage.global_config import load_global_config
 
 from yagent.commands.init import init
 from yagent.commands.login import login
@@ -20,8 +19,7 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 @click.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     """Personal command-line toolkit."""
-    home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
-    load_dotenv(os.path.join(home, ".env"))
+    load_global_config()
 
 
 # Register commands

@@ -5,9 +5,9 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 import os
 import click
-from dotenv import load_dotenv
+from storage.global_config import load_global_config
 
-load_dotenv(os.path.join(os.path.expanduser("~"), ".env"))
+load_global_config()
 from yagent.api_client import api_request
 
 
