@@ -8,7 +8,7 @@ A personal AI agent system built on coding agents. One person + a coding agent c
 
 ![y-agent TraceView](https://cdn.luohy15.com/y-agent-demo.png)
 
-[Live trace example](https://yovy.app/t/856542)
+[Live trace example](https://yovy.app/t/341d4a)
 
 ## Core Features
 
@@ -18,7 +18,7 @@ A personal AI agent system built on coding agents. One person + a coding agent c
 
 - **Session Persistence & Visualization** — Claude Code output is streamed via stream-json. A Lambda monitors output, writes to DB, and a web interface displays everything in real time.
 
-- **Multi-Agent Collaboration** — Skills define each agent's role and responsibilities. Agents communicate via async fire-and-forget messaging (`y notify`) with a hub-and-spoke topology — DM dispatches tasks to specialized skills (dev, blog, finance, etc.). Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/856542).
+- **Multi-Agent Collaboration** — Skills define each agent's role and responsibilities. Agents communicate via async fire-and-forget messaging (`y notify`) with a hub-and-spoke topology — DM dispatches tasks to specialized skills (dev, blog, finance, etc.). Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/341d4a).
 
 - **Long-Running Tasks** — Agents run inside tmux detached sessions on EC2. The monitoring layer only tails stdout and writes to DB, so agents can run for hours without hitting Lambda's 15-minute timeout.
 
