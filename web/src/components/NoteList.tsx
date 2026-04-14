@@ -226,7 +226,14 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
                       onClick={() => onOpenFile(workDir ? `${workDir}/journals/${file}` : `journals/${file}`)}
                       className="w-full text-left flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                     >
-                      {file.replace(/\.md$/, "").slice(5)}
+                      {(() => {
+                        const name = file.replace(/\.md$/, "");
+                        const m = name.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        if (!m) return name;
+                        const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                        return `${name}  ${days[d.getDay()]}`;
+                      })()}
                     </button>
                   ))}
                 </div>
