@@ -45,7 +45,19 @@ async def list_todos(
 ):
     user_id = _get_user_id(request)
     todos = todo_service.list_todos(user_id, status=status, priority=priority, query=query, limit=limit, offset=offset)
-    return [t.to_dict() for t in todos]
+    result = [t.to_dict() for t in todos]
+
+    # Batch-lookup chat status for all todo_ids (trace_id == todo_id)
+    todo_ids = [t.todo_id for t in todos]
+    if todo_ids:
+        from storage.repository.chat import get_trace_chat_status
+        chat_status = get_trace_chat_status(user_id, todo_ids)
+        for item in result:
+            cs = chat_status.get(item["todo_id"], {})
+            item["has_running"] = cs.get("has_running", False)
+            item["has_unread"] = cs.get("has_unread", False)
+
+    return result
 
 
 @router.get("/detail")

@@ -12,6 +12,8 @@ interface Todo {
   priority?: string;
   due_date?: string;
   tags?: string[];
+  has_running?: boolean;
+  has_unread?: boolean;
 }
 
 const fetcher = async (url: string) => {
@@ -138,6 +140,10 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
                     #{t.todo_id}
                   </button>
                   {t.pinned && <span className="text-sol-yellow text-[0.6rem] shrink-0" title="Pinned">{"\u{1F4CC}"}</span>}
+                  {t.has_unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
+                  {t.has_running && (
+                    <svg className="w-3 h-3 text-sol-blue animate-spin shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                  )}
                   <span className="truncate text-sol-base0 text-[0.7rem]">{t.name}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
