@@ -1,9 +1,9 @@
 import json
 import os
 import uvicorn
-from dotenv import load_dotenv
+from storage.global_config import load_global_config
 
-load_dotenv()
+load_global_config()
 from typing import Any
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse

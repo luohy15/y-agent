@@ -2,10 +2,10 @@
 
 import os
 
-from dotenv import load_dotenv
 from loguru import logger
+from storage.global_config import load_global_config
 
-load_dotenv()
+load_global_config()
 
 
 def _ensure_broker_dirs():

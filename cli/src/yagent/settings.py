@@ -2,13 +2,13 @@
 
 import os
 
-from dotenv import load_dotenv
+from storage.global_config import load_global_config
 
 
 def load_config():
     """Load configuration from environment variables."""
+    load_global_config()
     home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
-    load_dotenv(os.path.join(home, ".env"))
 
     os.makedirs(home, exist_ok=True)
 
