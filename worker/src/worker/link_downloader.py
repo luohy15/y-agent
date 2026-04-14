@@ -3,14 +3,13 @@
 import json
 import os
 
-import boto3
 from loguru import logger
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
 from storage.service import link as link_service
 
-S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
+Y_AGENT_HOME = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
 
 
 class _CmdRunner(Tool):
@@ -21,8 +20,8 @@ class _CmdRunner(Tool):
         pass
 
 
-def _s3_key(link_id: str, activity_id: str = None) -> str:
-    """Generate S3 key. Use activity_id for activity-level content."""
+def _content_path(link_id: str, activity_id: str = None) -> str:
+    """Generate relative content path. Use activity_id for activity-level content."""
     if activity_id:
         return f"links/{link_id}/{activity_id}/content.md"
     return f"links/{link_id}/content.md"
@@ -45,16 +44,13 @@ async def run_link_download(user_id: int, link_id: str, url: str, activity_id: s
         result = json.loads(output.strip())
         if result.get("status") == "done":
             content = result.get("content", "")
-            s3_key = _s3_key(link_id, activity_id)
-            s3 = boto3.client("s3")
-            s3.put_object(
-                Bucket=S3_BUCKET,
-                Key=s3_key,
-                Body=content.encode("utf-8"),
-                ContentType="text/markdown",
-            )
+            content_key = _content_path(link_id, activity_id)
+            full_path = os.path.join(Y_AGENT_HOME, content_key)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content)
             link_service.update_download_status(
-                link_id, "done", content_key=s3_key, url=url
+                link_id, "done", content_key=content_key, url=url
             )
             if result.get("title"):
                 link_service.update_link_title(link_id, result["title"])
