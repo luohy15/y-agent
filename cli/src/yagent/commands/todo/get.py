@@ -29,7 +29,7 @@ def todo_get(todo_id):
             tags = ""
             if n.get("front_matter") and n["front_matter"].get("tags"):
                 tags = f" [{', '.join(n['front_matter']['tags'])}]"
-            click.echo(f"  {n['note_id']}{tags}: {n['content']}")
+            click.echo(f"  {n['note_id']}{tags}: {n['content_key']}")
     if todo.get('history'):
         click.echo("History:")
         for h in todo['history']:
