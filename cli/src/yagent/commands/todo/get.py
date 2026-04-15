@@ -23,6 +23,13 @@ def todo_get(todo_id):
         click.echo(f"Completed: {todo['completed_at']}")
     if todo.get('created_at'):
         click.echo(f"Created:   {todo['created_at']}")
+    if todo.get('notes'):
+        click.echo("Notes:")
+        for n in todo['notes']:
+            tags = ""
+            if n.get("front_matter") and n["front_matter"].get("tags"):
+                tags = f" [{', '.join(n['front_matter']['tags'])}]"
+            click.echo(f"  {n['note_id']}{tags}: {n['content']}")
     if todo.get('history'):
         click.echo("History:")
         for h in todo['history']:

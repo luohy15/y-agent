@@ -32,6 +32,8 @@ from api.controller.tg_topic import router as tg_topic_router
 from api.controller.notify import router as notify_router
 from api.controller.trace import router as trace_router
 from api.controller.link_todo_relation import router as link_todo_relation_router
+from api.controller.note import router as note_router
+from api.controller.note_todo_relation import router as note_todo_relation_router
 from api.middleware.auth import AuthMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
@@ -63,6 +65,8 @@ api_router.include_router(tg_topic_router)
 api_router.include_router(notify_router)
 api_router.include_router(trace_router)
 api_router.include_router(link_todo_relation_router)
+api_router.include_router(note_router)
+api_router.include_router(note_todo_relation_router)
 app.include_router(api_router)
 
 def main():

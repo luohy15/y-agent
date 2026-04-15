@@ -66,7 +66,15 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
     todo = todo_service.get_todo(user_id, todo_id)
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
-    return todo.to_dict()
+    result = todo.to_dict()
+
+    # Include associated notes
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.note import get_notes_by_ids
+    note_ids = list_note_relations(user_id, todo_id)
+    if note_ids:
+        result["notes"] = [n.to_dict() for n in get_notes_by_ids(user_id, note_ids)]
+    return result
 
 
 @router.post("")
