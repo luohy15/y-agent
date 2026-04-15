@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.service import note as note_service
+from storage.service import note_todo_relation as relation_service
 
 router = APIRouter(prefix="/note")
 
@@ -72,7 +73,13 @@ async def get_note(request: Request, note_id: str = Query(...)):
 
 
 @router.get("/list")
-async def list_notes(request: Request, limit: int = Query(50), offset: int = Query(0)):
+async def list_notes(request: Request, limit: int = Query(50), offset: int = Query(0), todo_id: Optional[str] = Query(None)):
     user_id = _get_user_id(request)
+    if todo_id:
+        note_ids = relation_service.list_by_todo(user_id, todo_id)
+        if not note_ids:
+            return []
+        notes = note_service.get_notes_by_ids(user_id, note_ids)
+        return [n.to_dict() for n in notes]
     notes = note_service.list_notes(user_id, limit=limit, offset=offset)
     return [n.to_dict() for n in notes]
