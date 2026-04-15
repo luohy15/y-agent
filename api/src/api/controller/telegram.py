@@ -244,6 +244,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             update_time=timestamp,
             messages=[user_msg],
             skill='DM',
+            running=True,
         )
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user.id, overflow_chat)
@@ -270,6 +271,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         user_msg = Message.from_dict(msg_dict)
         chat.messages.append(user_msg)
         chat.interrupted = False
+        chat.running = True
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat_by_id(chat)
         chat_id = chat.id
@@ -295,6 +297,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             update_time=timestamp,
             messages=[user_msg],
             skill=skill,
+            running=True,
         )
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user.id, chat)
