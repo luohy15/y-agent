@@ -602,12 +602,13 @@ async def _run_claude_ssh(
                 # If not interrupted, only suppress expected SSH channel close errors
                 if not isinstance(e, (OSError, EOFError)):
                     raise
+            finally:
+                done_event.set()
 
             # Final check: watchdog may have killed the process
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
 
-            done_event.set()
             return None
 
         loop = asyncio.get_event_loop()
@@ -619,9 +620,6 @@ async def _run_claude_ssh(
             steer_thread.join(timeout=5)
 
         if interrupted == "interrupted":
-            done_event.set()
-            if steer_thread:
-                steer_thread.join(timeout=5)
             client.close()
             return ClaudeCodeResult(status="interrupted", session_id=session_id)
 
