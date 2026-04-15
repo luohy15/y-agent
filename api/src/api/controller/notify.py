@@ -38,9 +38,10 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # DM does not accept notify callbacks
-    if req.skill == 'DM':
-        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks. Send to a specific skill instead.")
+    # DM does not accept notify callbacks (messages to existing chats),
+    # but --new (force_new) is allowed to create a fresh DM session
+    if req.skill == 'DM' and not req.force_new:
+        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks. Use --new to start a new DM session, or send to a specific skill instead.")
 
     # Resolve target chat: explicit chat_id > skill+trace lookup > new
     existing_chat = None
