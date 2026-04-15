@@ -18,7 +18,6 @@ import base64
 import json
 import os
 import re
-import threading
 import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
@@ -27,6 +26,7 @@ from loguru import logger
 
 from storage.entity.dto import Message, VmConfig
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from agent.poll_loop import PollLoop
 
 
 @dataclass
@@ -390,51 +390,6 @@ def _write_stream_json_input(stdin, text: str):
 
 
 # ---------------------------------------------------------------------------
-# Interrupt watchdog helpers
-# ---------------------------------------------------------------------------
-
-def _start_interrupt_watchdog(
-    check_interrupted_fn: Optional[Callable[[], bool]],
-    on_interrupt: Callable[[], None],
-) -> Tuple[Optional[threading.Event], Optional[threading.Thread]]:
-    """Start a daemon thread that polls check_interrupted_fn every 2s.
-
-    When interrupted, calls on_interrupt() (which should kill the remote
-    process and close the channel) and exits.
-
-    Returns (interrupt_event, thread) — both None if check_interrupted_fn is None.
-    """
-    if not check_interrupted_fn:
-        return None, None
-
-    event = threading.Event()
-
-    def _watchdog():
-        while not event.is_set():
-            event.wait(2)
-            if event.is_set():
-                break
-            if check_interrupted_fn():
-                on_interrupt()
-                break
-
-    thread = threading.Thread(target=_watchdog, daemon=True)
-    thread.start()
-    return event, thread
-
-
-def _stop_interrupt_watchdog(
-    event: Optional[threading.Event],
-    thread: Optional[threading.Thread],
-) -> None:
-    """Signal the watchdog to stop and wait for it to finish."""
-    if event:
-        event.set()
-    if thread:
-        thread.join(timeout=5)
-
-
-# ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
@@ -508,36 +463,6 @@ async def _run_claude_ssh(
         # Write initial prompt via stream-json stdin
         _write_stream_json_input(stdin_ch, prompt)
 
-        # Set up steer polling thread
-        done_event = threading.Event()
-        steer_thread = None
-
-        def _steer_loop():
-            """Poll for steer messages and write them to stdin."""
-            while not done_event.is_set():
-                done_event.wait(2)
-                if done_event.is_set():
-                    break
-                if check_steer_fn:
-                    try:
-                        steer_msgs = check_steer_fn()
-                        for msg_text, msg_id in steer_msgs:
-                            _write_stream_json_input(stdin_ch, msg_text)
-                            converter.last_message_id = msg_id
-                    except Exception as e:
-                        logger.warning("steer write failed: {}", e)
-                        break
-            try:
-                stdin_ch.close()
-            except Exception:
-                pass
-
-        if check_steer_fn:
-            steer_thread = threading.Thread(target=_steer_loop, daemon=True)
-            steer_thread.start()
-        else:
-            stdin_ch.close()
-
         channel = stdout.channel
 
         def _kill_inline():
@@ -552,7 +477,20 @@ async def _run_claude_ssh(
             except Exception:
                 pass
 
-        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_inline)
+        def _on_steer(text, msg_id):
+            _write_stream_json_input(stdin_ch, text)
+            converter.last_message_id = msg_id
+
+        poll = PollLoop(
+            check_interrupted_fn=check_interrupted_fn,
+            on_interrupt=_kill_inline,
+            check_steer_fn=check_steer_fn,
+            on_steer=_on_steer,
+        )
+        poll.start()
+
+        if not check_steer_fn:
+            stdin_ch.close()
 
         # Stream stdout line by line in a thread to avoid blocking the event loop
         def _read_lines():
@@ -603,7 +541,7 @@ async def _run_claude_ssh(
                 if not isinstance(e, (OSError, EOFError)):
                     raise
             finally:
-                done_event.set()
+                poll.done_event.set()
 
             # Final check: watchdog may have killed the process
             if check_interrupted_fn and check_interrupted_fn():
@@ -614,10 +552,13 @@ async def _run_claude_ssh(
         loop = asyncio.get_event_loop()
         interrupted = await loop.run_in_executor(None, _read_lines)
 
-        _stop_interrupt_watchdog(wd_event, wd_thread)
+        poll.stop()
 
-        if steer_thread:
-            steer_thread.join(timeout=5)
+        if check_steer_fn:
+            try:
+                stdin_ch.close()
+            except Exception:
+                pass
 
         if interrupted == "interrupted":
             client.close()
@@ -854,7 +795,26 @@ async def tail_ssh_output(
             except Exception:
                 pass
 
-        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_detached)
+        def _on_steer_detached(text, msg_id):
+            payload = json.dumps({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": text}],
+                },
+            })
+            client.exec_command(
+                f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
+            )
+            converter.last_message_id = msg_id
+
+        poll = PollLoop(
+            check_interrupted_fn=check_interrupted_fn,
+            on_interrupt=_kill_detached,
+            check_steer_fn=check_steer_fn,
+            on_steer=_on_steer_detached,
+        )
+        poll.start()
 
         def _read_lines():
             nonlocal result_data, session_id, current_offset
@@ -911,49 +871,12 @@ async def tail_ssh_output(
 
             return None
 
-        # Set up steer polling thread (appends stream-json lines to stdin file)
-        done_event = threading.Event()
-        steer_thread = None
         stdin_file = f"/tmp/cc-{chat_id}.stdin"
-
-        def _steer_loop():
-            """Poll for steer messages and append them to the stdin file."""
-            while not done_event.is_set():
-                done_event.wait(2)
-                if done_event.is_set():
-                    break
-                if check_steer_fn:
-                    try:
-                        steer_msgs = check_steer_fn()
-                        for msg_text, msg_id in steer_msgs:
-                            payload = json.dumps({
-                                "type": "user",
-                                "message": {
-                                    "role": "user",
-                                    "content": [{"type": "text", "text": msg_text}],
-                                },
-                            })
-                            client.exec_command(
-                                f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
-                            )
-                            converter.last_message_id = msg_id
-                    except Exception as e:
-                        logger.warning("detach steer write failed: {}", e)
-                        break
-
-        if check_steer_fn:
-            steer_thread = threading.Thread(target=_steer_loop, daemon=True)
-            steer_thread.start()
 
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
 
-        _stop_interrupt_watchdog(wd_event, wd_thread)
-
-        # Signal steer thread to stop and wait
-        done_event.set()
-        if steer_thread:
-            steer_thread.join(timeout=5)
+        poll.stop()
 
         if owns_client:
             client.close()
