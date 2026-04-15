@@ -216,6 +216,15 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg)
 
+    # Build steer checker for detached claude_code processes
+    steer_fn = None
+    if backend_type != "codex":
+        chat = await chat_service.get_chat_by_id(chat_id)
+        initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
+        initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
+        from worker.runner import make_steer_checker
+        steer_fn = make_steer_checker(chat_id, initial_msg_ids)
+
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
     # Dispatch to backend-specific tail function
@@ -242,6 +251,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_interrupted_fn=_check_interrupted,
             check_deadline_fn=_check_deadline,
             ssh_client=client,
+            check_steer_fn=steer_fn,
         )
 
     # Save offset to DynamoDB

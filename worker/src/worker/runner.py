@@ -642,5 +642,6 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         bot_name=bot_config.name, trace_id=trace_id, skill=skill,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
         backend_type=bot_config.api_type,
+        initial_msg_count=len(chat.messages),
     )
 

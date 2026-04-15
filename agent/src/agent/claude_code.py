@@ -723,14 +723,22 @@ async def start_detached_ssh(
         _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
                          f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
 
-        # 2. Write prompt to stdin file via SFTP (avoids shell line length limits)
+        # 2. Write prompt to stdin file via SFTP in stream-json format
         stdin_file = f"/tmp/cc-{chat_id}.stdin"
+        payload = json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            },
+        }) + "\n"
         sftp = client.open_sftp()
         with sftp.open(stdin_file, "w") as f:
-            f.write(prompt)
+            f.write(payload)
         sftp.close()
 
-        # 3. Build the claude command
+        # 3. Build the claude command (with stream-json input via tail -f pipe)
+        full_cmd = cmd + ["--input-format", "stream-json"]
         inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
         if env:
             for k, v in env.items():
@@ -738,13 +746,13 @@ async def start_detached_ssh(
         if cwd:
             inner_parts.append(f"cd {_shell_quote(cwd)} &&")
 
-        claude_cmd = " ".join(_shell_quote(c) for c in cmd)
+        claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
         stdout_file = f"/tmp/cc-{chat_id}.stdout"
         stderr_file = f"/tmp/cc-{chat_id}.stderr"
         exit_file = f"/tmp/cc-{chat_id}.exit"
 
         inner_parts.append(
-            f"{claude_cmd} < {_shell_quote(stdin_file)} "
+            f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd} "
             f"> {_shell_quote(stdout_file)} "
             f"2> {_shell_quote(stderr_file)}; "
             f"echo $? > {_shell_quote(exit_file)}"
@@ -787,6 +795,7 @@ async def tail_ssh_output(
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
     check_deadline_fn: Optional[Callable[[], bool]] = None,
     ssh_client=None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str]]]] = None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
@@ -904,10 +913,49 @@ async def tail_ssh_output(
 
             return None
 
+        # Set up steer polling thread (appends stream-json lines to stdin file)
+        done_event = threading.Event()
+        steer_thread = None
+        stdin_file = f"/tmp/cc-{chat_id}.stdin"
+
+        def _steer_loop():
+            """Poll for steer messages and append them to the stdin file."""
+            while not done_event.is_set():
+                done_event.wait(2)
+                if done_event.is_set():
+                    break
+                if check_steer_fn:
+                    try:
+                        steer_msgs = check_steer_fn()
+                        for msg_text, msg_id in steer_msgs:
+                            payload = json.dumps({
+                                "type": "user",
+                                "message": {
+                                    "role": "user",
+                                    "content": [{"type": "text", "text": msg_text}],
+                                },
+                            })
+                            client.exec_command(
+                                f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
+                            )
+                            converter.last_message_id = msg_id
+                    except Exception as e:
+                        logger.warning("detach steer write failed: {}", e)
+                        break
+
+        if check_steer_fn:
+            steer_thread = threading.Thread(target=_steer_loop, daemon=True)
+            steer_thread.start()
+
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
 
         _stop_interrupt_watchdog(wd_event, wd_thread)
+
+        # Signal steer thread to stop and wait
+        done_event.set()
+        if steer_thread:
+            steer_thread.join(timeout=5)
 
         if owns_client:
             client.close()
