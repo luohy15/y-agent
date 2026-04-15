@@ -42,3 +42,7 @@ def get_note(user_id: int, note_id: str) -> Optional[Note]:
 
 def list_notes(user_id: int, limit: int = 50, offset: int = 0) -> List[Note]:
     return note_repo.list_notes(user_id, limit=limit, offset=offset)
+
+
+def get_notes_by_ids(user_id: int, note_ids: List[str]) -> List[Note]:
+    return note_repo.get_notes_by_ids(user_id, note_ids)

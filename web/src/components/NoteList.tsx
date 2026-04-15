@@ -10,11 +10,21 @@ interface FileEntry {
   atime?: number | null;
 }
 
+interface Note {
+  note_id: string;
+  content_key: string;
+  front_matter?: Record<string, any> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface NoteListProps {
   isLoggedIn: boolean;
   vmName?: string | null;
   workDir?: string | null;
   onOpenFile: (path: string) => void;
+  todoId?: string | null;
+  hideFilters?: boolean;
 }
 
 type NoteTab = "journals" | "pages";
@@ -52,7 +62,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
   });
 }
 
-export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: NoteListProps) {
+export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
     return saved === "journals" || saved === "pages" ? saved : "journals";
@@ -80,6 +90,10 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
 
   const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
+
+  const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
+  const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
+
   const [spinning, setSpinning] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
 
@@ -175,6 +189,61 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile }: No
     `px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const showTodoMode = !!(todoId || hideFilters);
+
+  if (showTodoMode) {
+    return (
+      <div className="flex flex-col h-full text-xs overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-1.5">
+          {!isLoggedIn ? (
+            <p className="text-sol-base01 italic p-2">Sign in to view notes</p>
+          ) : !todoId ? (
+            <p className="text-sol-base01 italic p-2">Select a todo to view notes</p>
+          ) : todoNotesLoading ? (
+            <p className="text-sol-base01 italic p-2">Loading...</p>
+          ) : todoNotesError ? (
+            <p className="text-sol-base01 italic p-2">Error loading notes</p>
+          ) : !todoNotes || todoNotes.length === 0 ? (
+            <p className="text-sol-base01 italic p-2">No notes found</p>
+          ) : (
+            <div className="space-y-0">
+              {todoNotes.map((note) => {
+                const displayName = note.content_key.replace(/^.*\//, "").replace(/\.md$/, "");
+                return (
+                  <button
+                    key={note.note_id}
+                    onClick={() => onOpenFile(note.content_key)}
+                    onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: note.content_key }); }}
+                    className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                  >
+                    <span className="truncate flex-1">{displayName}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {ctxMenu && createPortal(
+          <>
+            <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
+            <div
+              className="fixed z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[120px]"
+              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            >
+              <button
+                className="w-full text-left px-3 py-1 text-xs text-sol-base1 hover:bg-sol-base03 cursor-pointer"
+                onClick={copyPath}
+              >
+                Copy Path
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">

@@ -694,7 +694,7 @@ export default function App() {
                 {rightPanel === "chats" ? (
                   <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : rightPanel === "notes" ? (
-                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handleOpenFile} />
+                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
                   <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "files" ? (
