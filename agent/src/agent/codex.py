@@ -1,4 +1,5 @@
-"""Run OpenAI Codex CLI (`codex exec`) as a subprocess worker.
+"""Convert OpenAI Codex CLI JSONL events to y-agent Message DTOs,
+and provide SSH helpers for detached tmux-based execution.
 
 Codex `codex exec --json --dangerously-bypass-approvals-and-sandbox` emits JSONL events:
   - thread.started  : thread_id
@@ -14,9 +15,7 @@ Maps these events to y-agent Message DTOs using the same format as claude_code.p
 
 import asyncio
 import json
-import os
 import re
-from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from loguru import logger
@@ -42,15 +41,6 @@ def _strip_shell_wrapper(command: str) -> str:
             inner = inner[1:-1]
         return inner
     return command
-
-
-@dataclass
-class CodexResult:
-    status: str  # "completed" | "interrupted" | "error"
-    thread_id: Optional[str] = None
-    result_text: Optional[str] = None
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
 
 
 class CodexStreamConverter:
@@ -210,164 +200,6 @@ class CodexStreamConverter:
             logger.error("codex error event: {}", error_msg)
 
         return messages
-
-
-# ---------------------------------------------------------------------------
-# Local subprocess runner
-# ---------------------------------------------------------------------------
-
-async def _run_codex_process(
-    cmd: List[str],
-    prompt: str,
-    cwd: Optional[str],
-    last_message_id: Optional[str],
-    message_callback: Optional[Callable[[Message], None]],
-    check_interrupted_fn: Optional[Callable[[], bool]],
-    env: Optional[Dict[str, str]] = None,
-) -> CodexResult:
-    """Spawn codex exec, stream output, convert messages, return result."""
-    proc_env = dict(os.environ)
-    if env:
-        proc_env.update(env)
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        env=proc_env,
-        limit=10 * 1024 * 1024,
-    )
-
-    converter = CodexStreamConverter(last_message_id=last_message_id)
-    stderr_chunks: List[bytes] = []
-    last_error_msg: Optional[str] = None
-
-    async def _drain_stderr():
-        while proc.stderr:
-            chunk = await proc.stderr.read(4096)
-            if not chunk:
-                break
-            stderr_chunks.append(chunk)
-
-    try:
-        if proc.stdin:
-            proc.stdin.write(prompt.encode("utf-8"))
-            await proc.stdin.drain()
-            proc.stdin.close()
-
-        stderr_task = asyncio.create_task(_drain_stderr())
-
-        while proc.stdout:
-            line_bytes = await proc.stdout.readline()
-            if not line_bytes:
-                break
-
-            line = line_bytes.decode("utf-8", errors="replace")
-
-            if check_interrupted_fn and check_interrupted_fn():
-                proc.kill()
-                await proc.wait()
-                stderr_task.cancel()
-                return CodexResult(status="interrupted", thread_id=converter.thread_id)
-
-            # Track error events for final status
-            obj = parse_stream_line(line)
-            if obj:
-                if obj.get("type") == "error":
-                    last_error_msg = obj.get("message", "Unknown error")
-                elif obj.get("type") == "turn.failed":
-                    err = obj.get("error", {})
-                    last_error_msg = err.get("message", "Turn failed")
-
-            if message_callback:
-                for msg in converter.process_line(line):
-                    message_callback(msg)
-
-        await stderr_task
-
-    except Exception as e:
-        logger.error("codex process exception: {}", e)
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        await proc.wait()
-        stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
-        if stderr_text:
-            logger.error("codex stderr: {}", stderr_text)
-        error_detail = f"Codex process error: {e}"
-        if stderr_text:
-            error_detail += f"\n{stderr_text}"
-        return CodexResult(status="error", thread_id=converter.thread_id, result_text=error_detail)
-
-    await proc.wait()
-
-    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
-
-    if proc.returncode != 0:
-        logger.error("codex exited with code {} stderr={}", proc.returncode, stderr_text)
-        error_detail = last_error_msg or f"Codex exited with code {proc.returncode}"
-        if stderr_text and not last_error_msg:
-            error_detail += f": {stderr_text}"
-        return CodexResult(
-            status="error",
-            thread_id=converter.thread_id,
-            result_text=error_detail,
-            input_tokens=converter.total_input_tokens or None,
-            output_tokens=converter.total_output_tokens or None,
-        )
-
-    return CodexResult(
-        status="completed",
-        thread_id=converter.thread_id,
-        input_tokens=converter.total_input_tokens or None,
-        output_tokens=converter.total_output_tokens or None,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-async def run_codex(
-    prompt: str,
-    message_callback: Callable[[Message], None],
-    cwd: Optional[str] = None,
-    last_message_id: Optional[str] = None,
-    check_interrupted_fn: Optional[Callable[[], bool]] = None,
-    model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    thread_id: Optional[str] = None,
-) -> CodexResult:
-    """Run codex exec as a subprocess, stream JSONL output, return result.
-
-    If thread_id is provided, resumes an existing session via `codex exec resume`.
-    """
-    if thread_id:
-        # resume subcommand doesn't support -C; pass cwd to subprocess instead
-        cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
-    else:
-        cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
-        if cwd:
-            cmd.extend(["-C", cwd])
-    if model:
-        cmd.extend(["-m", model])
-
-    env: Optional[Dict[str, str]] = None
-    if api_key:
-        env = {"OPENAI_API_KEY": api_key}
-
-    return await _run_codex_process(
-        cmd=cmd,
-        prompt=prompt,
-        cwd=cwd,
-        last_message_id=last_message_id,
-        message_callback=message_callback,
-        check_interrupted_fn=check_interrupted_fn,
-        env=env,
-    )
 
 
 # ---------------------------------------------------------------------------
