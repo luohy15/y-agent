@@ -624,7 +624,22 @@ async def tail_ssh_output(
                         continue
                     if obj.get("type") == "result":
                         result_data = obj
-                        continue
+                        # Turn complete: tear down the remote session so the
+                        # tmux pipeline exits. Without this claude would keep
+                        # reading stdin (stream-json input mode has no EOF)
+                        # and exit_file would never be written.
+                        try:
+                            client.exec_command(
+                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                            )
+                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                        except Exception:
+                            pass
+                        try:
+                            stdout_ch.channel.close()
+                        except Exception:
+                            pass
+                        return None  # natural completion → status="completed"
 
                     if message_callback:
                         for msg in converter.process_line(line):
