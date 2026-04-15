@@ -213,6 +213,27 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     return result
 
 
+@router.get("/messages/snapshot")
+async def get_chat_messages_snapshot(chat_id: str = Query(...), request: Request = None):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    # Auto mark as read when messages are fetched
+    chat_service.mark_chat_read(chat_id)
+
+    messages = []
+    for idx, msg in enumerate(chat.messages):
+        messages.append({"index": idx, "type": "message", "data": msg.to_dict()})
+
+    return {
+        "messages": messages,
+        "running": chat.running,
+        "interrupted": chat.interrupted,
+    }
+
+
 @router.get("/messages")
 async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0, ge=0)):
     async def event_stream():
