@@ -10,7 +10,7 @@ from storage.util import generate_id
 def _entity_to_dto(entity: NoteEntity) -> Note:
     return Note(
         note_id=entity.note_id,
-        content=entity.content,
+        content_key=entity.content_key,
         front_matter=entity.front_matter,
         created_at=entity.created_at,
         updated_at=entity.updated_at,
@@ -40,6 +40,14 @@ def get_note(user_id: int, note_id: str) -> Optional[Note]:
         return _entity_to_dto(entity)
 
 
+def get_note_by_content_key(user_id: int, content_key: str) -> Optional[Note]:
+    with get_db() as session:
+        entity = session.query(NoteEntity).filter_by(user_id=user_id, content_key=content_key).first()
+        if not entity:
+            return None
+        return _entity_to_dto(entity)
+
+
 def get_notes_by_ids(user_id: int, note_ids: List[str]) -> List[Note]:
     if not note_ids:
         return []
@@ -57,7 +65,7 @@ def save_note(user_id: int, note: Note) -> Note:
     with get_db() as session:
         entity = session.query(NoteEntity).filter_by(user_id=user_id, note_id=note.note_id).first()
         if entity:
-            entity.content = note.content
+            entity.content_key = note.content_key
             if note.front_matter is not None:
                 entity.front_matter = note.front_matter
             session.flush()
@@ -66,7 +74,7 @@ def save_note(user_id: int, note: Note) -> Note:
             entity = NoteEntity(
                 user_id=user_id,
                 note_id=note.note_id,
-                content=note.content,
+                content_key=note.content_key,
                 front_matter=note.front_matter,
             )
             session.add(entity)

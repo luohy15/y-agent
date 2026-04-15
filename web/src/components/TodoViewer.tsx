@@ -6,7 +6,7 @@ import TodoContextMenu from "./TodoContextMenu";
 
 interface TodoNote {
   note_id: string;
-  content: string;
+  content_key: string;
   front_matter?: { tags?: string[]; [key: string]: unknown };
   created_at?: string;
   updated_at?: string;
@@ -237,7 +237,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
                   <span key={tag} className="bg-sol-base02 text-sol-base0 px-1 rounded">{tag}</span>
                 ))}
               </div>
-              <p className="text-sol-base1 whitespace-pre-wrap mt-0.5">{n.content}</p>
+              <p className="text-sol-base1 whitespace-pre-wrap mt-0.5">{n.content_key}</p>
             </div>
           ))}
         </div>

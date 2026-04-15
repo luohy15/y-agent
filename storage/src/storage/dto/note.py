@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 @dataclass
 class Note:
     note_id: str
-    content: str
+    content_key: str
     front_matter: Optional[Dict] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -16,7 +16,7 @@ class Note:
     def from_dict(cls, data: Dict) -> 'Note':
         return cls(
             note_id=data['note_id'],
-            content=data['content'],
+            content_key=data['content_key'],
             front_matter=data.get('front_matter'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
@@ -27,7 +27,7 @@ class Note:
     def to_dict(self) -> Dict:
         result = {
             'note_id': self.note_id,
-            'content': self.content,
+            'content_key': self.content_key,
         }
         if self.front_matter is not None:
             result['front_matter'] = self.front_matter

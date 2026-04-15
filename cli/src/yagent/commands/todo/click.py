@@ -11,7 +11,6 @@ from .deactivate import todo_deactivate
 from .reopen import todo_reopen
 from .status import todo_status
 from .pin import todo_pin, todo_unpin
-from .note import todo_note
 
 @click.group('todo')
 def todo_group():
@@ -30,4 +29,3 @@ todo_group.add_command(todo_reopen)
 todo_group.add_command(todo_status)
 todo_group.add_command(todo_pin)
 todo_group.add_command(todo_unpin)
-todo_group.add_command(todo_note)
