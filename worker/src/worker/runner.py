@@ -10,7 +10,6 @@ from storage.service import chat as chat_service
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 import agent.config as agent_config
-from agent.ec2_wake import ensure_and_touch_vm
 
 
 def message_callback(chat_id: str, message: Message):
@@ -200,11 +199,10 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None, backend: str = None) -> str:
-    """Execute a chat round. Returns 'detached' or 'done'.
+    """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
     backend overrides bot_config.api_type for routing (e.g. 'claude_code', 'codex').
-    Routing (detached SSH vs inline) is decided internally after resolving bot/vm config.
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -250,51 +248,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     chat.backend = bot_config.api_type
     await chat_repo.save_chat_by_id(chat)
 
-    # Route: SSH claude_code/codex → detached tmux mode (if "detach" feature flag exists)
-    # A vm_config named "detach" for this user acts as a feature flag.
-    # Present → detached mode; absent → inline (safe fallback).
-    if bot_config.api_type in ("claude_code", "codex"):
-        vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-        if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
-            from storage.service import vm_config as vm_service
-            if vm_service.get_config(user_id, "detach"):
-                await _start_detached(chat, chat_id, user_id, bot_config,
-                                       vm_name=vm_name, work_dir=work_dir,
-                                       post_hooks=post_hooks, trace_id=trace_id, skill=skill)
-                return "detached"
-
-    # Inline mode
-    error_occurred = False
-    try:
-        if bot_config.api_type == "codex":
-            await _run_chat_codex(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
-        else:
-            await _run_chat_claude_code(chat, chat_id, user_id, bot_config, vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, skill=skill)
-    except Exception:
-        error_occurred = True
-        raise
-    finally:
-        # Mark chat as no longer running
-        fresh = await chat_service.get_chat_by_id(chat_id)
-        if fresh:
-            fresh.running = False
-            await chat_repo.save_chat_by_id(fresh)
-            # Mark as unread on successful completion
-            if not fresh.interrupted and not error_occurred:
-                from storage.repository.chat import set_chat_unread
-                set_chat_unread(chat_id, True)
-            # Send assistant reply to Telegram based on skill routing
-            if not fresh.interrupted and not error_occurred:
-                try:
-                    _send_telegram_reply(fresh, user_id, trace_id)
-                except Exception as e:
-                    logger.exception("telegram reply failed: {}", e)
-            # Execute post hooks if chat completed (not interrupted)
-            if not fresh.interrupted and post_hooks:
-                logger.info("Running {} post hooks for chat {}", len(post_hooks), chat_id)
-                _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
-
-    return "done"
+    # Always run in detached tmux mode
+    await _start_detached(chat, chat_id, user_id, bot_config,
+                           vm_name=vm_name, work_dir=work_dir,
+                           post_hooks=post_hooks, trace_id=trace_id, skill=skill)
+    return "detached"
 
 
 
@@ -367,108 +325,6 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     }
 
 
-async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> None:
-    """Run chat through Claude Code CLI with stateful session resume.
-
-    First message creates a new session. Subsequent messages resume via
-    session_id stored in chat.external_id.
-    """
-    from agent.claude_code import run_claude_code
-
-    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
-                                        vm_name=vm_name, work_dir=work_dir,
-                                        trace_id=trace_id, skill=skill)
-
-    if not params["prompt"]:
-        logger.error("No user message found in chat {}", chat_id)
-        return
-
-    cwd = params["cwd"]
-    vm_config = params["vm_config"]
-    session_id = params["session_id"]
-    resume = params["resume"]
-
-    ensure_and_touch_vm(vm_config)
-    logger.info("Resolved vm config: name={} vm_name={} work_dir={}", vm_config.name, vm_config.vm_name, vm_config.work_dir)
-
-    cb = lambda msg: message_callback(chat_id, msg)
-    interrupted_fn = lambda: check_interrupted(chat_id)
-
-    # Set work_dir early so it persists even if the run is interrupted or errors out
-    if not chat.work_dir:
-        chat.work_dir = cwd
-        from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(chat)
-
-    # work_dir mismatch check (session files are path-specific)
-    if chat.external_id and chat.work_dir != cwd:
-        error_msg = f"work_dir mismatch: chat has '{chat.work_dir}', got '{cwd}'"
-        logger.error("claude-code {}, aborting", error_msg)
-        message_callback(chat_id, Message.from_dict({
-            "role": "assistant",
-            "content": f"Error: {error_msg}. Cannot resume session with a different work_dir.",
-        }))
-        return
-
-    # Build steer checker from initial message IDs
-    initial_msg_ids = {msg.id for msg in chat.messages if msg.id}
-    steer_fn = make_steer_checker(chat_id, initial_msg_ids)
-
-    logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, params["prompt"][:200])
-
-    result = await run_claude_code(
-        prompt=params["prompt"],
-        message_callback=cb,
-        cwd=cwd,
-        session_id=session_id,
-        resume=resume,
-        last_message_id=params["last_message_id"],
-        check_interrupted_fn=interrupted_fn,
-        model=params["model"],
-        vm_config=vm_config,
-        api_base_url=bot_config.base_url if bot_config.base_url else None,
-        api_key=bot_config.api_key if bot_config.api_key else None,
-        images=params["images"],
-        chat_id=chat_id,
-        trace_id=trace_id,
-        skill=skill,
-        check_steer_fn=steer_fn,
-    )
-    logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
-
-    # Surface error status as a visible message to the user
-    if result.status == "error":
-        error_text = result.result_text or "Claude Code exited with an error."
-        error_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=error_text,
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        cb(error_msg)
-
-    # Save session_id and token usage
-    # Reload fresh chat from DB to avoid overwriting messages appended via callback
-    if result.session_id or result.input_tokens is not None:
-        fresh_chat = await chat_service.get_chat_by_id(chat_id)
-        if fresh_chat:
-            if result.session_id:
-                fresh_chat.external_id = result.session_id
-            if result.input_tokens is not None:
-                fresh_chat.input_tokens = result.input_tokens
-                fresh_chat.output_tokens = result.output_tokens
-                fresh_chat.cache_read_input_tokens = result.cache_read_input_tokens
-                fresh_chat.cache_creation_input_tokens = result.cache_creation_input_tokens
-                fresh_chat.context_window = result.context_window
-            from storage.repository import chat as chat_repo
-            await chat_repo.save_chat_by_id(fresh_chat)
-
-            # Auto-restart DM session if context usage exceeds 50% or turns exceed 50
-            if skill == 'DM':
-                num_turns = sum(1 for m in fresh_chat.messages if m.role == "user") if fresh_chat.messages else 0
-                await _maybe_restart_dm_session(user_id, result.input_tokens or 0, result.context_window or 0, num_turns)
-
 
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
@@ -520,70 +376,6 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
         "messages": messages,
     }
 
-
-async def _run_chat_codex(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> None:
-    """Run chat through OpenAI Codex CLI (codex exec)."""
-    from agent.codex import run_codex
-
-    params = _build_codex_params(chat, chat_id, user_id, bot_config,
-                                  vm_name=vm_name, work_dir=work_dir,
-                                  trace_id=trace_id, skill=skill)
-
-    if not params["prompt"]:
-        logger.error("No user message found in chat {}", chat_id)
-        return
-
-    cwd = params["cwd"]
-    thread_id = params.get("thread_id")
-    resume = params.get("resume", False)
-
-    # Set work_dir on chat
-    if not chat.work_dir:
-        chat.work_dir = cwd
-    from storage.repository import chat as chat_repo
-    await chat_repo.save_chat_by_id(chat)
-
-    logger.info("codex start chat_id={} thread_id={} resume={} prompt={}", chat_id, thread_id, resume, params["prompt"][:200])
-
-    cb = lambda msg: message_callback(chat_id, msg)
-    interrupted_fn = lambda: check_interrupted(chat_id)
-
-    result = await run_codex(
-        prompt=params["prompt"],
-        message_callback=cb,
-        cwd=cwd,
-        last_message_id=params["last_message_id"],
-        check_interrupted_fn=interrupted_fn,
-        model=params["model"],
-        api_key=bot_config.api_key if bot_config.api_key else None,
-        thread_id=thread_id,
-    )
-
-    logger.info("codex done status={} thread_id={}", result.status, result.thread_id)
-
-    # Surface error as visible message
-    if result.status == "error":
-        error_text = result.result_text or "Codex exited with an error."
-        error_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=error_text,
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        cb(error_msg)
-
-    # Save thread_id (for resume) and token usage
-    if result.thread_id or result.input_tokens is not None:
-        fresh_chat = await chat_service.get_chat_by_id(chat_id)
-        if fresh_chat:
-            if result.thread_id:
-                fresh_chat.external_id = result.thread_id
-            if result.input_tokens is not None:
-                fresh_chat.input_tokens = result.input_tokens
-                fresh_chat.output_tokens = result.output_tokens
-            from storage.repository import chat as chat_repo
-            await chat_repo.save_chat_by_id(fresh_chat)
 
 
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
