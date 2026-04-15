@@ -84,6 +84,11 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
         chat_id=chat_id,
     )
 
+    # Set running immediately so frontend shows running state without waiting for worker
+    chat.running = True
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat(user_id, chat)
+
     send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return CreateChatResponse(chat_id=chat_id)
 
@@ -115,12 +120,17 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     chat.messages.append(user_msg)
     chat.interrupted = False
 
+    # If chat is running, don't queue a new task — the running worker will pick up
+    # the new message via steer polling
+    already_running = chat.running
+    if not already_running:
+        # Set running immediately so frontend shows running state without waiting for worker
+        chat.running = True
+
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
 
-    # If chat is running, don't queue a new task — the running worker will pick up
-    # the new message via steer polling
-    if not chat.running:
+    if not already_running:
         send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
 
     return {"ok": True}
