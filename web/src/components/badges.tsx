@@ -4,9 +4,9 @@
 const SKILL_SOL_COLOR: Record<string, string> = {
   DM:              "blue",
   dev:             "green",
-  "dev-manager":   "cyan",
+  cto:             "cyan",
   todo:            "yellow",
-  "skill-manager": "magenta",
+  hr:              "magenta",
   finance:         "orange",
   calendar:        "violet",
   git:             "yellow",
