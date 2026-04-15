@@ -8,6 +8,7 @@ interface ChatInputProps {
   sending?: boolean;
   autoFocus?: boolean;
   extraButtons?: ReactNode;
+  placeholder?: string;
 }
 
 export interface ChatInputHandle {
@@ -15,7 +16,7 @@ export interface ChatInputHandle {
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ value, onChange, onSubmit, onClear, sending, autoFocus, extraButtons }, ref) => {
+  ({ value, onChange, onSubmit, onClear, sending, autoFocus, extraButtons, placeholder }, ref) => {
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const [cursorPos, setCursorPos] = useState<number>(0);
 
@@ -122,14 +123,20 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               onClick={updateCursor}
               onSelect={updateCursor}
               autoFocus={autoFocus}
+              placeholder={placeholder}
               rows={1}
-              className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto"
+              className="sm:absolute sm:inset-0 sm:w-full sm:h-full sm:opacity-0 w-full resize-none bg-transparent text-sm sm:text-[0.775rem] font-mono text-sol-base0 leading-[1.4] min-h-[1.4em] outline-none caret-sol-base1 overflow-hidden sm:overflow-auto placeholder:text-sol-base01"
             />
             {/* Desktop: custom cursor display */}
             <div className="hidden sm:block text-[0.775rem] font-mono text-sol-base0 whitespace-pre-wrap break-words leading-[1.4] min-h-[1.4em]">
-              {value.slice(0, cursorPos)}
-              <span className="bg-sol-base0 text-sol-base03">{value[cursorPos] ?? " "}</span>
-              {value.slice(cursorPos + 1)}
+              {value ? <>
+                {value.slice(0, cursorPos)}
+                <span className="bg-sol-base0 text-sol-base03">{value[cursorPos] ?? " "}</span>
+                {value.slice(cursorPos + 1)}
+              </> : <>
+                <span className="bg-sol-base0 text-sol-base03">{placeholder ? placeholder[0] : " "}</span>
+                {placeholder ? <span className="text-sol-base01">{placeholder.slice(1)}</span> : null}
+              </>}
             </div>
           </div>
         </div>

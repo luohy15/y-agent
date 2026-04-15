@@ -23,6 +23,28 @@ def check_interrupted(chat_id: str) -> bool:
     return c.interrupted if c else False
 
 
+def make_steer_checker(chat_id: str, initial_message_ids: set):
+    """Create a function that checks for new user messages (steer) in the chat.
+
+    Returns list of (text, id) tuples for messages added after the worker started.
+    """
+    consumed = set()
+
+    def check():
+        chat = chat_service.get_chat_by_id_sync(chat_id)
+        if not chat:
+            return []
+        steer_messages = []
+        for msg in chat.messages:
+            if msg.role == "user" and msg.id not in initial_message_ids and msg.id not in consumed:
+                consumed.add(msg.id)
+                content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                steer_messages.append((content, msg.id))
+        return steer_messages
+
+    return check
+
+
 
 def _run_post_hooks(chat, user_id: int, post_hooks: list, trace_id: str = None) -> None:
     """Execute post-completion hooks."""
@@ -388,6 +410,10 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         }))
         return
 
+    # Build steer checker from initial message IDs
+    initial_msg_ids = {msg.id for msg in chat.messages if msg.id}
+    steer_fn = make_steer_checker(chat_id, initial_msg_ids)
+
     logger.info("claude-code start chat_id={} session_id={} resume={} prompt={}", chat_id, session_id, resume, params["prompt"][:200])
 
     result = await run_claude_code(
@@ -406,6 +432,7 @@ async def _run_chat_claude_code(chat, chat_id: str, user_id: int, bot_config, vm
         chat_id=chat_id,
         trace_id=trace_id,
         skill=skill,
+        check_steer_fn=steer_fn,
     )
     logger.info("claude-code done status={} session_id={} cost={}", result.status, result.session_id, result.cost_usd)
 
