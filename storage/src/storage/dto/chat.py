@@ -131,7 +131,7 @@ class Chat:
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
-    skill: Optional[str] = None  # skill name (e.g. "dev", "dev-manager")
+    skill: Optional[str] = None  # skill name (e.g. "dev", "cto")
     trace_id: Optional[str] = None
     work_dir: Optional[str] = None
     interrupted: bool = False
