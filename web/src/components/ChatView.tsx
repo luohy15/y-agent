@@ -110,6 +110,39 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
+  const parseRawMessage = useCallback((evt: any): Message[] => {
+    const msg = evt.data || evt;
+    const role = msg.role || "assistant";
+    const content = extractContent(msg.content);
+    const timestamp = msg.timestamp;
+    const result: Message[] = [];
+
+    if (role === "user") {
+      result.push({ role: "user", content, timestamp });
+    } else if (role === "assistant" && msg.tool_calls) {
+      if (content.trim()) {
+        result.push({ role: "assistant", content, timestamp });
+      }
+      for (const tc of msg.tool_calls) {
+        const func = tc.function || {};
+        let toolArgs: Record<string, unknown> = {};
+        try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
+        result.push({ role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp });
+      }
+    } else if (role === "tool") {
+      const tcId = msg.tool_call_id;
+      const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
+      if (tcId) {
+        result.push({ role: denied ? "tool_denied" : "tool_result", content, toolCallId: tcId, timestamp });
+      } else {
+        result.push({ role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
+      }
+    } else {
+      result.push({ role: "assistant", content, timestamp });
+    }
+    return result;
+  }, []);
+
   const connectSSE = useCallback((chatId: string, fromIndex: number) => {
     if (esRef.current) esRef.current.close();
     setCompleted(false);
@@ -122,34 +155,15 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     const handleMessage = (raw: string) => {
       try {
         const evt = JSON.parse(raw);
-        const msg = evt.data || evt;
-        const role = msg.role || "assistant";
-        const content = extractContent(msg.content);
-        const timestamp = msg.timestamp;
         idxRef.current = (evt.index ?? idxRef.current) + 1;
 
-        if (role === "user") {
-          addMessage({ role: "user", content, timestamp });
-        } else if (role === "assistant" && msg.tool_calls) {
-          if (content.trim()) {
-            addMessage({ role: "assistant", content, timestamp });
-          }
-          for (const tc of msg.tool_calls) {
-            const func = tc.function || {};
-            let toolArgs: Record<string, unknown> = {};
-            try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-            addMessage({ role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp });
-          }
-        } else if (role === "tool") {
-          const tcId = msg.tool_call_id;
-          const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
-          if (tcId) {
-            updateToolMessage(tcId, { role: denied ? "tool_denied" : "tool_result", content });
+        const parsed = parseRawMessage(evt);
+        for (const m of parsed) {
+          if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
+            updateToolMessage(m.toolCallId, { role: m.role, content: m.content });
           } else {
-            addMessage({ role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
+            addMessage(m);
           }
-        } else {
-          addMessage({ role: "assistant", content, timestamp });
         }
       } catch {}
     };
@@ -165,20 +179,65 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       onCompleteRef.current?.();
     });
     es.addEventListener("error", () => {});
-  }, [addMessage, updateToolMessage, mutate]);
+  }, [addMessage, updateToolMessage, parseRawMessage, mutate]);
 
   useEffect(() => {
     if (!chatId) return;
     setMessages([]);
+    setCompleted(false);
     idxRef.current = 0;
-    connectSSE(chatId, 0);
+
+    let cancelled = false;
+
+    authFetch(`${API}/api/chat/messages/snapshot?chat_id=${encodeURIComponent(chatId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+
+        // Parse all messages at once
+        const allMessages: Message[] = [];
+        for (const evt of data.messages) {
+          const parsed = parseRawMessage(evt);
+          for (const m of parsed) {
+            if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
+              const pendingIdx = allMessages.findIndex(
+                (x) => x.toolCallId === m.toolCallId && x.role === "tool_pending"
+              );
+              if (pendingIdx !== -1) {
+                allMessages[pendingIdx] = { ...allMessages[pendingIdx], role: m.role, content: m.content };
+                continue;
+              }
+            }
+            allMessages.push(m);
+          }
+        }
+
+        setMessages(allMessages);
+        idxRef.current = data.messages.length;
+
+        if (data.interrupted) {
+          setCompleted(true);
+        } else if (data.running) {
+          connectSSE(chatId, idxRef.current);
+        } else if (data.messages.length > 0) {
+          setCompleted(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          connectSSE(chatId, 0);
+        }
+      });
+
     return () => {
+      cancelled = true;
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
       }
     };
-  }, [chatId, connectSSE]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   const stopChat = useCallback(async () => {
     if (!chatId) return;
