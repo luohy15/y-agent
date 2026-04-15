@@ -113,12 +113,19 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     link_ids = list_link_relations(user_id, trace_id)
     links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
 
+    # Fetch associated notes
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.note import get_notes_by_ids
+    note_ids = list_note_relations(user_id, trace_id)
+    notes = [n.to_dict() for n in get_notes_by_ids(user_id, note_ids)] if note_ids else []
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
         "todo_status": todo.status if todo else None,
         "todo": todo_info,
         "links": links,
+        "notes": notes,
     }
 
 
@@ -205,10 +212,17 @@ async def get_share(share_id: str = Query(...)):
     link_ids = list_link_relations(user_id, trace_id)
     links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
 
+    # Fetch associated notes
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.note import get_notes_by_ids
+    note_ids = list_note_relations(user_id, trace_id)
+    notes = [n.to_dict() for n in get_notes_by_ids(user_id, note_ids)] if note_ids else []
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
         "todo_status": todo.status if todo else None,
         "todo": todo_info,
         "links": links,
+        "notes": notes,
     }

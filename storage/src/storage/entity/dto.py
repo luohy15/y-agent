@@ -7,6 +7,7 @@ from storage.dto import (  # noqa: F401
     TodoHistoryEntry, Todo,
     CalendarEvent,
     Link, LinkActivity, LinkSummary,
+    Note,
     Email,
     TgTopic,
 )

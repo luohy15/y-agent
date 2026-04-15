@@ -4,6 +4,14 @@ import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
 import TodoContextMenu from "./TodoContextMenu";
 
+interface TodoNote {
+  note_id: string;
+  content: string;
+  front_matter?: { tags?: string[]; [key: string]: unknown };
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface Todo {
   todo_id: string;
   name: string;
@@ -19,6 +27,7 @@ interface Todo {
   created_at_unix?: number;
   updated_at_unix?: number;
   history?: { timestamp: string; unix_timestamp: number; action: string; note?: string }[];
+  notes?: TodoNote[];
 }
 
 const fetcher = async (url: string) => {
@@ -130,6 +139,8 @@ async function togglePin(todoId: string, pinned: boolean): Promise<boolean> {
 }
 
 function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onSaved: () => void }) {
+  const { data: detail } = useSWR<Todo>(`${API}/api/todo/detail?todo_id=${t.todo_id}`, fetcher);
+  const notes = detail?.notes || t.notes || [];
   const [name, setName] = useState(t.name);
   const [desc, setDesc] = useState(t.desc || "");
   const [dueDate, setDueDate] = useState(t.due_date || "");
@@ -212,6 +223,23 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
           <button onClick={handleSave} disabled={saving} className="px-3 py-1 rounded text-xs bg-sol-blue text-sol-base03 hover:opacity-90 cursor-pointer disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
           </button>
+        </div>
+      )}
+
+      {notes.length > 0 && (
+        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-1 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
+          <span className="text-xs text-sol-base01 font-medium">Notes</span>
+          {notes.map((n) => (
+            <div key={n.note_id} className="text-xs bg-sol-base03 rounded px-2 py-1 border border-sol-base01/10">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sol-base01">#{n.note_id}</span>
+                {n.front_matter?.tags?.map((tag) => (
+                  <span key={tag} className="bg-sol-base02 text-sol-base0 px-1 rounded">{tag}</span>
+                ))}
+              </div>
+              <p className="text-sol-base1 whitespace-pre-wrap mt-0.5">{n.content}</p>
+            </div>
+          ))}
         </div>
       )}
 
