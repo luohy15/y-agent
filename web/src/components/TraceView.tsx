@@ -51,7 +51,7 @@ interface TraceLink {
 
 interface TraceNote {
   note_id: string;
-  content: string;
+  content_key: string;
   front_matter?: { tags?: string[]; [key: string]: unknown };
   created_at?: string;
 }
@@ -347,7 +347,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, o
                             <span key={tag} className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded">{tag}</span>
                           ))}
                         </div>
-                        <p className="text-[0.7rem] text-sol-base1 whitespace-pre-wrap mt-0.5">{note.content}</p>
+                        <p className="text-[0.7rem] text-sol-base1 whitespace-pre-wrap mt-0.5">{note.content_key}</p>
                       </div>
                     ))}
                   </div>
