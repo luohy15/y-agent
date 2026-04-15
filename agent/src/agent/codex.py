@@ -23,7 +23,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _start_interrupt_watchdog, _stop_interrupt_watchdog
 
 _SHELL_WRAPPER_RE = re.compile(
     r'^(/\S+/(?:bash|zsh|sh|fish|dash))\s+-\w*c\s+(.+)$',
@@ -427,65 +427,92 @@ async def tail_codex_output(
 
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
+        def _kill_detached():
+            logger.info("interrupt watchdog (codex detached): killing tmux session cc-{}", chat_id)
+            try:
+                client.exec_command(
+                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                )
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+            except Exception:
+                pass
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
+        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_detached)
+
         def _read_lines():
             nonlocal result_data, last_error_data, current_offset
-            for raw_line in stdout_ch:
-                line = raw_line.strip()
-                if not line:
-                    continue
+            try:
+                for raw_line in stdout_ch:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
 
-                current_offset += 1
+                    current_offset += 1
 
+                    if check_interrupted_fn and check_interrupted_fn():
+                        try:
+                            client.exec_command(
+                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                            )
+                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                        except Exception:
+                            pass
+                        stdout_ch.channel.close()
+                        return "interrupted"
+
+                    if check_deadline_fn and check_deadline_fn():
+                        try:
+                            client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                        except Exception:
+                            pass
+                        stdout_ch.channel.close()
+                        return "deadline"
+
+                    obj = parse_stream_line(line)
+                    if not obj:
+                        continue
+
+                    evt = obj.get("type")
+
+                    # Track turn.completed for usage (last one wins)
+                    if evt == "turn.completed":
+                        result_data = obj
+                        # Still process through converter for token tracking
+                        converter.process_line(line)
+                        continue
+
+                    # Track errors
+                    if evt == "turn.failed":
+                        last_error_data = {"is_error": True, "result": obj.get("error", {}).get("message")}
+                        converter.process_line(line)
+                        continue
+                    if evt == "error":
+                        last_error_data = {"is_error": True, "result": obj.get("message")}
+                        converter.process_line(line)
+                        continue
+
+                    if message_callback:
+                        for msg in converter.process_line(line):
+                            message_callback(msg)
+            except (OSError, EOFError, Exception) as e:
                 if check_interrupted_fn and check_interrupted_fn():
-                    try:
-                        client.exec_command(
-                            f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                        )
-                        client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
-                    except Exception:
-                        pass
-                    stdout_ch.channel.close()
                     return "interrupted"
+                if not isinstance(e, (OSError, EOFError)):
+                    raise
 
-                if check_deadline_fn and check_deadline_fn():
-                    try:
-                        client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
-                    except Exception:
-                        pass
-                    stdout_ch.channel.close()
-                    return "deadline"
-
-                obj = parse_stream_line(line)
-                if not obj:
-                    continue
-
-                evt = obj.get("type")
-
-                # Track turn.completed for usage (last one wins)
-                if evt == "turn.completed":
-                    result_data = obj
-                    # Still process through converter for token tracking
-                    converter.process_line(line)
-                    continue
-
-                # Track errors
-                if evt == "turn.failed":
-                    last_error_data = {"is_error": True, "result": obj.get("error", {}).get("message")}
-                    converter.process_line(line)
-                    continue
-                if evt == "error":
-                    last_error_data = {"is_error": True, "result": obj.get("message")}
-                    converter.process_line(line)
-                    continue
-
-                if message_callback:
-                    for msg in converter.process_line(line):
-                        message_callback(msg)
+            if check_interrupted_fn and check_interrupted_fn():
+                return "interrupted"
 
             return None
 
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
+
+        _stop_interrupt_watchdog(wd_event, wd_thread)
 
         if owns_client:
             client.close()
