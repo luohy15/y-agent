@@ -4,8 +4,10 @@ import os
 from contextlib import contextmanager
 from typing import Optional
 
+from dotenv import load_dotenv
 from storage.global_config import load_global_config
 
+load_dotenv()
 load_global_config()
 
 from sqlalchemy import create_engine
