@@ -238,6 +238,14 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     }
   }, [followUp, sending, chatId, vmName, botName, chatWorkDir, connectSSE]);
 
+  const handleOpenFile = useCallback((path: string) => {
+    if (chatWorkDir && !path.startsWith("/")) {
+      onOpenFile?.(`${chatWorkDir}/${path}`);
+    } else {
+      onOpenFile?.(path);
+    }
+  }, [chatWorkDir, onOpenFile]);
+
   const createChat = useCallback(async () => {
     const text = newPrompt.trim();
     if (!text || sending || !onChatCreated) return;
@@ -354,14 +362,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       {showProgress ? "progress ●" : "progress ○"}
     </button>
   );
-
-  const handleOpenFile = useCallback((path: string) => {
-    if (chatWorkDir && !path.startsWith("/")) {
-      onOpenFile?.(`${chatWorkDir}/${path}`);
-    } else {
-      onOpenFile?.(path);
-    }
-  }, [chatWorkDir, onOpenFile]);
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
