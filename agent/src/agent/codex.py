@@ -23,7 +23,8 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _start_interrupt_watchdog, _stop_interrupt_watchdog
+from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.poll_loop import PollLoop
 
 _SHELL_WRAPPER_RE = re.compile(
     r'^(/\S+/(?:bash|zsh|sh|fish|dash))\s+-\w*c\s+(.+)$',
@@ -441,7 +442,11 @@ async def tail_codex_output(
             except Exception:
                 pass
 
-        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_detached)
+        poll = PollLoop(
+            check_interrupted_fn=check_interrupted_fn,
+            on_interrupt=_kill_detached,
+        )
+        poll.start()
 
         def _read_lines():
             nonlocal result_data, last_error_data, current_offset
@@ -512,7 +517,7 @@ async def tail_codex_output(
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
 
-        _stop_interrupt_watchdog(wd_event, wd_thread)
+        poll.stop()
 
         if owns_client:
             client.close()
