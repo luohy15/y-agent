@@ -5,7 +5,7 @@ import click
 
 from yagent.api_client import api_request
 
-BASE_DIR = os.path.expanduser("~/luohy15")
+BASE_DIR = "/Users/roy/luohy15"
 
 
 def _parse_front_matter(filepath):
