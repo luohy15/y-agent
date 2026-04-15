@@ -390,6 +390,51 @@ def _write_stream_json_input(stdin, text: str):
 
 
 # ---------------------------------------------------------------------------
+# Interrupt watchdog helpers
+# ---------------------------------------------------------------------------
+
+def _start_interrupt_watchdog(
+    check_interrupted_fn: Optional[Callable[[], bool]],
+    on_interrupt: Callable[[], None],
+) -> Tuple[Optional[threading.Event], Optional[threading.Thread]]:
+    """Start a daemon thread that polls check_interrupted_fn every 2s.
+
+    When interrupted, calls on_interrupt() (which should kill the remote
+    process and close the channel) and exits.
+
+    Returns (interrupt_event, thread) — both None if check_interrupted_fn is None.
+    """
+    if not check_interrupted_fn:
+        return None, None
+
+    event = threading.Event()
+
+    def _watchdog():
+        while not event.is_set():
+            event.wait(2)
+            if event.is_set():
+                break
+            if check_interrupted_fn():
+                on_interrupt()
+                break
+
+    thread = threading.Thread(target=_watchdog, daemon=True)
+    thread.start()
+    return event, thread
+
+
+def _stop_interrupt_watchdog(
+    event: Optional[threading.Event],
+    thread: Optional[threading.Thread],
+) -> None:
+    """Signal the watchdog to stop and wait for it to finish."""
+    if event:
+        event.set()
+    if thread:
+        thread.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
@@ -495,52 +540,80 @@ async def _run_claude_ssh(
 
         channel = stdout.channel
 
+        def _kill_inline():
+            logger.info("interrupt watchdog: killing remote pid={}", remote_pid)
+            if remote_pid is not None:
+                try:
+                    client.exec_command(f"kill -9 -{remote_pid} 2>/dev/null; kill -9 {remote_pid} 2>/dev/null")
+                except Exception:
+                    pass
+            try:
+                channel.close()
+            except Exception:
+                pass
+
+        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_inline)
+
         # Stream stdout line by line in a thread to avoid blocking the event loop
         def _read_lines():
             nonlocal result_data, session_id, remote_pid
-            for raw_line in stdout:
-                line = raw_line.strip()
-                if not line:
-                    continue
-
-                # First line is the PID we echoed
-                if remote_pid is None:
-                    try:
-                        remote_pid = int(line)
+            try:
+                for raw_line in stdout:
+                    line = raw_line.strip()
+                    if not line:
                         continue
-                    except ValueError:
-                        pass
 
-                if check_interrupted_fn and check_interrupted_fn():
-                    logger.info("ssh claude-code interrupted, killing remote pid={}", remote_pid)
-                    # Kill the remote process tree before closing
-                    if remote_pid is not None:
+                    # First line is the PID we echoed
+                    if remote_pid is None:
                         try:
-                            client.exec_command(f"kill -9 -{remote_pid} 2>/dev/null; kill -9 {remote_pid} 2>/dev/null")
-                        except Exception:
+                            remote_pid = int(line)
+                            continue
+                        except ValueError:
                             pass
-                    channel.close()
+
+                    if check_interrupted_fn and check_interrupted_fn():
+                        logger.info("ssh claude-code interrupted, killing remote pid={}", remote_pid)
+                        if remote_pid is not None:
+                            try:
+                                client.exec_command(f"kill -9 -{remote_pid} 2>/dev/null; kill -9 {remote_pid} 2>/dev/null")
+                            except Exception:
+                                pass
+                        channel.close()
+                        return "interrupted"
+
+                    obj = parse_stream_line(line)
+                    if not obj:
+                        continue
+
+                    if obj.get("type") == "system":
+                        session_id = obj.get("session_id")
+                        continue
+                    if obj.get("type") == "result":
+                        result_data = obj
+                        continue
+
+                    if message_callback:
+                        for msg in converter.process_line(line):
+                            message_callback(msg)
+            except (OSError, EOFError, Exception) as e:
+                # Channel may be closed by interrupt watchdog — check if interrupted
+                if check_interrupted_fn and check_interrupted_fn():
                     return "interrupted"
+                # If not interrupted, only suppress expected SSH channel close errors
+                if not isinstance(e, (OSError, EOFError)):
+                    raise
 
-                obj = parse_stream_line(line)
-                if not obj:
-                    continue
+            # Final check: watchdog may have killed the process
+            if check_interrupted_fn and check_interrupted_fn():
+                return "interrupted"
 
-                if obj.get("type") == "system":
-                    session_id = obj.get("session_id")
-                    continue
-                if obj.get("type") == "result":
-                    result_data = obj
-                    continue
-
-                if message_callback:
-                    for msg in converter.process_line(line):
-                        message_callback(msg)
             done_event.set()
             return None
 
         loop = asyncio.get_event_loop()
         interrupted = await loop.run_in_executor(None, _read_lines)
+
+        _stop_interrupt_watchdog(wd_event, wd_thread)
 
         if steer_thread:
             steer_thread.join(timeout=5)
@@ -760,54 +833,81 @@ async def tail_ssh_output(
 
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
+        def _kill_detached():
+            logger.info("interrupt watchdog (detached): killing tmux session cc-{}", chat_id)
+            try:
+                client.exec_command(
+                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                )
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+            except Exception:
+                pass
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
+        wd_event, wd_thread = _start_interrupt_watchdog(check_interrupted_fn, _kill_detached)
+
         def _read_lines():
             nonlocal result_data, session_id, current_offset
-            for raw_line in stdout_ch:
-                line = raw_line.strip()
-                if not line:
-                    continue
+            try:
+                for raw_line in stdout_ch:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
 
-                current_offset += 1
+                    current_offset += 1
 
+                    if check_interrupted_fn and check_interrupted_fn():
+                        try:
+                            client.exec_command(
+                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                            )
+                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                        except Exception:
+                            pass
+                        stdout_ch.channel.close()
+                        return "interrupted"
+
+                    if check_deadline_fn and check_deadline_fn():
+                        # Kill remote tail process tree before closing channel
+                        try:
+                            client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                        except Exception:
+                            pass
+                        stdout_ch.channel.close()
+                        return "deadline"
+
+                    obj = parse_stream_line(line)
+                    if not obj:
+                        continue
+
+                    if obj.get("type") == "system":
+                        session_id = obj.get("session_id")
+                        continue
+                    if obj.get("type") == "result":
+                        result_data = obj
+                        continue
+
+                    if message_callback:
+                        for msg in converter.process_line(line):
+                            message_callback(msg)
+            except (OSError, EOFError, Exception) as e:
                 if check_interrupted_fn and check_interrupted_fn():
-                    try:
-                        client.exec_command(
-                            f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                        )
-                        client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
-                    except Exception:
-                        pass
-                    stdout_ch.channel.close()
                     return "interrupted"
+                if not isinstance(e, (OSError, EOFError)):
+                    raise
 
-                if check_deadline_fn and check_deadline_fn():
-                    # Kill remote tail process tree before closing channel
-                    try:
-                        client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
-                    except Exception:
-                        pass
-                    stdout_ch.channel.close()
-                    return "deadline"
-
-                obj = parse_stream_line(line)
-                if not obj:
-                    continue
-
-                if obj.get("type") == "system":
-                    session_id = obj.get("session_id")
-                    continue
-                if obj.get("type") == "result":
-                    result_data = obj
-                    continue
-
-                if message_callback:
-                    for msg in converter.process_line(line):
-                        message_callback(msg)
+            if check_interrupted_fn and check_interrupted_fn():
+                return "interrupted"
 
             return None
 
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
+
+        _stop_interrupt_watchdog(wd_event, wd_thread)
 
         if owns_client:
             client.close()
