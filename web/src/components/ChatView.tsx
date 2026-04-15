@@ -297,6 +297,28 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     }
   }, [followUp, sending, chatId, vmName, botName, chatWorkDir, connectSSE]);
 
+  const sendSteer = useCallback(async () => {
+    const text = followUp.trim();
+    if (!text || sending || !chatId) return;
+    setSending(true);
+    try {
+      await authFetch(`${API}/api/chat/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          prompt: text,
+          ...(vmName ? { vm_name: vmName } : {}),
+          ...(botName ? { bot_name: botName } : {}),
+          ...(chatWorkDir ? { work_dir: chatWorkDir } : {}),
+        }),
+      });
+      setFollowUp("");
+    } finally {
+      setSending(false);
+    }
+  }, [followUp, sending, chatId, vmName, botName, chatWorkDir]);
+
   const handleOpenFile = useCallback((path: string) => {
     if (chatWorkDir && !path.startsWith("/")) {
       onOpenFile?.(`${chatWorkDir}/${path}`);
@@ -446,22 +468,21 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
-      {completed ? (
-        <ChatInput
-          ref={inputRef}
-          value={followUp}
-          onChange={setFollowUp}
-          onSubmit={sendFollowUp}
-          onClear={onClear}
-          sending={sending}
-          autoFocus
-          extraButtons={<>
-            {processDetailButtons}
-            {contextBadge}
-            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-          </>}
-        />
-      ) : null}
+      <ChatInput
+        ref={inputRef}
+        value={followUp}
+        onChange={setFollowUp}
+        onSubmit={completed ? sendFollowUp : sendSteer}
+        onClear={onClear}
+        sending={sending}
+        autoFocus
+        placeholder={completed ? undefined : "Steer the agent..."}
+        extraButtons={completed ? <>
+          {processDetailButtons}
+          {contextBadge}
+          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+        </> : null}
+      />
     </div>
   );
 }

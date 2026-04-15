@@ -18,6 +18,7 @@ import base64
 import json
 import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
@@ -371,6 +372,24 @@ class StreamConverter:
 
 
 # ---------------------------------------------------------------------------
+# Stream-json stdin writer
+# ---------------------------------------------------------------------------
+
+def _write_stream_json_input(stdin, text: str):
+    """Write a user message to stdin in stream-json format."""
+    payload = {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": text}],
+        },
+    }
+    data = json.dumps(payload) + "\n"
+    stdin.write(data.encode("utf-8"))
+    stdin.flush()
+
+
+# ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
@@ -402,6 +421,7 @@ async def _run_claude_ssh(
     check_interrupted_fn: Optional[Callable[[], bool]],
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str]]]] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p on a remote host via SSH (paramiko) with real-time stdout streaming."""
     import io
@@ -412,7 +432,7 @@ async def _run_claude_ssh(
     # Load private key from string
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
-    full_cmd = cmd + [prompt]
+    full_cmd = cmd + ["--input-format", "stream-json"]
 
     # Build shell command string – wrap with exec so the shell PID *is* the
     # claude process PID, and echo the PID on the first line so we can kill
@@ -438,8 +458,40 @@ async def _run_claude_ssh(
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(host, port=port, username=user, pkey=key)
 
-        stdin, stdout, stderr = client.exec_command(shell_cmd)
-        stdin.close()
+        stdin_ch, stdout, stderr = client.exec_command(shell_cmd)
+
+        # Write initial prompt via stream-json stdin
+        _write_stream_json_input(stdin_ch, prompt)
+
+        # Set up steer polling thread
+        done_event = threading.Event()
+        steer_thread = None
+
+        def _steer_loop():
+            """Poll for steer messages and write them to stdin."""
+            while not done_event.is_set():
+                done_event.wait(2)
+                if done_event.is_set():
+                    break
+                if check_steer_fn:
+                    try:
+                        steer_msgs = check_steer_fn()
+                        for msg_text, msg_id in steer_msgs:
+                            _write_stream_json_input(stdin_ch, msg_text)
+                            converter.last_message_id = msg_id
+                    except Exception as e:
+                        logger.warning("steer write failed: {}", e)
+                        break
+            try:
+                stdin_ch.close()
+            except Exception:
+                pass
+
+        if check_steer_fn:
+            steer_thread = threading.Thread(target=_steer_loop, daemon=True)
+            steer_thread.start()
+        else:
+            stdin_ch.close()
 
         channel = stdout.channel
 
@@ -484,12 +536,19 @@ async def _run_claude_ssh(
                 if message_callback:
                     for msg in converter.process_line(line):
                         message_callback(msg)
+            done_event.set()
             return None
 
         loop = asyncio.get_event_loop()
         interrupted = await loop.run_in_executor(None, _read_lines)
 
+        if steer_thread:
+            steer_thread.join(timeout=5)
+
         if interrupted == "interrupted":
+            done_event.set()
+            if steer_thread:
+                steer_thread.join(timeout=5)
             client.close()
             return ClaudeCodeResult(status="interrupted", session_id=session_id)
 
@@ -892,6 +951,7 @@ async def run_claude_code(
     chat_id: Optional[str] = None,
     trace_id: Optional[str] = None,
     skill: Optional[str] = None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str]]]] = None,
 ) -> ClaudeCodeResult:
     """Run claude -p with optional session resume.
 
@@ -959,4 +1019,5 @@ async def run_claude_code(
         check_interrupted_fn=check_interrupted_fn,
         vm_config=vm_config,
         env=env,
+        check_steer_fn=check_steer_fn,
     )
