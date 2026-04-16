@@ -70,34 +70,15 @@ def lambda_handler(event, context):
             deadline_at = time.monotonic() + (remaining_ms - CONTINUATION_THRESHOLD_MS) / 1000
         lambda_req_id = context.aws_request_id if context and hasattr(context, "aws_request_id") else "local"
 
-        # === Phase 1: Process SQS records concurrently ===
-        tasks = []
-        for record in records:
-            body = json.loads(record["body"])
-            tasks.append(_process_record(body))
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Collect failures and check for detached processes
-        failures = []
-        has_detached = False
-        for record, result in zip(records, results):
-            if isinstance(result, Exception):
-                message_id = record["messageId"]
-                print(f"[worker] Record {message_id} failed in phase 1: {result}")
-                failures.append({"itemIdentifier": message_id})
-            elif result in ("continuation", "detached"):
-                has_detached = True
+        # === Phase 1: Process the single SQS record (BatchSize=1) ===
+        body = json.loads(records[0]["body"])
+        result = await _process_record(body)
 
         # === Phase 2: Event loop (only when there are detached processes) ===
-        if not has_detached and not get_running_processes():
-            if failures:
-                return {"batchItemFailures": failures}
-            return {"status": "ok", "processed": len(records)}
+        if result not in ("continuation", "detached") and not get_running_processes():
+            return {"status": "ok"}
 
         await _monitor_loop(deadline_at, lambda_req_id)
-
-        if failures:
-            return {"batchItemFailures": failures}
         return {"status": "ok"}
 
     result = asyncio.run(main())
