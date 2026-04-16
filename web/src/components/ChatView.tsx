@@ -40,6 +40,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [showSteerInput, setShowSteerInput] = useState(false);
+  useEffect(() => { if (completed) setShowSteerInput(false); }, [completed]);
 
   // Track scroll position to show/hide scroll-to-bottom button
   useEffect(() => {
@@ -314,6 +316,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         }),
       });
       setFollowUp("");
+      setShowSteerInput(false);
     } finally {
       setSending(false);
     }
@@ -465,24 +468,27 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
           {contextBadge}
+          <button onClick={() => setShowSteerInput(true)} className="px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30">Steer</button>
           <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
-      <ChatInput
-        ref={inputRef}
-        value={followUp}
-        onChange={setFollowUp}
-        onSubmit={completed ? sendFollowUp : sendSteer}
-        onClear={onClear}
-        sending={sending}
-        autoFocus
-        placeholder={completed ? undefined : "Steer the agent..."}
-        extraButtons={completed ? <>
-          {processDetailButtons}
-          {contextBadge}
-          <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
-        </> : null}
-      />
+      {(completed || showSteerInput) && (
+        <ChatInput
+          ref={inputRef}
+          value={followUp}
+          onChange={setFollowUp}
+          onSubmit={completed ? sendFollowUp : sendSteer}
+          onClear={onClear}
+          sending={sending}
+          autoFocus
+          placeholder={completed ? undefined : "Steer the agent..."}
+          extraButtons={completed ? <>
+            {processDetailButtons}
+            {contextBadge}
+            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+          </> : null}
+        />
+      )}
     </div>
   );
 }
