@@ -314,6 +314,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
             env["Y_TRACE_ID"] = trace_id
         if topic:
             env["Y_SKILL"] = topic
+            env["Y_TOPIC"] = topic
         if last_message_id:
             env["Y_MESSAGE_ID"] = last_message_id
 
