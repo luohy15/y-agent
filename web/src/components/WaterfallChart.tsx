@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import { getSkillChartColors } from "./badges";
+import { getTopicChartColors } from "./badges";
 
 export interface Segment {
   start_unix: number;
@@ -9,14 +9,14 @@ export interface Segment {
 export interface TraceChat {
   chat_id: string;
   title: string;
-  skill: string;
+  topic: string;
   backend?: string;
   segments: Segment[];
   messages?: unknown[];
 }
 
-export function getSkillColors(skill: string) {
-  return getSkillChartColors(skill);
+export function getTopicColors(topic: string) {
+  return getTopicChartColors(topic);
 }
 
 // Format time for axis labels
@@ -61,14 +61,14 @@ function generateTicks(minTs: number, maxTs: number): number[] {
 export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSkill?: (chatId: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  // Group chats by skill+backend, preserving order of first appearance
-  const skillGroups = useMemo(() => {
+  // Group chats by topic+backend, preserving order of first appearance
+  const topicGroups = useMemo(() => {
     const groups: Record<string, TraceChat[]> = {};
     const order: string[] = [];
     for (const c of chats) {
-      const skill = c.skill || "unknown";
+      const topic = c.topic || "unknown";
       const backend = c.backend || "";
-      const key = backend ? `${skill}:${backend}` : skill;
+      const key = backend ? `${topic}:${backend}` : topic;
       if (!groups[key]) {
         groups[key] = [];
         order.push(key);
@@ -96,7 +96,7 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
   const range = maxTs - minTs || 1;
   const multiDay = useMemo(() => spansMultipleDays(minTs, maxTs), [minTs, maxTs]);
 
-  const LABEL_W = 96; // px for skill label column
+  const LABEL_W = 96; // px for topic label column
 
   return (
     <div className="mt-2 relative">
@@ -140,12 +140,12 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
 
       {/* Skill rows */}
       <div className="flex">
-        {/* Skill labels column */}
+        {/* Topic labels column */}
         <div style={{ width: LABEL_W }} className="shrink-0">
-          {skillGroups.order.map((key) => {
-            const [skill, backend] = key.includes(":") ? [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)] : [key, ""];
-            const colors = getSkillColors(skill);
-            const firstChat = skillGroups.groups[key][0];
+          {topicGroups.order.map((key) => {
+            const [topic, backend] = key.includes(":") ? [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)] : [key, ""];
+            const colors = getTopicColors(topic);
+            const firstChat = topicGroups.groups[key][0];
             return (
               <div
                 key={key}
@@ -153,7 +153,7 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
                 onClick={() => firstChat && onClickSkill?.(firstChat.chat_id)}
               >
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-                <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{skill}</span>
+                <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{topic}</span>
                 {backend && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{backend}</span>}
               </div>
             );
@@ -165,11 +165,11 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
           ref={timelineRef}
           className="flex-1 relative"
         >
-          {/* Skill row bars */}
-          {skillGroups.order.map((key) => {
-            const skill = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
-            const colors = getSkillColors(skill);
-            const skillChats = skillGroups.groups[key];
+          {/* Topic row bars */}
+          {topicGroups.order.map((key) => {
+            const topic = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+            const colors = getTopicColors(topic);
+            const topicChats = topicGroups.groups[key];
             return (
               <div key={key} className="relative h-[1.75rem]">
                 {/* Grid lines */}
@@ -184,7 +184,7 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
                   );
                 })}
                 {/* Chat segment bars */}
-                {skillChats.flatMap((c) =>
+                {topicChats.flatMap((c) =>
                   c.segments.map((seg, i) => {
                     const left = ((seg.start_unix - minTs) / range) * 100;
                     const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);

@@ -4,7 +4,7 @@ import { API } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import { skillBadgeClass, getSkillColor, stripTracePrefix, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
+import { topicBadgeClass, getTopicColor, stripTracePrefix, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
 
 interface TodoHistoryEntry {
   timestamp: string;
@@ -175,7 +175,7 @@ export default function ShareTraceView() {
         {data.chats.length > 1 && (
           <div className="hidden lg:flex flex-col shrink-0 w-48 border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
             {data.chats.map((c) => {
-              const skillColor = getSkillColor(c.skill);
+              const topicColor = getTopicColor(c.topic);
               const isSelected = c.chat_id === selectedChatId;
               const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "") || c.chat_id.slice(0, 8);
               return (
@@ -184,11 +184,11 @@ export default function ShareTraceView() {
                   onClick={() => setSelectedChatId(c.chat_id)}
                   className={`text-left text-[0.65rem] px-2 py-1 cursor-pointer truncate ${
                     isSelected
-                      ? `${skillColor.bg} ${skillColor.text}`
+                      ? `${topicColor.bg} ${topicColor.text}`
                       : "text-sol-base01 hover:text-sol-base0 hover:bg-sol-base02"
                   }`}
                 >
-                  <span className="font-medium">{c.skill || "chat"}</span>
+                  <span className="font-medium">{c.topic || "chat"}</span>
                   <span className="ml-1 opacity-70">{displayTitle}</span>
                 </button>
               );
@@ -211,8 +211,8 @@ export default function ShareTraceView() {
               )}
               {data.chats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
-                  {[...new Set(data.chats.map((c) => c.skill).filter(Boolean))].map((s) => (
-                    <span key={s} className={`text-[0.6rem] ${skillBadgeClass(s)}`}>
+                  {[...new Set(data.chats.map((c) => c.topic).filter(Boolean))].map((s) => (
+                    <span key={s} className={`text-[0.6rem] ${topicBadgeClass(s)}`}>
                       {s}
                     </span>
                   ))}

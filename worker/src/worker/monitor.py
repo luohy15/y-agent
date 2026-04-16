@@ -275,12 +275,12 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             await chat_repo.save_chat_by_id(fresh)
 
-            # Auto-restart DM session if context usage exceeds 50% or turns exceed 50
-            skill = proc.get("skill")
-            if skill == 'DM' and not fresh.interrupted and result["status"] != "error":
+            # Auto-restart manager session if context usage exceeds 50% or turns exceed 50
+            topic = proc.get("topic")
+            if topic == 'manager' and not fresh.interrupted and result["status"] != "error":
                 num_turns = sum(1 for m in fresh.messages if m.role == "user") if fresh.messages else 0
-                from worker.runner import _maybe_restart_dm_session
-                await _maybe_restart_dm_session(user_id, fresh.input_tokens or 0, fresh.context_window or 0, num_turns)
+                from worker.runner import _maybe_restart_manager_session
+                await _maybe_restart_manager_session(user_id, fresh.input_tokens or 0, fresh.context_window or 0, num_turns)
 
             # Mark as unread on successful completion
             if not fresh.interrupted and result["status"] != "error":

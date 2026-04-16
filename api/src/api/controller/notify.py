@@ -18,11 +18,11 @@ def _get_user_id(request: Request) -> int:
 
 
 class NotifyRequest(BaseModel):
-    skill: str
+    topic: str
     message: str
     work_dir: Optional[str] = None
     trace_id: Optional[str] = None
-    from_skill: str
+    from_topic: str
     force_new: Optional[bool] = False
     chat_id: Optional[str] = None
     from_chat_id: Optional[str] = None
@@ -38,28 +38,31 @@ class NotifyResponse(BaseModel):
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # DM does not accept notify callbacks (messages to existing chats),
-    # but --new (force_new) is allowed to create a fresh DM session
-    if req.skill == 'DM' and not req.force_new:
-        raise HTTPException(status_code=400, detail="DM does not accept notify callbacks. Use --new to start a new DM session, or send to a specific skill instead.")
+    # Derive role from topic: "manager" is special, everything else is "worker"
+    role = "manager" if req.topic == "manager" else "worker"
 
-    # Resolve target chat: explicit chat_id > skill+trace lookup > new
+    # Manager does not accept notify callbacks (messages to existing chats),
+    # but --new (force_new) is allowed to create a fresh manager session
+    if role == 'manager' and not req.force_new:
+        raise HTTPException(status_code=400, detail="Manager does not accept notify callbacks. Use --new to start a new manager session, or send to a specific topic instead.")
+
+    # Resolve target chat: explicit chat_id > topic+trace lookup > new
     existing_chat = None
     if req.chat_id:
         existing_chat = await chat_service.get_chat_by_id(req.chat_id)
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
-        if existing_chat.skill and existing_chat.skill != req.skill:
+        if existing_chat.topic and existing_chat.topic != req.topic:
             raise HTTPException(
                 status_code=400,
-                detail=f"skill mismatch: chat '{req.chat_id}' belongs to skill '{existing_chat.skill}', got '{req.skill}'. Use --new to create a new chat, or omit --chat-id to let the system find the right one."
+                detail=f"topic mismatch: chat '{req.chat_id}' belongs to topic '{existing_chat.topic}', got '{req.topic}'. Use --new to create a new chat, or omit --chat-id to let the system find the right one."
             )
         chat_id = req.chat_id
     elif not req.force_new:
-        from storage.repository.chat import find_chat_by_skill_and_trace
+        from storage.repository.chat import find_chat_by_topic_and_trace
         found = None
         if req.trace_id:
-            found = find_chat_by_skill_and_trace(user_id, req.skill, req.trace_id)
+            found = find_chat_by_topic_and_trace(user_id, req.topic, req.trace_id)
         if found:
             chat_id = found.id
             existing_chat = await chat_service.get_chat_by_id(chat_id)
@@ -71,7 +74,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     # Build message content with trace metadata prefix
     from_chat_part = f' from_chat:{req.from_chat_id}' if req.from_chat_id else ''
     trace_part = f'trace:{req.trace_id} ' if req.trace_id else ''
-    msg_content = f'[{trace_part}from:{req.from_skill} to:{req.skill}{from_chat_part} to_chat:{chat_id}]\n{req.message}'
+    msg_content = f'[{trace_part}from:{req.from_topic} to:{req.topic}{from_chat_part} to_chat:{chat_id}]\n{req.message}'
     user_msg = Message.from_dict({
         "role": "user",
         "content": msg_content,
@@ -85,7 +88,7 @@ async def post_notify(req: NotifyRequest, request: Request):
     if existing_chat:
         if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
-                raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat for skill '{req.skill}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
+                raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat for topic '{req.topic}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
             if not work_dir:
                 work_dir = existing_chat.work_dir
         updated_chat = await chat_service.append_message(chat_id, user_msg)
@@ -101,6 +104,6 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_repo.save_chat(user_id, chat)
 
     # Enqueue worker
-    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, skill=req.skill, backend=req.backend)
+    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, role=role, topic=req.topic, backend=req.backend)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)

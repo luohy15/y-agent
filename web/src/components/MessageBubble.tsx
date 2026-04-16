@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
-import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -160,7 +160,7 @@ function TimestampLine({ timestamp, traceId, fromSkill, fromChatId, onSelectChat
     <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1 flex items-center">
       {formatted && <span>{formatted}</span>}
       {traceId && <span className={`ml-1.5 text-[0.6rem] ${TRACE_BADGE} ${onSelectTrace ? "hover:bg-sol-base01/30 cursor-pointer" : ""}`} onClick={() => onSelectTrace?.(traceId)}>#{traceId}</span>}
-      {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${skillBadgeClass(fromSkill)}`}>{fromSkill}</span>}
+      {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${topicBadgeClass(fromSkill)}`}>{fromSkill}</span>}
       {fromChatId && <span className={`ml-1 text-[0.6rem] ${CHAT_BADGE} hover:bg-sol-blue/30 cursor-pointer`} onClick={() => onSelectChat?.(fromChatId)}>{fromChatId}</span>}
     </div>
   );

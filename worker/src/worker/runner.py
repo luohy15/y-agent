@@ -82,7 +82,7 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
 
 
 def _resolve_telegram_target(chat, user_id: int):
-    """Determine Telegram routing target based on chat skill.
+    """Determine Telegram routing target based on chat role/topic.
 
     Returns (bot_token, tg_chat_id, topic_id) or None if no valid target.
     """
@@ -96,13 +96,13 @@ def _resolve_telegram_target(chat, user_id: int):
 
     tg_chat_id = None
     topic_id = None
-    if chat.skill and chat.skill != 'DM':
-        topic = find_topic_by_name(user_id, chat.skill)
-        if not topic or topic.topic_id is None:
-            logger.debug("telegram: no topic for skill '{}'", chat.skill)
+    if chat.role == 'worker' and chat.topic:
+        tg_topic = find_topic_by_name(user_id, chat.topic)
+        if not tg_topic or tg_topic.topic_id is None:
+            logger.debug("telegram: no tg_topic for topic '{}'", chat.topic)
             return None
-        tg_chat_id = topic.group_id
-        topic_id = topic.topic_id
+        tg_chat_id = tg_topic.group_id
+        topic_id = tg_topic.topic_id
     else:
         user = get_user_by_id(user_id)
         if not user or not user.telegram_id:
@@ -137,7 +137,7 @@ def _send_telegram_user_message(chat, user_id: int) -> None:
 
 
 def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
-    """Send assistant reply to Telegram, routing by skill."""
+    """Send assistant reply to Telegram, routing by role/topic."""
     from storage.util import send_telegram_message
 
     target = _resolve_telegram_target(chat, user_id)
@@ -153,13 +153,13 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
             break
     if reply_text:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
-        logger.info("telegram reply: sent to skill={} tg_chat_id={}", chat.skill, tg_chat_id)
+        logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
 
 
-async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_window: int, num_turns: int = 0) -> None:
-    """Auto-restart DM session when context usage exceeds 50% or turns exceed 50.
+async def _maybe_restart_manager_session(user_id: int, input_tokens: int, context_window: int, num_turns: int = 0) -> None:
+    """Auto-restart manager session when context usage exceeds 50% or turns exceed 50.
 
-    Creates a new DM chat placeholder so find_chat_by_skill returns the fresh
+    Creates a new manager chat placeholder so find_latest_chat_by_topic returns the fresh
     chat for subsequent messages, effectively starting a new Claude Code session.
     """
     usage_ratio = (input_tokens / context_window) if context_window else 0.0
@@ -167,7 +167,7 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
     turns_exceeded = num_turns > 50
 
     if not context_exceeded and not turns_exceeded:
-        logger.info("DM context usage {:.1%}, turns={}, no restart needed", usage_ratio, num_turns)
+        logger.info("Manager context usage {:.1%}, turns={}, no restart needed", usage_ratio, num_turns)
         return
 
     reason = []
@@ -176,30 +176,31 @@ async def _maybe_restart_dm_session(user_id: int, input_tokens: int, context_win
     if turns_exceeded:
         reason.append(f"turns {num_turns}")
     reason_str = " & ".join(reason)
-    logger.info("DM restart triggered: {}", reason_str)
+    logger.info("Manager restart triggered: {}", reason_str)
 
-    # Create new DM chat with initial message (mirrors y notify DM --new behavior)
+    # Create new manager chat with initial message
     new_chat_id = generate_id()
     restart_msg = Message(
         id=generate_message_id(),
         role="user",
-        content="load DM skill",
+        content="load manager skill",
         timestamp=get_utc_iso8601_timestamp(),
         unix_timestamp=get_unix_timestamp(),
     )
     await chat_service.create_chat(user_id, messages=[restart_msg], chat_id=new_chat_id)
 
-    # Mark skill on new chat
+    # Mark role/topic on new chat
     from storage.repository import chat as chat_repo
     new_chat = await chat_service.get_chat_by_id(new_chat_id)
     if new_chat:
-        new_chat.skill = 'DM'
+        new_chat.role = 'manager'
+        new_chat.topic = 'manager'
         await chat_repo.save_chat_by_id(new_chat)
 
-    logger.info("DM restart: new chat_id={}", new_chat_id)
+    logger.info("Manager restart: new chat_id={}", new_chat_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None, backend: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, backend: str = None) -> str:
     """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -220,13 +221,18 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
 
     # Persist trace context on the chat
     from storage.repository import chat as chat_repo
-    if trace_id and skill != 'DM':
+    if trace_id and role != 'manager':
         chat.trace_id = trace_id
-    if skill and not chat.skill:
-        chat.skill = skill
-    elif not skill and chat.skill:
-        skill = chat.skill
-        logger.info("Using skill from chat: {}", skill)
+    if role and not chat.role:
+        chat.role = role
+    elif not role and chat.role:
+        role = chat.role
+        logger.info("Using role from chat: {}", role)
+    if topic and not chat.topic:
+        chat.topic = topic
+    elif not topic and chat.topic:
+        topic = chat.topic
+        logger.info("Using topic from chat: {}", topic)
 
     # Reset interrupted flag and mark as running
     chat.interrupted = False
@@ -252,12 +258,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     # Always run in detached tmux mode
     await _start_detached(chat, chat_id, user_id, bot_config,
                            vm_name=vm_name, work_dir=work_dir,
-                           post_hooks=post_hooks, trace_id=trace_id, skill=skill)
+                           post_hooks=post_hooks, trace_id=trace_id, topic=topic)
     return "detached"
 
 
 
-def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
+def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
@@ -289,14 +295,14 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     if model:
         cmd.extend(["--model", model])
-    if skill and skill != "DM" and not resume:
-        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{skill}' skill."])
+    if topic and topic != "manager" and not resume:
+        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{topic}' skill."])
 
     # Build env
     env = None
     api_base_url = bot_config.base_url if bot_config.base_url else None
     api_key = bot_config.api_key if bot_config.api_key else None
-    if api_base_url or api_key or chat_id or trace_id or skill or last_message_id:
+    if api_base_url or api_key or chat_id or trace_id or topic or last_message_id:
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
@@ -306,8 +312,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
             env["Y_CHAT_ID"] = chat_id
         if trace_id:
             env["Y_TRACE_ID"] = trace_id
-        if skill:
-            env["Y_SKILL"] = skill
+        if topic:
+            env["Y_SKILL"] = topic
         if last_message_id:
             env["Y_MESSAGE_ID"] = last_message_id
 
@@ -327,7 +333,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
 
 
-def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, skill: str = None) -> dict:
+def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
@@ -382,7 +388,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
-                           skill: str = None) -> None:
+                           topic: str = None) -> None:
     """Start claude-code or codex as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -397,11 +403,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     if bot_config.api_type == "codex":
         params = _build_codex_params(chat, chat_id, user_id, bot_config,
                                       vm_name=vm_name, work_dir=work_dir,
-                                      trace_id=trace_id, skill=skill)
+                                      trace_id=trace_id, topic=topic)
     else:
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
-                                            trace_id=trace_id, skill=skill)
+                                            trace_id=trace_id, topic=topic)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)
@@ -432,7 +438,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # Register in DynamoDB for monitoring
     register_process(
         chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
-        bot_name=bot_config.name, trace_id=trace_id, skill=skill,
+        bot_name=bot_config.name, trace_id=trace_id, topic=topic,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
         backend_type=bot_config.api_type,
         initial_msg_count=len(chat.messages),

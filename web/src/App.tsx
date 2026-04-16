@@ -14,7 +14,7 @@ import TodoList from "./components/TodoList";
 import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
 import GitPanel from "./components/GitPanel";
-import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./components/badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 
 interface VmConfigItem {
   name: string;
@@ -59,7 +59,7 @@ export default function App() {
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
-  const [chatSkill, setChatSkill] = useState<string | null>(null);
+  const [chatTopic, setChatTopic] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatBackend, setChatBackend] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
@@ -402,7 +402,7 @@ export default function App() {
               {vmDropdownOpen && (
                 <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
                   <button
-                    onClick={() => { setSelectedVM(null); setSelectedChatId(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); setVmDropdownOpen(false); }}
+                    onClick={() => { setSelectedVM(null); setSelectedChatId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); setVmDropdownOpen(false); }}
                     className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
                   >
                     default
@@ -410,7 +410,7 @@ export default function App() {
                   {vmList.filter((vm) => vm.name !== "default").map((vm) => (
                     <button
                       key={vm.name}
-                      onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); setVmDropdownOpen(false); }}
+                      onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); setVmDropdownOpen(false); }}
                       className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
                     >
                       {vm.name}
@@ -595,7 +595,7 @@ export default function App() {
               </button>
               <div className="w-px h-4 bg-sol-base02 mx-0.5" />
               <button
-                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }}
+                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); }}
                 className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                 title="New chat"
               >
@@ -613,15 +613,15 @@ export default function App() {
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
-                {/* Chat header: VM, workdir, trace_id, chat_id, skill, refresh */}
+                {/* Chat header: VM, workdir, trace_id, chat_id, topic, refresh */}
                 <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
                   {chatTraceId && <button onClick={() => { setSelectedTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
                   {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
-                  {chatSkill && <span className={`text-[0.65rem] ${skillBadgeClass(chatSkill)}`}>{chatSkill}</span>}
+                  {chatTopic && <span className={`text-[0.65rem] ${topicBadgeClass(chatTopic)}`}>{chatTopic}</span>}
                   {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={(b) => { setChatBackend(b); if (b) setSelectedBot(b); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={(b) => { setChatBackend(b); if (b) setSelectedBot(b); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}

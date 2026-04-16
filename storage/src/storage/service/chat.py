@@ -14,8 +14,8 @@ from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_p
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, skill=skill, status=status, unread=unread)
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, role: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
+    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic, role=role, status=status, unread=unread)
 
 
 async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
@@ -150,7 +150,7 @@ def _get_celery_app():
     return app
 
 
-def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, skill: str = None, backend: str = None):
+def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, backend: str = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -169,8 +169,10 @@ def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, v
         payload["post_hooks"] = post_hooks
     if trace_id:
         payload["trace_id"] = trace_id
-    if skill:
-        payload["skill"] = skill
+    if role:
+        payload["role"] = role
+    if topic:
+        payload["topic"] = topic
     if backend:
         payload["backend"] = backend
 
@@ -184,7 +186,7 @@ def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, v
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "skill": skill, "backend": backend})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": topic, "backend": backend})
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:
