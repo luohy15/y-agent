@@ -101,8 +101,19 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                         timeout=10,
                     )
                     # Force-cancel any that didn't exit in time
+                    task_to_cid = {t: cid for cid, t in tail_tasks.items()}
                     for task in pending:
                         task.cancel()
+                    if pending:
+                        await asyncio.wait(pending, timeout=5)
+                    # Release leases for cancelled tasks so continuation Lambda can acquire them
+                    for task in pending:
+                        cid = task_to_cid.get(task)
+                        if cid:
+                            try:
+                                release_lease(cid)
+                            except Exception:
+                                pass
                 # Always check for running processes — tail_tasks may already be reaped
                 if get_running_processes():
                     _send_sqs_continuation()
