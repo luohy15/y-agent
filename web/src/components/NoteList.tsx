@@ -278,13 +278,37 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           </>
         )}
         {tab === "pages" && (
-          <input
-            type="text"
-            placeholder="Search pages..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-          />
+          <div className="flex gap-1 items-center">
+            <input
+              type="text"
+              placeholder="Search pages..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            <button
+              onClick={async () => {
+                const filename = window.prompt("New page name (without .md):");
+                if (!filename || !filename.trim()) return;
+                const path = `pages/${filename.trim()}.md`;
+                const params = new URLSearchParams();
+                if (vmName) params.set("vm_name", vmName);
+                try {
+                  await authFetch(`${API}/api/file/touch?${params}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path }),
+                  });
+                  await mutatePages();
+                  onOpenFile(workDir ? `${workDir}/${path}` : path);
+                } catch {}
+              }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="New page"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
         )}
       </div>
       <div className="flex-1 overflow-y-auto p-1.5">
