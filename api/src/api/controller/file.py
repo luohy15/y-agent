@@ -203,6 +203,33 @@ async def upload_file(
     return {"path": dest_path, "size": len(content), "success": True}
 
 
+class WriteRequest(BaseModel):
+    path: str
+    content: str
+
+
+@router.post("/write")
+async def write_file(request: Request, body: WriteRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    vm_config = resolve_vm_config(user_id, vm_name)
+    if work_dir:
+        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
+    if not vm_config.api_token:
+        # Local: write directly to disk
+        effective_dir = os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else "."
+        full_path = os.path.normpath(os.path.join(effective_dir, body.path))
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w") as f:
+            f.write(body.content)
+    else:
+        # Remote: pipe base64-encoded content through stdin and decode on target
+        import shlex
+        b64 = base64.b64encode(body.content.encode("utf-8")).decode("ascii")
+        runner = _CmdRunner(vm_config)
+        await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(body.path)}"], stdin=b64)
+    return {"path": body.path, "success": True}
+
+
 @router.get("/raw")
 async def raw_file(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
