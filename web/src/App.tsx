@@ -245,7 +245,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         const el = document.activeElement;
-        if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
+        if ((el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && !el.dataset.editor) return;
         e.preventDefault();
         if (activeFileRef.current) handleCloseFile(activeFileRef.current);
       }
