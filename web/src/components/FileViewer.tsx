@@ -636,18 +636,36 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
                   <MarkdownPreview content={editContent[filePath] ?? fileData.content} />
                 ) : (
-                  <textarea
-                    className="w-full h-full bg-sol-base03 text-sol-base0 font-mono text-sm p-3 resize-none outline-none leading-relaxed"
-                    value={editContent[filePath] ?? fileData.content}
-                    onChange={(e) => setEditContent((prev) => ({ ...prev, [filePath]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                        e.preventDefault();
-                        handleSave(filePath);
-                      }
-                    }}
-                    spellCheck={false}
-                  />
+                  <div className="flex h-full overflow-hidden">
+                    <div
+                      className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 bg-sol-base03 font-mono text-sm leading-relaxed pt-3 overflow-hidden shrink-0"
+                      ref={(el) => {
+                        if (!el) return;
+                        const ta = el.nextElementSibling as HTMLTextAreaElement | null;
+                        if (ta) {
+                          const sync = () => { el.scrollTop = ta.scrollTop; };
+                          ta.addEventListener("scroll", sync);
+                          (el as any)._cleanup = () => ta.removeEventListener("scroll", sync);
+                        }
+                      }}
+                    >
+                      {(editContent[filePath] ?? fileData.content ?? "").split("\n").map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+                    <textarea
+                      className="flex-1 h-full bg-sol-base03 text-sol-base0 font-mono text-sm pl-4 pr-3 pt-3 resize-none outline-none leading-relaxed"
+                      value={editContent[filePath] ?? fileData.content}
+                      onChange={(e) => setEditContent((prev) => ({ ...prev, [filePath]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                          e.preventDefault();
+                          handleSave(filePath);
+                        }
+                      }}
+                      spellCheck={false}
+                    />
+                  </div>
                 )
               ) : null}
             </div>
