@@ -213,8 +213,8 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                 return (
                   <button
                     key={note.note_id}
-                    onClick={() => onOpenFile(note.content_key)}
-                    onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: note.content_key }); }}
+                    onClick={() => onOpenFile(workDir ? `${workDir}/${note.content_key}` : note.content_key)}
+                    onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: workDir ? `${workDir}/${note.content_key}` : note.content_key }); }}
                     className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
                   >
                     <span className="truncate flex-1">{displayName}</span>
