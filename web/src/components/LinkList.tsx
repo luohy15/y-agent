@@ -152,6 +152,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
     const saved = localStorage.getItem("linkListDateRange");
     return (saved === "today" || saved === "7d" || saved === "30d" || saved === "all") ? saved : "7d";
   });
+  const [downloadedOnly, setDownloadedOnly] = useState(() => localStorage.getItem("linkListDownloaded") === "true");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [offset, setOffset] = useState(0);
@@ -159,7 +160,8 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [spinning, setSpinning] = useState(false);
   useEffect(() => { localStorage.setItem("linkListDateRange", range); }, [range]);
-  useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId]);
+  useEffect(() => { localStorage.setItem("linkListDownloaded", String(downloadedOnly)); }, [downloadedOnly]);
+  useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId, downloadedOnly]);
 
   const { start, end } = getRange(range);
   const params = new URLSearchParams();
@@ -167,6 +169,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
   if (end !== undefined) params.set("end", String(end));
   if (query) params.set("query", query);
   if (todoId) params.set("todo_id", todoId);
+  if (downloadedOnly) params.set("downloaded", "true");
   params.set("limit", String(LIMIT));
   params.set("offset", String(offset));
 
@@ -247,6 +250,16 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
                 {r === "today" ? "Today" : r === "7d" ? "7d" : r === "30d" ? "30d" : "All"}
               </button>
             ))}
+            <button
+              onClick={() => setDownloadedOnly((v) => !v)}
+              className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer ml-auto ${
+                downloadedOnly
+                  ? "bg-sol-green text-sol-base03"
+                  : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+              }`}
+            >
+              Downloaded
+            </button>
           </div>
         </div>
       )}
