@@ -16,6 +16,8 @@ y-agent stores messages as:
 import asyncio
 import json
 import re
+import socket
+import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -531,6 +533,7 @@ async def tail_ssh_output(
         ssh_client.connect(host, port=port, username=user, pkey=key)
 
     client = ssh_client
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
     stdout_file = f"/tmp/cc-{chat_id}.stdout"
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
@@ -538,6 +541,7 @@ async def tail_ssh_output(
     result_data = None
     session_id = None
     current_offset = offset
+    consumed_steer_ids = []
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
@@ -576,6 +580,7 @@ async def tail_ssh_output(
                 f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
             )
             converter.last_message_id = msg_id
+            consumed_steer_ids.append(msg_id)
 
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
@@ -585,29 +590,49 @@ async def tail_ssh_output(
         )
         poll.start()
 
+        def _readline_with_timeout(channel, timeout=1.0):
+            """Yield lines from paramiko channel with timeout. Yields None on timeout."""
+            buf = b""
+            channel.channel.settimeout(timeout)
+            while True:
+                try:
+                    chunk = channel.channel.recv(4096)
+                    if not chunk:
+                        # Channel closed / EOF
+                        if buf:
+                            yield buf.decode("utf-8", errors="replace")
+                        return
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        yield line.decode("utf-8", errors="replace")
+                except socket.timeout:
+                    yield None  # timeout, no data
+
+        def _kill_tmux():
+            try:
+                client.exec_command(
+                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                )
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+            except Exception:
+                pass
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
         def _read_lines():
             nonlocal result_data, session_id, current_offset
+            result_deadline = None
             try:
-                for raw_line in stdout_ch:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-
-                    current_offset += 1
-
+                for raw_line in _readline_with_timeout(stdout_ch, timeout=1.0):
+                    # Check interrupt/deadline on every iteration (including timeouts)
                     if check_interrupted_fn and check_interrupted_fn():
-                        try:
-                            client.exec_command(
-                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                            )
-                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
-                        except Exception:
-                            pass
-                        stdout_ch.channel.close()
+                        _kill_tmux()
                         return "interrupted"
 
                     if check_deadline_fn and check_deadline_fn():
-                        # Kill remote tail process tree before closing channel
                         try:
                             client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
                         except Exception:
@@ -615,31 +640,38 @@ async def tail_ssh_output(
                         stdout_ch.channel.close()
                         return "deadline"
 
+                    if raw_line is None:
+                        # Timeout — check if result deadline expired
+                        if result_deadline and time.monotonic() > result_deadline:
+                            _kill_tmux()
+                            return None  # natural completion
+                        continue
+
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+
+                    current_offset += 1
+
                     obj = parse_stream_line(line)
                     if not obj:
                         continue
 
                     if obj.get("type") == "system":
                         session_id = obj.get("session_id")
+                        if result_deadline:
+                            # New turn started from steer — reset deadline
+                            result_deadline = None
                         continue
                     if obj.get("type") == "result":
                         result_data = obj
-                        # Turn complete: tear down the remote session so the
-                        # tmux pipeline exits. Without this claude would keep
-                        # reading stdin (stream-json input mode has no EOF)
-                        # and exit_file would never be written.
-                        try:
-                            client.exec_command(
-                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                            )
-                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
-                        except Exception:
-                            pass
-                        try:
-                            stdout_ch.channel.close()
-                        except Exception:
-                            pass
-                        return None  # natural completion → status="completed"
+                        # Don't kill immediately — wait for potential steer
+                        result_deadline = time.monotonic() + 10
+                        continue
+
+                    if obj.get("type") in ("assistant",) and result_deadline:
+                        # New turn started from steer — reset deadline
+                        result_deadline = None
 
                     if message_callback:
                         for msg in converter.process_line(line):
@@ -653,9 +685,8 @@ async def tail_ssh_output(
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
 
+            # If we exited the loop with a pending result (channel closed), still complete
             return None
-
-        stdin_file = f"/tmp/cc-{chat_id}.stdin"
 
         loop = asyncio.get_event_loop()
         exit_reason = await loop.run_in_executor(None, _read_lines)
@@ -673,6 +704,7 @@ async def tail_ssh_output(
                 "is_done": True,
                 "result_data": None,
                 "status": "interrupted",
+                "consumed_steer_ids": consumed_steer_ids,
             }
 
         if exit_reason == "deadline":
@@ -683,6 +715,7 @@ async def tail_ssh_output(
                 "is_done": False,
                 "result_data": None,
                 "status": "monitoring",
+                "consumed_steer_ids": consumed_steer_ids,
             }
 
         # Process finished normally
@@ -697,6 +730,7 @@ async def tail_ssh_output(
             "is_done": True,
             "result_data": result_data,
             "status": status,
+            "consumed_steer_ids": consumed_steer_ids,
         }
 
     except Exception as e:
@@ -713,4 +747,5 @@ async def tail_ssh_output(
             "is_done": False,
             "result_data": None,
             "status": "error",
+            "consumed_steer_ids": consumed_steer_ids,
         }
