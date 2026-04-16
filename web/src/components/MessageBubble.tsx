@@ -95,11 +95,6 @@ function getBadgeText(toolName: string, args?: Record<string, unknown>): string 
     if (pending) parts.push(`${pending} pending`);
     return parts.join(", ") || `${todos.length} items`;
   }
-  // AskUserQuestion: show first question header or text
-  if (n === "askuserquestion" && Array.isArray(args?.questions)) {
-    const q = args.questions as { header?: string; question?: string }[];
-    if (q.length > 0) return truncate(String(q[0].header || q[0].question || ""), 40);
-  }
   // Bash: show truncated command
   if (n === "bash") return truncate(String(args?.command || ""), 60);
   // Grep: show pattern
