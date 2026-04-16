@@ -261,6 +261,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [todoViewMode, setTodoViewMode] = useState<"table" | "kanban">(() => {
     return (localStorage.getItem("todoViewMode") as "table" | "kanban") || "table";
   });
+  const [editContent, setEditContent] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [zoom, setZoom] = useState(100);
   const [linkAdded, setLinkAdded] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
@@ -303,12 +305,16 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           if (!res.ok) throw new Error("Failed to read file");
           const data = await res.json();
           setCache((prev) => ({ ...prev, [activeFile]: { content: data.content, loading: false } }));
+          // Auto-switch to raw (edit) mode for empty files
+          if (!data.content) {
+            setMdPreview((prev) => ({ ...prev, [activeFile]: false }));
+          }
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
   }, [activeFile, cache, vmQuery]);
 
-  // Clean up blob URLs and cache for closed files
+  // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
     setCache((prev) => {
       const next: Record<string, FileCache> = {};
@@ -320,6 +326,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           URL.revokeObjectURL(entry.blobUrl);
           blobUrls.current.delete(entry.blobUrl);
         }
+      }
+      return next;
+    });
+    setEditContent((prev) => {
+      const next: Record<string, string> = {};
+      for (const f of openFiles) {
+        if (prev[f] !== undefined) next[f] = prev[f];
       }
       return next;
     });
@@ -373,6 +386,29 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     });
   }, [activeFile, isTodo, isCalendar, isLinkPreview, isFinance, isEmail, isDev, mutate]);
 
+  const isDirty = useCallback((path: string) => {
+    return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
+  }, [editContent, cache]);
+
+  const handleSave = useCallback(async (path: string) => {
+    if (!isDirty(path)) return;
+    setSaving((prev) => ({ ...prev, [path]: true }));
+    try {
+      const res = await authFetch(`${API}/api/file/write${vmQuery ? "?" + vmQuery.slice(1) : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, content: editContent[path] }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      // Update cache with saved content, clear edit state
+      setCache((prev) => ({ ...prev, [path]: { ...prev[path], content: editContent[path], loading: false } }));
+      setEditContent((prev) => { const next = { ...prev }; delete next[path]; return next; });
+    } catch (e: any) {
+      alert(`Save failed: ${e.message}`);
+    } finally {
+      setSaving((prev) => ({ ...prev, [path]: false }));
+    }
+  }, [isDirty, editContent, vmQuery]);
 
   if (openFiles.length === 0) {
     return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;
@@ -418,6 +454,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onDoubleClick={() => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
             title={filePath}
           >
+            {isDirty(filePath) && <span className="w-2 h-2 rounded-full bg-sol-base0 shrink-0" />}
             <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
@@ -499,6 +536,16 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
             >
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
+            </button>
+          )}
+          {isDirty(activeFile) && (
+            <button
+              onClick={() => handleSave(activeFile)}
+              disabled={saving[activeFile]}
+              className="text-sol-green hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs font-semibold disabled:opacity-50"
+              title="Save file"
+            >
+              {saving[activeFile] ? "Saving..." : "Save"}
             </button>
           )}
           <button
@@ -589,7 +636,18 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
                   <MarkdownPreview content={fileData.content} />
                 ) : (
-                  <FileContentTable filePath={filePath} content={fileData.content} />
+                  <textarea
+                    className="w-full h-full bg-sol-base03 text-sol-base0 font-mono text-sm p-3 resize-none outline-none leading-relaxed"
+                    value={editContent[filePath] ?? fileData.content}
+                    onChange={(e) => setEditContent((prev) => ({ ...prev, [filePath]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                        e.preventDefault();
+                        handleSave(filePath);
+                      }
+                    }}
+                    spellCheck={false}
+                  />
                 )
               ) : null}
             </div>
