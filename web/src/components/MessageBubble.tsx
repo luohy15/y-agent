@@ -51,14 +51,8 @@ function getToolMeta(toolName: string): ToolMeta {
     return { icon: "/", label: "Grep", color: "text-sol-violet", iconBg: "bg-sol-violet/15" };
   if (n === "glob")
     return { icon: "*", label: "Glob", color: "text-sol-violet", iconBg: "bg-sol-violet/15" };
-  if (n === "agent")
-    return { icon: "\u25C8", label: "Agent", color: "text-sol-magenta", iconBg: "bg-sol-magenta/15" };
-  if (n === "websearch" || n === "webfetch")
-    return { icon: "\u25CE", label: toolName, color: "text-sol-orange", iconBg: "bg-sol-orange/15" };
   if (n === "todowrite")
     return { icon: "\u2713", label: "Todo", color: "text-sol-green", iconBg: "bg-sol-green/15" };
-  if (n === "askuserquestion")
-    return { icon: "?", label: "Question", color: "text-sol-cyan", iconBg: "bg-sol-cyan/15" };
   return { icon: "\u25C6", label: toolName, color: "text-sol-base01", iconBg: "bg-sol-base01/15" };
 }
 
@@ -101,8 +95,6 @@ function getBadgeText(toolName: string, args?: Record<string, unknown>): string 
   if (n === "grep") return truncate(String(args?.pattern || ""), 40);
   // Glob: show pattern
   if (n === "glob") return truncate(String(args?.pattern || ""), 40);
-  // Agent: show description
-  if (n === "agent") return truncate(String(args?.description || args?.prompt || ""), 50);
   // Skill: show skill name
   if (n === "skill") return truncate(String(args?.skill || ""), 40);
   return null;
