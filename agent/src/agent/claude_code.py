@@ -16,8 +16,6 @@ y-agent stores messages as:
 import asyncio
 import json
 import re
-import socket
-import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -590,25 +588,6 @@ async def tail_ssh_output(
         )
         poll.start()
 
-        def _readline_with_timeout(channel, timeout=1.0):
-            """Yield lines from paramiko channel with timeout. Yields None on timeout."""
-            buf = b""
-            channel.channel.settimeout(timeout)
-            while True:
-                try:
-                    chunk = channel.channel.recv(4096)
-                    if not chunk:
-                        # Channel closed / EOF
-                        if buf:
-                            yield buf.decode("utf-8", errors="replace")
-                        return
-                    buf += chunk
-                    while b"\n" in buf:
-                        line, buf = buf.split(b"\n", 1)
-                        yield line.decode("utf-8", errors="replace")
-                except socket.timeout:
-                    yield None  # timeout, no data
-
         def _kill_tmux():
             try:
                 client.exec_command(
@@ -624,10 +603,8 @@ async def tail_ssh_output(
 
         def _read_lines():
             nonlocal result_data, session_id, current_offset
-            result_deadline = None
             try:
-                for raw_line in _readline_with_timeout(stdout_ch, timeout=1.0):
-                    # Check interrupt/deadline on every iteration (including timeouts)
+                for raw_line in stdout_ch:
                     if check_interrupted_fn and check_interrupted_fn():
                         _kill_tmux()
                         return "interrupted"
@@ -640,14 +617,7 @@ async def tail_ssh_output(
                         stdout_ch.channel.close()
                         return "deadline"
 
-                    if raw_line is None:
-                        # Timeout — check if result deadline expired
-                        if result_deadline and time.monotonic() > result_deadline:
-                            _kill_tmux()
-                            return None  # natural completion
-                        continue
-
-                    line = raw_line.strip()
+                    line = raw_line.strip() if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="replace").strip()
                     if not line:
                         continue
 
@@ -659,19 +629,11 @@ async def tail_ssh_output(
 
                     if obj.get("type") == "system":
                         session_id = obj.get("session_id")
-                        if result_deadline:
-                            # New turn started from steer — reset deadline
-                            result_deadline = None
                         continue
                     if obj.get("type") == "result":
                         result_data = obj
-                        # Don't kill immediately — wait for potential steer
-                        result_deadline = time.monotonic() + 10
-                        continue
-
-                    if obj.get("type") in ("assistant",) and result_deadline:
-                        # New turn started from steer — reset deadline
-                        result_deadline = None
+                        _kill_tmux()
+                        return None
 
                     if message_callback:
                         for msg in converter.process_line(line):
@@ -685,7 +647,6 @@ async def tail_ssh_output(
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
 
-            # If we exited the loop with a pending result (channel closed), still complete
             return None
 
         loop = asyncio.get_event_loop()
