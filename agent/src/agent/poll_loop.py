@@ -57,10 +57,6 @@ class PollLoop:
 
     def _loop(self) -> None:
         while not self._done.is_set():
-            self._done.wait(2)
-            if self._done.is_set():
-                break
-
             # Check interrupt first — takes priority
             if self._check_interrupted_fn:
                 try:
@@ -80,3 +76,5 @@ class PollLoop:
                 except Exception as e:
                     logger.warning("poll_loop steer failed: {}", e)
                     break
+
+            self._done.wait(1)
