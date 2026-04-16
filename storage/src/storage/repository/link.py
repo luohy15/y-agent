@@ -34,6 +34,7 @@ def list_links(
     offset: int = 0,
     link_ids: Optional[List[str]] = None,
     activity_ids: Optional[List[str]] = None,
+    downloaded_only: bool = False,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -41,6 +42,8 @@ def list_links(
             .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
             .filter(LinkActivityEntity.user_id == user_id)
         )
+        if downloaded_only:
+            q = q.filter(LinkEntity.download_status == "done")
         if link_ids is not None:
             q = q.filter(LinkEntity.link_id.in_(link_ids))
         if activity_ids is not None:

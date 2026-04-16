@@ -264,7 +264,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [editContent, setEditContent] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [zoom, setZoom] = useState(100);
-  const [linkAdded, setLinkAdded] = useState<Record<string, boolean>>({});
+  const [noteImported, setNoteImported] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
@@ -505,26 +505,27 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             <button
               onClick={async () => {
                 const path = activeFileName;
-                const filename = path.rsplit ? path.split("/").pop()?.replace(/\.md$/, "") : path.split("/").pop()?.replace(/\.md$/, "");
                 try {
-                  const res = await authFetch(`${API}/api/link/from-page`, {
+                  const res = await authFetch(`${API}/api/note/import`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ path, title: filename }),
+                    body: JSON.stringify({ content_key: path }),
                   });
                   if (res.ok) {
-                    setLinkAdded((prev) => ({ ...prev, [activeFile!]: true }));
-                    setTimeout(() => setLinkAdded((prev) => ({ ...prev, [activeFile!]: false })), 2000);
+                    setNoteImported((prev) => ({ ...prev, [activeFile!]: true }));
+                    setTimeout(() => setNoteImported((prev) => ({ ...prev, [activeFile!]: false })), 2000);
                   }
                 } catch {}
               }}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-              title="Add to Links"
+              title="Import Note"
             >
-              {linkAdded[activeFile] ? "Added!" : (
+              {noteImported[activeFile] ? "Imported!" : (
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="12" y1="18" x2="12" y2="12" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
                 </svg>
               )}
             </button>

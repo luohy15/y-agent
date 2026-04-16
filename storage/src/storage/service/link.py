@@ -32,11 +32,12 @@ def list_links(
     offset: int = 0,
     link_ids: Optional[List[str]] = None,
     activity_ids: Optional[List[str]] = None,
+    downloaded_only: bool = False,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
         user_id, start=start, end=end, query=query,
         limit=limit, offset=offset, link_ids=link_ids,
-        activity_ids=activity_ids,
+        activity_ids=activity_ids, downloaded_only=downloaded_only,
     )
 
 
