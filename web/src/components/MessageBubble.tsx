@@ -178,9 +178,6 @@ function ToolCallCompact({
   const isTodo = n === "todowrite";
   const todoItems = isTodo && Array.isArray(args?.todos) ? (args.todos as { content?: string; status?: string; activeForm?: string }[]) : null;
 
-  const isQuestion = n === "askuserquestion";
-  const questions = isQuestion && Array.isArray(args?.questions) ? (args.questions as { question?: string; header?: string; options?: { label?: string; description?: string }[]; multiSelect?: boolean }[]) : null;
-
   const isBash = n === "bash";
   const bashCommand = isBash ? String(args?.command || "") : "";
   const expandContent = isBash && bashCommand ? (bashCommand + (content ? "\n" + content : "")) : content;
@@ -190,7 +187,7 @@ function ToolCallCompact({
   const editNew = isEdit ? String(args?.new_string || "") : "";
   const hasDiff = isEdit && (editOld || editNew);
   const isSkill = n === "skill";
-  const hasContent = !isSkill && (expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0) || (questions && questions.length > 0));
+  const hasContent = !isSkill && (expandContent.length > 0 || hasDiff || (todoItems && todoItems.length > 0));
 
   const isDenied = status === "denied";
   const isPending = status === "pending";
@@ -247,26 +244,7 @@ function ToolCallCompact({
 
       {/* Expandable detail content */}
       {expanded && hasContent && (
-        questions && questions.length > 0 ? (
-          <div className="mt-1 ml-6.5 max-h-60 overflow-y-auto rounded bg-sol-base02 px-2 py-1.5 text-[0.7rem] font-mono flex flex-col gap-2">
-            {questions.map((q, qi) => (
-              <div key={qi}>
-                {q.header && <div className="text-sol-cyan font-semibold text-[0.65rem] uppercase tracking-wide mb-0.5">{q.header}</div>}
-                {q.question && <div className="text-sol-base0 mb-1">{q.question}</div>}
-                {Array.isArray(q.options) && (
-                  <div className="flex flex-col gap-0.5">
-                    {q.options.map((opt, oi) => (
-                      <div key={oi} className="flex items-start gap-1.5">
-                        <span className="text-sol-base01 shrink-0">○</span>
-                        <span className="text-sol-base0">{opt.label}{opt.description ? <span className="text-sol-base01"> — {opt.description}</span> : null}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : todoItems && todoItems.length > 0 ? (
+        todoItems && todoItems.length > 0 ? (
           <div className="mt-1 ml-6.5 max-h-60 overflow-y-auto rounded bg-sol-base02 px-2 py-1.5 text-[0.7rem] font-mono flex flex-col gap-0.5">
             {todoItems.map((t, i) => {
               const st = t.status || "pending";
