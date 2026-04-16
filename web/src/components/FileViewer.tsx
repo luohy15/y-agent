@@ -634,7 +634,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
               ) : fileData.content !== undefined ? (
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
-                  <MarkdownPreview content={fileData.content} />
+                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} />
                 ) : (
                   <textarea
                     className="w-full h-full bg-sol-base03 text-sol-base0 font-mono text-sm p-3 resize-none outline-none leading-relaxed"
