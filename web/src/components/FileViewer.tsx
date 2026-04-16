@@ -31,6 +31,7 @@ interface FileViewerProps {
   onPreviewLink?: (activityId: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
+  onPreviewFile?: (path: string) => void;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -132,7 +133,7 @@ function isRelativeLink(href: string): boolean {
   return !/^(https?:\/\/|mailto:|#|\/)/.test(href);
 }
 
-function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void }) {
+function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void; }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const headings = useMemo(() => {
@@ -285,7 +286,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -667,7 +668,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
               ) : fileData.content !== undefined ? (
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
-                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onSelectFile} />
+                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} />
                 ) : (
                   <div className="flex h-full overflow-hidden">
                     <div
