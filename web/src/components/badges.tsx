@@ -1,10 +1,9 @@
-// Shared badge styles for trace_id, chat_id, and skill across the app
+// Shared badge styles for trace_id, chat_id, and topic across the app
 
-// --- Skill → solarized color token ---
-const SKILL_SOL_COLOR: Record<string, string> = {
-  DM:              "blue",
+// --- Topic → solarized color token ---
+const TOPIC_SOL_COLOR: Record<string, string> = {
+  manager:         "blue",
   dev:             "green",
-  cto:             "cyan",
   todo:            "yellow",
   hr:              "magenta",
   finance:         "orange",
@@ -13,8 +12,13 @@ const SKILL_SOL_COLOR: Record<string, string> = {
 };
 const DEFAULT_SOL_COLOR = "violet";
 
+export function getTopicSolColor(topic: string): string {
+  return TOPIC_SOL_COLOR[topic] || DEFAULT_SOL_COLOR;
+}
+
+/** @deprecated Use getTopicSolColor */
 export function getSkillSolColor(skill: string): string {
-  return SKILL_SOL_COLOR[skill] || DEFAULT_SOL_COLOR;
+  return getTopicSolColor(skill);
 }
 
 // Static color maps — TailwindCSS needs complete class strings in source
@@ -43,14 +47,19 @@ const SKILL_CHART_COLOR_MAP: Record<string, { bg: string; border: string; text: 
 const DEFAULT_SKILL_COLOR = SKILL_COLOR_MAP["violet"];
 const DEFAULT_CHART_COLOR = SKILL_CHART_COLOR_MAP["violet"];
 
-export function getSkillColor(skill: string) {
-  return SKILL_COLOR_MAP[getSkillSolColor(skill)] || DEFAULT_SKILL_COLOR;
+export function getTopicColor(topic: string) {
+  return SKILL_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_SKILL_COLOR;
 }
 
 // Extended color set for waterfall chart / trace views
-export function getSkillChartColors(skill: string) {
-  return SKILL_CHART_COLOR_MAP[getSkillSolColor(skill)] || DEFAULT_CHART_COLOR;
+export function getTopicChartColors(topic: string) {
+  return SKILL_CHART_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_CHART_COLOR;
 }
+
+/** @deprecated Use getTopicColor */
+export function getSkillColor(skill: string) { return getTopicColor(skill); }
+/** @deprecated Use getTopicChartColors */
+export function getSkillChartColors(skill: string) { return getTopicChartColors(skill); }
 
 // --- Badge base classes ---
 const BADGE_BASE = "inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0";
@@ -61,11 +70,14 @@ export const TRACE_BADGE = `${BADGE_BASE} bg-sol-base01/20 text-sol-base01`;
 // chat_id: blue
 export const CHAT_BADGE = `${BADGE_BASE} bg-sol-blue/20 text-sol-blue`;
 
-// skill: dynamic color from map (use with getSkillColor)
-export function skillBadgeClass(skill: string) {
-  const c = getSkillColor(skill);
+// topic: dynamic color from map
+export function topicBadgeClass(topic: string) {
+  const c = getTopicColor(topic);
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
 }
+
+/** @deprecated Use topicBadgeClass */
+export function skillBadgeClass(skill: string) { return topicBadgeClass(skill); }
 
 // --- Status badge (todo status) ---
 const STATUS_COLOR: Record<string, string> = {

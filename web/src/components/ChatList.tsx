@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, clearToken } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, skillBadgeClass } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 
 interface Chat {
@@ -10,7 +10,7 @@ interface Chat {
   title?: string;
   created_at?: string;
   updated_at?: string;
-  skill?: string;
+  topic?: string;
   trace_id?: string;
   backend?: string;
   status?: string;
@@ -43,33 +43,33 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
-  const [skillFilter, setSkillFilter] = useState("");
+  const [topicFilter, setTopicFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => localStorage.getItem("chatStatusFilter") || "");
   const [unreadFilter, setUnreadFilter] = useState<boolean>(() => localStorage.getItem("chatUnreadFilter") === "true");
   const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
-  const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
+  const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
   const unreadParam = unreadFilter ? `&unread=true` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${skillParam}${statusParam}${unreadParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${statusParam}${unreadParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
 
-  // Separate fetch for pinned DM chat (always visible, uses skill filter)
-  const { data: pinnedDmData, mutate: mutatePinnedDm } = useSWR<Chat[]>(
-    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&skill=DM` : null,
+  // Separate fetch for pinned manager chat (always visible)
+  const { data: pinnedManagerData, mutate: mutatePinnedManager } = useSWR<Chat[]>(
+    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&role=manager` : null,
     fetcher,
   );
-  const pinnedDm = pinnedDmData?.[0] ?? null;
+  const pinnedManager = pinnedManagerData?.[0] ?? null;
 
   const allChats = data ? data.flat() : [];
-  const chats = pinnedDm ? allChats.filter((c) => c.chat_id !== pinnedDm.chat_id) : allChats;
+  const chats = pinnedManager ? allChats.filter((c) => c.chat_id !== pinnedManager.chat_id) : allChats;
   const isLoadingMore = isLoading || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isEmpty = data?.[0]?.length === 0;
   const isReachingEnd = isEmpty || (data && data[data.length - 1]?.length < PAGE_SIZE);
@@ -92,20 +92,20 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, skillFilter, statusFilter, unreadFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, statusFilter, unreadFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     mutate();
-    mutatePinnedDm();
-  }, [refreshKey, mutate, mutatePinnedDm]);
+    mutatePinnedManager();
+  }, [refreshKey, mutate, mutatePinnedManager]);
 
   const handleClick = (id: string) => {
     onSelectChat(id);
     // Optimistically update SWR data
     mutate((pages) => pages?.map((page) => page.map((c) => c.chat_id === id ? { ...c, unread: false } : c)), false);
-    mutatePinnedDm((dm) => dm && dm.length > 0 && dm[0].chat_id === id ? [{ ...dm[0], unread: false }] : dm, false);
+    mutatePinnedManager((dm) => dm && dm.length > 0 && dm[0].chat_id === id ? [{ ...dm[0], unread: false }] : dm, false);
   };
 
   return (
@@ -121,7 +121,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
             />
             <button
-              onClick={() => { mutate(); mutatePinnedDm(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+              onClick={() => { mutate(); mutatePinnedManager(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
               className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
               title="Refresh"
             >
@@ -152,13 +152,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               <input
                 type="text"
                 placeholder="Skill..."
-                value={skillFilter}
-                onChange={(e) => setSkillFilter(e.target.value)}
+                value={topicFilter}
+                onChange={(e) => setTopicFilter(e.target.value)}
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
               />
-              {skillFilter && (
+              {topicFilter && (
                 <button
-                  onClick={() => setSkillFilter("")}
+                  onClick={() => setTopicFilter("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
                   title="Clear skill filter"
                 >
@@ -183,36 +183,36 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           </div>
         </div>
       )}
-      {pinnedDm && (
+      {pinnedManager && (
         <div className="border-b border-sol-base02 p-1.5">
           <div
-            onClick={() => handleClick(pinnedDm.chat_id)}
+            onClick={() => handleClick(pinnedManager.chat_id)}
             className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors border-l-2 border-sol-blue ${
-              pinnedDm.chat_id === selectedChatId ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
+              pinnedManager.chat_id === selectedChatId ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
             }`}
           >
             <div className="flex items-center gap-1 mb-0.5">
-              <span className={`text-[0.55rem] ${skillBadgeClass("DM")}`}>DM</span>
+              <span className={`text-[0.55rem] ${topicBadgeClass("manager")}`}>manager</span>
               <button
-                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(pinnedDm.chat_id); }}
+                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(pinnedManager.chat_id); }}
                 className={`gap-0.5 text-[0.55rem] cursor-pointer ${CHAT_BADGE}`}
                 title="Copy chat ID"
               >
                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                {pinnedDm.chat_id.slice(0, 8)}
+                {pinnedManager.chat_id.slice(0, 8)}
               </button>
             </div>
             <div className="flex items-center gap-1.5">
-              {pinnedDm.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
-              {pinnedDm.status === "running" && (
+              {pinnedManager.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
+              {pinnedManager.status === "running" && (
                 <svg className="w-3 h-3 text-sol-blue animate-spin shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
               )}
-              {pinnedDm.status === "interrupted" && (
+              {pinnedManager.status === "interrupted" && (
                 <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
               )}
-              <span className="flex-1 truncate">{(pinnedDm.title || "").replace(/^\[.*?\]\s*/, "")}</span>
+              <span className="flex-1 truncate">{(pinnedManager.title || "").replace(/^\[.*?\]\s*/, "")}</span>
               {(() => {
-                const dt = pinnedDm.updated_at || pinnedDm.created_at ? new Date(pinnedDm.updated_at || pinnedDm.created_at!) : null;
+                const dt = pinnedManager.updated_at || pinnedManager.created_at ? new Date(pinnedManager.updated_at || pinnedManager.created_at!) : null;
                 if (!dt) return null;
                 const { date, time } = formatDateTime(dt);
                 return <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>;
@@ -246,7 +246,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
-                  {(firstTraceId || c.chat_id || c.skill) && (
+                  {(firstTraceId || c.chat_id || c.topic) && (
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
@@ -265,7 +265,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.skill && <span className={`text-[0.55rem] truncate ${skillBadgeClass(c.skill)}`}>{c.skill}</span>}
+                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
                       {c.backend && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.backend}</span>}
                     </div>
                   )}

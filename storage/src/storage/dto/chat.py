@@ -131,7 +131,8 @@ class Chat:
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
-    skill: Optional[str] = None  # skill name (e.g. "dev", "cto")
+    role: Optional[str] = None  # "manager" or "worker"
+    topic: Optional[str] = None  # topic name (e.g. "dev", "hr")
     trace_id: Optional[str] = None
     work_dir: Optional[str] = None
     interrupted: bool = False
@@ -159,7 +160,8 @@ class Chat:
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
-            skill=data.get('skill'),
+            role=data.get('role'),
+            topic=data.get('topic'),
             trace_id=data.get('trace_id'),
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
@@ -191,8 +193,10 @@ class Chat:
             result['origin_message_id'] = self.origin_message_id
         if self.selected_message_id is not None:
             result['selected_message_id'] = self.selected_message_id
-        if self.skill is not None:
-            result['skill'] = self.skill
+        if self.role is not None:
+            result['role'] = self.role
+        if self.topic is not None:
+            result['topic'] = self.topic
         if self.trace_id is not None:
             result['trace_id'] = self.trace_id
         if self.work_dir is not None:

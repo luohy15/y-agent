@@ -19,7 +19,8 @@ class ChatSummary:
     title: str
     created_at: str
     updated_at: str
-    skill: str = ""
+    role: str = ""
+    topic: str = ""
     trace_id: str = ""
     backend: str = ""
     created_at_unix: int = 0
@@ -37,7 +38,7 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return chat
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, skill: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, role: Optional[str] = None, status: Optional[str] = None, unread: Optional[bool] = None) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -49,8 +50,10 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
             ))
         if trace_id:
             q = q.filter(ChatEntity.trace_id == trace_id)
-        if skill:
-            q = q.filter(ChatEntity.skill == skill)
+        if topic:
+            q = q.filter(ChatEntity.topic == topic)
+        if role:
+            q = q.filter(ChatEntity.role == role)
         if status:
             q = q.filter(ChatEntity.status == status)
         if unread is not None:
@@ -65,7 +68,8 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 title=row.title or "",
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
-                skill=row.skill or "",
+                role=row.role or "",
+                topic=row.topic or "",
                 trace_id=row.trace_id or "",
                 backend=row.backend or "",
                 status=row.status or "idle",
@@ -161,7 +165,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.skill = chat.skill
+            entity.role = chat.role
+            entity.topic = chat.topic
             entity.trace_id = chat.trace_id
             entity.status = status
         else:
@@ -172,7 +177,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 external_id=chat.external_id,
                 backend=chat.backend,
                 origin_chat_id=chat.origin_chat_id,
-                skill=chat.skill,
+                role=chat.role,
+                topic=chat.topic,
                 trace_id=chat.trace_id,
                 json_content=content,
                 search_text=search_text,
@@ -223,7 +229,8 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.skill = chat.skill
+            entity.role = chat.role
+            entity.topic = chat.topic
             entity.trace_id = chat.trace_id
             entity.status = status
         else:
@@ -287,11 +294,11 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str
         ]
 
 
-def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Optional[Chat]:
-    """Find a chat with the given skill and trace_id."""
+def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Optional[Chat]:
+    """Find a chat with the given topic and trace_id."""
     with get_db() as session:
         row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, skill=skill, trace_id=trace_id)
+               .filter_by(user_id=user_id, topic=topic, trace_id=trace_id)
                .order_by(ChatEntity.updated_at_unix.desc())
                .first())
         if row:
@@ -302,11 +309,11 @@ def find_chat_by_skill_and_trace(user_id: int, skill: str, trace_id: str) -> Opt
         return None
 
 
-def find_chat_by_skill(user_id: int, skill: str) -> Optional[Chat]:
-    """Find the most recent chat with the given skill (ignoring trace_id)."""
+def find_chat_by_topic(user_id: int, topic: str) -> Optional[Chat]:
+    """Find the most recent chat with the given topic (ignoring trace_id)."""
     with get_db() as session:
         row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, skill=skill)
+               .filter_by(user_id=user_id, topic=topic)
                .order_by(ChatEntity.updated_at_unix.desc())
                .first())
         if row:
@@ -318,7 +325,7 @@ def find_chat_by_skill(user_id: int, skill: str) -> Optional[Chat]:
 
 
 def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
-    """Find all chats in a trace, returning (chat_id, title, skill, backend, json_content) tuples.
+    """Find all chats in a trace, returning (chat_id, title, topic, backend, json_content) tuples.
     Includes json_content so caller can extract message-level time segments."""
     with get_db() as session:
         rows = (session.query(ChatEntity)
@@ -326,7 +333,7 @@ def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
                 .order_by(ChatEntity.created_at_unix.asc())
                 .all())
         return [
-            (row.chat_id, row.title or "", row.skill or "", row.backend or "", row.json_content)
+            (row.chat_id, row.title or "", row.topic or "", row.backend or "", row.json_content)
             for row in rows
         ]
 
@@ -345,7 +352,8 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 title=row.title or "",
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
-                skill=row.skill or "",
+                role=row.role or "",
+                topic=row.topic or "",
                 backend=row.backend or "",
                 created_at_unix=row.created_at_unix or 0,
                 updated_at_unix=row.updated_at_unix or 0,
@@ -356,14 +364,14 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
         ]
 
 
-def find_latest_chat_by_skill(user_id: int, skill: Optional[str]) -> Optional[Chat]:
-    """Find the most recent chat for a given skill (or skill IS NULL when skill=None)."""
+def find_latest_chat_by_topic(user_id: int, topic: Optional[str]) -> Optional[Chat]:
+    """Find the most recent chat for a given topic (or topic IS NULL when topic=None)."""
     with get_db() as session:
         q = session.query(ChatEntity).filter_by(user_id=user_id)
-        if skill is None:
-            q = q.filter(ChatEntity.skill.is_(None))
+        if topic is None:
+            q = q.filter(ChatEntity.topic.is_(None))
         else:
-            q = q.filter_by(skill=skill)
+            q = q.filter_by(topic=topic)
         row = q.order_by(ChatEntity.updated_at_unix.desc()).first()
         if not row:
             return None

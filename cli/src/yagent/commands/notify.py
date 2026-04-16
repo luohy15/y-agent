@@ -5,27 +5,32 @@ from yagent.api_client import api_request
 
 
 @click.command('notify')
-@click.argument('skill_name')
+@click.argument('topic_name')
 @click.option('--message', '-m', required=True, help='Message to send')
-@click.option('--work-dir', default=None, help='Working directory for the skill')
+@click.option('--work-dir', default=None, help='Working directory for the topic')
 @click.option('--trace-id', default=None, help='Trace ID')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
-@click.option('--from-skill', default='DM', help='Caller skill name')
-@click.option('--chat-id', default=None, help='Target chat ID to resume (skips skill+trace lookup)')
+@click.option('--from-topic', default='manager', help='Caller topic name')
+@click.option('--from-skill', default=None, hidden=True, help='Deprecated: use --from-topic')
+@click.option('--chat-id', default=None, help='Target chat ID to resume (skips topic+trace lookup)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
 @click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex'], case_sensitive=False), help='Backend to use (default: claude_code)')
-def notify(skill_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_skill: str, chat_id: str, from_chat_id: str, backend: str):
-    """Send a message to a skill via trace-based communication."""
+def notify(topic_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_topic: str, from_skill: str, chat_id: str, from_chat_id: str, backend: str):
+    """Send a message to a topic via trace-based communication."""
+    # Backward compat: --from-skill overrides --from-topic if provided
+    if from_skill:
+        from_topic = from_skill
+
     # Default from_chat_id to Y_CHAT_ID env var
     if not from_chat_id:
         import os
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
     payload = {
-        "skill": skill_name,
+        "topic": topic_name,
         "message": message,
         "force_new": force_new,
-        "from_skill": from_skill,
+        "from_topic": from_topic,
     }
     if trace_id:
         payload["trace_id"] = trace_id

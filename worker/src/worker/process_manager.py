@@ -15,7 +15,7 @@ def _get_dynamodb():
 
 def register_process(chat_id: str, user_id: int, vm_name: str,
                      bot_name: str = None, trace_id: str = None,
-                     skill: str = None, post_hooks: list = None,
+                     topic: str = None, post_hooks: list = None,
                      work_dir: str = None, session_id: str = None,
                      backend_type: str = None,
                      initial_msg_count: int = None) -> None:
@@ -35,8 +35,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["bot_name"] = {"S": bot_name}
     if trace_id:
         item["trace_id"] = {"S": trace_id}
-    if skill:
-        item["skill"] = {"S": skill}
+    if topic:
+        item["topic"] = {"S": topic}
     if work_dir:
         item["work_dir"] = {"S": work_dir}
     if session_id:

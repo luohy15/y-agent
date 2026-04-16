@@ -2,7 +2,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import { skillBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
+import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -135,15 +135,15 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, o
                   {todoStatus}
                 </span>
               )}
-              {/* Skill+backend badges */}
+              {/* Topic+backend badges */}
               {traceChats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
-                  {[...new Set(traceChats.map((c) => c.backend ? `${c.skill}:${c.backend}` : c.skill).filter(Boolean))].map((key) => {
-                    const skill = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+                  {[...new Set(traceChats.map((c) => c.backend ? `${c.topic}:${c.backend}` : c.topic).filter(Boolean))].map((key) => {
+                    const topic = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
                     const backend = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
                     return (
-                      <span key={key} className={`text-[0.6rem] ${skillBadgeClass(skill)}`}>
-                        {skill}{backend && <span className="ml-0.5 opacity-70">{backend}</span>}
+                      <span key={key} className={`text-[0.6rem] ${topicBadgeClass(topic)}`}>
+                        {topic}{backend && <span className="ml-0.5 opacity-70">{backend}</span>}
                       </span>
                     );
                   })}

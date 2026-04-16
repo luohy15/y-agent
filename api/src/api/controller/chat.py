@@ -45,16 +45,17 @@ def _get_user_id(request: Request) -> int:
 
 
 @router.get("/list")
-async def get_chats(request: Request, query: Optional[str] = Query(None), trace_id: Optional[str] = Query(None), skill: Optional[str] = Query(None), status: Optional[str] = Query(None), unread: Optional[bool] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+async def get_chats(request: Request, query: Optional[str] = Query(None), trace_id: Optional[str] = Query(None), topic: Optional[str] = Query(None), role: Optional[str] = Query(None), status: Optional[str] = Query(None), unread: Optional[bool] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset, trace_id=trace_id, skill=skill, status=status, unread=unread)
+    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset, trace_id=trace_id, topic=topic, role=role, status=status, unread=unread)
     return [
         {
             "chat_id": c.chat_id,
             "title": c.title,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
-            "skill": c.skill,
+            "role": c.role,
+            "topic": c.topic,
             "trace_id": c.trace_id,
             "backend": c.backend,
             "status": c.status,
@@ -212,8 +213,10 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     }
     if chat.work_dir:
         result["work_dir"] = chat.work_dir
-    if chat.skill:
-        result["skill"] = chat.skill
+    if chat.role:
+        result["role"] = chat.role
+    if chat.topic:
+        result["topic"] = chat.topic
     if chat.trace_id:
         result["trace_id"] = chat.trace_id
     if chat.backend:
