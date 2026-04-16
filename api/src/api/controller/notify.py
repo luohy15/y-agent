@@ -88,11 +88,11 @@ async def post_notify(req: NotifyRequest, request: Request):
                 raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat for skill '{req.skill}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
             if not work_dir:
                 work_dir = existing_chat.work_dir
-        await chat_service.append_message(chat_id, user_msg)
+        updated_chat = await chat_service.append_message(chat_id, user_msg)
         # Set running immediately so frontend shows running state without waiting for worker
-        existing_chat.running = True
+        updated_chat.running = True
         from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(existing_chat)
+        await chat_repo.save_chat_by_id(updated_chat)
     else:
         chat = await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
         # Set running immediately so frontend shows running state without waiting for worker
