@@ -20,6 +20,12 @@ from worker.runner import message_callback, check_interrupted
 MAX_PROCESSES_PER_LAMBDA = 100
 IDLE_EXIT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 10
+MAX_TAIL_RETRIES = 3
+
+
+class TailRetryableError(Exception):
+    """Raised when tail exits with error but is_done=False, signaling a retryable failure."""
+    pass
 
 
 async def _monitor_loop(deadline_at: float, lambda_req_id: str):
@@ -29,6 +35,7 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     ssh_pool = SSHPool()
     tail_tasks = {}  # chat_id -> asyncio.Task
     proc_meta = {}   # chat_id -> proc dict (from DynamoDB)
+    error_counts = {}  # chat_id -> consecutive error count
     idle_since = None
 
     try:
@@ -53,9 +60,27 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
             for cid in done:
                 try:
                     tail_tasks.pop(cid).result()
+                    error_counts.pop(cid, None)  # success or normal pause → reset
+                except TailRetryableError as e:
+                    tail_tasks.pop(cid, None)
+                    error_counts[cid] = error_counts.get(cid, 0) + 1
+                    if error_counts[cid] >= MAX_TAIL_RETRIES:
+                        logger.error("tail task {} exceeded max retries ({}), marking as error", cid, MAX_TAIL_RETRIES)
+                        complete_process(cid, status="error")
+                        await _mark_chat_stopped(cid)
+                        error_counts.pop(cid, None)
+                    else:
+                        logger.warning("tail task {} retryable error (attempt {}/{}): {}", cid, error_counts[cid], MAX_TAIL_RETRIES, e)
                 except Exception as e:
                     tail_tasks.pop(cid, None)
-                    logger.error("tail task {} error: {}", cid, e)
+                    error_counts[cid] = error_counts.get(cid, 0) + 1
+                    if error_counts[cid] >= MAX_TAIL_RETRIES:
+                        logger.error("tail task {} exceeded max retries ({}), marking as error: {}", cid, MAX_TAIL_RETRIES, e)
+                        complete_process(cid, status="error")
+                        await _mark_chat_stopped(cid)
+                        error_counts.pop(cid, None)
+                    else:
+                        logger.warning("tail task {} error (attempt {}/{}): {}", cid, error_counts[cid], MAX_TAIL_RETRIES, e)
                 proc_meta.pop(cid, None)
 
             # 2c. Idle exit (scale to 0)
@@ -260,7 +285,20 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         logger.info("tail_and_process done chat_id={} status={}", chat_id, result["status"])
     else:
         release_lease(chat_id)
+        if result.get("status") == "error":
+            logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
+            raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+async def _mark_chat_stopped(chat_id: str):
+    """Mark a chat as not running after max retries exceeded."""
+    from storage.service import chat as chat_service
+    from storage.repository import chat as chat_repo
+    fresh = await chat_service.get_chat_by_id(chat_id)
+    if fresh:
+        fresh.running = False
+        await chat_repo.save_chat_by_id(fresh)
 
 
 def _send_sqs_continuation():
