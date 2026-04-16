@@ -156,8 +156,16 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         chat = await chat_service.get_chat_by_id(chat_id)
         initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
         initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
+        # Load previously consumed steer IDs from prior Lambda
+        prev_consumed = set()
+        raw_consumed = proc.get("consumed_steer_ids")
+        if raw_consumed:
+            try:
+                prev_consumed = set(json.loads(raw_consumed) if isinstance(raw_consumed, str) else raw_consumed)
+            except (json.JSONDecodeError, TypeError):
+                pass
         from worker.runner import make_steer_checker
-        steer_fn = make_steer_checker(chat_id, initial_msg_ids)
+        steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=prev_consumed)
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
@@ -194,6 +202,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         offset=result["offset"],
         last_message_id=result.get("last_message_id"),
         session_id=result.get("session_id") or result.get("thread_id"),
+        consumed_steer_ids=result.get("consumed_steer_ids"),
     )
 
     if result["is_done"]:

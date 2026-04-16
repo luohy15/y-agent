@@ -110,7 +110,7 @@ def renew_lease(chat_id: str, owner_id: str, lease_duration: int = 900) -> None:
 
 
 def update_process_offset(chat_id: str, offset: int, last_message_id: str = None,
-                          session_id: str = None) -> None:
+                          session_id: str = None, consumed_steer_ids: list = None) -> None:
     """Update the read offset for a process."""
     expr_parts = ["stdout_offset = :offset"]
     values = {":offset": {"N": str(offset)}}
@@ -120,6 +120,9 @@ def update_process_offset(chat_id: str, offset: int, last_message_id: str = None
     if session_id:
         expr_parts.append("session_id = :sid")
         values[":sid"] = {"S": session_id}
+    if consumed_steer_ids:
+        expr_parts.append("consumed_steer_ids = :csids")
+        values[":csids"] = {"S": json.dumps(consumed_steer_ids)}
 
     _get_dynamodb().update_item(
         TableName=TABLE_NAME,

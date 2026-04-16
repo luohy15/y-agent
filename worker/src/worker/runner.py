@@ -22,12 +22,13 @@ def check_interrupted(chat_id: str) -> bool:
     return c.interrupted if c else False
 
 
-def make_steer_checker(chat_id: str, initial_message_ids: set):
+def make_steer_checker(chat_id: str, initial_message_ids: set, previously_consumed: set = None):
     """Create a function that checks for new user messages (steer) in the chat.
 
     Returns list of (text, id) tuples for messages added after the worker started.
+    previously_consumed: steer IDs already sent by a previous Lambda, to avoid duplicates.
     """
-    consumed = set()
+    consumed = set(previously_consumed) if previously_consumed else set()
 
     def check():
         chat = chat_service.get_chat_by_id_sync(chat_id)
