@@ -430,7 +430,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
 
     # Register in DynamoDB for monitoring
     register_process(
-        chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].vm_name,
+        chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
         bot_name=bot_config.name, trace_id=trace_id, skill=skill,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
         backend_type=bot_config.api_type,
