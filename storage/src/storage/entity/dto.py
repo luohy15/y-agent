@@ -10,4 +10,5 @@ from storage.dto import (  # noqa: F401
     Note,
     Email,
     TgTopic,
+    Reminder,
 )
