@@ -328,6 +328,7 @@ Resources:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
           DYNAMODB_TABLE: !Ref CacheTable
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
       Layers:
         - !Ref StorageLayer
       Events:
@@ -336,6 +337,11 @@ Resources:
           Properties:
             Schedule: cron(0 6 * * ? *)
             Input: '{"action": "init_db"}'
+        CheckRemindersSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Input: '{"action": "check_reminders"}'
 
 Outputs:
   APIFunctionArn:
