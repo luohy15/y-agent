@@ -9,6 +9,7 @@ interface TraceViewProps {
   selectedTraceId: string | null;
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
+  onOpenFile?: (path: string) => void;
 }
 
 const fetcher = async (url: string) => {
@@ -73,7 +74,7 @@ function getDomain(url: string): string {
   }
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, onPreviewLink }: TraceViewProps) {
+export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, onPreviewLink, onOpenFile }: TraceViewProps) {
   // Fetch chats for selected trace
   const { data: traceData } = useSWR<TraceChatsResponse>(
     selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
@@ -340,7 +341,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, o
                 {notesOpen && (
                   <div className="px-2 pb-2 space-y-1">
                     {traceNotes.map((note) => (
-                      <div key={note.note_id} className="bg-sol-base02/50 rounded px-2 py-1">
+                      <div
+                        key={note.note_id}
+                        className={`bg-sol-base02/50 rounded px-2 py-1 ${onOpenFile ? "cursor-pointer hover:bg-sol-base02" : ""}`}
+                        onClick={() => onOpenFile?.(note.content_key)}
+                      >
                         <div className="flex items-center gap-1.5">
                           <span className="text-[0.6rem] text-sol-base01">#{note.note_id}</span>
                           {note.front_matter?.tags?.map((tag) => (
