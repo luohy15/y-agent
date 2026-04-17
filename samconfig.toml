@@ -6,3 +6,4 @@ resolve_s3 = true
 s3_prefix = "y-agent"
 region = "us-east-1"
 confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
