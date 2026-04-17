@@ -185,7 +185,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, onSelectChat, o
                     {todoInfo.desc && (
                       <>
                         <span className="text-sol-base01">Desc</span>
-                        <span className="text-sol-base0">{todoInfo.desc}</span>
+                        <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.desc}</span>
                       </>
                     )}
                     {todoInfo.priority && (
