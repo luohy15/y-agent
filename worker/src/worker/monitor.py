@@ -21,6 +21,7 @@ MAX_PROCESSES_PER_LAMBDA = 100
 IDLE_EXIT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 10
 MAX_TAIL_RETRIES = 3
+HARD_TIMEOUT_SECONDS = 3600  # 1 hour
 
 
 class TailRetryableError(Exception):
@@ -50,6 +51,13 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                     if len(tail_tasks) >= MAX_PROCESSES_PER_LAMBDA:
                         break
                     if try_acquire_lease(cid, lambda_req_id):
+                        # Hard timeout check: if process has been running too long, stop it
+                        started_at = proc.get("started_at", 0)
+                        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
+                            logger.warning("hard timeout: chat_id={} started_at={} elapsed={}s", cid, started_at, int(time.time() - started_at))
+                            await _handle_timeout(cid, proc, ssh_pool)
+                            continue
+
                         proc_meta[cid] = proc
                         task = asyncio.create_task(_tail_and_process(cid, proc, lambda_req_id, deadline_at, ssh_pool))
                         tail_tasks[cid] = task
@@ -150,8 +158,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # Get pooled SSH client if pool is available
     client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
 
+    started_at = proc.get("started_at", 0)
+
     def _check_deadline():
         if deadline_at and time.monotonic() > deadline_at:
+            return True
+        # Secondary hard timeout check during tail
+        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
             return True
         return False
 
@@ -304,11 +317,76 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
         logger.info("tail_and_process done chat_id={} status={}", chat_id, result["status"])
     else:
+        # Check if paused due to hard timeout (not just Lambda deadline)
+        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
+            logger.warning("hard timeout (mid-tail): chat_id={} started_at={} elapsed={}s", chat_id, started_at, int(time.time() - started_at))
+            await _handle_timeout(chat_id, proc, ssh_pool)
+            return
+
         release_lease(chat_id)
         if result.get("status") == "error":
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
+    """Handle hard timeout: kill tmux, complete process, mark chat stopped, add message, notify."""
+    from agent.config import resolve_vm_config
+    from storage.entity.dto import Message
+    from storage.service import chat as chat_service
+    from storage.repository import chat as chat_repo
+    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+    # 1. Kill tmux session on remote
+    user_id = proc["user_id"]
+    vm_name = proc["vm_name"]
+    try:
+        vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
+        client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
+        if client:
+            client.exec_command(
+                f"tmux kill-session -t 'cc-{chat_id}' 2>/dev/null; "
+                f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null"
+            )
+            logger.info("hard timeout: killed tmux session for chat_id={}", chat_id)
+    except Exception as e:
+        logger.exception("hard timeout: failed to kill tmux for chat_id={}: {}", chat_id, e)
+
+    # 2. Mark process as timed out in DynamoDB
+    complete_process(chat_id, status="timeout")
+
+    # 3. Mark chat as stopped + add timeout message
+    fresh = await chat_service.get_chat_by_id(chat_id)
+    if fresh:
+        fresh.running = False
+
+        elapsed = int(time.time() - proc.get("started_at", 0))
+        timeout_text = f"This chat was automatically stopped after running for {elapsed // 60} minutes (hard timeout: {HARD_TIMEOUT_SECONDS // 60} min)."
+        timeout_msg = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=timeout_text,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        )
+        message_callback(chat_id, timeout_msg)
+
+        await chat_repo.save_chat_by_id(fresh)
+
+        # 4. Send Telegram notification
+        try:
+            from worker.runner import _resolve_telegram_target
+            from storage.util import send_telegram_message
+            target = _resolve_telegram_target(fresh, user_id)
+            if target:
+                bot_token, tg_chat_id, topic_id = target
+                send_telegram_message(bot_token, tg_chat_id, f"⏰ {timeout_text}", topic_id)
+                logger.info("hard timeout: telegram notification sent for chat_id={}", chat_id)
+        except Exception as e:
+            logger.exception("hard timeout: telegram notification failed for chat_id={}: {}", chat_id, e)
+
+    logger.info("hard timeout: completed handling for chat_id={}", chat_id)
 
 
 async def _mark_chat_stopped(chat_id: str):
