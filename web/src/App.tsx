@@ -713,13 +713,60 @@ export default function App() {
             className={`
               fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
               md:hidden
-              shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden
+              shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden flex flex-col
               max-w-[280px]
               ${chatListOpen ? "translate-x-0" : "translate-x-full"}
             `}
             style={{ width: rightPanelWidth }}
           >
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} traceId={chatListTraceId} onClearTraceId={() => setChatListTraceId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+            {/* Mobile right panel tab header */}
+            <div className="flex items-center gap-1 px-2 py-1 border-b border-sol-base02 shrink-0">
+              <button onClick={() => setRightPanel("notes")} className={rightPanelBtnClass(rightPanel === "notes")} title="Notes">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+              </button>
+              <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Filtered Chats">
+                <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/></svg>
+              </button>
+              <button onClick={() => setRightPanel("links")} className={rightPanelBtnClass(rightPanel === "links")} title="Filtered Links">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+              </button>
+              <button onClick={() => setRightPanel("files")} className={rightPanelBtnClass(rightPanel === "files")} title="Files">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </button>
+              <button onClick={() => setRightPanel("git")} className={rightPanelBtnClass(rightPanel === "git")} title="Source Control">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg>
+              </button>
+              <div className="ml-auto flex items-center gap-1">
+                <button
+                  onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
+                  className="p-1.5 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                  title="Refresh"
+                >
+                  <svg className={`w-4 h-4 transition-transform ${chatListSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
+                <button
+                  onClick={() => setChatListOpen(false)}
+                  className="p-1.5 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+                  title="Close"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            {/* Mobile right panel content */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {rightPanel === "chats" ? (
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+              ) : rightPanel === "notes" ? (
+                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+              ) : rightPanel === "links" ? (
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+              ) : rightPanel === "files" ? (
+                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} />
+              ) : (
+                <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} />
+              )}
+            </div>
           </div>
         </div>
       </div>
