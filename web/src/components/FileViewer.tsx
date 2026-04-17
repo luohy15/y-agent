@@ -382,6 +382,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const handleRefresh = useCallback(() => {
     if (!activeFile) return;
+    if (isTrace) {
+      mutate((key) => typeof key === "string" && key.includes("/api/trace/"));
+      return;
+    }
     if (isTodo) {
       mutate((key) => typeof key === "string" && key.includes("/api/todo/"));
       return;
@@ -631,7 +635,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileTrace ? (
-                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} />
+                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onOpenFile={onPreviewFile} />
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (
