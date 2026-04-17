@@ -10,6 +10,7 @@ from storage.dto.note import Note
 from storage.dto.email import Email
 from storage.dto.dev_worktree import DevWorktreeHistoryEntry, DevWorktree
 from storage.dto.tg_topic import TgTopic
+from storage.dto.reminder import Reminder
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -22,4 +23,5 @@ __all__ = [
     "Email",
     "DevWorktreeHistoryEntry", "DevWorktree",
     "TgTopic",
+    "Reminder",
 ]
