@@ -13,7 +13,7 @@ def reminder_list(status, limit):
     if status is not None:
         params["status"] = status
 
-    resp = api_request("GET", "/api/reminder", params=params)
+    resp = api_request("GET", "/api/reminder/list", params=params)
     reminders = resp.json()
     if not reminders:
         click.echo("No reminders found")
