@@ -15,6 +15,7 @@ from yagent.commands.image.click import image_group
 from yagent.commands.dev.click import dev_group
 from yagent.commands.assoc import assoc_group, unassoc_group
 from yagent.commands.note.click import note_group
+from yagent.commands.reminder.click import reminder_group
 from yagent.commands.notify import notify
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
@@ -40,4 +41,5 @@ cli.add_command(dev_group)
 cli.add_command(note_group)
 cli.add_command(assoc_group)
 cli.add_command(unassoc_group)
+cli.add_command(reminder_group)
 cli.add_command(notify)
