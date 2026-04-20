@@ -47,6 +47,20 @@ function getFileName(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
+function downloadAsMarkdown(filename: string, content: string) {
+  const base = filename.replace(/\.md$/i, "");
+  const safe = (base || "download").replace(/[\\/:*?"<>|]/g, "_");
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safe}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function getBreadcrumb(path: string): string[] {
   return path.replace(/^\.\//, "").split("/").filter(Boolean);
 }
@@ -538,6 +552,24 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
+          {isLinkPreview && selectedLinkId && (() => {
+            const linkContent = cache[`link:${selectedLinkId}`]?.content;
+            if (!linkContent) return null;
+            const nameSource = selectedLinkContentKey ? getFileName(selectedLinkContentKey) : `link-${selectedLinkId}`;
+            return (
+              <button
+                onClick={() => downloadAsMarkdown(nameSource, linkContent)}
+                className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
+                title="Download as Markdown"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </button>
+            );
+          })()}
           {(activeFileName.startsWith("pages/") || activeFileName.includes("/pages/")) && (
             <button
               onClick={async () => {
@@ -576,6 +608,23 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isDiff && (() => {
+            const content = editContent[activeFile] ?? cache[activeFile]?.content;
+            if (content === undefined) return null;
+            return (
+              <button
+                onClick={() => downloadAsMarkdown(getFileName(activeFile), content)}
+                className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
+                title="Download as Markdown"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </button>
+            );
+          })()}
           {isDirty(activeFile) && (
             <button
               onClick={() => handleSave(activeFile)}
