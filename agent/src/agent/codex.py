@@ -266,7 +266,7 @@ async def tail_codex_output(
                 client.exec_command(
                     f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
                 )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
             except Exception:
                 pass
             try:
@@ -295,7 +295,7 @@ async def tail_codex_output(
                             client.exec_command(
                                 f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
                             )
-                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
                         except Exception:
                             pass
                         stdout_ch.channel.close()
