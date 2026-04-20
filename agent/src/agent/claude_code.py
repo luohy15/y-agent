@@ -429,7 +429,7 @@ async def start_detached_ssh(
     try:
         # 1. Clean up any stale files/session (before writing stdin)
         _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
-                         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
 
         # 2. Write prompt to stdin file via SFTP in stream-json format
         stdin_file = f"/tmp/cc-{chat_id}.stdin"
@@ -558,7 +558,7 @@ async def tail_ssh_output(
                 client.exec_command(
                     f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
                 )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
             except Exception:
                 pass
             try:
@@ -593,7 +593,7 @@ async def tail_ssh_output(
                 client.exec_command(
                     f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
                 )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null")
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
             except Exception:
                 pass
             try:
