@@ -330,6 +330,7 @@ Resources:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
           DYNAMODB_TABLE: !Ref CacheTable
+          SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_TIMEZONE: Asia/Shanghai
       Layers:
@@ -345,6 +346,16 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "check_reminders"}'
+        FetchRssFeedsSchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"action": "fetch_rss_feeds"}'
+        DispatchLinkDownloadsSchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(5 minutes)
+            Input: '{"action": "dispatch_link_downloads"}'
 
 Outputs:
   APIFunctionArn:
