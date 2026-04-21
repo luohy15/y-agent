@@ -524,7 +524,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       {activeFile && (
         <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
           {isDiff && <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span>}
-          {getBreadcrumb(isLinkPreview && selectedLinkContentKey ? selectedLinkContentKey : activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
+          {getBreadcrumb(isLinkPreview && selectedLinkContentKey ? (defaultWorkDir ? `${defaultWorkDir}/${selectedLinkContentKey}` : selectedLinkContentKey) : activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
             <span key={i} className="flex items-center shrink-0">
               {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
