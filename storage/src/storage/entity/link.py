@@ -11,6 +11,8 @@ class LinkEntity(Base, BaseEntity):
     title = Column(String, nullable=True)
     download_status = Column(String, nullable=True)  # pending/downloading/done/failed
     content_key = Column(String, nullable=True)       # S3 key for stored content
+    source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
+    source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id (public string, no FK — preserved after feed delete)
 
 
 class LinkActivityEntity(Base, BaseEntity):

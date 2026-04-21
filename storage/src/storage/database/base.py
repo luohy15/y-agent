@@ -71,6 +71,7 @@ def init_tables():
     import storage.entity.note  # noqa: F401
     import storage.entity.note_todo_relation  # noqa: F401
     import storage.entity.reminder  # noqa: F401
+    import storage.entity.rss_feed  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 

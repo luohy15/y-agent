@@ -22,6 +22,8 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         updated_at_unix=activity.updated_at_unix if activity.updated_at_unix else None,
         download_status=activity.download_status or link.download_status,
         content_key=activity.content_key or link.content_key,
+        source=link.source,
+        source_feed_id=link.source_feed_id,
     )
 
 
