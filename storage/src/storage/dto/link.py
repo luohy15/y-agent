@@ -38,6 +38,8 @@ class LinkActivity:
     updated_at_unix: Optional[int] = None
     download_status: Optional[str] = None
     content_key: Optional[str] = None
+    source: Optional[str] = None
+    source_feed_id: Optional[str] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -61,6 +63,10 @@ class LinkActivity:
             result['download_status'] = self.download_status
         if self.content_key is not None:
             result['content_key'] = self.content_key
+        if self.source is not None:
+            result['source'] = self.source
+        if self.source_feed_id is not None:
+            result['source_feed_id'] = self.source_feed_id
         return result
 
 @dataclass

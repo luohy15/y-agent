@@ -11,4 +11,5 @@ from storage.dto import (  # noqa: F401
     Email,
     TgTopic,
     Reminder,
+    RssFeed,
 )
