@@ -152,10 +152,11 @@ interface LinkListProps {
   isLoggedIn: boolean;
   onPreview: (link: Link) => void;
   todoId?: string | null;
+  feedId?: string | null;
   hideFilters?: boolean;
 }
 
-export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }: LinkListProps) {
+export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters }: LinkListProps) {
   const [range, setRange] = useState<DateRange>(() => {
     const saved = localStorage.getItem("linkListDateRange");
     return (saved === "today" || saved === "7d" || saved === "30d" || saved === "all") ? saved : "7d";
@@ -169,7 +170,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
   const [spinning, setSpinning] = useState(false);
   useEffect(() => { localStorage.setItem("linkListDateRange", range); }, [range]);
   useEffect(() => { localStorage.setItem("linkListDownloaded", String(downloadedOnly)); }, [downloadedOnly]);
-  useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId, downloadedOnly]);
+  useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId, feedId, downloadedOnly]);
 
   const { start, end } = getRange(range);
   const params = new URLSearchParams();
@@ -177,6 +178,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
   if (end !== undefined) params.set("end", String(end));
   if (query) params.set("query", query);
   if (todoId) params.set("todo_id", todoId);
+  if (feedId) params.set("source_feed_id", feedId);
   if (downloadedOnly) params.set("downloaded", "true");
   params.set("limit", String(LIMIT));
   params.set("offset", String(offset));
