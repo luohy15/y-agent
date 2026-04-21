@@ -42,6 +42,17 @@ def _validate_scrape_config(
             status_code=400,
             detail="scrape_config.item_selector is required and must be a non-empty string",
         )
+    date_format = scrape_config.get('date_format')
+    date_selector = scrape_config.get('date_selector')
+    if (
+        isinstance(date_format, str)
+        and date_format.strip()
+        and not (isinstance(date_selector, str) and date_selector.strip())
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="scrape_config.date_format requires date_selector",
+        )
 
 
 class CreateFeedRequest(BaseModel):

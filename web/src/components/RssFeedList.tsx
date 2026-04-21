@@ -7,6 +7,9 @@ interface ScrapeConfig {
   title_selector?: string | null;
   link_selector?: string | null;
   link_attr?: string | null;
+  date_selector?: string | null;
+  date_attr?: string | null;
+  date_format?: string | null;
 }
 
 interface RssFeed {
@@ -63,6 +66,9 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
   const [titleSelector, setTitleSelector] = useState("");
   const [linkSelector, setLinkSelector] = useState("");
   const [linkAttr, setLinkAttr] = useState("");
+  const [dateSelector, setDateSelector] = useState("");
+  const [dateAttr, setDateAttr] = useState("");
+  const [dateFormat, setDateFormat] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -93,6 +99,12 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
         if (l) cfg.link_selector = l;
         const a = linkAttr.trim();
         if (a) cfg.link_attr = a;
+        const ds = dateSelector.trim();
+        if (ds) cfg.date_selector = ds;
+        const da = dateAttr.trim();
+        if (da) cfg.date_attr = da;
+        const df = dateFormat.trim();
+        if (df) cfg.date_format = df;
         body.scrape_config = cfg;
       }
       const res = await authFetch(`${API}/api/rss-feed`, {
@@ -110,6 +122,9 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
       setTitleSelector("");
       setLinkSelector("");
       setLinkAttr("");
+      setDateSelector("");
+      setDateAttr("");
+      setDateFormat("");
       setFeedType("rss");
       await mutate();
     } catch (e: any) {
@@ -117,7 +132,7 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [urlInput, titleInput, feedType, itemSelector, titleSelector, linkSelector, linkAttr, mutate]);
+  }, [urlInput, titleInput, feedType, itemSelector, titleSelector, linkSelector, linkAttr, dateSelector, dateAttr, dateFormat, mutate]);
 
   const handleDelete = useCallback(async (feed: RssFeed) => {
     if (!window.confirm(`Delete feed: ${feed.title || feed.url}?`)) return;
@@ -231,6 +246,32 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
                 onChange={(e) => setLinkAttr(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
                 className="w-20 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+            </div>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                placeholder="date_selector (optional, e.g. time)"
+                value={dateSelector}
+                onChange={(e) => setDateSelector(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              <input
+                type="text"
+                placeholder="date_attr (e.g. datetime)"
+                value={dateAttr}
+                onChange={(e) => setDateAttr(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="w-28 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              <input
+                type="text"
+                placeholder="date_format (e.g. %Y-%m-%d)"
+                value={dateFormat}
+                onChange={(e) => setDateFormat(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="w-32 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
               />
             </div>
           </div>
