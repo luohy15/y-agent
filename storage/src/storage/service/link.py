@@ -10,8 +10,9 @@ def add_link(
     url: str,
     title: Optional[str] = None,
     timestamp: Optional[int] = None,
+    published_at: Optional[int] = None,
 ) -> LinkActivity:
-    return link_repo.save_link(user_id, url, title, timestamp or 0)
+    return link_repo.save_link(user_id, url, title, timestamp or 0, published_at=published_at)
 
 
 def add_links_batch(user_id: int, links: List[dict]) -> int:

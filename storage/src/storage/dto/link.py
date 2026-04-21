@@ -41,6 +41,7 @@ class LinkActivity:
     source: Optional[str] = None
     source_feed_id: Optional[str] = None
     crawl_fail_count: Optional[int] = None
+    published_at: Optional[int] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -70,6 +71,8 @@ class LinkActivity:
             result['source_feed_id'] = self.source_feed_id
         if self.crawl_fail_count is not None:
             result['crawl_fail_count'] = self.crawl_fail_count
+        if self.published_at is not None:
+            result['published_at'] = self.published_at
         return result
 
 @dataclass
