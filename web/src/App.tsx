@@ -63,8 +63,8 @@ export default function App() {
   const [chatTopic, setChatTopic] = useState<string | null>(null);
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatBackend, setChatBackend] = useState<string | null>(null);
-  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
-  const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(null);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(() => localStorage.getItem("selectedLinkId") || null);
+  const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(() => localStorage.getItem("selectedLinkContentKey") || null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
   const [chatListSpinning, setChatListSpinning] = useState(false);
@@ -100,6 +100,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
   useEffect(() => { if (previewFile) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
+  useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
+  useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
 
   const handleOpenFile = useCallback((path: string) => {
     const p = path.replace(/^\.\//, "");
