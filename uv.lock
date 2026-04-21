@@ -2382,6 +2382,7 @@ name = "y-agent-worker"
 version = "0.4.0"
 source = { editable = "worker" }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "boto3" },
     { name = "celery" },
     { name = "feedparser" },
@@ -2396,6 +2397,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "boto3", specifier = ">=1.28.0" },
     { name = "celery", specifier = ">=5.3.0" },
     { name = "feedparser", specifier = ">=6.0.0" },
