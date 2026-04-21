@@ -451,8 +451,9 @@ def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[
 
 
 def list_pending_rss_links(limit: int, max_fails: int = 5) -> List[dict]:
-    """Return links with source='rss' and download_status IS NULL, joined to rss_feed
-    to resolve the owning user_id. Orphan links (feed deleted) are skipped.
+    """Return links with source='rss' whose download_status is NULL or 'pending',
+    joined to rss_feed to resolve the owning user_id. Orphan links (feed deleted)
+    are skipped.
 
     Skips links whose crawl_fail_count exceeds `max_fails`."""
     from storage.entity.rss_feed import RssFeedEntity
@@ -462,7 +463,7 @@ def list_pending_rss_links(limit: int, max_fails: int = 5) -> List[dict]:
             .join(RssFeedEntity, RssFeedEntity.rss_feed_id == LinkEntity.source_feed_id)
             .filter(
                 LinkEntity.source == 'rss',
-                LinkEntity.download_status.is_(None),
+                (LinkEntity.download_status.is_(None)) | (LinkEntity.download_status == 'pending'),
                 (LinkEntity.crawl_fail_count.is_(None)) | (LinkEntity.crawl_fail_count <= max_fails),
             )
             .order_by(LinkEntity.id.asc())
