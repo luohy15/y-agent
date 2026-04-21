@@ -1,7 +1,7 @@
-"""SSH downloader — runs `y link download` on the opencli VM via SSH.
+"""SSH helpers for link content storage on the remote VM.
 
-Saves the markdown directly to `$Y_AGENT_HOME/<content_key>` on the remote side,
-so the return dict does not carry the `content` body.
+`$Y_AGENT_HOME` is not exported in the VM's non-interactive shell, so we apply
+the same default as the Python CLI (`~/.y-agent`) via `${Y_AGENT_HOME:-$HOME/.y-agent}`.
 """
 
 import json
@@ -10,6 +10,9 @@ from loguru import logger
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
+
+
+_RESOLVE_HOME = '"${Y_AGENT_HOME:-$HOME/.y-agent}"'
 
 
 class _CmdRunner(Tool):
@@ -52,13 +55,12 @@ async def download(user_id: int, url: str, content_key: str, timeout: int = 300)
 
 
 async def save_content_remote(user_id: int, content_key: str, content: str, timeout: int = 60) -> None:
-    """Write `content` to `$Y_AGENT_HOME/<content_key>` on the remote VM via SSH stdin."""
+    """Write `content` to `${Y_AGENT_HOME:-$HOME/.y-agent}/<content_key>` on the remote VM."""
     vm_config = resolve_vm_config(user_id)
     runner = _CmdRunner(vm_config)
-    # Use single-quoted shell path; content_key is server-controlled, no shell metachars expected.
     safe_path = content_key.replace("'", "'\\''")
     script = (
-        f"target=\"$Y_AGENT_HOME/{safe_path}\"; "
+        f"target={_RESOLVE_HOME}\"/{safe_path}\"; "
         "mkdir -p \"$(dirname \"$target\")\" && cat > \"$target\""
     )
     await runner.run_cmd(["sh", "-c", script], stdin=content, timeout=timeout)

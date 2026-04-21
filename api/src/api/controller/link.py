@@ -2,11 +2,47 @@ import os
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from loguru import logger
 from pydantic import BaseModel
 
+from agent.config import resolve_vm_config
+from agent.tool_base import Tool
 from storage.service import link as link_service
 
 Y_AGENT_HOME = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
+
+
+class _CmdRunner(Tool):
+    name = "_cmd_runner"
+    description = ""
+    parameters = {}
+
+    async def execute(self, arguments):
+        pass
+
+
+_SSH_READ_HEADER_OK = "__Y_OK__\n"
+_SSH_READ_HEADER_MISS = "__Y_MISS__\n"
+
+
+async def _read_content_remote(user_id: int, content_key: str, timeout: int = 30) -> Optional[str]:
+    """Read `${Y_AGENT_HOME:-$HOME/.y-agent}/<content_key>` from the user's remote VM."""
+    try:
+        vm_config = resolve_vm_config(user_id)
+        runner = _CmdRunner(vm_config)
+        safe_path = content_key.replace("'", "'\\''")
+        script = (
+            f'target="${{Y_AGENT_HOME:-$HOME/.y-agent}}/{safe_path}"; '
+            f'if [ -f "$target" ]; then printf %s "{_SSH_READ_HEADER_OK}"; cat "$target"; '
+            f'else printf %s "{_SSH_READ_HEADER_MISS}"; fi'
+        )
+        out = await runner.run_cmd(["sh", "-c", script], timeout=timeout)
+    except Exception as e:
+        logger.warning("ssh read_content err key={}: {}", content_key, e)
+        return None
+    if out.startswith(_SSH_READ_HEADER_OK):
+        return out[len(_SSH_READ_HEADER_OK):]
+    return None
 
 router = APIRouter(prefix="/link")
 
@@ -140,16 +176,21 @@ async def get_link_content(
 
     content_key = result.get("content_key")
     if content_key:
-        try:
-            full_path = os.path.join(Y_AGENT_HOME, content_key)
-            with open(full_path, "r", encoding="utf-8") as f:
-                result["content"] = f.read()
-        except FileNotFoundError:
-            result["content"] = None
+        result["content"] = await _read_link_content(user_id, content_key)
     else:
         result["content"] = None
 
     return result
+
+
+async def _read_link_content(user_id: int, content_key: str) -> Optional[str]:
+    full_path = os.path.join(Y_AGENT_HOME, content_key)
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        pass
+    return await _read_content_remote(user_id, content_key)
 
 
 @router.post("/delete")
