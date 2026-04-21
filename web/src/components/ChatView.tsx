@@ -14,6 +14,7 @@ interface ChatViewProps {
   gsiReady?: boolean;
   vmName?: string | null;
   botName?: string | null;
+  defaultWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
   onTopicChange?: (skill: string | null) => void;
   onTraceIdChange?: (traceId: string | null) => void;
@@ -24,7 +25,7 @@ interface ChatViewProps {
   onSelectTrace?: (traceId: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, onWorkDirChange, onTopicChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -323,12 +324,21 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   }, [followUp, sending, chatId, vmName, botName, chatWorkDir]);
 
   const handleOpenFile = useCallback((path: string) => {
-    if (chatWorkDir && !path.startsWith("/")) {
-      onOpenFile?.(`${chatWorkDir}/${path}`);
-    } else {
-      onOpenFile?.(path);
+    const normalized = path.replace(/^\.\//, "");
+    if (normalized.startsWith("/")) {
+      onOpenFile?.(normalized);
+      return;
     }
-  }, [chatWorkDir, onOpenFile]);
+    if (normalized.startsWith("pages/") && defaultWorkDir) {
+      onOpenFile?.(`${defaultWorkDir}/${normalized}`);
+      return;
+    }
+    if (chatWorkDir) {
+      onOpenFile?.(`${chatWorkDir}/${normalized}`);
+      return;
+    }
+    onOpenFile?.(normalized);
+  }, [chatWorkDir, defaultWorkDir, onOpenFile]);
 
   const createChat = useCallback(async () => {
     const text = newPrompt.trim();
