@@ -2,6 +2,9 @@
 
 from collections import OrderedDict
 from typing import List, Optional, Set
+
+from sqlalchemy import and_, func, or_
+
 from storage.entity.link import LinkEntity, LinkActivityEntity
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.database.base import get_db
@@ -450,35 +453,90 @@ def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[
             entity.source_feed_id = source_feed_id
 
 
-def list_pending_rss_links(limit: int, max_fails: int = 5) -> List[dict]:
-    """Return links with source='rss' whose download_status is NULL or 'pending',
-    joined to rss_feed to resolve the owning user_id. Orphan links (feed deleted)
-    are skipped.
+def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
+    """Return links/activities needing download.
 
-    Skips links whose crawl_fail_count exceeds `max_fails`."""
-    from storage.entity.rss_feed import RssFeedEntity
+    Picks rows where `crawl_fail_count <= max_fails` and either:
+      - link-level: (`download_status` IS NULL AND `source` = 'rss') OR `download_status` = 'pending'
+      - activity-level: `LinkActivityEntity.download_status` = 'pending'
+
+    The link-level NULL path covers RSS auto-ingest; the 'pending' path covers
+    explicit user-triggered downloads. Link-level `user_id` is resolved via the
+    earliest activity per link; orphan links with no activity are skipped.
+
+    Returns list of dicts: {user_id, link_id, base_url, url, activity_id}.
+    `activity_id` is None for link-level items.
+    """
+    results: list[dict] = []
+
     with get_db() as session:
-        rows = (
-            session.query(LinkEntity, RssFeedEntity.user_id)
-            .join(RssFeedEntity, RssFeedEntity.rss_feed_id == LinkEntity.source_feed_id)
+        # --- Link-level pending ---
+        link_rows = (
+            session.query(LinkEntity)
             .filter(
-                LinkEntity.source == 'rss',
-                (LinkEntity.download_status.is_(None)) | (LinkEntity.download_status == 'pending'),
-                (LinkEntity.crawl_fail_count.is_(None)) | (LinkEntity.crawl_fail_count <= max_fails),
+                or_(
+                    and_(
+                        LinkEntity.download_status.is_(None),
+                        LinkEntity.source == 'rss',
+                    ),
+                    LinkEntity.download_status == 'pending',
+                ),
+                (LinkEntity.crawl_fail_count.is_(None))
+                | (LinkEntity.crawl_fail_count <= max_fails),
             )
             .order_by(LinkEntity.id.asc())
             .limit(limit)
             .all()
         )
-        return [
-            {
-                'link_id': lnk.link_id,
-                'base_url': lnk.base_url,
-                'source_feed_id': lnk.source_feed_id,
-                'user_id': user_id,
-            }
-            for lnk, user_id in rows
-        ]
+        if link_rows:
+            link_internal_ids = [l.id for l in link_rows]
+            act_user_rows = (
+                session.query(
+                    LinkActivityEntity.link_id,
+                    func.min(LinkActivityEntity.user_id),
+                )
+                .filter(LinkActivityEntity.link_id.in_(link_internal_ids))
+                .group_by(LinkActivityEntity.link_id)
+                .all()
+            )
+            act_user = {row[0]: row[1] for row in act_user_rows}
+            for lnk in link_rows:
+                uid = act_user.get(lnk.id)
+                if uid is None:
+                    continue
+                results.append({
+                    'user_id': uid,
+                    'link_id': lnk.link_id,
+                    'base_url': lnk.base_url,
+                    'url': lnk.base_url,
+                    'activity_id': None,
+                })
+
+        # --- Activity-level pending ---
+        if len(results) < limit:
+            remaining = limit - len(results)
+            act_rows = (
+                session.query(LinkActivityEntity, LinkEntity)
+                .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
+                .filter(
+                    LinkActivityEntity.download_status == 'pending',
+                    (LinkEntity.crawl_fail_count.is_(None))
+                    | (LinkEntity.crawl_fail_count <= max_fails),
+                )
+                .order_by(LinkActivityEntity.id.asc())
+                .limit(remaining)
+                .all()
+            )
+            for act, lnk in act_rows:
+                results.append({
+                    'user_id': act.user_id,
+                    'link_id': lnk.link_id,
+                    'base_url': lnk.base_url,
+                    'url': act.url,
+                    'activity_id': act.activity_id,
+                })
+
+    return results
 
 
 def increment_crawl_fail_count(link_id: str) -> None:

@@ -8,7 +8,6 @@ from loguru import logger
 from worker.celery_app import app
 from worker.monitor import _monitor_loop
 from worker.runner import run_chat
-from worker.link_downloader import run_link_download
 
 
 async def _run_chat_with_monitor(chat_id, bot_name, user_id, vm_name, work_dir,
@@ -35,11 +34,11 @@ def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_nam
         logger.exception("Chat {} failed: {}", chat_id, e)
 
 
-@app.task(name="worker.tasks.process_link_download")
-def process_link_download(user_id: int = None, link_id: str = None, url: str = None, activity_id: str = None, **kwargs):
-    """Download link content via fetcher service."""
+@app.task(name="worker.tasks.trigger_batch_download")
+def trigger_batch_download():
+    """Run batch_download_links once; pipeline lock dedupes concurrent runs."""
     try:
-        asyncio.run(run_link_download(user_id=user_id, link_id=link_id, url=url, activity_id=activity_id))
-        logger.info("Finished link download {}", link_id)
+        from worker.steps.batch_download_links import handle_batch_download_links
+        asyncio.run(handle_batch_download_links())
     except Exception as e:
-        logger.exception("Link download {} failed: {}", link_id, e)
+        logger.exception("trigger_batch_download failed: {}", e)

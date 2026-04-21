@@ -112,29 +112,24 @@ def update_link_title(link_id: str, title: str):
     link_repo.update_link_title(link_id, title)
 
 
-def send_download_task(user_id: int, link_id: str, url: str, activity_id: Optional[str] = None):
-    """Enqueue a link download task via SQS or Celery."""
+def trigger_batch_download() -> None:
+    """Fire one extra batch_download_links run (async).
+
+    `pipeline_lock` inside the step dedupes concurrent runs, so this is a
+    fire-and-forget nudge for low-latency UX on user-clicked downloads.
+    """
     import json
     import os
-    payload = {
-        "task_type": "link_download",
-        "user_id": user_id,
-        "link_id": link_id,
-        "url": url,
-    }
-    if activity_id:
-        payload["activity_id"] = activity_id
+    payload = {"task_type": "trigger_batch_download"}
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
         from storage.service.chat import _get_sqs_client
-        client = _get_sqs_client()
-        client.send_message(
+        _get_sqs_client().send_message(
             QueueUrl=queue_url,
             MessageBody=json.dumps(payload),
         )
         return
 
     from storage.service.chat import _get_celery_app
-    app = _get_celery_app()
-    app.send_task("worker.tasks.process_link_download", kwargs=payload)
+    _get_celery_app().send_task("worker.tasks.trigger_batch_download")

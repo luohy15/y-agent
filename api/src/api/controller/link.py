@@ -89,11 +89,10 @@ async def batch_create_links(req: BatchCreateLinksRequest, request: Request):
 
 @router.post("/download")
 async def download_links(req: DownloadLinksRequest, request: Request):
-    user_id = _get_user_id(request)
+    _get_user_id(request)
     results = link_service.request_downloads(req.urls)
-    for item in results:
-        if item['download_status'] == 'pending':
-            link_service.send_download_task(user_id, item['link_id'], item['url'], activity_id=item.get('activity_id'))
+    if any(item['download_status'] == 'pending' for item in results):
+        link_service.trigger_batch_download()
     return results
 
 
