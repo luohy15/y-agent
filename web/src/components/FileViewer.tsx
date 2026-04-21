@@ -22,6 +22,7 @@ interface FileViewerProps {
   onReorderFiles: (files: string[]) => void;
   vmName?: string | null;
   workDir?: string;
+  defaultWorkDir?: string;
   diffFiles?: Set<string>;
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
@@ -300,7 +301,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -684,7 +685,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileTrace ? (
-                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onOpenFile={onPreviewFile} />
+                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} defaultWorkDir={defaultWorkDir} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onOpenFile={onPreviewFile} />
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} />
               ) : fileCalendar ? (

@@ -70,6 +70,7 @@ export default function App() {
   const [chatListSpinning, setChatListSpinning] = useState(false);
   const [chatSpinning, setChatSpinning] = useState(false);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
+  const defaultWorkDir = vmList.find(v => v.name === "default")?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
@@ -557,7 +558,7 @@ export default function App() {
           ) : sidebarPanel === "chats" ? (
             <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
           ) : sidebarPanel === "notes" ? (
-            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handlePreviewFile} />
+            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
           ) : sidebarPanel === "links" ? (
             <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           ) : sidebarPanel === "rss" ? (
@@ -612,7 +613,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -624,7 +625,7 @@ export default function App() {
                   {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={(b) => { setChatBackend(b); if (b) setSelectedBot(b); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={(b) => { setChatBackend(b); if (b) setSelectedBot(b); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}
@@ -697,7 +698,7 @@ export default function App() {
                 {rightPanel === "chats" ? (
                   <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : rightPanel === "notes" ? (
-                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
+                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
                   <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "files" ? (
@@ -761,7 +762,7 @@ export default function App() {
               {rightPanel === "chats" ? (
                 <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : rightPanel === "notes" ? (
-                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={currentVmWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "files" ? (
