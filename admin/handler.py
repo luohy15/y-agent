@@ -3,6 +3,9 @@
 import json
 import os
 
+from loguru import logger
+
+
 def lambda_handler(event, context):
     """Handle admin actions dispatched by CloudWatch schedules or manual invocation.
 
@@ -11,7 +14,7 @@ def lambda_handler(event, context):
         check_reminders: Send due reminders via Telegram
     """
     action = event.get("action", "")
-    print(f"[admin] action={action} event={json.dumps(event)}")
+    logger.info("[admin] action={} event={}", action, json.dumps(event))
 
     if action == "init_db":
         from storage.database.base import init_db, init_tables
@@ -34,11 +37,11 @@ def _check_reminders():
 
     bot_token = get_telegram_bot_token()
     if not bot_token:
-        print("[check_reminders] TELEGRAM_BOT_TOKEN not set, skipping")
+        logger.warning("[check_reminders] TELEGRAM_BOT_TOKEN not set, skipping")
         return {"status": "skip", "action": "check_reminders", "reason": "no bot token"}
 
     pending = reminder_svc.get_pending_reminders()
-    print(f"[check_reminders] found {len(pending)} due reminders")
+    logger.info("[check_reminders] found {} due reminders", len(pending))
 
     sent_count = 0
     errors = []
@@ -48,7 +51,11 @@ def _check_reminders():
 
         user = user_repo.get_user_by_id(user_id)
         if not user or not user.telegram_id:
-            print(f"[check_reminders] skip reminder {reminder.reminder_id}: user {user_id} has no telegram_id")
+            logger.warning(
+                "[check_reminders] skip reminder {}: user {} has no telegram_id",
+                reminder.reminder_id,
+                user_id,
+            )
             continue
 
         text = f"\U0001f514 提醒: {reminder.title}"
@@ -59,10 +66,18 @@ def _check_reminders():
             send_telegram_message(bot_token, user.telegram_id, text)
             reminder_svc.mark_sent(user_id, reminder.reminder_id)
             sent_count += 1
-            print(f"[check_reminders] sent reminder {reminder.reminder_id} to telegram_id {user.telegram_id}")
+            logger.info(
+                "[check_reminders] sent reminder {} to telegram_id {}",
+                reminder.reminder_id,
+                user.telegram_id,
+            )
         except Exception as e:
             errors.append({"reminder_id": reminder.reminder_id, "error": str(e)})
-            print(f"[check_reminders] error sending reminder {reminder.reminder_id}: {e}")
+            logger.exception(
+                "[check_reminders] error sending reminder {}: {}",
+                reminder.reminder_id,
+                e,
+            )
 
     result = {"status": "ok", "action": "check_reminders", "sent": sent_count, "total": len(pending)}
     if errors:
