@@ -2,15 +2,26 @@ import { useCallback, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 
+interface ScrapeConfig {
+  item_selector?: string;
+  title_selector?: string | null;
+  link_selector?: string | null;
+  link_attr?: string | null;
+}
+
 interface RssFeed {
   rss_feed_id: string;
   url: string;
   title?: string;
   last_fetched_at?: string;
   last_item_ts?: number;
+  feed_type?: string;
+  scrape_config?: ScrapeConfig;
   created_at?: string;
   updated_at?: string;
 }
+
+type FeedType = "rss" | "scrape";
 
 interface RssFeedListProps {
   isLoggedIn: boolean;
@@ -47,6 +58,11 @@ function formatRelative(iso?: string): string {
 export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
   const [urlInput, setUrlInput] = useState("");
   const [titleInput, setTitleInput] = useState("");
+  const [feedType, setFeedType] = useState<FeedType>("rss");
+  const [itemSelector, setItemSelector] = useState("");
+  const [titleSelector, setTitleSelector] = useState("");
+  const [linkSelector, setLinkSelector] = useState("");
+  const [linkAttr, setLinkAttr] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -57,13 +73,32 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
   const handleAdd = useCallback(async () => {
     const url = urlInput.trim();
     if (!url) return;
+    if (feedType === "scrape" && !itemSelector.trim()) {
+      setErr("item_selector is required for scrape feeds");
+      return;
+    }
     setSubmitting(true);
     setErr(null);
     try {
+      const body: Record<string, any> = {
+        url,
+        title: titleInput.trim() || null,
+        feed_type: feedType,
+      };
+      if (feedType === "scrape") {
+        const cfg: ScrapeConfig = { item_selector: itemSelector.trim() };
+        const t = titleSelector.trim();
+        if (t) cfg.title_selector = t;
+        const l = linkSelector.trim();
+        if (l) cfg.link_selector = l;
+        const a = linkAttr.trim();
+        if (a) cfg.link_attr = a;
+        body.scrape_config = cfg;
+      }
       const res = await authFetch(`${API}/api/rss-feed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, title: titleInput.trim() || null }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -71,13 +106,18 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
       }
       setUrlInput("");
       setTitleInput("");
+      setItemSelector("");
+      setTitleSelector("");
+      setLinkSelector("");
+      setLinkAttr("");
+      setFeedType("rss");
       await mutate();
     } catch (e: any) {
       setErr(e?.message || "Failed to add feed");
     } finally {
       setSubmitting(false);
     }
-  }, [urlInput, titleInput, mutate]);
+  }, [urlInput, titleInput, feedType, itemSelector, titleSelector, linkSelector, linkAttr, mutate]);
 
   const handleDelete = useCallback(async (feed: RssFeed) => {
     if (!window.confirm(`Delete feed: ${feed.title || feed.url}?`)) return;
@@ -132,6 +172,15 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
           </button>
         </div>
         <div className="flex gap-1.5">
+          <select
+            value={feedType}
+            onChange={(e) => setFeedType(e.target.value as FeedType)}
+            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue text-[0.7rem]"
+            title="Feed type"
+          >
+            <option value="rss">RSS</option>
+            <option value="scrape">Scrape</option>
+          </select>
           <input
             type="text"
             placeholder="Title (optional)"
@@ -148,6 +197,44 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
             {submitting ? "Adding..." : "Add"}
           </button>
         </div>
+        {feedType === "scrape" && (
+          <div className="flex flex-col gap-1 pt-0.5">
+            <input
+              type="text"
+              placeholder="item_selector (required, e.g. a[href^='/news/'])"
+              value={itemSelector}
+              onChange={(e) => setItemSelector(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+              className="px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                placeholder="title_selector (optional, e.g. h3)"
+                value={titleSelector}
+                onChange={(e) => setTitleSelector(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              <input
+                type="text"
+                placeholder="link_selector (optional)"
+                value={linkSelector}
+                onChange={(e) => setLinkSelector(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              <input
+                type="text"
+                placeholder="link_attr (href)"
+                value={linkAttr}
+                onChange={(e) => setLinkAttr(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+                className="w-20 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+            </div>
+          </div>
+        )}
         {err && <div className="text-sol-red text-[0.65rem] px-1">{err}</div>}
       </div>
       <div className="flex-1 overflow-y-auto p-1.5">
@@ -173,13 +260,23 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
                   loading="lazy"
                 />
                 <div className="min-w-0 flex-1 flex flex-col">
-                  <button
-                    onClick={() => handleRename(feed)}
-                    className="text-left text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] cursor-pointer"
-                    title={`Rename — ${feed.title || "(untitled)"}`}
-                  >
-                    {feed.title || getDomain(feed.url)}
-                  </button>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <button
+                      onClick={() => handleRename(feed)}
+                      className="text-left text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] cursor-pointer"
+                      title={`Rename — ${feed.title || "(untitled)"}`}
+                    >
+                      {feed.title || getDomain(feed.url)}
+                    </button>
+                    {feed.feed_type === "scrape" && (
+                      <span
+                        className="shrink-0 px-1 py-0 bg-sol-base02 border border-sol-yellow/50 rounded text-sol-yellow text-[0.55rem] font-medium leading-tight"
+                        title={feed.scrape_config ? JSON.stringify(feed.scrape_config, null, 2) : "scrape feed"}
+                      >
+                        SCRAPE
+                      </span>
+                    )}
+                  </div>
                   <a
                     href={feed.url}
                     target="_blank"
