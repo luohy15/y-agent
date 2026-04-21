@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -9,6 +9,8 @@ class RssFeed:
     title: Optional[str] = None
     last_fetched_at: Optional[str] = None
     last_item_ts: Optional[int] = None
+    feed_type: Optional[str] = None
+    scrape_config: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -22,6 +24,8 @@ class RssFeed:
             title=data.get('title'),
             last_fetched_at=data.get('last_fetched_at'),
             last_item_ts=data.get('last_item_ts'),
+            feed_type=data.get('feed_type'),
+            scrape_config=data.get('scrape_config'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -39,6 +43,10 @@ class RssFeed:
             result['last_fetched_at'] = self.last_fetched_at
         if self.last_item_ts is not None:
             result['last_item_ts'] = self.last_item_ts
+        if self.feed_type is not None:
+            result['feed_type'] = self.feed_type
+        if self.scrape_config is not None:
+            result['scrape_config'] = self.scrape_config
         if self.created_at is not None:
             result['created_at'] = self.created_at
         if self.updated_at is not None:

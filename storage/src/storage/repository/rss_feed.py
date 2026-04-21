@@ -1,10 +1,27 @@
 """Function-based rss_feed repository using SQLAlchemy sessions."""
 
-from typing import List, Optional
+import json
+from typing import Any, Dict, List, Optional
 from storage.entity.rss_feed import RssFeedEntity
 from storage.dto.rss_feed import RssFeed
 from storage.database.base import get_db
 from storage.util import generate_id
+
+
+def _parse_scrape_config(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _serialize_scrape_config(value: Optional[Dict[str, Any]]) -> Optional[str]:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
@@ -14,6 +31,8 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
         title=entity.title,
         last_fetched_at=entity.last_fetched_at,
         last_item_ts=entity.last_item_ts,
+        feed_type=entity.feed_type or 'rss',
+        scrape_config=_parse_scrape_config(entity.scrape_config),
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -57,7 +76,13 @@ def get_feed_by_url(user_id: int, url: str) -> Optional[RssFeed]:
         return _entity_to_dto(row)
 
 
-def add_feed(user_id: int, url: str, title: Optional[str] = None) -> RssFeed:
+def add_feed(
+    user_id: int,
+    url: str,
+    title: Optional[str] = None,
+    feed_type: Optional[str] = None,
+    scrape_config: Optional[Dict[str, Any]] = None,
+) -> RssFeed:
     with get_db() as session:
         rss_feed_id = generate_id()
         while session.query(RssFeedEntity).filter_by(rss_feed_id=rss_feed_id).first():
@@ -67,13 +92,21 @@ def add_feed(user_id: int, url: str, title: Optional[str] = None) -> RssFeed:
             rss_feed_id=rss_feed_id,
             url=url,
             title=title,
+            feed_type=feed_type or 'rss',
+            scrape_config=_serialize_scrape_config(scrape_config),
         )
         session.add(entity)
         session.flush()
         return _entity_to_dto(entity)
 
 
-def update_feed(user_id: int, rss_feed_id: str, title: Optional[str] = None) -> Optional[RssFeed]:
+def update_feed(
+    user_id: int,
+    rss_feed_id: str,
+    title: Optional[str] = None,
+    feed_type: Optional[str] = None,
+    scrape_config: Optional[Dict[str, Any]] = None,
+) -> Optional[RssFeed]:
     with get_db() as session:
         entity = session.query(RssFeedEntity).filter_by(
             user_id=user_id, rss_feed_id=rss_feed_id,
@@ -82,6 +115,10 @@ def update_feed(user_id: int, rss_feed_id: str, title: Optional[str] = None) -> 
             return None
         if title is not None:
             entity.title = title
+        if feed_type is not None:
+            entity.feed_type = feed_type
+        if scrape_config is not None:
+            entity.scrape_config = _serialize_scrape_config(scrape_config)
         session.flush()
         return _entity_to_dto(entity)
 

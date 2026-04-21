@@ -1,6 +1,6 @@
 """RSS feed service."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from storage.dto.rss_feed import RssFeed
 from storage.repository import rss_feed as rss_feed_repo
@@ -19,15 +19,39 @@ def get_feed(user_id: int, rss_feed_id: str) -> Optional[RssFeed]:
     return rss_feed_repo.get_feed(user_id, rss_feed_id)
 
 
-def add_feed(user_id: int, url: str, title: Optional[str] = None) -> RssFeed:
+def add_feed(
+    user_id: int,
+    url: str,
+    title: Optional[str] = None,
+    feed_type: Optional[str] = None,
+    scrape_config: Optional[Dict[str, Any]] = None,
+) -> RssFeed:
     existing = rss_feed_repo.get_feed_by_url(user_id, url)
     if existing:
         return existing
-    return rss_feed_repo.add_feed(user_id, url, title=title)
+    return rss_feed_repo.add_feed(
+        user_id,
+        url,
+        title=title,
+        feed_type=feed_type,
+        scrape_config=scrape_config,
+    )
 
 
-def update_feed(user_id: int, rss_feed_id: str, title: Optional[str] = None) -> Optional[RssFeed]:
-    return rss_feed_repo.update_feed(user_id, rss_feed_id, title=title)
+def update_feed(
+    user_id: int,
+    rss_feed_id: str,
+    title: Optional[str] = None,
+    feed_type: Optional[str] = None,
+    scrape_config: Optional[Dict[str, Any]] = None,
+) -> Optional[RssFeed]:
+    return rss_feed_repo.update_feed(
+        user_id,
+        rss_feed_id,
+        title=title,
+        feed_type=feed_type,
+        scrape_config=scrape_config,
+    )
 
 
 def update_fetch_state(
