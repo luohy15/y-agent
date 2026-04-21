@@ -422,15 +422,21 @@ def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[
             entity.source_feed_id = source_feed_id
 
 
-def list_pending_rss_links(limit: int) -> List[dict]:
+def list_pending_rss_links(limit: int, max_fails: int = 5) -> List[dict]:
     """Return links with source='rss' and download_status IS NULL, joined to rss_feed
-    to resolve the owning user_id. Orphan links (feed deleted) are skipped."""
+    to resolve the owning user_id. Orphan links (feed deleted) are skipped.
+
+    Skips links whose crawl_fail_count exceeds `max_fails`."""
     from storage.entity.rss_feed import RssFeedEntity
     with get_db() as session:
         rows = (
             session.query(LinkEntity, RssFeedEntity.user_id)
             .join(RssFeedEntity, RssFeedEntity.rss_feed_id == LinkEntity.source_feed_id)
-            .filter(LinkEntity.source == 'rss', LinkEntity.download_status.is_(None))
+            .filter(
+                LinkEntity.source == 'rss',
+                LinkEntity.download_status.is_(None),
+                (LinkEntity.crawl_fail_count.is_(None)) | (LinkEntity.crawl_fail_count <= max_fails),
+            )
             .order_by(LinkEntity.id.asc())
             .limit(limit)
             .all()
@@ -444,6 +450,15 @@ def list_pending_rss_links(limit: int) -> List[dict]:
             }
             for lnk, user_id in rows
         ]
+
+
+def increment_crawl_fail_count(link_id: str) -> None:
+    """Bump crawl_fail_count for a link (null treated as 0)."""
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
+        if not entity:
+            return
+        entity.crawl_fail_count = (entity.crawl_fail_count or 0) + 1
 
 
 def get_content_key_by_activity_id(activity_id: str) -> Optional[str]:

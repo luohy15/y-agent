@@ -2243,14 +2243,12 @@ name = "y-agent-admin"
 version = "0.4.0"
 source = { editable = "admin" }
 dependencies = [
-    { name = "feedparser" },
     { name = "sqlalchemy" },
     { name = "y-agent-storage" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "feedparser", specifier = ">=6.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "y-agent-storage", editable = "storage" },
 ]
@@ -2386,6 +2384,7 @@ source = { editable = "worker" }
 dependencies = [
     { name = "boto3" },
     { name = "celery" },
+    { name = "feedparser" },
     { name = "httpx" },
     { name = "loguru" },
     { name = "markdownify" },
@@ -2399,6 +2398,7 @@ dependencies = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.28.0" },
     { name = "celery", specifier = ">=5.3.0" },
+    { name = "feedparser", specifier = ">=6.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "markdownify", specifier = ">=0.11.0" },

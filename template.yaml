@@ -309,6 +309,7 @@ Resources:
           Y_AGENT_TIMEZONE: Asia/Shanghai
           OXYLABS_USERNAME: !Ref OxylabsUsername
           OXYLABS_PASSWORD: !Ref OxylabsPassword
+          CRAWLER_RATE_LIMIT: "10"
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
@@ -320,6 +321,16 @@ Resources:
             BatchSize: 1
             FunctionResponseTypes:
               - ReportBatchItemFailures
+        FetchRssLinksSchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"action": "fetch_rss_links"}'
+        BatchDownloadLinksSchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(3 minutes)
+            Input: '{"action": "batch_download_links"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations
@@ -360,16 +371,6 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "check_reminders"}'
-        FetchRssFeedsSchedule:
-          Type: ScheduleV2
-          Properties:
-            ScheduleExpression: rate(15 minutes)
-            Input: '{"action": "fetch_rss_feeds"}'
-        DispatchLinkDownloadsSchedule:
-          Type: ScheduleV2
-          Properties:
-            ScheduleExpression: rate(5 minutes)
-            Input: '{"action": "dispatch_link_downloads"}'
 
 Outputs:
   APIFunctionArn:
