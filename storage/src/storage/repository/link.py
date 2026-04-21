@@ -410,6 +410,41 @@ def get_activity_content_key(url: str) -> Optional[str]:
         return None
 
 
+def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[str]):
+    """Set source/source_feed_id on a LinkEntity only when source is currently null."""
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
+        if not entity:
+            return
+        if entity.source is None:
+            entity.source = source
+            entity.source_feed_id = source_feed_id
+
+
+def list_pending_rss_links(limit: int) -> List[dict]:
+    """Return links with source='rss' and download_status IS NULL, joined to rss_feed
+    to resolve the owning user_id. Orphan links (feed deleted) are skipped."""
+    from storage.entity.rss_feed import RssFeedEntity
+    with get_db() as session:
+        rows = (
+            session.query(LinkEntity, RssFeedEntity.user_id)
+            .join(RssFeedEntity, RssFeedEntity.rss_feed_id == LinkEntity.source_feed_id)
+            .filter(LinkEntity.source == 'rss', LinkEntity.download_status.is_(None))
+            .order_by(LinkEntity.id.asc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                'link_id': lnk.link_id,
+                'base_url': lnk.base_url,
+                'source_feed_id': lnk.source_feed_id,
+                'user_id': user_id,
+            }
+            for lnk, user_id in rows
+        ]
+
+
 def get_content_key_by_activity_id(activity_id: str) -> Optional[str]:
     """Get content_key for a given activity_id.
     Checks activity-level content_key first, then falls back to link-level."""

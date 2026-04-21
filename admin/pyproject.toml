@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "y-agent-storage",
     "sqlalchemy>=2.0.0",
+    "feedparser>=6.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
