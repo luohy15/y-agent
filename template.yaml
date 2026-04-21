@@ -65,6 +65,18 @@ Parameters:
     Description: S3 bucket name for storing link content
     Default: ""
 
+  OxylabsUsername:
+    Type: String
+    Description: Oxylabs Web Scraper API username
+    NoEcho: true
+    Default: ""
+
+  OxylabsPassword:
+    Type: String
+    Description: Oxylabs Web Scraper API password
+    NoEcho: true
+    Default: ""
+
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -295,6 +307,8 @@ Resources:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
           Y_AGENT_TIMEZONE: Asia/Shanghai
+          OXYLABS_USERNAME: !Ref OxylabsUsername
+          OXYLABS_PASSWORD: !Ref OxylabsPassword
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
