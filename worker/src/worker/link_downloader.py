@@ -1,10 +1,15 @@
 """Download link content via the downloaders router (ssh / httpx / oxylabs)."""
 
+import os
+
+import boto3
 from loguru import logger
 
 from storage.service import link as link_service
-from worker.downloaders import ssh as ssh_dl
 from worker.downloaders.router import route_and_download
+
+
+S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 
 
 def _content_path(link_id: str, activity_id: str = None) -> str:
@@ -14,6 +19,17 @@ def _content_path(link_id: str, activity_id: str = None) -> str:
     return f"links/{link_id}/content.md"
 
 
+def s3_put(content_key: str, content: str) -> None:
+    """Upload markdown content to s3://$Y_AGENT_S3_BUCKET/<content_key>."""
+    s3 = boto3.client("s3")
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=content_key,
+        Body=content.encode("utf-8"),
+        ContentType="text/markdown",
+    )
+
+
 async def run_link_download(user_id: int, link_id: str, url: str, activity_id: str = None):
     """Download link content via the router and persist result to storage."""
     url = url.split('#')[0]  # strip fragment
@@ -21,7 +37,7 @@ async def run_link_download(user_id: int, link_id: str, url: str, activity_id: s
 
     try:
         content_key = _content_path(link_id, activity_id)
-        result = await route_and_download(user_id, url, content_key, timeout=300)
+        result = await route_and_download(user_id, url, timeout=300)
         method = result.get("method_used")
         logger.info(
             "download result for {}: status={} method={} title={!r}",
@@ -35,8 +51,7 @@ async def run_link_download(user_id: int, link_id: str, url: str, activity_id: s
 
         content = result.get("content")
         if content is not None:
-            # httpx / oxylabs produced content in memory — write to shared filesystem.
-            await ssh_dl.save_content_remote(user_id, content_key, content)
+            s3_put(content_key, content)
 
         link_service.update_download_status(
             link_id, "done", content_key=content_key, url=url

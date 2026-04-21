@@ -44,17 +44,15 @@ def _needs_ssh(url: str) -> bool:
 async def route_and_download(
     user_id: int,
     url: str,
-    content_key: str,
     timeout: int = 300,
 ) -> dict:
     """Dispatch to ssh / httpx / oxylabs based on domain.
 
-    Returns `{status, title, content, method_used, error}`. When
-    `method_used == 'ssh'` the content is already written to
-    `$Y_AGENT_HOME/<content_key>` on the remote VM and `content` is None.
+    Returns `{status, title, content, method_used, error}`. All downloaders
+    return markdown content in memory; the caller is responsible for persisting it.
     """
     if _needs_ssh(url):
-        return await ssh_dl.download(user_id, url, content_key, timeout=timeout)
+        return await ssh_dl.download(user_id, url, timeout=timeout)
 
     primary = await httpx_dl.download(url, timeout=min(timeout, 30))
     if primary["status"] == "done":
