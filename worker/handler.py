@@ -1,7 +1,7 @@
 """Worker Lambda handler — dual-route for SQS records and scheduled events.
 
 - SQS records: two-phase (detached processes + monitor loop) for chats, inline
-  for link_download tasks.
+  for `trigger_batch_download` nudges.
 - Scheduled events (no `Records`, has `action`): route by action to the
   corresponding step handler (`fetch_rss_links` / `batch_download_links`).
 """
@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from loguru import logger
 
 from worker.runner import run_chat
-from worker.link_downloader import run_link_download
 from worker.process_manager import get_running_processes
 from worker.monitor import _monitor_loop
 
@@ -41,18 +40,10 @@ async def _process_record(body: dict) -> str:
     """
     task_type = body.get("task_type", "chat")
 
-    if task_type == "link_download":
-        logger.info(
-            "[worker] SQS trigger for link_download link_id={} url={}",
-            body["link_id"],
-            body["url"],
-        )
-        await run_link_download(
-            user_id=body["user_id"],
-            link_id=body["link_id"],
-            url=body["url"],
-            activity_id=body.get("activity_id"),
-        )
+    if task_type == "trigger_batch_download":
+        logger.info("[worker] SQS trigger for batch_download_links")
+        from worker.steps.batch_download_links import handle_batch_download_links
+        await handle_batch_download_links()
         return "done"
 
     if task_type == "continuation":

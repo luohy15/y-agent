@@ -1,4 +1,4 @@
-"""Scheduled action: download a batch of pending RSS-sourced links.
+"""Scheduled action: download a batch of pending links (link- or activity-level).
 
 Mirrors alpha_vantage_news's step2_content_crawler: acquires a pipeline lock,
 queries unprocessed links, downloads them with bounded concurrency via the
@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
+from typing import Optional
 
 import boto3
 from loguru import logger
@@ -29,14 +30,23 @@ DEFAULT_MAX_FAILS = 5
 DEFAULT_DOWNLOAD_TIMEOUT = 120
 
 
-def _content_path(link_id: str) -> str:
+def _content_path(link_id: str, activity_id: Optional[str] = None) -> str:
+    if activity_id:
+        return f"links/{link_id}/{activity_id}/content.md"
     return f"links/{link_id}/content.md"
 
 
-async def _download_one(user_id: int, link_id: str, base_url: str, timeout: int) -> str:
-    """Download a single link, write content, update status. Returns 'success' or 'error'."""
-    url = base_url
-    content_key = _content_path(link_id)
+async def _download_one(item: dict, timeout: int) -> str:
+    """Download a single link/activity, write content, update status.
+
+    `item` keys: user_id, link_id, base_url, url, activity_id (optional).
+    Returns 'success' or 'error'.
+    """
+    user_id = item["user_id"]
+    link_id = item["link_id"]
+    url = item["url"]
+    activity_id = item.get("activity_id")
+    content_key = _content_path(link_id, activity_id)
     link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
@@ -105,7 +115,7 @@ async def handle_batch_download_links() -> dict:
     timeout = int(os.environ.get("CRAWLER_TIMEOUT", DEFAULT_DOWNLOAD_TIMEOUT))
 
     try:
-        pending = link_repo.list_pending_rss_links(batch_size, max_fails=max_fails)
+        pending = link_repo.list_pending_downloads(batch_size, max_fails=max_fails)
         logger.info(
             "batch_download_links: picked {} (batch={}, max_fails={}, rate_limit={})",
             len(pending), batch_size, max_fails, rate_limit,
@@ -124,12 +134,7 @@ async def handle_batch_download_links() -> dict:
 
         async def guarded(item):
             async with semaphore:
-                return await _download_one(
-                    user_id=item["user_id"],
-                    link_id=item["link_id"],
-                    base_url=item["base_url"],
-                    timeout=timeout,
-                )
+                return await _download_one(item, timeout=timeout)
 
         results = await asyncio.gather(*(guarded(item) for item in pending))
     finally:
