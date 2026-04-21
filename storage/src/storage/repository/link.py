@@ -24,6 +24,7 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         content_key=activity.content_key or link.content_key,
         source=link.source,
         source_feed_id=link.source_feed_id,
+        crawl_fail_count=link.crawl_fail_count,
     )
 
 

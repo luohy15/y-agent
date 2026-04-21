@@ -40,6 +40,7 @@ class LinkActivity:
     content_key: Optional[str] = None
     source: Optional[str] = None
     source_feed_id: Optional[str] = None
+    crawl_fail_count: Optional[int] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -67,6 +68,8 @@ class LinkActivity:
             result['source'] = self.source
         if self.source_feed_id is not None:
             result['source_feed_id'] = self.source_feed_id
+        if self.crawl_fail_count is not None:
+            result['crawl_fail_count'] = self.crawl_fail_count
         return result
 
 @dataclass

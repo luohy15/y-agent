@@ -13,6 +13,7 @@ class LinkEntity(Base, BaseEntity):
     content_key = Column(String, nullable=True)       # S3 key for stored content
     source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id (public string, no FK — preserved after feed delete)
+    crawl_fail_count = Column(Integer, nullable=True, default=0)  # download failure counter for batch backoff
 
 
 class LinkActivityEntity(Base, BaseEntity):
