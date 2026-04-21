@@ -53,6 +53,7 @@ async def list_links(
     offset: int = Query(0),
     todo_id: Optional[str] = Query(None),
     downloaded: Optional[bool] = Query(None),
+    source_feed_id: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
     activity_ids = None
@@ -65,6 +66,7 @@ async def list_links(
         user_id, start=start, end=end, query=query,
         limit=limit, offset=offset, activity_ids=activity_ids,
         downloaded_only=bool(downloaded),
+        source_feed_id=source_feed_id,
     )
     return [l.to_dict() for l in links]
 

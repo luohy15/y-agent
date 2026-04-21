@@ -42,6 +42,7 @@ def list_links(
     link_ids: Optional[List[str]] = None,
     activity_ids: Optional[List[str]] = None,
     downloaded_only: bool = False,
+    source_feed_id: Optional[str] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -55,6 +56,8 @@ def list_links(
             q = q.filter(LinkEntity.link_id.in_(link_ids))
         if activity_ids is not None:
             q = q.filter(LinkActivityEntity.activity_id.in_(activity_ids))
+        if source_feed_id is not None:
+            q = q.filter(LinkEntity.source_feed_id == source_feed_id)
         if start is not None:
             q = q.filter(LinkActivityEntity.timestamp >= start)
         if end is not None:

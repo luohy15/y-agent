@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
+import RssFeedContextMenu from "./RssFeedContextMenu";
 
 interface ScrapeConfig {
   item_selector?: string;
@@ -28,6 +29,8 @@ type FeedType = "rss" | "scrape";
 
 interface RssFeedListProps {
   isLoggedIn: boolean;
+  onSelectFeed?: (feedId: string, label: string) => void;
+  selectedFeedId?: string | null;
 }
 
 const fetcher = async (url: string) => {
@@ -58,8 +61,11 @@ function formatRelative(iso?: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
+export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }: RssFeedListProps) {
   const [urlInput, setUrlInput] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ feed: RssFeed; x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const [titleInput, setTitleInput] = useState("");
   const [feedType, setFeedType] = useState<FeedType>("rss");
   const [itemSelector, setItemSelector] = useState("");
@@ -289,60 +295,98 @@ export default function RssFeedList({ isLoggedIn }: RssFeedListProps) {
           <p className="text-sol-base01 italic p-2">No feeds yet. Add one above.</p>
         ) : (
           <div className="space-y-0">
-            {data.map((feed) => (
-              <div
-                key={feed.rss_feed_id}
-                className="flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 group"
-              >
-                <img
-                  src={`https://www.google.com/s2/favicons?domain=${getDomain(feed.url)}&sz=16`}
-                  alt=""
-                  className="w-3.5 h-3.5 shrink-0"
-                  loading="lazy"
-                />
-                <div className="min-w-0 flex-1 flex flex-col">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <button
-                      onClick={() => handleRename(feed)}
-                      className="text-left text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] cursor-pointer"
-                      title={`Rename — ${feed.title || "(untitled)"}`}
-                    >
-                      {feed.title || getDomain(feed.url)}
-                    </button>
-                    {feed.feed_type === "scrape" && (
-                      <span
-                        className="shrink-0 px-1 py-0 bg-sol-base02 border border-sol-yellow/50 rounded text-sol-yellow text-[0.55rem] font-medium leading-tight"
-                        title={feed.scrape_config ? JSON.stringify(feed.scrape_config, null, 2) : "scrape feed"}
-                      >
-                        SCRAPE
-                      </span>
-                    )}
-                  </div>
-                  <a
-                    href={feed.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sol-base01 hover:text-sol-cyan truncate text-[0.6rem]"
-                    title={feed.url}
-                  >
-                    {feed.url}
-                  </a>
-                </div>
-                <span className="text-sol-base01 text-[0.6rem] shrink-0 whitespace-nowrap" title={feed.last_fetched_at || "never fetched"}>
-                  {formatRelative(feed.last_fetched_at)}
-                </span>
-                <button
-                  onClick={() => handleDelete(feed)}
-                  className="shrink-0 w-4 h-4 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-red cursor-pointer"
-                  title="Delete feed"
+            {data.map((feed) => {
+              const isSelected = selectedFeedId === feed.rss_feed_id;
+              const cancelLongPress = () => {
+                if (longPressTimerRef.current !== null) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              };
+              return (
+                <div
+                  key={feed.rss_feed_id}
+                  onClick={() => {
+                    if (longPressTriggeredRef.current) {
+                      longPressTriggeredRef.current = false;
+                      return;
+                    }
+                    if (onSelectFeed) onSelectFeed(feed.rss_feed_id, feed.title || getDomain(feed.url));
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ feed, x: e.clientX, y: e.clientY });
+                  }}
+                  onPointerDown={(e) => {
+                    if (e.pointerType !== "touch") return;
+                    longPressTriggeredRef.current = false;
+                    cancelLongPress();
+                    const x = e.clientX;
+                    const y = e.clientY;
+                    longPressTimerRef.current = window.setTimeout(() => {
+                      longPressTriggeredRef.current = true;
+                      setContextMenu({ feed, x, y });
+                    }, 500);
+                  }}
+                  onPointerMove={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+                  onPointerUp={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+                  onPointerCancel={cancelLongPress}
+                  className={`flex items-center gap-1.5 py-1 px-1 rounded group cursor-pointer ${
+                    isSelected ? "bg-sol-base02" : "hover:bg-sol-base02/50"
+                  }`}
                 >
-                  <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
-                </button>
-              </div>
-            ))}
+                  <img
+                    src={`https://www.google.com/s2/favicons?domain=${getDomain(feed.url)}&sz=16`}
+                    alt=""
+                    className="w-3.5 h-3.5 shrink-0"
+                    loading="lazy"
+                  />
+                  <div className="min-w-0 flex-1 flex flex-col">
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span
+                        className={`text-left truncate text-[0.7rem] ${isSelected ? "text-sol-blue" : "text-sol-base0"}`}
+                        title={feed.title || "(untitled)"}
+                      >
+                        {feed.title || getDomain(feed.url)}
+                      </span>
+                      {feed.feed_type === "scrape" && (
+                        <span
+                          className="shrink-0 px-1 py-0 bg-sol-base02 border border-sol-yellow/50 rounded text-sol-yellow text-[0.55rem] font-medium leading-tight"
+                          title={feed.scrape_config ? JSON.stringify(feed.scrape_config, null, 2) : "scrape feed"}
+                        >
+                          SCRAPE
+                        </span>
+                      )}
+                    </div>
+                    <a
+                      href={feed.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-sol-base01 hover:text-sol-cyan truncate text-[0.6rem]"
+                      title={feed.url}
+                    >
+                      {feed.url}
+                    </a>
+                  </div>
+                  <span className="text-sol-base01 text-[0.6rem] shrink-0 whitespace-nowrap" title={feed.last_fetched_at || "never fetched"}>
+                    {formatRelative(feed.last_fetched_at)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+      {contextMenu && (
+        <RssFeedContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onRename={() => handleRename(contextMenu.feed)}
+          onDelete={() => handleDelete(contextMenu.feed)}
+        />
+      )}
     </div>
   );
 }
