@@ -322,14 +322,14 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
         FetchRssLinksSchedule:
-          Type: ScheduleV2
+          Type: Schedule
           Properties:
-            ScheduleExpression: rate(15 minutes)
+            Schedule: rate(15 minutes)
             Input: '{"action": "fetch_rss_links"}'
         BatchDownloadLinksSchedule:
-          Type: ScheduleV2
+          Type: Schedule
           Properties:
-            ScheduleExpression: rate(3 minutes)
+            Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
 
   # -----------------------------------------------------------------------
