@@ -4,6 +4,7 @@ import json
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
+from loguru import logger
 from sqlalchemy import or_
 from sqlalchemy.orm import defer
 
@@ -87,7 +88,7 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
         try:
             return _entity_to_chat(row)
         except Exception as e:
-            print(f"Error parsing chat JSON: {e}")
+            logger.exception("Error parsing chat JSON: {}", e)
             return None
 
 
@@ -201,7 +202,7 @@ def _get_chat_by_id_sync(chat_id: str) -> Optional[Chat]:
         try:
             return _entity_to_chat(row)
         except Exception as e:
-            print(f"Error parsing chat JSON: {e}")
+            logger.exception("Error parsing chat JSON: {}", e)
             return None
 
 
@@ -378,7 +379,7 @@ def find_latest_chat_by_topic(user_id: int, topic: Optional[str]) -> Optional[Ch
         try:
             return _entity_to_chat(row)
         except Exception as e:
-            print(f"Error parsing chat JSON: {e}")
+            logger.exception("Error parsing chat JSON: {}", e)
             return None
 
 

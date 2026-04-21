@@ -14,6 +14,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
+from loguru import logger
+
 from worker.runner import run_chat
 from worker.link_downloader import run_link_download
 from worker.process_manager import get_running_processes
@@ -40,7 +42,11 @@ async def _process_record(body: dict) -> str:
     task_type = body.get("task_type", "chat")
 
     if task_type == "link_download":
-        print(f"[worker] SQS trigger for link_download link_id={body['link_id']} url={body['url']}")
+        logger.info(
+            "[worker] SQS trigger for link_download link_id={} url={}",
+            body["link_id"],
+            body["url"],
+        )
         await run_link_download(
             user_id=body["user_id"],
             link_id=body["link_id"],
@@ -54,7 +60,7 @@ async def _process_record(body: dict) -> str:
 
     # All chat tasks go through run_chat (detached vs inline decided internally)
     chat_id = body["chat_id"]
-    print(f"[worker] SQS trigger for chat {chat_id}")
+    logger.info("[worker] SQS trigger for chat {}", chat_id)
     result = await run_chat(
         user_id=body.get("user_id"),
         chat_id=chat_id,
@@ -75,7 +81,7 @@ def lambda_handler(event, context):
     # Scheduled event: no SQS records, carries an action field
     if "Records" not in event and "action" in event:
         action = event["action"]
-        print(f"[worker] scheduled action={action} event={json.dumps(event)}")
+        logger.info("[worker] scheduled action={} event={}", action, json.dumps(event))
         return _handle_scheduled_action(action, event)
 
     records = event.get("Records", [])
