@@ -1,7 +1,7 @@
 """Route a URL to the appropriate downloader.
 
 Routing rules:
-- mp.weixin.qq.com / twitter.com / x.com / youtube.com / youtu.be / bilibili.com → ssh (opencli)
+- twitter.com / x.com / youtube.com / youtu.be / bilibili.com → ssh (opencli)
 - everything else → httpx; fallback to oxylabs on failure
 """
 
@@ -15,7 +15,6 @@ from worker.downloaders import ssh as ssh_dl
 
 
 SSH_DOMAINS = (
-    "mp.weixin.qq.com",
     "twitter.com",
     "x.com",
     "youtube.com",
