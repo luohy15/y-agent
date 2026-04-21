@@ -18,8 +18,8 @@ from storage.repository import link as link_repo
 from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
 
-from worker.downloaders import ssh as ssh_dl
 from worker.downloaders.router import route_and_download
+from worker.link_downloader import s3_put
 
 
 LOCK_NAME = "batch_download_links"
@@ -40,7 +40,7 @@ async def _download_one(user_id: int, link_id: str, base_url: str, timeout: int)
     link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
-        result = await route_and_download(user_id, url, content_key, timeout=timeout)
+        result = await route_and_download(user_id, url, timeout=timeout)
     except Exception as e:
         logger.exception("batch_download_links download crashed for link={} url={}: {}", link_id, url, e)
         link_repo.increment_crawl_fail_count(link_id)
@@ -60,7 +60,7 @@ async def _download_one(user_id: int, link_id: str, base_url: str, timeout: int)
     content = result.get("content")
     try:
         if content is not None:
-            await ssh_dl.save_content_remote(user_id, content_key, content)
+            s3_put(content_key, content)
         link_service.update_download_status(link_id, "done", content_key=content_key, url=url)
         if result.get("title"):
             link_service.update_link_title(link_id, result["title"])
