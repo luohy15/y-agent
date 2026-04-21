@@ -14,6 +14,7 @@ class LinkEntity(Base, BaseEntity):
     source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id (public string, no FK — preserved after feed delete)
     crawl_fail_count = Column(Integer, nullable=True, default=0)  # download failure counter for batch backoff
+    published_at = Column(BigInteger, nullable=True)  # article's real publish time (ms), from RSS feed item
 
 
 class LinkActivityEntity(Base, BaseEntity):

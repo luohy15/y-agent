@@ -66,7 +66,9 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
             continue
 
         title = entry.get("title")
-        activity = link_service.add_link(user_id, url, title=title, timestamp=ts_ms)
+        activity = link_service.add_link(
+            user_id, url, title=title, timestamp=ts_ms, published_at=ts_ms,
+        )
         link_repo.set_link_source_if_null(activity.link_id, "rss", feed.rss_feed_id)
         added += 1
         if ts_ms > max_ts:

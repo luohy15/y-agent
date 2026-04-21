@@ -25,6 +25,7 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         source=link.source,
         source_feed_id=link.source_feed_id,
         crawl_fail_count=link.crawl_fail_count,
+        published_at=link.published_at,
     )
 
 
@@ -152,26 +153,45 @@ def _strip_query(url: str) -> str:
     return url
 
 
-def _upsert_link(session, url: str, title: Optional[str]) -> LinkEntity:
-    """Upsert a link by base_url (via url_hash). Updates url/title to latest."""
+def _upsert_link(
+    session,
+    url: str,
+    title: Optional[str],
+    published_at: Optional[int] = None,
+) -> LinkEntity:
+    """Upsert a link by base_url (via url_hash). Updates url/title to latest.
+    `published_at` is only written on first sight — subsequent fetches do not overwrite."""
     base_url = _strip_query(url)
     entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
     if entity:
         if title is not None:
             entity.title = title
+        if published_at is not None and entity.published_at is None:
+            entity.published_at = published_at
     else:
         link_id = generate_id()
         while session.query(LinkEntity).filter_by(link_id=link_id).first():
             link_id = generate_id()
-        entity = LinkEntity(link_id=link_id, base_url=base_url, title=title)
+        entity = LinkEntity(
+            link_id=link_id,
+            base_url=base_url,
+            title=title,
+            published_at=published_at,
+        )
         session.add(entity)
         session.flush()
     return entity
 
 
-def save_link(user_id: int, url: str, title: Optional[str], timestamp: int) -> LinkActivity:
+def save_link(
+    user_id: int,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+    published_at: Optional[int] = None,
+) -> LinkActivity:
     with get_db() as session:
-        link = _upsert_link(session, url, title)
+        link = _upsert_link(session, url, title, published_at=published_at)
         # Dedup: skip if same user+timestamp already exists
         existing = session.query(LinkActivityEntity).filter_by(
             user_id=user_id, timestamp=timestamp,
@@ -237,13 +257,21 @@ def save_links_batch(user_id: int, links: List[dict]) -> int:
         # 4. Upsert links (only new ones need insert, existing get title updated)
         for base_url, item in base_url_map.items():
             entity = link_by_base_url.get(base_url)
+            published_at = item.get('published_at')
             if entity:
                 title = item.get('title')
                 if title is not None:
                     entity.title = title
+                if published_at is not None and entity.published_at is None:
+                    entity.published_at = published_at
             else:
                 link_id = generate_id()
-                entity = LinkEntity(link_id=link_id, base_url=base_url, title=item.get('title'))
+                entity = LinkEntity(
+                    link_id=link_id,
+                    base_url=base_url,
+                    title=item.get('title'),
+                    published_at=published_at,
+                )
                 session.add(entity)
                 link_by_base_url[base_url] = entity
         session.flush()  # get IDs for new links

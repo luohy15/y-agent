@@ -9,10 +9,15 @@ interface Link {
   base_url: string;
   title?: string;
   timestamp?: number;
+  published_at?: number | null;
   download_status?: string | null;
   content_key?: string | null;
   source?: string | null;
   source_feed_id?: string | null;
+}
+
+function linkTime(link: Link): number | undefined {
+  return link.published_at ?? link.timestamp;
 }
 
 const fetcher = async (url: string) => {
@@ -60,15 +65,16 @@ function formatDayHeader(dateStr: string): string {
 function groupByDay(links: Link[]): [string, Link[]][] {
   const groups = new Map<string, Link[]>();
   for (const link of links) {
-    if (!link.timestamp) continue;
-    const d = new Date(link.timestamp);
+    const ts = linkTime(link);
+    if (!ts) continue;
+    const d = new Date(ts);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(link);
   }
   const entries = [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   for (const [, links] of entries) {
-    links.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    links.sort((a, b) => (linkTime(b) || 0) - (linkTime(a) || 0));
   }
   return entries;
 }
@@ -285,7 +291,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
                   {links.map((link) => (
                     <div key={link.activity_id} className="flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 group">
                       <span className="text-sol-base01 text-[0.6rem] shrink-0 w-8 text-right">
-                        {link.timestamp ? formatTime(link.timestamp) : ""}
+                        {linkTime(link) ? formatTime(linkTime(link)!) : ""}
                       </span>
                       <img
                         src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
