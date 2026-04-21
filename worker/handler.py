@@ -1,8 +1,9 @@
-"""Worker Lambda handler — triggered by SQS to run chats.
+"""Worker Lambda handler — dual-route for SQS records and scheduled events.
 
-Two-phase architecture:
-  Phase 1: Process SQS records (start detached processes or run inline)
-  Phase 2: Event loop monitoring detached processes via tail + DynamoDB
+- SQS records: two-phase (detached processes + monitor loop) for chats, inline
+  for link_download tasks.
+- Scheduled events (no `Records`, has `action`): route by action to the
+  corresponding step handler (`fetch_rss_links` / `batch_download_links`).
 """
 
 import asyncio
@@ -19,6 +20,16 @@ from worker.process_manager import get_running_processes
 from worker.monitor import _monitor_loop
 
 CONTINUATION_THRESHOLD_MS = 120_000  # 2 min before timeout
+
+
+def _handle_scheduled_action(action: str, event: dict) -> dict:
+    if action == "fetch_rss_links":
+        from worker.steps.fetch_rss_links import handle_fetch_rss_links
+        return asyncio.run(handle_fetch_rss_links())
+    if action == "batch_download_links":
+        from worker.steps.batch_download_links import handle_batch_download_links
+        return asyncio.run(handle_batch_download_links())
+    return {"status": "error", "message": f"Unknown action: {action}"}
 
 
 async def _process_record(body: dict) -> str:
@@ -60,7 +71,13 @@ async def _process_record(body: dict) -> str:
 
 
 def lambda_handler(event, context):
-    """Handle SQS trigger with two-phase processing."""
+    """Handle SQS trigger with two-phase processing, or route scheduled actions."""
+    # Scheduled event: no SQS records, carries an action field
+    if "Records" not in event and "action" in event:
+        action = event["action"]
+        print(f"[worker] scheduled action={action} event={json.dumps(event)}")
+        return _handle_scheduled_action(action, event)
+
     records = event.get("Records", [])
 
     async def main():
