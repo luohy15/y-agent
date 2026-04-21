@@ -11,6 +11,8 @@ interface Link {
   timestamp?: number;
   download_status?: string | null;
   content_key?: string | null;
+  source?: string | null;
+  source_feed_id?: string | null;
 }
 
 const fetcher = async (url: string) => {
@@ -300,6 +302,11 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, hideFilters }:
                       >
                         {link.title || getDomain(link.base_url)}
                       </a>
+                      {link.source === "rss" && (
+                        <span className="shrink-0 px-1 rounded text-[0.55rem] font-medium bg-sol-orange/20 text-sol-orange" title={link.source_feed_id ? `RSS: ${link.source_feed_id}` : "From RSS feed"}>
+                          RSS
+                        </span>
+                      )}
                       <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
                       <PreviewButton link={link} onPreview={onPreview} />
                     </div>
