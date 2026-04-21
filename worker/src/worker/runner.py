@@ -7,7 +7,6 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 import agent.config as agent_config
 
@@ -154,50 +153,6 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
     if reply_text:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
-
-
-async def _maybe_restart_manager_session(user_id: int, input_tokens: int, context_window: int, num_turns: int = 0) -> None:
-    """Auto-restart manager session when context usage exceeds 50% or turns exceed 50.
-
-    Creates a new manager chat placeholder so find_latest_chat_by_topic returns the fresh
-    chat for subsequent messages, effectively starting a new Claude Code session.
-    """
-    usage_ratio = (input_tokens / context_window) if context_window else 0.0
-    context_exceeded = context_window and usage_ratio > 0.5
-    turns_exceeded = num_turns > 50
-
-    if not context_exceeded and not turns_exceeded:
-        logger.info("Manager context usage {:.1%}, turns={}, no restart needed", usage_ratio, num_turns)
-        return
-
-    reason = []
-    if context_exceeded:
-        reason.append(f"context {usage_ratio:.0%}")
-    if turns_exceeded:
-        reason.append(f"turns {num_turns}")
-    reason_str = " & ".join(reason)
-    logger.info("Manager restart triggered: {}", reason_str)
-
-    # Create new manager chat with initial message
-    new_chat_id = generate_id()
-    restart_msg = Message(
-        id=generate_message_id(),
-        role="user",
-        content="load manager skill",
-        timestamp=get_utc_iso8601_timestamp(),
-        unix_timestamp=get_unix_timestamp(),
-    )
-    await chat_service.create_chat(user_id, messages=[restart_msg], chat_id=new_chat_id)
-
-    # Mark role/topic on new chat
-    from storage.repository import chat as chat_repo
-    new_chat = await chat_service.get_chat_by_id(new_chat_id)
-    if new_chat:
-        new_chat.role = 'manager'
-        new_chat.topic = 'manager'
-        await chat_repo.save_chat_by_id(new_chat)
-
-    logger.info("Manager restart: new chat_id={}", new_chat_id)
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, backend: str = None) -> str:
