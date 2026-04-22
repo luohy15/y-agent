@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -142,28 +142,61 @@ def _strip_tool_results(messages: list) -> list:
 
 class CreateShareRequest(BaseModel):
     trace_id: str
+    password: Optional[str] = None
+    generate_password: bool = False
 
 
 @router.post("/share")
 async def create_share(req: CreateShareRequest, request: Request):
     """Create a shareable link for a trace."""
+    from storage import share_password as sp
+    from storage.repository.trace_share import get_by_trace_id, create, set_password_hash
+
     user_id = _get_user_id(request)
-    from storage.repository.trace_share import get_by_trace_id, create
+
+    generated_password: Optional[str] = None
+    password_hash: Optional[str] = None
+    if req.generate_password and not (req.password and req.password.strip()):
+        generated_password = sp.generate_password()
+        password_hash = sp.hash_password(generated_password)
+    elif req.password and req.password.strip():
+        password_hash = sp.hash_password(req.password)
+
     existing = get_by_trace_id(user_id, req.trace_id)
     if existing:
-        return {"share_id": existing.share_id}
+        if password_hash is not None:
+            set_password_hash(existing.share_id, password_hash)
+        resp = {"share_id": existing.share_id}
+        if generated_password is not None:
+            resp["password"] = generated_password
+        return resp
     share_id = generate_id()
-    create(user_id, share_id, req.trace_id)
-    return {"share_id": share_id}
+    create(user_id, share_id, req.trace_id, password_hash=password_hash)
+    resp = {"share_id": share_id}
+    if generated_password is not None:
+        resp["password"] = generated_password
+    return resp
 
 
 @router.get("/share")
-async def get_share(share_id: str = Query(...)):
+async def get_share(share_id: str = Query(...), password: Optional[str] = Query(None)):
     """Public endpoint: get trace data by share_id."""
     from storage.repository.trace_share import get_by_share_id
+    from storage import share_password as sp
+
     share = get_by_share_id(share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
+
+    if share.password_hash:
+        if not password:
+            raise HTTPException(status_code=401, detail={"password_required": True})
+        allowed, retry_after = sp.check_rate_limit(share_id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail={"retry_after": retry_after})
+        if not sp.verify_password(password, share.password_hash):
+            sp.record_failure(share_id)
+            raise HTTPException(status_code=403, detail="Invalid password")
 
     user_id = share.user_id
     trace_id = share.trace_id

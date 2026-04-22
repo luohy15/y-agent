@@ -5,6 +5,7 @@ import { isPreview, MAIN_DOMAIN } from "../hooks/useAuth";
 import MessageList, { type Message, extractContent } from "./MessageList";
 import ChatInput, { type ChatInputHandle } from "./ChatInput";
 import ChatToc from "./ChatToc";
+import SharePopover from "./SharePopover";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -256,21 +257,17 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     setCompleted(true);
   }, [chatId]);
 
-  const [shareLabel, setShareLabel] = useState("share");
-  const shareChat = useCallback(() => {
-    if (!chatId) return;
-    const textPromise = authFetch(`${API}/api/chat/share`, {
+  const createShare = useCallback(async (opts: { password?: string; generate_password?: boolean }) => {
+    if (!chatId) throw new Error("no chat");
+    const res = await authFetch(`${API}/api/chat/share`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId }),
-    })
-      .then((res) => res.json())
-      .then((data) => new Blob([`${window.location.origin}/s/${data.share_id}`], { type: "text/plain" }));
-    navigator.clipboard.write([new ClipboardItem({ "text/plain": textPromise })]).then(() => {
-      setShareLabel("copied!");
-      setTimeout(() => setShareLabel("share"), 1500);
+      body: JSON.stringify({ chat_id: chatId, ...opts }),
     });
+    if (!res.ok) throw new Error("share failed");
+    return res.json();
   }, [chatId]);
+  const buildShareUrl = useCallback((shareId: string) => `${window.location.origin}/s/${shareId}`, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -495,7 +492,13 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           extraButtons={completed ? <>
             {processDetailButtons}
             {contextBadge}
-            <button onClick={shareChat} className={`ml-auto font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}>{shareLabel}</button>
+            <div className="ml-auto">
+              <SharePopover
+                onCreate={createShare}
+                buildUrl={buildShareUrl}
+                buttonClassName="font-mono cursor-pointer px-2 py-0.5 rounded text-xs font-semibold bg-sol-base02 text-sol-base01"
+              />
+            </div>
           </> : null}
         />
       )}

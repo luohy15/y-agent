@@ -410,3 +410,18 @@ def set_chat_unread(chat_id: str, unread: bool) -> None:
         session.query(ChatEntity).filter_by(chat_id=chat_id).filter(ChatEntity.unread != unread).update({"unread": unread})
 
 
+def get_share_password_hash(user_id: int, chat_id: str) -> Optional[str]:
+    with get_db() as session:
+        row = (session.query(ChatEntity.share_password_hash)
+               .filter_by(user_id=user_id, chat_id=chat_id)
+               .first())
+        return row[0] if row else None
+
+
+def set_share_password_hash(user_id: int, chat_id: str, password_hash: Optional[str]) -> None:
+    with get_db() as session:
+        session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update(
+            {"share_password_hash": password_hash}
+        )
+
+

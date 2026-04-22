@@ -14,11 +14,22 @@ def get_by_trace_id(user_id: int, trace_id: str) -> Optional[TraceShareEntity]:
         return session.query(TraceShareEntity).filter_by(user_id=user_id, trace_id=trace_id).first()
 
 
-def create(user_id: int, share_id: str, trace_id: str) -> TraceShareEntity:
+def create(user_id: int, share_id: str, trace_id: str, password_hash: Optional[str] = None) -> TraceShareEntity:
     with get_db() as session:
-        entity = TraceShareEntity(user_id=user_id, share_id=share_id, trace_id=trace_id)
+        entity = TraceShareEntity(
+            user_id=user_id,
+            share_id=share_id,
+            trace_id=trace_id,
+            password_hash=password_hash,
+        )
         session.add(entity)
         session.flush()
-        # Detach from session before returning
         session.expunge(entity)
         return entity
+
+
+def set_password_hash(share_id: str, password_hash: Optional[str]) -> None:
+    with get_db() as session:
+        session.query(TraceShareEntity).filter_by(share_id=share_id).update(
+            {"password_hash": password_hash}
+        )

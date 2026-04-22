@@ -83,11 +83,12 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
-async def create_share(user_id: int, chat_id: str, message_id: str = None) -> str:
+async def create_share(user_id: int, chat_id: str, message_id: str = None, password_hash: Optional[str] = None) -> str:
     """Create a shared copy of a chat under the default user.
 
     Returns the share ID (which is the chat_id of the shared copy).
     Deduplicates: if a share already exists for the same origin_chat_id + origin_message_id, returns existing ID.
+    If password_hash is provided, overwrites any existing share password. Passing None leaves it unchanged.
     """
     from storage.service.user import get_default_user_id
 
@@ -101,6 +102,8 @@ async def create_share(user_id: int, chat_id: str, message_id: str = None) -> st
     existing = await chat_repo.find_chat_by_origin(default_user_id, chat_id)
     for e in existing:
         if e.origin_message_id == message_id:
+            if password_hash is not None:
+                chat_repo.set_share_password_hash(default_user_id, e.id, password_hash)
             return e.id
 
     # Create shared copy
@@ -121,6 +124,8 @@ async def create_share(user_id: int, chat_id: str, message_id: str = None) -> st
     )
 
     await chat_repo.save_chat(default_user_id, shared_chat)
+    if password_hash is not None:
+        chat_repo.set_share_password_hash(default_user_id, share_id, password_hash)
     return share_id
 
 
