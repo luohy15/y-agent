@@ -130,17 +130,17 @@ function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: 
   );
 }
 
-function PreviewButton({ link, onPreview }: { link: Link; onPreview: (link: Link) => void }) {
-  if (link.download_status !== "done") return null;
+function ExternalLinkButton({ link }: { link: Link }) {
   return (
     <button
-      onClick={() => onPreview(link)}
+      onClick={() => window.open(link.url, "_blank", "noopener,noreferrer")}
       className="shrink-0 w-4 h-4 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-cyan cursor-pointer"
-      title="Preview content"
+      title={`Open original page: ${link.url}`}
+      aria-label="Open original page in new tab"
     >
       <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+        <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
+        <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
       </svg>
     </button>
   );
@@ -301,22 +301,21 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                         className="w-3.5 h-3.5 shrink-0"
                         loading="lazy"
                       />
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1"
+                      <button
+                        onClick={() => onPreview(link)}
+                        className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1 text-left cursor-pointer bg-transparent border-0 p-0"
                         title={link.url}
+                        aria-label={`Open internal view for ${link.title || link.url}`}
                       >
                         {link.title || getDomain(link.base_url)}
-                      </a>
+                      </button>
                       {link.source === "rss" && (
                         <span className="shrink-0 px-1 rounded text-[0.55rem] font-medium bg-sol-orange/20 text-sol-orange" title={link.source_feed_id ? `RSS: ${link.source_feed_id}` : "From RSS feed"}>
                           RSS
                         </span>
                       )}
+                      <ExternalLinkButton link={link} />
                       <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
-                      <PreviewButton link={link} onPreview={onPreview} />
                     </div>
                   ))}
                 </div>
