@@ -11,6 +11,8 @@ class RssFeed:
     last_item_ts: Optional[int] = None
     feed_type: Optional[str] = None
     scrape_config: Optional[Dict[str, Any]] = None
+    fetch_failure_count: int = 0
+    fetch_disabled_until: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -26,6 +28,8 @@ class RssFeed:
             last_item_ts=data.get('last_item_ts'),
             feed_type=data.get('feed_type'),
             scrape_config=data.get('scrape_config'),
+            fetch_failure_count=data.get('fetch_failure_count', 0) or 0,
+            fetch_disabled_until=data.get('fetch_disabled_until'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -47,6 +51,10 @@ class RssFeed:
             result['feed_type'] = self.feed_type
         if self.scrape_config is not None:
             result['scrape_config'] = self.scrape_config
+        if self.fetch_failure_count > 0:
+            result['fetch_failure_count'] = self.fetch_failure_count
+        if self.fetch_disabled_until is not None:
+            result['fetch_disabled_until'] = self.fetch_disabled_until
         if self.created_at is not None:
             result['created_at'] = self.created_at
         if self.updated_at is not None:

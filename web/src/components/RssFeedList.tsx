@@ -21,6 +21,8 @@ interface RssFeed {
   last_item_ts?: number;
   feed_type?: string;
   scrape_config?: ScrapeConfig;
+  fetch_failure_count?: number;
+  fetch_disabled_until?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -357,6 +359,32 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                           SCRAPE
                         </span>
                       )}
+                      {(() => {
+                        const failures = feed.fetch_failure_count ?? 0;
+                        const paused = feed.fetch_disabled_until && Date.now() < feed.fetch_disabled_until;
+                        if (paused) {
+                          const untilIso = new Date(feed.fetch_disabled_until!).toISOString();
+                          return (
+                            <span
+                              className="shrink-0 px-1 py-0 bg-sol-base02 border border-sol-red/60 rounded text-sol-red text-[0.55rem] font-medium leading-tight"
+                              title={`Paused until ${untilIso}; ${failures} consecutive failures`}
+                            >
+                              PAUSED
+                            </span>
+                          );
+                        }
+                        if (failures >= 1) {
+                          return (
+                            <span
+                              className="shrink-0 px-1 py-0 text-sol-yellow text-[0.55rem] font-medium leading-tight"
+                              title={`${failures} consecutive failure${failures > 1 ? "s" : ""}`}
+                            >
+                              f:{failures}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     <a
                       href={feed.url}

@@ -1,6 +1,8 @@
 """Function-based rss_feed repository using SQLAlchemy sessions."""
 
 import json
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from storage.entity.rss_feed import RssFeedEntity
 from storage.dto.rss_feed import RssFeed
@@ -33,6 +35,8 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
         last_item_ts=entity.last_item_ts,
         feed_type=entity.feed_type or 'rss',
         scrape_config=_parse_scrape_config(entity.scrape_config),
+        fetch_failure_count=entity.fetch_failure_count or 0,
+        fetch_disabled_until=entity.fetch_disabled_until,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -136,6 +140,39 @@ def update_fetch_state(
             entity.last_fetched_at = last_fetched_at
         if last_item_ts is not None:
             entity.last_item_ts = last_item_ts
+        session.flush()
+        return _entity_to_dto(entity)
+
+
+def record_fetch_success(rss_feed_id: str) -> Optional[RssFeed]:
+    """Reset failure_count=0, clear fetch_disabled_until, set last_fetched_at=now."""
+    with get_db() as session:
+        entity = session.query(RssFeedEntity).filter_by(rss_feed_id=rss_feed_id).first()
+        if not entity:
+            return None
+        entity.fetch_failure_count = 0
+        entity.fetch_disabled_until = None
+        entity.last_fetched_at = datetime.now(timezone.utc).isoformat()
+        session.flush()
+        return _entity_to_dto(entity)
+
+
+def record_fetch_failure(
+    rss_feed_id: str, threshold: int, cooldown_seconds: int,
+) -> Optional[RssFeed]:
+    """Increment failure_count; if >= threshold, set fetch_disabled_until=now+cooldown.
+
+    Also updates last_fetched_at=now so UI reflects the attempt.
+    """
+    with get_db() as session:
+        entity = session.query(RssFeedEntity).filter_by(rss_feed_id=rss_feed_id).first()
+        if not entity:
+            return None
+        entity.fetch_failure_count = (entity.fetch_failure_count or 0) + 1
+        entity.last_fetched_at = datetime.now(timezone.utc).isoformat()
+        if entity.fetch_failure_count >= threshold:
+            now_ms = int(time.time() * 1000)
+            entity.fetch_disabled_until = now_ms + cooldown_seconds * 1000
         session.flush()
         return _entity_to_dto(entity)
 
