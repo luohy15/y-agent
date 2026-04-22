@@ -338,13 +338,8 @@ export default function App() {
   const handleSelectFeed = useCallback((feedId: string, label: string) => {
     setSelectedFeedId(feedId);
     setSelectedFeedLabel(label);
-    setRightPanel("links");
-    setRightPanelCollapsed(false);
-    if (window.innerWidth < 768) {
-      setChatListOpen(true);
-      setSidebarOpen(false);
-    }
-  }, []);
+    handleOpenFile("links.md");
+  }, [handleOpenFile]);
 
   const handleClearFeed = useCallback(() => {
     setSelectedFeedId(null);
@@ -633,7 +628,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -720,20 +715,7 @@ export default function App() {
                 ) : rightPanel === "notes" ? (
                   <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
-                  <div className="flex flex-col h-full">
-                    {selectedFeedId && (
-                      <div className="px-2 py-1 border-b border-sol-base02 flex items-center gap-1.5 bg-sol-base02/50 shrink-0">
-                        <span className="text-sol-base01 text-[0.6rem] shrink-0">Feed:</span>
-                        <span className="text-sol-base0 text-[0.7rem] truncate flex-1" title={selectedFeedId}>{selectedFeedLabel || selectedFeedId}</span>
-                        <button onClick={handleClearFeed} className="shrink-0 text-sol-base01 hover:text-sol-red cursor-pointer" title="Clear feed filter">
-                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex-1 min-h-0">
-                      <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={selectedFeedId ? null : chatListTraceId} feedId={selectedFeedId} hideFilters />
-                    </div>
-                  </div>
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "files" ? (
                   <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
                 ) : (
@@ -797,20 +779,7 @@ export default function App() {
               ) : rightPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (
-                <div className="flex flex-col h-full">
-                  {selectedFeedId && (
-                    <div className="px-2 py-1 border-b border-sol-base02 flex items-center gap-1.5 bg-sol-base02/50 shrink-0">
-                      <span className="text-sol-base01 text-[0.6rem] shrink-0">Feed:</span>
-                      <span className="text-sol-base0 text-[0.7rem] truncate flex-1" title={selectedFeedId}>{selectedFeedLabel || selectedFeedId}</span>
-                      <button onClick={handleClearFeed} className="shrink-0 text-sol-base01 hover:text-sol-red cursor-pointer" title="Clear feed filter">
-                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex-1 min-h-0">
-                    <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={selectedFeedId ? null : chatListTraceId} feedId={selectedFeedId} hideFilters />
-                  </div>
-                </div>
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "files" ? (
                 <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} />
               ) : (

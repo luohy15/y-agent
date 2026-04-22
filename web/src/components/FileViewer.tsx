@@ -10,6 +10,7 @@ import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView from "./TraceView";
+import LinkList from "./LinkList";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -28,8 +29,12 @@ interface FileViewerProps {
   selectedTraceId?: string | null;
   selectedLinkId?: string | null;
   selectedLinkContentKey?: string | null;
+  selectedFeedId?: string | null;
+  selectedFeedLabel?: string | null;
+  onClearFeed?: () => void;
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
+  onPreviewLinkFull?: (activityId: string, contentKey: string | null) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   onPreviewFile?: (path: string) => void;
@@ -301,7 +306,30 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
   return null;
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, onSelectChat, onPreviewLink, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
+function LinksMdView({ isLoggedIn, feedId, feedLabel, onClearFeed, onPreview }: { isLoggedIn: boolean; feedId: string | null; feedLabel: string | null; onClearFeed?: () => void; onPreview: (activityId: string, contentKey: string | null) => void }) {
+  return (
+    <div className="flex flex-col h-full">
+      {feedId ? (
+        <div className="px-3 py-1.5 border-b border-sol-base02 flex items-center gap-2 bg-sol-base02/50 shrink-0">
+          <span className="text-sol-base01 text-xs shrink-0">Feed:</span>
+          <span className="text-sol-base0 text-sm truncate flex-1" title={feedId}>{feedLabel || feedId}</span>
+          {onClearFeed && (
+            <button onClick={onClearFeed} className="shrink-0 text-sol-base01 hover:text-sol-red cursor-pointer" title="Clear feed filter">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="px-3 py-2 text-sol-base01 text-sm italic shrink-0">No feed selected. Click a feed in the sidebar.</div>
+      )}
+      <div className="flex-1 min-h-0">
+        <LinkList isLoggedIn={isLoggedIn} onPreview={(link) => onPreview(link.activity_id, link.content_key || null)} feedId={feedId} />
+      </div>
+    </div>
+  );
+}
+
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -322,6 +350,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
   const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
+  const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
@@ -329,7 +358,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isFinance || isEmail || isDev) return;
+    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -414,6 +443,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       setCache((prev) => { const next = { ...prev }; delete next[activeFile]; return next; });
       return;
     }
+    if (isLinksMd) {
+      mutate((key) => typeof key === "string" && key.includes("/api/link/list"));
+      return;
+    }
     if (isFinance) {
       mutate((key) => typeof key === "string" && key.includes("/api/finance/"));
       return;
@@ -436,7 +469,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isFinance, isEmail, isDev, mutate]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isFinance, isEmail, isDev, mutate]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -666,6 +699,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
           const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
+          const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
@@ -678,7 +712,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -690,6 +724,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <CalendarViewer onOpenFile={onSelectFile} />
               ) : fileLinkPreview ? (
                 <LinkContentView activityId={selectedLinkId || ""} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} />
+              ) : fileLinksMd ? (
+                <LinksMdView
+                  isLoggedIn={!!isLoggedIn}
+                  feedId={selectedFeedId || null}
+                  feedLabel={selectedFeedLabel || null}
+                  onClearFeed={onClearFeed}
+                  onPreview={(activityId, contentKey) => {
+                    if (onPreviewLinkFull) onPreviewLinkFull(activityId, contentKey);
+                    else if (onPreviewLink) onPreviewLink(activityId);
+                  }}
+                />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
