@@ -8,7 +8,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, backfill_tool_results
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from storage.entity.dto import Message
 
 router = APIRouter(prefix="/chat")
@@ -109,8 +109,6 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         if not work_dir:
             work_dir = chat.work_dir
 
-    # Backfill tool results so they are persisted
-    backfill_tool_results(chat.messages, mode="cancelled")
     user_msg = Message.from_dict({
         "role": "user",
         "content": req.prompt,
