@@ -76,6 +76,8 @@ interface FileCache {
   blobUrl?: string;
   loading: boolean;
   error?: string;
+  linkTitle?: string;
+  linkUrl?: string;
 }
 
 function FileContentTable({ filePath, content }: { filePath: string; content: string }) {
@@ -273,11 +275,11 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: st
   );
 }
 
-async function fetchLinkContent(activityId: string): Promise<string> {
+async function fetchLinkContent(activityId: string): Promise<{ title?: string; url?: string; content: string }> {
   const res = await authFetch(`${API}/api/link/content?activity_id=${encodeURIComponent(activityId)}`);
   if (!res.ok) throw new Error("Failed to fetch content");
   const data = await res.json();
-  return data.content;
+  return { title: data.title, url: data.url, content: data.content };
 }
 
 function LinkContentView({ activityId, cache, setCache, raw }: { activityId: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean }) {
@@ -290,7 +292,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
 
     setCache((prev) => ({ ...prev, [cacheKey]: { loading: true } }));
     fetchLinkContent(activityId)
-      .then((content) => setCache((prev) => ({ ...prev, [cacheKey]: { content, loading: false } })))
+      .then(({ title, url, content }) => setCache((prev) => ({ ...prev, [cacheKey]: { content, linkTitle: title, linkUrl: url, loading: false } })))
       .catch((e) => setCache((prev) => ({ ...prev, [cacheKey]: { loading: false, error: e.message } })));
   }, [activityId, fileData, setCache, cacheKey]);
 
@@ -301,7 +303,32 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
     return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
   }
   if (fileData.content !== undefined) {
-    return raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />;
+    const header = (fileData.linkTitle || fileData.linkUrl) ? (
+      <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
+        {fileData.linkTitle && (
+          <div className="text-sol-base1 font-semibold text-sm break-words">{fileData.linkTitle}</div>
+        )}
+        {fileData.linkUrl && (
+          <a
+            href={fileData.linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sol-blue hover:text-sol-cyan text-xs truncate block mt-0.5"
+            title={fileData.linkUrl}
+          >
+            {fileData.linkUrl}
+          </a>
+        )}
+      </div>
+    ) : null;
+    return (
+      <div className="flex flex-col h-full">
+        {header}
+        <div className="flex-1 min-h-0 overflow-auto">
+          {raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />}
+        </div>
+      </div>
+    );
   }
   return null;
 }
