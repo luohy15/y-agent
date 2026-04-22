@@ -31,6 +31,16 @@ from storage.service import rss_feed as rss_feed_service
 
 LOCK_NAME = "fetch_rss_links"
 
+FAIL_THRESHOLD = int(os.environ.get("RSS_FAIL_THRESHOLD", 3))
+FAIL_COOLDOWN = int(os.environ.get("RSS_FAIL_COOLDOWN_SECONDS", 86400))
+
+
+def _in_cooldown(feed) -> bool:
+    until = getattr(feed, "fetch_disabled_until", None)
+    if until is None:
+        return False
+    return int(time.time() * 1000) < until
+
 
 def _parse_feed_timestamp(entry) -> Optional[int]:
     ts_struct = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -81,23 +91,25 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
     if (feed.feed_type or 'rss') == 'scrape':
         return await _process_scrape_feed(client, user_id, feed)
 
+    if _in_cooldown(feed):
+        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "cooldown"}
+
     xml = await _fetch_xml(client, feed.url)
     if xml is None:
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
 
     parsed = feedparser.parse(xml)
     if parsed.bozo and not parsed.entries:
         err = str(parsed.bozo_exception)
         logger.error("fetch_rss_links parse error feed={}: {}", feed.rss_feed_id, err)
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": err}
 
     added, max_ts = _ingest_entries(user_id, feed, parsed)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    rss_feed_service.update_fetch_state(
-        feed.rss_feed_id,
-        last_fetched_at=now_iso,
-        last_item_ts=max_ts if max_ts > (feed.last_item_ts or 0) else None,
-    )
+    rss_feed_service.record_fetch_success(feed.rss_feed_id)
+    if max_ts > (feed.last_item_ts or 0):
+        rss_feed_service.update_fetch_state(feed.rss_feed_id, last_item_ts=max_ts)
     logger.info("fetch_rss_links feed={} user={} added={}", feed.rss_feed_id, user_id, added)
     return {"feed_id": feed.rss_feed_id, "added": added}
 
@@ -189,23 +201,28 @@ def _extract_scrape_items(feed, html: str) -> list[dict]:
 
 
 async def _process_scrape_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
+    if _in_cooldown(feed):
+        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "cooldown"}
+
     if not feed.scrape_config or not feed.scrape_config.get('item_selector'):
         logger.error("fetch_rss_links scrape feed={} missing item_selector", feed.rss_feed_id)
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": "missing item_selector"}
 
     html = await _fetch_html(client, feed.url)
     if html is None:
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
 
     try:
         items = _extract_scrape_items(feed, html)
     except Exception as e:
         logger.exception("fetch_rss_links scrape feed={} parse error", feed.rss_feed_id)
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": f"parse error: {e}"}
 
     if not items:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        rss_feed_service.update_fetch_state(feed.rss_feed_id, last_fetched_at=now_iso)
+        rss_feed_service.record_fetch_success(feed.rss_feed_id)
         logger.info("fetch_rss_links scrape feed={} user={} added=0 (no items matched)", feed.rss_feed_id, user_id)
         return {"feed_id": feed.rss_feed_id, "added": 0}
 
@@ -233,12 +250,9 @@ async def _process_scrape_feed(client: httpx.AsyncClient, user_id: int, feed) ->
         if ts_ms > max_ts:
             max_ts = ts_ms
 
-    now_iso = datetime.now(timezone.utc).isoformat()
-    rss_feed_service.update_fetch_state(
-        feed.rss_feed_id,
-        last_fetched_at=now_iso,
-        last_item_ts=max_ts if max_ts > (feed.last_item_ts or 0) else None,
-    )
+    rss_feed_service.record_fetch_success(feed.rss_feed_id)
+    if max_ts > (feed.last_item_ts or 0):
+        rss_feed_service.update_fetch_state(feed.rss_feed_id, last_item_ts=max_ts)
     logger.info("fetch_rss_links scrape feed={} user={} matched={} added={}",
                 feed.rss_feed_id, user_id, len(items), added)
     return {"feed_id": feed.rss_feed_id, "added": added}
@@ -266,6 +280,12 @@ async def handle_fetch_rss_links() -> dict:
                         return await _process_feed(client, user_id, feed)
                     except Exception as e:
                         logger.exception("fetch_rss_links feed={} unexpected error", feed.rss_feed_id)
+                        try:
+                            rss_feed_service.record_fetch_failure(
+                                feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN,
+                            )
+                        except Exception:
+                            logger.exception("fetch_rss_links feed={} record_fetch_failure failed", feed.rss_feed_id)
                         return {"feed_id": feed.rss_feed_id, "added": 0, "error": str(e)}
 
             results = await asyncio.gather(

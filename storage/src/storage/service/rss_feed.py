@@ -66,5 +66,15 @@ def update_fetch_state(
     )
 
 
+def record_fetch_success(rss_feed_id: str) -> Optional[RssFeed]:
+    return rss_feed_repo.record_fetch_success(rss_feed_id)
+
+
+def record_fetch_failure(
+    rss_feed_id: str, threshold: int, cooldown_seconds: int,
+) -> Optional[RssFeed]:
+    return rss_feed_repo.record_fetch_failure(rss_feed_id, threshold, cooldown_seconds)
+
+
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:
     return rss_feed_repo.delete_feed(user_id, rss_feed_id)
