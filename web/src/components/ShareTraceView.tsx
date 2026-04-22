@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useParams } from "react-router";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
@@ -108,10 +108,15 @@ function ShareToc({ messages, containerRef }: { messages: Message[]; containerRe
 
 export default function ShareTraceView() {
   const { shareId } = useParams<{ shareId: string }>();
+  const [searchParams] = useSearchParams();
 
   const [data, setData] = useState<TraceShareResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -120,30 +125,87 @@ export default function ShareTraceView() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
 
+  const fetchShare = useCallback(async (password?: string) => {
+    if (!shareId) return;
+    const url = `${API}/api/trace/share?share_id=${encodeURIComponent(shareId)}${password ? `&password=${encodeURIComponent(password)}` : ""}`;
+    const r = await fetch(url);
+    if (r.status === 401) {
+      setPasswordRequired(true);
+      setLoading(false);
+      return;
+    }
+    if (r.status === 403) {
+      setPasswordError("Wrong password");
+      return;
+    }
+    if (r.status === 429) {
+      setPasswordError("Too many attempts — try again later");
+      return;
+    }
+    if (!r.ok) {
+      throw new Error("Shared trace not found");
+    }
+    const d: TraceShareResponse = await r.json();
+    setData(d);
+    setPasswordRequired(false);
+    setPasswordError(null);
+    if (d.chats.length > 0) setSelectedChatId(d.chats[0].chat_id);
+  }, [shareId]);
+
   useEffect(() => {
     if (!shareId) return;
     setLoading(true);
     setError(null);
-    fetch(`${API}/api/trace/share?share_id=${encodeURIComponent(shareId)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Shared trace not found");
-        return r.json();
-      })
-      .then((d: TraceShareResponse) => {
-        setData(d);
-        // Default to earliest chat (first in timeline)
-        if (d.chats.length > 0) {
-          setSelectedChatId(d.chats[0].chat_id);
-        }
-      })
+    const urlPassword = searchParams.get("p") || undefined;
+    fetchShare(urlPassword)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [shareId]);
+  }, [shareId, searchParams, fetchShare]);
+
+  const onSubmitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordInput || verifying) return;
+    setVerifying(true);
+    setPasswordError(null);
+    try {
+      await fetchShare(passwordInput);
+    } catch (err: any) {
+      setPasswordError(err.message || "Error");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-sol-base03">
         <span className="text-sol-base01 text-sm">Loading...</span>
+      </div>
+    );
+  }
+
+  if (passwordRequired) {
+    return (
+      <div className="h-full flex items-center justify-center bg-sol-base03 px-4">
+        <form onSubmit={onSubmitPassword} className="w-full max-w-sm flex flex-col gap-3">
+          <span className="text-sol-base01 text-sm">This share is password-protected.</span>
+          <input
+            type="password"
+            autoFocus
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            placeholder="Password"
+            className="w-full px-3 py-2 bg-sol-base02 text-sol-base1 rounded text-sm outline-none"
+          />
+          {passwordError && <span className="text-sol-red text-xs">{passwordError}</span>}
+          <button
+            type="submit"
+            disabled={verifying || !passwordInput}
+            className="px-3 py-2 bg-sol-blue text-sol-base03 rounded text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {verifying ? "..." : "Unlock"}
+          </button>
+        </form>
       </div>
     );
   }

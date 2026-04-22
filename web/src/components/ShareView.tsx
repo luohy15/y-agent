@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import { API, getToken } from "../api";
 import MessageList, { type Message, extractContent } from "./MessageList";
 
@@ -44,29 +44,69 @@ function parseMessages(rawMessages: any[]): Message[] {
 
 export default function ShareView() {
   const { shareId } = useParams<{ shareId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
   const [shareLabel, setShareLabel] = useState("share");
   const isLoggedIn = !!getToken();
+
+  const fetchShare = useCallback(async (password?: string) => {
+    if (!shareId) return;
+    const url = `${API}/api/chat/share?share_id=${encodeURIComponent(shareId)}${password ? `&password=${encodeURIComponent(password)}` : ""}`;
+    const r = await fetch(url);
+    if (r.status === 401) {
+      setPasswordRequired(true);
+      setLoading(false);
+      return { needsPassword: true };
+    }
+    if (r.status === 403) {
+      setPasswordError("Wrong password");
+      return { wrongPassword: true };
+    }
+    if (r.status === 429) {
+      setPasswordError("Too many attempts — try again later");
+      return { rateLimited: true };
+    }
+    if (!r.ok) {
+      throw new Error("Shared chat not found");
+    }
+    const data = await r.json();
+    setMessages(parseMessages(data.messages || []));
+    setPasswordRequired(false);
+    setPasswordError(null);
+    return { ok: true };
+  }, [shareId]);
 
   useEffect(() => {
     if (!shareId) return;
     setLoading(true);
     setError(null);
-    fetch(`${API}/api/chat/share?share_id=${encodeURIComponent(shareId)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Shared chat not found");
-        return r.json();
-      })
-      .then((data) => {
-        setMessages(parseMessages(data.messages || []));
-      })
+    const urlPassword = searchParams.get("p") || undefined;
+    fetchShare(urlPassword)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [shareId]);
+  }, [shareId, searchParams, fetchShare]);
+
+  const onSubmitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordInput || verifying) return;
+    setVerifying(true);
+    setPasswordError(null);
+    try {
+      await fetchShare(passwordInput);
+    } catch (err: any) {
+      setPasswordError(err.message || "Error");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -80,6 +120,32 @@ export default function ShareView() {
     return (
       <div className="h-full flex items-center justify-center">
         <span className="text-sol-red text-sm">{error}</span>
+      </div>
+    );
+  }
+
+  if (passwordRequired) {
+    return (
+      <div className="h-full flex items-center justify-center px-4">
+        <form onSubmit={onSubmitPassword} className="w-full max-w-sm flex flex-col gap-3">
+          <span className="text-sol-base01 text-sm">This share is password-protected.</span>
+          <input
+            type="password"
+            autoFocus
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            placeholder="Password"
+            className="w-full px-3 py-2 bg-sol-base02 text-sol-base1 rounded text-sm outline-none"
+          />
+          {passwordError && <span className="text-sol-red text-xs">{passwordError}</span>}
+          <button
+            type="submit"
+            disabled={verifying || !passwordInput}
+            className="px-3 py-2 bg-sol-blue text-sol-base03 rounded text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {verifying ? "..." : "Unlock"}
+          </button>
+        </form>
       </div>
     );
   }

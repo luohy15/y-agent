@@ -163,22 +163,52 @@ async def post_mark_read(req: MarkReadRequest):
 class ShareChatRequest(BaseModel):
     chat_id: str
     message_id: Optional[str] = None
+    password: Optional[str] = None
+    generate_password: bool = False
 
 
 @router.post("/share")
 async def post_share_chat(req: ShareChatRequest, request: Request):
+    from storage import share_password as sp
     user_id = _get_user_id(request)
-    share_id = await chat_service.create_share(user_id, req.chat_id, req.message_id)
-    return {"share_id": share_id}
+
+    generated_password: Optional[str] = None
+    password_hash: Optional[str] = None
+    if req.generate_password and not (req.password and req.password.strip()):
+        generated_password = sp.generate_password()
+        password_hash = sp.hash_password(generated_password)
+    elif req.password and req.password.strip():
+        password_hash = sp.hash_password(req.password)
+
+    share_id = await chat_service.create_share(user_id, req.chat_id, req.message_id, password_hash=password_hash)
+    resp = {"share_id": share_id}
+    if generated_password is not None:
+        resp["password"] = generated_password
+    return resp
 
 
 @router.get("/share")
-async def get_share_chat(share_id: str = Query(...)):
+async def get_share_chat(share_id: str = Query(...), password: Optional[str] = Query(None)):
     from storage.service.user import get_default_user_id
+    from storage.repository import chat as chat_repo
+    from storage import share_password as sp
+
     default_user_id = get_default_user_id()
     chat = await chat_service.get_chat(default_user_id, share_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="shared chat not found")
+
+    password_hash = chat_repo.get_share_password_hash(default_user_id, share_id)
+    if password_hash:
+        if not password:
+            raise HTTPException(status_code=401, detail={"password_required": True})
+        allowed, retry_after = sp.check_rate_limit(share_id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail={"retry_after": retry_after})
+        if not sp.verify_password(password, password_hash):
+            sp.record_failure(share_id)
+            raise HTTPException(status_code=403, detail="Invalid password")
+
     return {
         "chat_id": chat.id,
         "messages": [m.to_dict() for m in chat.messages],

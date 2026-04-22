@@ -19,6 +19,7 @@ class ChatEntity(Base, BaseEntity):
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
     status = Column(String, nullable=False, server_default="idle")
     unread = Column(Boolean, nullable=False, server_default=text("false"))
+    share_password_hash = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),

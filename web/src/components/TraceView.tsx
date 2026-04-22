@@ -3,6 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
+import SharePopover from "./SharePopover";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -92,27 +93,17 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   const [linksOpen, setLinksOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [shareLabel, setShareLabel] = useState("share");
-
-  const handleShare = async () => {
-    if (!selectedTraceId) return;
-    setShareLabel("...");
-    try {
-      const res = await authFetch(`${API}/api/trace/share`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trace_id: selectedTraceId }),
-      });
-      if (!res.ok) throw new Error();
-      const { share_id } = await res.json();
-      const url = `${window.location.origin}/t/${share_id}`;
-      await navigator.clipboard.writeText(url);
-      setShareLabel("copied!");
-    } catch {
-      setShareLabel("error");
-    }
-    setTimeout(() => setShareLabel("share"), 1500);
+  const createTraceShare = async (opts: { password?: string; generate_password?: boolean }) => {
+    if (!selectedTraceId) throw new Error("no trace");
+    const res = await authFetch(`${API}/api/trace/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trace_id: selectedTraceId, ...opts }),
+    });
+    if (!res.ok) throw new Error("share failed");
+    return res.json();
   };
+  const buildTraceShareUrl = (shareId: string) => `${window.location.origin}/t/${shareId}`;
 
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 p-3">
@@ -160,16 +151,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
               >
                 #{selectedTraceId}
               </button>
-              <button
-                onClick={handleShare}
-                className={`text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer ${
-                  shareLabel === "copied!" ? "bg-sol-green/20 text-sol-green" :
-                  shareLabel === "error" ? "bg-sol-red/20 text-sol-red" :
-                  "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                }`}
-              >
-                {shareLabel}
-              </button>
+              <SharePopover
+                onCreate={createTraceShare}
+                buildUrl={buildTraceShareUrl}
+                buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+              />
             </div>
 
             {/* Todo detail section */}
