@@ -85,6 +85,7 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir
+    from storage.repository import chat as chat_repo
     if existing_chat:
         if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
@@ -92,18 +93,23 @@ async def post_notify(req: NotifyRequest, request: Request):
             if not work_dir:
                 work_dir = existing_chat.work_dir
         updated_chat = await chat_service.append_message(chat_id, user_msg)
-        # Set running immediately so frontend shows running state without waiting for worker
-        updated_chat.running = True
-        from storage.repository import chat as chat_repo
+        updated_chat.interrupted = False
+        # If chat is running, don't queue a new task — the running worker will pick up
+        # the new message via steer polling
+        already_running = updated_chat.running
+        if not already_running:
+            # Set running immediately so frontend shows running state without waiting for worker
+            updated_chat.running = True
         await chat_repo.save_chat_by_id(updated_chat)
     else:
         chat = await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
         # Set running immediately so frontend shows running state without waiting for worker
         chat.running = True
-        from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user_id, chat)
+        already_running = False
 
-    # Enqueue worker
-    send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, role=role, topic=req.topic, backend=req.backend)
+    # Enqueue worker only if not already running
+    if not already_running:
+        send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, role=role, topic=req.topic, backend=req.backend)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
