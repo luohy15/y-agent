@@ -540,7 +540,10 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
                 (LinkEntity.crawl_fail_count.is_(None))
                 | (LinkEntity.crawl_fail_count <= max_fails),
             )
-            .order_by(LinkEntity.id.asc())
+            .order_by(
+                LinkEntity.published_at.desc().nullslast(),
+                LinkEntity.id.desc(),
+            )
             .limit(limit)
             .all()
         )
@@ -579,7 +582,10 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
                     (LinkEntity.crawl_fail_count.is_(None))
                     | (LinkEntity.crawl_fail_count <= max_fails),
                 )
-                .order_by(LinkActivityEntity.id.asc())
+                .order_by(
+                    LinkEntity.published_at.desc().nullslast(),
+                    LinkActivityEntity.timestamp.desc(),
+                )
                 .limit(remaining)
                 .all()
             )
