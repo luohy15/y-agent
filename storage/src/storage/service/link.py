@@ -68,12 +68,14 @@ def list_links(
     activity_ids: Optional[List[str]] = None,
     downloaded_only: bool = False,
     source_feed_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
         user_id, start=start, end=end, query=query,
         limit=limit, offset=offset, link_ids=link_ids,
         activity_ids=activity_ids, downloaded_only=downloaded_only,
         source_feed_id=source_feed_id,
+        source=source,
     )
 
 

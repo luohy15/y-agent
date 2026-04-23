@@ -43,6 +43,7 @@ def list_links(
     activity_ids: Optional[List[str]] = None,
     downloaded_only: bool = False,
     source_feed_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -58,6 +59,8 @@ def list_links(
             q = q.filter(LinkActivityEntity.activity_id.in_(activity_ids))
         if source_feed_id is not None:
             q = q.filter(LinkEntity.source_feed_id == source_feed_id)
+        if source is not None:
+            q = q.filter(LinkEntity.source == source)
         if start is not None:
             q = q.filter(LinkActivityEntity.timestamp >= start)
         if end is not None:
@@ -67,7 +70,12 @@ def list_links(
             q = q.filter(
                 (LinkEntity.title.like(pattern)) | (LinkEntity.base_url.like(pattern))
             )
-        q = q.order_by(LinkActivityEntity.timestamp.desc())
+        if source_feed_id is not None or source is not None:
+            q = q.order_by(
+                func.coalesce(LinkEntity.published_at, LinkActivityEntity.timestamp).desc()
+            )
+        else:
+            q = q.order_by(LinkActivityEntity.timestamp.desc())
         # Fetch extra rows to account for dedup filtering
         q = q.offset(offset)
         results: List[LinkActivity] = []
@@ -78,11 +86,11 @@ def list_links(
         for act, lnk in q.yield_per(200):
             title = act.title or lnk.title
             prev_url = last_ts_url.get(lnk.base_url)
-            if prev_url is not None and prev_url - act.timestamp < window_ms:
+            if prev_url is not None and abs(prev_url - act.timestamp) < window_ms:
                 continue
             if title:
                 prev_title = last_ts_title.get(title)
-                if prev_title is not None and prev_title - act.timestamp < window_ms:
+                if prev_title is not None and abs(prev_title - act.timestamp) < window_ms:
                     continue
                 last_ts_title[title] = act.timestamp
             last_ts_url[lnk.base_url] = act.timestamp
