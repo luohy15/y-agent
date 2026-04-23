@@ -154,6 +154,14 @@ async def get_link_content(
     return result
 
 
+@router.get("/resolve")
+async def resolve_url(request: Request, url: str = Query(...)):
+    user_id = _get_user_id(request)
+    if not url:
+        raise HTTPException(status_code=400, detail="url required")
+    return link_service.resolve_url(user_id, url)
+
+
 def _read_s3_content(content_key: str) -> Optional[str]:
     try:
         s3 = boto3.client("s3")

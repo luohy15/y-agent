@@ -418,6 +418,58 @@ def get_links_by_urls(urls: List[str]) -> List[LinkEntity]:
         return session.query(LinkEntity).filter(LinkEntity.base_url.in_(base_urls)).all()
 
 
+def resolve_url(user_id: int, url: str) -> dict:
+    """Resolve a URL against the link library.
+
+    Strips fragment/query to derive base_url, looks up LinkEntity, then falls
+    back to an activity row for the current user so query-specific downloads
+    surface their own content_key/download_status.
+
+    Returns a dict with `base_url` and `found`. When found, also fills
+    `link_id`, `activity_id` (may be None if this user has no activity for the
+    link), `download_status`, and `content_key`.
+    """
+    fragless = url.split('#', 1)[0]
+    base_url = _strip_query(url)
+    with get_db() as session:
+        link = session.query(LinkEntity).filter_by(base_url=base_url).first()
+        if not link:
+            return {"base_url": base_url, "found": False}
+
+        activity = (
+            session.query(LinkActivityEntity)
+            .filter(
+                LinkActivityEntity.user_id == user_id,
+                LinkActivityEntity.link_id == link.id,
+                LinkActivityEntity.url == fragless,
+            )
+            .first()
+        )
+        if activity is None:
+            activity = (
+                session.query(LinkActivityEntity)
+                .filter(
+                    LinkActivityEntity.user_id == user_id,
+                    LinkActivityEntity.link_id == link.id,
+                )
+                .order_by(LinkActivityEntity.timestamp.desc())
+                .first()
+            )
+
+        activity_id = activity.activity_id if activity else None
+        download_status = (activity.download_status if activity else None) or link.download_status
+        content_key = (activity.content_key if activity else None) or link.content_key
+
+        return {
+            "base_url": base_url,
+            "found": True,
+            "link_id": link.link_id,
+            "activity_id": activity_id,
+            "download_status": download_status,
+            "content_key": content_key,
+        }
+
+
 def update_link_download_status(link_id: str, status: str, content_key: Optional[str] = None):
     """Update download_status and optionally content_key for a link."""
     with get_db() as session:
