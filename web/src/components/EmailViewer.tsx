@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, Fragment, useMemo } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 
 interface Email {
   email_id: string;
@@ -12,15 +12,6 @@ interface Email {
   content?: string;
   thread_id?: string;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 function formatDate(ts: number): string {
   if (!ts) return "";

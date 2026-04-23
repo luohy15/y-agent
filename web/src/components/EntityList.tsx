@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 
 interface Entity {
   entity_id: string;
@@ -14,16 +14,6 @@ interface EntityListProps {
   selectedEntityId?: string | null;
   onSelectEntity?: (entityId: string) => void;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
 
 export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntity }: EntityListProps) {
   const [typeFilter, setTypeFilter] = useState<string>(() => localStorage.getItem("entityListType") || "");

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 
@@ -29,15 +29,6 @@ interface ChatListProps {
 }
 
 const PAGE_SIZE = 50;
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters }: ChatListProps) {
   const [search, setSearch] = useState("");

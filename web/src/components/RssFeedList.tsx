@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import RssFeedContextMenu from "./RssFeedContextMenu";
 
 interface ScrapeConfig {
@@ -36,16 +36,6 @@ interface RssFeedListProps {
   onSelectFeed?: (feedId: string, label: string) => void;
   selectedFeedId?: string | null;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
 
 function getDomain(url: string): string {
   try {

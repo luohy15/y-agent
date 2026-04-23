@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 import TodoContextMenu from "./TodoContextMenu";
@@ -18,15 +18,6 @@ interface Todo {
   has_running?: boolean;
   has_unread?: boolean;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 const PAGE_SIZE = 50;
 

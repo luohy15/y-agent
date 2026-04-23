@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import useSWR, { mutate } from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 
 interface HistoryEntry {
   timestamp: string;
@@ -29,15 +29,6 @@ interface DevWorktree {
   created_at_unix: number;
   updated_at_unix: number;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 const statusColor: Record<string, string> = {
   active: "bg-sol-blue text-sol-base03",

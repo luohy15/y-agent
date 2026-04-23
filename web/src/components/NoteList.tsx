@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { formatDateTime } from "../utils/formatTime";
 
 interface FileEntry {
@@ -28,15 +28,6 @@ interface NoteListProps {
 }
 
 type NoteTab = "journals" | "pages";
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 function formatMonth(dateStr: string): string {
   // dateStr like "2026-04-12.md" → extract YYYY-MM

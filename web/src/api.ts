@@ -27,3 +27,12 @@ export function authFetch(url: string, opts: RequestInit = {}): Promise<Response
   }
   return fetch(url, { ...opts, headers });
 }
+
+export async function jsonFetcher(url: string, opts: { signal?: AbortSignal } = {}): Promise<any> {
+  const res = await authFetch(url, { signal: opts.signal });
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Unauthorized");
+  }
+  return res.json();
+}

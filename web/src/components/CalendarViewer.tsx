@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 
 interface CalendarEvent {
   event_id: string;
@@ -13,15 +13,6 @@ interface CalendarEvent {
   source?: string;
   todo_id?: string;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 const SOURCE_COLORS = [
   "bg-sol-blue/80",
