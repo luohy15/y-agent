@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback, Fragment } from "react";
 import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
@@ -29,6 +29,7 @@ interface FileViewerProps {
   selectedTraceId?: string | null;
   selectedLinkId?: string | null;
   selectedLinkContentKey?: string | null;
+  selectedEntityId?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
@@ -356,7 +357,164 @@ function LinksMdView({ isLoggedIn, feedId, feedLabel, onClearFeed, onPreview }: 
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
+interface EntityDetail {
+  entity_id: string;
+  name: string;
+  type: string;
+  front_matter?: Record<string, unknown> | null;
+}
+
+interface EntityNote {
+  note_id: string;
+  content_key: string;
+  front_matter?: Record<string, unknown> | null;
+}
+
+interface EntityFeed {
+  rss_feed_id: string;
+  url: string;
+  title?: string | null;
+}
+
+function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityId: string; vmQuery: string; defaultWorkDir?: string; onOpenFile?: (path: string) => void }) {
+  const [entity, setEntity] = useState<EntityDetail | null>(null);
+  const [notes, setNotes] = useState<EntityNote[]>([]);
+  const [feeds, setFeeds] = useState<EntityFeed[]>([]);
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!entityId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setContent(null);
+    (async () => {
+      try {
+        const eRes = await authFetch(`${API}/api/entity/detail?entity_id=${encodeURIComponent(entityId)}`);
+        if (!eRes.ok) throw new Error("Failed to load entity");
+        const entityData: EntityDetail = await eRes.json();
+        if (cancelled) return;
+        setEntity(entityData);
+
+        const noteIdsRes = await authFetch(`${API}/api/entity-note/by-entity?entity_id=${encodeURIComponent(entityId)}`);
+        const noteIds: string[] = noteIdsRes.ok ? await noteIdsRes.json() : [];
+        const noteDetails = await Promise.all(noteIds.map(async (nid) => {
+          const r = await authFetch(`${API}/api/note/detail?note_id=${encodeURIComponent(nid)}`);
+          return r.ok ? (await r.json()) as EntityNote : null;
+        }));
+        if (cancelled) return;
+        const validNotes = noteDetails.filter((n): n is EntityNote => !!n);
+        setNotes(validNotes);
+
+        const firstKey = validNotes[0]?.content_key;
+        if (firstKey) {
+          const fullPath = defaultWorkDir ? `${defaultWorkDir}/${firstKey}` : firstKey;
+          const cRes = await authFetch(`${API}/api/file/read?path=${encodeURIComponent(fullPath)}${vmQuery}`);
+          if (cRes.ok) {
+            const cData = await cRes.json();
+            if (!cancelled) setContent(cData.content ?? "");
+          }
+        }
+
+        const feedIdsRes = await authFetch(`${API}/api/entity-rss/by-entity?entity_id=${encodeURIComponent(entityId)}`);
+        const feedIds: string[] = feedIdsRes.ok ? await feedIdsRes.json() : [];
+        if (feedIds.length > 0) {
+          const allFeedsRes = await authFetch(`${API}/api/rss-feed/list`);
+          const allFeeds: EntityFeed[] = allFeedsRes.ok ? await allFeedsRes.json() : [];
+          const feedSet = new Set(feedIds);
+          if (!cancelled) setFeeds(allFeeds.filter((f) => feedSet.has(f.rss_feed_id)));
+        } else {
+          if (!cancelled) setFeeds([]);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entityId, vmQuery, defaultWorkDir]);
+
+  if (!entityId) return <p className="text-sol-base01 italic text-sm p-3">No entity selected. Set `selectedEntityId` in localStorage.</p>;
+  if (loading && !entity) return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
+  if (error) return <p className="text-sol-red text-sm p-3">{error}</p>;
+  if (!entity) return null;
+
+  const frontMatterEntries = entity.front_matter ? Object.entries(entity.front_matter) : [];
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sol-base1 font-semibold text-base break-words">{entity.name}</span>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[0.65rem] bg-sol-base02 text-sol-base01">{entity.type}</span>
+          <span className="text-sol-base01 text-[0.65rem] font-mono">{entity.entity_id}</span>
+        </div>
+        {frontMatterEntries.length > 0 && (
+          <div className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
+            {frontMatterEntries.map(([k, v]) => (
+              <Fragment key={k}>
+                <div className="text-sol-base01">{k}</div>
+                <div className="text-sol-base0 break-words">{typeof v === "string" ? v : JSON.stringify(v)}</div>
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto">
+        {content !== null ? (
+          <MarkdownPreview content={content} />
+        ) : notes.length === 0 ? (
+          <p className="text-sol-base01 italic text-sm p-3">No note linked. Link via `y assoc entity {entity.entity_id} --note &lt;note_id&gt;`.</p>
+        ) : (
+          <p className="text-sol-base01 italic text-sm p-3">Loading linked note content...</p>
+        )}
+      </div>
+      {(notes.length > 0 || feeds.length > 0) && (
+        <div className="border-t border-sol-base02 p-3 shrink-0 text-xs space-y-2">
+          {notes.length > 0 && (
+            <div>
+              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">Notes ({notes.length})</div>
+              <ul className="space-y-0.5">
+                {notes.map((n) => {
+                  const fullPath = defaultWorkDir ? `${defaultWorkDir}/${n.content_key}` : n.content_key;
+                  return (
+                    <li key={n.note_id}>
+                      <button
+                        onClick={() => onOpenFile?.(fullPath)}
+                        className="text-sol-blue hover:text-sol-cyan cursor-pointer truncate block text-left max-w-full"
+                        title={n.content_key}
+                      >
+                        {n.content_key}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {feeds.length > 0 && (
+            <div>
+              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">RSS Feeds ({feeds.length})</div>
+              <ul className="space-y-0.5">
+                {feeds.map((f) => (
+                  <li key={f.rss_feed_id} className="flex gap-2 items-baseline">
+                    <span className="text-sol-base0 truncate">{f.title || f.url}</span>
+                    <a href={f.url} target="_blank" rel="noreferrer" className="text-sol-blue hover:text-sol-cyan text-[0.6rem] truncate">{f.url}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -378,6 +536,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
   const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
   const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
+  const isEntityPreview = !isDiff && !isTrace && activeFileName === "entity.md";
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
@@ -385,7 +544,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isFinance || isEmail || isDev) return;
+    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -474,6 +633,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/link/list"));
       return;
     }
+    if (isEntityPreview) {
+      mutate((key) => typeof key === "string" && (key.includes("/api/entity/") || key.includes("/api/entity-note/") || key.includes("/api/entity-rss/")));
+      return;
+    }
     if (isFinance) {
       mutate((key) => typeof key === "string" && key.includes("/api/finance/"));
       return;
@@ -496,7 +659,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isFinance, isEmail, isDev, mutate]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, mutate]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -655,7 +818,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               )}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && (
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
@@ -664,7 +827,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isDiff && (() => {
+          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && (() => {
             const content = editContent[activeFile] ?? cache[activeFile]?.content;
             if (content === undefined) return null;
             return (
@@ -727,6 +890,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
           const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
           const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
+          const fileEntityPreview = !fileDiff && !fileTrace && fileName === "entity.md";
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
@@ -739,7 +903,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -762,6 +926,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     else if (onPreviewLink) onPreviewLink(activityId);
                   }}
                 />
+              ) : fileEntityPreview ? (
+                <EntityView entityId={selectedEntityId || ""} vmQuery={vmQuery} defaultWorkDir={defaultWorkDir} onOpenFile={onPreviewFile} />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
