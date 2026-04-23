@@ -10,6 +10,7 @@ import asyncio
 import calendar
 import os
 import time
+from datetime import datetime
 from typing import Optional
 
 import feedparser
@@ -31,10 +32,16 @@ FAIL_COOLDOWN = int(os.environ.get("RSS_FAIL_COOLDOWN_SECONDS", 86400))
 
 
 def _in_cooldown(feed) -> bool:
-    until = getattr(feed, "fetch_disabled_until", None)
-    if until is None:
+    if (feed.fetch_failure_count or 0) < FAIL_THRESHOLD:
         return False
-    return int(time.time() * 1000) < until
+    last = feed.last_fetched_at
+    if not last:
+        return False
+    try:
+        last_ms = int(datetime.fromisoformat(last).timestamp() * 1000)
+    except ValueError:
+        return False
+    return int(time.time() * 1000) < last_ms + FAIL_COOLDOWN * 1000
 
 
 def _parse_feed_timestamp(entry) -> Optional[int]:
@@ -98,14 +105,14 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
         if (feed.feed_type or 'rss') == 'scrape':
             # No XML staged yet: stage 1 will record its own failure, don't double-count.
             return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "no staged xml"}
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
 
     parsed = feedparser.parse(xml)
     if parsed.bozo and not parsed.entries:
         err = str(parsed.bozo_exception)
         logger.error("fetch_rss_links parse error feed={}: {}", feed.rss_feed_id, err)
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_fetch_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": err}
 
     added, max_ts = _ingest_entries(user_id, feed, parsed)
@@ -139,9 +146,7 @@ async def handle_fetch_rss_links() -> dict:
                     except Exception as e:
                         logger.exception("fetch_rss_links feed={} unexpected error", feed.rss_feed_id)
                         try:
-                            rss_feed_service.record_fetch_failure(
-                                feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN,
-                            )
+                            rss_feed_service.record_fetch_failure(feed.rss_feed_id)
                         except Exception:
                             logger.exception("fetch_rss_links feed={} record_fetch_failure failed", feed.rss_feed_id)
                         return {"feed_id": feed.rss_feed_id, "added": 0, "error": str(e)}
