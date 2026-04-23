@@ -20,6 +20,25 @@ def add_links_batch(user_id: int, links: List[dict]) -> int:
     return link_repo.save_links_batch(user_id, links)
 
 
+def add_link_rss(
+    user_id: int,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+    published_at: Optional[int],
+    source_feed_id: Optional[str],
+) -> tuple[LinkActivity, bool]:
+    """Idempotent RSS ingest: at most one activity per (user_id, link).
+
+    Returns (activity, created). `created` is True only when a new activity row was
+    inserted; False when an existing one was reused.
+    """
+    return link_repo.save_link_rss(
+        user_id, url, title, timestamp,
+        published_at=published_at, source_feed_id=source_feed_id,
+    )
+
+
 def upsert_link_info(
     url: str,
     title: Optional[str] = None,

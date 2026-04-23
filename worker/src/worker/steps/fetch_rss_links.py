@@ -16,7 +16,6 @@ from typing import Optional
 import feedparser
 from loguru import logger
 
-from storage.repository import link as link_repo
 from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import rss_feed as rss_feed_service
@@ -37,9 +36,9 @@ def _parse_feed_timestamp(entry) -> Optional[int]:
 def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
     """Insert new items into the link table. Returns (added, max_ts).
 
-    Forward path is idempotent: every entry upserts LinkEntity (so title /
-    published_at / source get backfilled on existing rows), but only entries
-    with ts_ms > last_item_ts produce a new LinkActivityEntity.
+    Idempotent on (user_id, link_id): timestamp drift between refetches no longer
+    produces duplicate activities. Every entry still upserts LinkEntity so that
+    title / published_at / source get backfilled on existing rows.
     """
     last_item_ts = feed.last_item_ts or 0
     max_ts = last_item_ts
@@ -55,11 +54,12 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
 
         title = entry.get("title")
         if ts_ms > last_item_ts:
-            activity = link_service.add_link(
-                user_id, url, title=title, timestamp=ts_ms, published_at=ts_ms,
+            _, created = link_service.add_link_rss(
+                user_id, url, title=title, timestamp=ts_ms,
+                published_at=ts_ms, source_feed_id=feed.rss_feed_id,
             )
-            link_repo.set_link_source_if_null(activity.link_id, "rss", feed.rss_feed_id)
-            added += 1
+            if created:
+                added += 1
             if ts_ms > max_ts:
                 max_ts = ts_ms
         else:

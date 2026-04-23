@@ -217,6 +217,43 @@ def save_link(
         return _row_to_dto(activity, link)
 
 
+def save_link_rss(
+    user_id: int,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+    published_at: Optional[int],
+    source_feed_id: Optional[str],
+) -> tuple[LinkActivity, bool]:
+    """Idempotent RSS ingest: at most one activity per (user_id, link).
+
+    Upserts LinkEntity (title/published_at/source on first sight), then returns the
+    existing (user_id, link) activity if any, otherwise inserts a new one. The bool
+    indicates whether a new activity row was created.
+    """
+    with get_db() as session:
+        link = _upsert_link(session, url, title, published_at=published_at)
+        if link.source is None:
+            link.source = "rss"
+            link.source_feed_id = source_feed_id
+        existing = session.query(LinkActivityEntity).filter_by(
+            user_id=user_id, link_id=link.id,
+        ).first()
+        if existing:
+            return _row_to_dto(existing, link), False
+        activity = LinkActivityEntity(
+            user_id=user_id,
+            activity_id=generate_long_id(),
+            link_id=link.id,
+            url=url,
+            title=title,
+            timestamp=timestamp,
+        )
+        session.add(activity)
+        session.flush()
+        return _row_to_dto(activity, link), True
+
+
 def _batch_generate_long_ids(n: int, existing: Set[str] = set()) -> List[str]:
     """Pre-generate n unique long IDs, avoiding collisions with existing set."""
     ids: List[str] = []
@@ -445,17 +482,6 @@ def get_activity_content_key(url: str) -> Optional[str]:
         return None
 
 
-def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[str]):
-    """Set source/source_feed_id on a LinkEntity only when source is currently null."""
-    with get_db() as session:
-        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
-        if not entity:
-            return
-        if entity.source is None:
-            entity.source = source
-            entity.source_feed_id = source_feed_id
-
-
 def upsert_link_info(
     url: str,
     title: Optional[str] = None,
@@ -466,7 +492,7 @@ def upsert_link_info(
     """Upsert LinkEntity only (no activity row). Used by RSS for idempotent refresh.
 
     `published_at` is only written on first sight (handled inside `_upsert_link`).
-    `source` is only filled when currently null, matching `set_link_source_if_null`.
+    `source` is only filled when currently null.
     """
     with get_db() as session:
         entity = _upsert_link(session, url, title, published_at=published_at)
