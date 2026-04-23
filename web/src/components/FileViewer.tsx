@@ -28,6 +28,7 @@ interface FileViewerProps {
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
   selectedLinkId?: string | null;
+  selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
   selectedEntityId?: string | null;
   selectedFeedId?: string | null;
@@ -36,6 +37,7 @@ interface FileViewerProps {
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
   onPreviewLinkFull?: (activityId: string, contentKey: string | null) => void;
+  onExternalLinkClick?: (url: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   onPreviewFile?: (path: string) => void;
@@ -156,7 +158,11 @@ function isRelativeLink(href: string): boolean {
   return !/^(https?:\/\/|mailto:|#|\/)/.test(href);
 }
 
-function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void; }) {
+function isAbsoluteHttpLink(href: string): boolean {
+  return /^https?:\/\//i.test(href);
+}
+
+function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void; onExternalLinkClick?: (url: string) => void }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const headings = useMemo(() => {
@@ -192,6 +198,20 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: st
                     onClick={(e) => {
                       e.preventDefault();
                       onOpenFile(resolveRelativePath(currentFilePath, href));
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              }
+              if (href && onExternalLinkClick && isAbsoluteHttpLink(href)) {
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onExternalLinkClick(href);
                     }}
                     {...props}
                   >
@@ -276,26 +296,36 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile }: { content: st
   );
 }
 
-async function fetchLinkContent(activityId: string): Promise<{ title?: string; url?: string; content: string }> {
-  const res = await authFetch(`${API}/api/link/content?activity_id=${encodeURIComponent(activityId)}`);
+async function fetchLinkContent({ activityId, linkId }: { activityId?: string | null; linkId?: string | null }): Promise<{ title?: string; url?: string; content: string }> {
+  const qs = activityId
+    ? `activity_id=${encodeURIComponent(activityId)}`
+    : linkId
+    ? `link_id=${encodeURIComponent(linkId)}`
+    : "";
+  const res = await authFetch(`${API}/api/link/content?${qs}`);
   if (!res.ok) throw new Error("Failed to fetch content");
   const data = await res.json();
   return { title: data.title, url: data.url, content: data.content };
 }
 
-function LinkContentView({ activityId, cache, setCache, raw }: { activityId: string; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean }) {
-  const cacheKey = `link:${activityId}`;
-  const fileData = cache[cacheKey];
+function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalLinkClick }: { activityId: string | null; linkId?: string | null; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean; onExternalLinkClick?: (url: string) => void }) {
+  const cacheKey = activityId ? `link:activity:${activityId}` : linkId ? `link:link:${linkId}` : "";
+  const fileData = cacheKey ? cache[cacheKey] : undefined;
 
   useEffect(() => {
-    if (!activityId) return;
+    if (!cacheKey) return;
+    if (!activityId && !linkId) return;
     if (fileData && !fileData.error) return;
 
     setCache((prev) => ({ ...prev, [cacheKey]: { loading: true } }));
-    fetchLinkContent(activityId)
+    fetchLinkContent({ activityId, linkId })
       .then(({ title, url, content }) => setCache((prev) => ({ ...prev, [cacheKey]: { content, linkTitle: title, linkUrl: url, loading: false } })))
       .catch((e) => setCache((prev) => ({ ...prev, [cacheKey]: { loading: false, error: e.message } })));
-  }, [activityId, fileData, setCache, cacheKey]);
+  }, [activityId, linkId, fileData, setCache, cacheKey]);
+
+  if (!activityId && !linkId) {
+    return <p className="text-sol-base01 italic text-sm p-3">No link selected.</p>;
+  }
 
   if (!fileData || fileData.loading) {
     return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
@@ -326,7 +356,7 @@ function LinkContentView({ activityId, cache, setCache, raw }: { activityId: str
       <div className="flex flex-col h-full">
         {header}
         <div className="flex-1 min-h-0 overflow-auto">
-          {raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} />}
+          {raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} onExternalLinkClick={onExternalLinkClick} />}
         </div>
       </div>
     );
@@ -514,7 +544,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityI
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -625,8 +655,14 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       return;
     }
     if (isLinkPreview) {
-      // Clear cache so it re-fetches
-      setCache((prev) => { const next = { ...prev }; delete next[activeFile]; return next; });
+      // Clear cache so it re-fetches (both activity-keyed and link-keyed entries)
+      setCache((prev) => {
+        const next = { ...prev };
+        delete next[activeFile];
+        if (selectedLinkId) delete next[`link:activity:${selectedLinkId}`];
+        if (selectedLinkLinkId) delete next[`link:link:${selectedLinkLinkId}`];
+        return next;
+      });
       return;
     }
     if (isLinksMd) {
@@ -659,7 +695,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, mutate]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -771,10 +807,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {isLinkPreview && selectedLinkId && (() => {
-            const linkContent = cache[`link:${selectedLinkId}`]?.content;
+          {isLinkPreview && (selectedLinkId || selectedLinkLinkId) && (() => {
+            const linkCacheKey = selectedLinkId
+              ? `link:activity:${selectedLinkId}`
+              : selectedLinkLinkId
+              ? `link:link:${selectedLinkLinkId}`
+              : "";
+            const linkContent = linkCacheKey ? cache[linkCacheKey]?.content : undefined;
             if (!linkContent) return null;
-            const nameSource = selectedLinkContentKey ? getFileName(selectedLinkContentKey) : `link-${selectedLinkId}`;
+            const nameSource = selectedLinkContentKey
+              ? getFileName(selectedLinkContentKey)
+              : `link-${selectedLinkId || selectedLinkLinkId}`;
             return (
               <button
                 onClick={() => downloadAsMarkdown(nameSource, linkContent)}
@@ -914,7 +957,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileCalendar ? (
                 <CalendarViewer onOpenFile={onSelectFile} />
               ) : fileLinkPreview ? (
-                <LinkContentView activityId={selectedLinkId || ""} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} />
+                <LinkContentView activityId={selectedLinkId || null} linkId={selectedLinkLinkId || null} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} onExternalLinkClick={onExternalLinkClick} />
               ) : fileLinksMd ? (
                 <LinksMdView
                   isLoggedIn={!!isLoggedIn}
@@ -958,7 +1001,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
               ) : fileData.content !== undefined ? (
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
-                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} />
+                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} onExternalLinkClick={onExternalLinkClick} />
                 ) : (
                   <div className="flex h-full overflow-hidden">
                     <div
