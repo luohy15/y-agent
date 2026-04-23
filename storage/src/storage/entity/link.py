@@ -32,5 +32,4 @@ class LinkActivityEntity(Base, BaseEntity):
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id"),
-        UniqueConstraint("user_id", "timestamp"),
     )
