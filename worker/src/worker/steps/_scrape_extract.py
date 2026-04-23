@@ -60,6 +60,7 @@ def extract_scrape_items(feed, html: str) -> list[dict]:
     date_selector = config.get('date_selector')
     date_attr = config.get('date_attr')
     date_format = config.get('date_format')
+    date_text_mode = config.get('date_text_mode') or 'all'
 
     soup = BeautifulSoup(html, 'lxml')
     items = []
@@ -87,7 +88,12 @@ def extract_scrape_items(feed, html: str) -> list[dict]:
         if date_selector:
             date_node = node.select_one(date_selector)
             if date_node is not None:
-                raw = date_node.get(date_attr) if date_attr else date_node.get_text(strip=True)
+                if date_attr:
+                    raw = date_node.get(date_attr)
+                elif date_text_mode == 'direct':
+                    raw = ''.join(date_node.find_all(string=True, recursive=False)).strip()
+                else:
+                    raw = date_node.get_text(strip=True)
                 published_at = parse_scrape_date(raw, date_format)
 
         items.append({"url": url, "title": title, "published_at": published_at})
