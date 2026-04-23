@@ -53,20 +53,27 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
             continue
 
         title = entry.get("title")
-        if ts_ms > last_item_ts:
-            _, created = link_service.add_link_rss(
-                user_id, url, title=title, timestamp=ts_ms,
-                published_at=ts_ms, source_feed_id=feed.rss_feed_id,
+        try:
+            if ts_ms > last_item_ts:
+                _, created = link_service.add_link_rss(
+                    user_id, url, title=title, timestamp=ts_ms,
+                    published_at=ts_ms, source_feed_id=feed.rss_feed_id,
+                )
+                if created:
+                    added += 1
+                if ts_ms > max_ts:
+                    max_ts = ts_ms
+            else:
+                link_service.upsert_link_info(
+                    url, title=title, published_at=ts_ms,
+                    source="rss", source_feed_id=feed.rss_feed_id,
+                )
+        except Exception:
+            logger.exception(
+                "fetch_rss_links ingest failed feed={} url={}",
+                feed.rss_feed_id, url,
             )
-            if created:
-                added += 1
-            if ts_ms > max_ts:
-                max_ts = ts_ms
-        else:
-            link_service.upsert_link_info(
-                url, title=title, published_at=ts_ms,
-                source="rss", source_feed_id=feed.rss_feed_id,
-            )
+            continue
 
     return added, max_ts
 
