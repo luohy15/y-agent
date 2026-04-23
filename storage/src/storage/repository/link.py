@@ -456,6 +456,25 @@ def set_link_source_if_null(link_id: str, source: str, source_feed_id: Optional[
             entity.source_feed_id = source_feed_id
 
 
+def upsert_link_info(
+    url: str,
+    title: Optional[str] = None,
+    published_at: Optional[int] = None,
+    source: Optional[str] = None,
+    source_feed_id: Optional[str] = None,
+) -> None:
+    """Upsert LinkEntity only (no activity row). Used by RSS for idempotent refresh.
+
+    `published_at` is only written on first sight (handled inside `_upsert_link`).
+    `source` is only filled when currently null, matching `set_link_source_if_null`.
+    """
+    with get_db() as session:
+        entity = _upsert_link(session, url, title, published_at=published_at)
+        if source is not None and entity.source is None:
+            entity.source = source
+            entity.source_feed_id = source_feed_id
+
+
 def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
     """Return links/activities needing download.
 

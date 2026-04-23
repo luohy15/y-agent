@@ -35,7 +35,12 @@ def _parse_feed_timestamp(entry) -> Optional[int]:
 
 
 def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
-    """Insert new items into the link table. Returns (added, max_ts)."""
+    """Insert new items into the link table. Returns (added, max_ts).
+
+    Forward path is idempotent: every entry upserts LinkEntity (so title /
+    published_at / source get backfilled on existing rows), but only entries
+    with ts_ms > last_item_ts produce a new LinkActivityEntity.
+    """
     last_item_ts = feed.last_item_ts or 0
     max_ts = last_item_ts
     added = 0
@@ -45,17 +50,23 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
         if not url:
             continue
         ts_ms = _parse_feed_timestamp(entry)
-        if ts_ms is None or ts_ms <= last_item_ts:
+        if ts_ms is None:
             continue
 
         title = entry.get("title")
-        activity = link_service.add_link(
-            user_id, url, title=title, timestamp=ts_ms, published_at=ts_ms,
-        )
-        link_repo.set_link_source_if_null(activity.link_id, "rss", feed.rss_feed_id)
-        added += 1
-        if ts_ms > max_ts:
-            max_ts = ts_ms
+        if ts_ms > last_item_ts:
+            activity = link_service.add_link(
+                user_id, url, title=title, timestamp=ts_ms, published_at=ts_ms,
+            )
+            link_repo.set_link_source_if_null(activity.link_id, "rss", feed.rss_feed_id)
+            added += 1
+            if ts_ms > max_ts:
+                max_ts = ts_ms
+        else:
+            link_service.upsert_link_info(
+                url, title=title, published_at=ts_ms,
+                source="rss", source_feed_id=feed.rss_feed_id,
+            )
 
     return added, max_ts
 
