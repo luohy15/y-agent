@@ -22,7 +22,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _ssh_exec
 from agent.poll_loop import PollLoop
 
 _SHELL_WRAPPER_RE = re.compile(
@@ -203,8 +203,99 @@ class CodexStreamConverter:
 
 
 # ---------------------------------------------------------------------------
-# Detach mode: tail SSH output
+# Detach mode: start + tail SSH output
 # ---------------------------------------------------------------------------
+
+async def start_detached_codex_ssh(
+    cmd: List[str],
+    prompt: str,
+    cwd: Optional[str],
+    chat_id: str,
+    vm_config: "VmConfig",
+    env: Optional[Dict[str, str]] = None,
+    ssh_client=None,
+) -> Optional[str]:
+    """Start `codex exec` in a detached tmux session on remote host.
+
+    Codex CLI takes the prompt as a positional argument (or via plain-text
+    stdin). It does NOT understand claude-code's stream-json protocol, so we
+    do not append `--input-format stream-json` and we do not write a
+    stream-json stdin file.
+
+    stdout/stderr/exit files use the same `/tmp/cc-<chat_id>.*` naming as
+    claude-code so that tail_codex_output and interrupt/timeout paths stay
+    shared.
+
+    Returns thread_id parsed from the initial `thread.started` event, else None.
+    """
+    owns_client = ssh_client is None
+    if owns_client:
+        import io
+        import paramiko
+
+        user, host, port = _parse_ssh_target(vm_config.vm_name)
+        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_client.connect(host, port=port, username=user, pkey=key)
+
+    client = ssh_client
+
+    try:
+        # 1. Clean up any stale session / files
+        _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
+                         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
+
+        # 2. Build the codex command (prompt as last positional argument)
+        full_cmd = list(cmd) + [prompt]
+
+        inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
+        if env:
+            for k, v in env.items():
+                inner_parts.append(f"export {k}={_shell_quote(v)};")
+        if cwd:
+            inner_parts.append(f"cd {_shell_quote(cwd)} &&")
+
+        codex_cmd = " ".join(_shell_quote(c) for c in full_cmd)
+        stdout_file = f"/tmp/cc-{chat_id}.stdout"
+        stderr_file = f"/tmp/cc-{chat_id}.stderr"
+        exit_file = f"/tmp/cc-{chat_id}.exit"
+
+        inner_parts.append(
+            f"{codex_cmd} "
+            f"> {_shell_quote(stdout_file)} "
+            f"2> {_shell_quote(stderr_file)}; "
+            f"echo $? > {_shell_quote(exit_file)}"
+        )
+
+        tmux_cmd = (
+            f"tmux new-session -d -s {_shell_quote(f'cc-{chat_id}')} "
+            f"{_shell_quote(' '.join(inner_parts))}"
+        )
+
+        # 3. Start tmux session
+        _ssh_exec(client, tmux_cmd)
+
+        # 4. Wait briefly for stdout file to appear and parse thread.started
+        await asyncio.sleep(2)
+
+        thread_id = None
+        try:
+            output = _ssh_exec(client, f"head -5 {_shell_quote(stdout_file)} 2>/dev/null")
+            for line in output.strip().split("\n"):
+                obj = parse_stream_line(line)
+                if obj and obj.get("type") == "thread.started":
+                    thread_id = obj.get("thread_id")
+                    break
+        except Exception:
+            pass
+
+        return thread_id
+    finally:
+        if owns_client:
+            client.close()
+
 
 async def tail_codex_output(
     chat_id: str,

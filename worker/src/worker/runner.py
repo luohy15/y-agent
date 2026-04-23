@@ -351,7 +351,6 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     Starts tmux, registers in DynamoDB, returns immediately.
     Monitoring happens in the handler event loop.
     """
-    from agent.claude_code import start_detached_ssh
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
 
@@ -379,15 +378,27 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # Wake EC2 if needed
     ensure_and_touch_vm(params["vm_config"])
 
-    # Start detached tmux session
-    session_id = await start_detached_ssh(
-        cmd=params["cmd"],
-        prompt=params["prompt"],
-        cwd=cwd,
-        chat_id=chat_id,
-        vm_config=params["vm_config"],
-        env=params["env"],
-    )
+    # Start detached tmux session (backend-specific launcher)
+    if bot_config.api_type == "codex":
+        from agent.codex import start_detached_codex_ssh
+        session_id = await start_detached_codex_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+        )
+    else:
+        from agent.claude_code import start_detached_ssh
+        session_id = await start_detached_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+        )
 
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
 
