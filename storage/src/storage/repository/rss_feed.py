@@ -35,6 +35,7 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
         feed_type=entity.feed_type or 'rss',
         scrape_config=_parse_scrape_config(entity.scrape_config),
         fetch_failure_count=entity.fetch_failure_count or 0,
+        deleted_at=entity.deleted_at,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -42,40 +43,59 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
     )
 
 
-def list_feeds(user_id: int) -> List[RssFeed]:
+def list_feeds(user_id: int, include_deleted: bool = False) -> List[RssFeed]:
     with get_db() as session:
-        rows = (
-            session.query(RssFeedEntity)
-            .filter_by(user_id=user_id)
-            .order_by(RssFeedEntity.id.asc())
-            .all()
-        )
+        query = session.query(RssFeedEntity).filter_by(user_id=user_id)
+        if not include_deleted:
+            query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        rows = query.order_by(RssFeedEntity.id.asc()).all()
         return [_entity_to_dto(row) for row in rows]
 
 
-def list_all_feeds() -> List[tuple]:
+def list_all_feeds(include_deleted: bool = False) -> List[tuple]:
     """Return (user_id, RssFeed) tuples across all users. For scheduled fetcher."""
     with get_db() as session:
-        rows = session.query(RssFeedEntity).all()
+        query = session.query(RssFeedEntity)
+        if not include_deleted:
+            query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        rows = query.all()
         return [(row.user_id, _entity_to_dto(row)) for row in rows]
 
 
-def get_feed(user_id: int, rss_feed_id: str) -> Optional[RssFeed]:
+def get_feed(user_id: int, rss_feed_id: str, include_deleted: bool = False) -> Optional[RssFeed]:
     with get_db() as session:
-        row = session.query(RssFeedEntity).filter_by(
+        query = session.query(RssFeedEntity).filter_by(
             user_id=user_id, rss_feed_id=rss_feed_id,
-        ).first()
+        )
+        if not include_deleted:
+            query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        row = query.first()
         if not row:
             return None
         return _entity_to_dto(row)
 
 
-def get_feed_by_url(user_id: int, url: str) -> Optional[RssFeed]:
+def get_feed_by_url(user_id: int, url: str, include_deleted: bool = False) -> Optional[RssFeed]:
     with get_db() as session:
-        row = session.query(RssFeedEntity).filter_by(user_id=user_id, url=url).first()
+        query = session.query(RssFeedEntity).filter_by(user_id=user_id, url=url)
+        if not include_deleted:
+            query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        row = query.first()
         if not row:
             return None
         return _entity_to_dto(row)
+
+
+def list_deleted_feeds(user_id: int, limit: int = 50) -> List[RssFeed]:
+    with get_db() as session:
+        query = (
+            session.query(RssFeedEntity)
+            .filter_by(user_id=user_id)
+            .filter(RssFeedEntity.deleted_at.isnot(None))
+            .order_by(RssFeedEntity.deleted_at.desc())
+            .limit(limit)
+        )
+        return [_entity_to_dto(row) for row in query.all()]
 
 
 def add_feed(
@@ -177,9 +197,27 @@ def record_fetch_failure(rss_feed_id: str) -> Optional[RssFeed]:
 
 
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:
+    """Soft-delete: set deleted_at=now. Idempotent; returns False only if not found."""
     with get_db() as session:
-        count = session.query(RssFeedEntity).filter_by(
+        entity = session.query(RssFeedEntity).filter_by(
             user_id=user_id, rss_feed_id=rss_feed_id,
-        ).delete()
+        ).first()
+        if not entity:
+            return False
+        if entity.deleted_at is None:
+            entity.deleted_at = datetime.now(timezone.utc).isoformat()
+            session.flush()
+        return True
+
+
+def restore_feed(user_id: int, rss_feed_id: str) -> bool:
+    """Clear deleted_at. Returns False if not found or not deleted."""
+    with get_db() as session:
+        entity = session.query(RssFeedEntity).filter_by(
+            user_id=user_id, rss_feed_id=rss_feed_id,
+        ).first()
+        if not entity or entity.deleted_at is None:
+            return False
+        entity.deleted_at = None
         session.flush()
-        return count > 0
+        return True

@@ -125,3 +125,19 @@ async def delete_feed(req: FeedIdRequest, request: Request):
     if not ok:
         raise HTTPException(status_code=404, detail="Feed not found")
     return {"ok": True}
+
+
+@router.post("/restore")
+async def restore_feed(req: FeedIdRequest, request: Request):
+    user_id = _get_user_id(request)
+    ok = rss_feed_service.restore_feed(user_id, req.rss_feed_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Feed not found or not deleted")
+    return {"ok": True}
+
+
+@router.get("/deleted")
+async def list_deleted_feeds(request: Request, limit: int = 50):
+    user_id = _get_user_id(request)
+    feeds = rss_feed_service.list_deleted_feeds(user_id, limit=limit)
+    return [f.to_dict() for f in feeds]
