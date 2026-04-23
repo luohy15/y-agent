@@ -99,6 +99,11 @@ def get_link_by_id(link_id: str):
     return entities[0] if entities else None
 
 
+def resolve_url(user_id: int, url: str) -> dict:
+    """Resolve a URL to its link library entry for this user."""
+    return link_repo.resolve_url(user_id, url)
+
+
 def delete_link(user_id: int, activity_id: str) -> bool:
     return link_repo.delete_link(user_id, activity_id)
 
