@@ -393,6 +393,46 @@ def _ssh_exec(client, cmd: str) -> str:
 # Detached SSH runner (tmux-based, for Lambda timeout resilience)
 # ---------------------------------------------------------------------------
 
+def _claude_write_stdin(client, chat_id: str, prompt: str) -> None:
+    """Write the prompt to /tmp/cc-<chat_id>.stdin as stream-json via SFTP."""
+    payload = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": prompt}],
+        },
+    }) + "\n"
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(f"/tmp/cc-{chat_id}.stdin", "w") as f:
+            f.write(payload)
+    finally:
+        sftp.close()
+
+
+def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str) -> str:
+    """Build `tail -f <stdin> | claude -p --input-format stream-json ...`."""
+    full_cmd = cmd + ["--input-format", "stream-json"]
+    claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
+    return f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}"
+
+
+def _claude_parse_initial(obj: Dict) -> Optional[str]:
+    if obj.get("type") == "system":
+        return obj.get("session_id")
+    return None
+
+
+def _claude_spec() -> "DetachBackendSpec":
+    from agent.detach import DetachBackendSpec
+    return DetachBackendSpec(
+        setup=_claude_write_stdin,
+        build_exec=_claude_build_exec,
+        parse_initial=_claude_parse_initial,
+    )
+
+
 async def start_detached_ssh(
     cmd: List[str],
     prompt: str,
@@ -402,96 +442,26 @@ async def start_detached_ssh(
     env: Optional[Dict[str, str]] = None,
     ssh_client=None,
 ) -> Optional[str]:
-    """Start claude -p in a detached tmux session on remote host.
+    """Start `claude -p` in a detached tmux session on remote host.
 
-    If ssh_client is provided, reuses that connection (from a pool).
-    Otherwise creates and closes its own connection.
+    If `ssh_client` is provided, reuses that connection (from a pool); otherwise
+    creates and closes its own connection. Prompt is written via SFTP to a
+    stream-json stdin file and piped through `tail -f` into claude. stdout /
+    stderr are redirected to `/tmp/cc-<chat_id>.*` files.
 
-    Prompt is written via SFTP to a stdin file.
-    stdout/stderr redirected to /tmp/cc-{chat_id}.* files.
-
-    Returns session_id if found in initial output, else None.
+    Returns the session_id parsed from the initial `system` event, else None.
     """
-    owns_client = ssh_client is None
-    if owns_client:
-        import io
-        import paramiko
-
-        user, host, port = _parse_ssh_target(vm_config.vm_name)
-        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
-
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(host, port=port, username=user, pkey=key)
-
-    client = ssh_client
-
-    try:
-        # 1. Clean up any stale files/session (before writing stdin)
-        _ssh_exec(client, f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null; "
-                         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-
-        # 2. Write prompt to stdin file via SFTP in stream-json format
-        stdin_file = f"/tmp/cc-{chat_id}.stdin"
-        payload = json.dumps({
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}],
-            },
-        }) + "\n"
-        sftp = client.open_sftp()
-        with sftp.open(stdin_file, "w") as f:
-            f.write(payload)
-        sftp.close()
-
-        # 3. Build the claude command (with stream-json input via tail -f pipe)
-        full_cmd = cmd + ["--input-format", "stream-json"]
-        inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
-        if env:
-            for k, v in env.items():
-                inner_parts.append(f"export {k}={_shell_quote(v)};")
-        if cwd:
-            inner_parts.append(f"cd {_shell_quote(cwd)} &&")
-
-        claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
-        stdout_file = f"/tmp/cc-{chat_id}.stdout"
-        stderr_file = f"/tmp/cc-{chat_id}.stderr"
-        exit_file = f"/tmp/cc-{chat_id}.exit"
-
-        inner_parts.append(
-            f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd} "
-            f"> {_shell_quote(stdout_file)} "
-            f"2> {_shell_quote(stderr_file)}; "
-            f"echo $? > {_shell_quote(exit_file)}"
-        )
-
-        tmux_cmd = (
-            f"tmux new-session -d -s {_shell_quote(f'cc-{chat_id}')} "
-            f"{_shell_quote(' '.join(inner_parts))}"
-        )
-
-        # 4. Start tmux session
-        _ssh_exec(client, tmux_cmd)
-
-        # 5. Wait briefly for stdout file to appear and check for session_id
-        await asyncio.sleep(2)
-
-        session_id = None
-        try:
-            output = _ssh_exec(client, f"head -5 {_shell_quote(stdout_file)} 2>/dev/null")
-            for line in output.strip().split("\n"):
-                obj = parse_stream_line(line)
-                if obj and obj.get("type") == "system":
-                    session_id = obj.get("session_id")
-                    break
-        except Exception:
-            pass
-
-        return session_id
-    finally:
-        if owns_client:
-            client.close()
+    from agent.detach import _start_detached_tmux
+    return await _start_detached_tmux(
+        cmd=cmd,
+        prompt=prompt,
+        cwd=cwd,
+        chat_id=chat_id,
+        vm_config=vm_config,
+        spec=_claude_spec(),
+        env=env,
+        ssh_client=ssh_client,
+    )
 
 
 async def tail_ssh_output(
