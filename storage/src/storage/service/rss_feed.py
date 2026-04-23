@@ -6,17 +6,17 @@ from storage.dto.rss_feed import RssFeed
 from storage.repository import rss_feed as rss_feed_repo
 
 
-def list_feeds(user_id: int) -> List[RssFeed]:
-    return rss_feed_repo.list_feeds(user_id)
+def list_feeds(user_id: int, include_deleted: bool = False) -> List[RssFeed]:
+    return rss_feed_repo.list_feeds(user_id, include_deleted=include_deleted)
 
 
-def list_all_feeds() -> List[tuple]:
+def list_all_feeds(include_deleted: bool = False) -> List[tuple]:
     """List (user_id, feed) tuples across users. For scheduled fetcher."""
-    return rss_feed_repo.list_all_feeds()
+    return rss_feed_repo.list_all_feeds(include_deleted=include_deleted)
 
 
-def get_feed(user_id: int, rss_feed_id: str) -> Optional[RssFeed]:
-    return rss_feed_repo.get_feed(user_id, rss_feed_id)
+def get_feed(user_id: int, rss_feed_id: str, include_deleted: bool = False) -> Optional[RssFeed]:
+    return rss_feed_repo.get_feed(user_id, rss_feed_id, include_deleted=include_deleted)
 
 
 def add_feed(
@@ -26,8 +26,11 @@ def add_feed(
     feed_type: Optional[str] = None,
     scrape_config: Optional[Dict[str, Any]] = None,
 ) -> RssFeed:
-    existing = rss_feed_repo.get_feed_by_url(user_id, url)
+    existing = rss_feed_repo.get_feed_by_url(user_id, url, include_deleted=True)
     if existing:
+        if existing.deleted_at is not None:
+            rss_feed_repo.restore_feed(user_id, existing.rss_feed_id)
+            existing.deleted_at = None
         return existing
     return rss_feed_repo.add_feed(
         user_id,
@@ -80,3 +83,11 @@ def record_fetch_failure(rss_feed_id: str) -> Optional[RssFeed]:
 
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:
     return rss_feed_repo.delete_feed(user_id, rss_feed_id)
+
+
+def restore_feed(user_id: int, rss_feed_id: str) -> bool:
+    return rss_feed_repo.restore_feed(user_id, rss_feed_id)
+
+
+def list_deleted_feeds(user_id: int, limit: int = 50) -> List[RssFeed]:
+    return rss_feed_repo.list_deleted_feeds(user_id, limit=limit)

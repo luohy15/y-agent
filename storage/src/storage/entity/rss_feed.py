@@ -15,6 +15,7 @@ class RssFeedEntity(Base, BaseEntity):
     feed_type = Column(String, nullable=True, default='rss')
     scrape_config = Column(Text, nullable=True)
     fetch_failure_count = Column(Integer, nullable=False, default=0, server_default="0")
+    deleted_at = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "url"),
