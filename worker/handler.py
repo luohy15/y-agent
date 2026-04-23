@@ -27,6 +27,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "fetch_rss_links":
         from worker.steps.fetch_rss_links import handle_fetch_rss_links
         return asyncio.run(handle_fetch_rss_links())
+    if action == "scrape_rss_sources":
+        from worker.steps.scrape_rss_sources import handle_scrape_rss_sources
+        return asyncio.run(handle_scrape_rss_sources())
     if action == "batch_download_links":
         from worker.steps.batch_download_links import handle_batch_download_links
         return asyncio.run(handle_batch_download_links())

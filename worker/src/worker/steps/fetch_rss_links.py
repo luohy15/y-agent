@@ -1,32 +1,27 @@
-"""Scheduled action: pull new items from every RssFeed into the link table.
+"""Scheduled action: stage 2 of two-stage RSS pipeline.
 
-Mirrors alpha_vantage_news's step1_symbol_checker: acquires a pipeline lock,
-concurrently fetches feed XML, parses with feedparser, and writes new
-LinkEntity/LinkActivityEntity rows tagged with source='rss'.
-
-Also supports scrape-type feeds: GET the URL, apply CSS selectors via
-BeautifulSoup, and write each matched item into the link table with
-source='rss' + source_feed_id. Dedup by LinkEntity.base_url existence since
-scraped items have no authoritative publish timestamp.
+Acquires a pipeline lock, loads each RssFeed's XML (HTTP for feed_type='rss',
+S3 for feed_type='scrape', written by `scrape_rss_sources`), parses with
+feedparser, and writes new LinkEntity/LinkActivityEntity rows tagged with
+source='rss'.
 """
 
 import asyncio
 import calendar
 import os
 import time
-from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urljoin
 
 import feedparser
 import httpx
-from bs4 import BeautifulSoup
 from loguru import logger
 
 from storage.repository import link as link_repo
 from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import rss_feed as rss_feed_service
+
+from worker.link_downloader import s3_get
 
 
 LOCK_NAME = "fetch_rss_links"
@@ -61,6 +56,13 @@ async def _fetch_xml(client: httpx.AsyncClient, url: str) -> Optional[bytes]:
     return resp.content
 
 
+async def _load_feed_xml(client: httpx.AsyncClient, feed) -> Optional[bytes]:
+    """For rss feeds fetch over HTTP; for scrape feeds read the staged XML from S3."""
+    if (feed.feed_type or 'rss') == 'scrape':
+        return await asyncio.to_thread(s3_get, f"rss/{feed.rss_feed_id}.xml")
+    return await _fetch_xml(client, feed.url)
+
+
 def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
     """Insert new items into the link table. Returns (added, max_ts)."""
     last_item_ts = feed.last_item_ts or 0
@@ -88,14 +90,14 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
 
 
 async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
-    if (feed.feed_type or 'rss') == 'scrape':
-        return await _process_scrape_feed(client, user_id, feed)
-
     if _in_cooldown(feed):
         return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "cooldown"}
 
-    xml = await _fetch_xml(client, feed.url)
+    xml = await _load_feed_xml(client, feed)
     if xml is None:
+        if (feed.feed_type or 'rss') == 'scrape':
+            # No XML staged yet: stage 1 will record its own failure, don't double-count.
+            return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "no staged xml"}
         rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
         return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
 
@@ -111,150 +113,6 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
     if max_ts > (feed.last_item_ts or 0):
         rss_feed_service.update_fetch_state(feed.rss_feed_id, last_item_ts=max_ts)
     logger.info("fetch_rss_links feed={} user={} added={}", feed.rss_feed_id, user_id, added)
-    return {"feed_id": feed.rss_feed_id, "added": added}
-
-
-async def _fetch_html(client: httpx.AsyncClient, url: str) -> Optional[str]:
-    try:
-        resp = await client.get(url, follow_redirects=True)
-    except Exception as e:
-        logger.error("fetch_rss_links scrape fetch error for {}: {}", url, e)
-        return None
-    if resp.status_code >= 400:
-        logger.error("fetch_rss_links scrape HTTP {} for {}", resp.status_code, url)
-        return None
-    return resp.text
-
-
-def _parse_scrape_date(raw: Optional[str], date_format: Optional[str]) -> Optional[int]:
-    """Parse a date string into epoch ms. Returns None on failure."""
-    if not raw:
-        return None
-    text = raw.strip()
-    if not text:
-        return None
-    dt: Optional[datetime] = None
-    if date_format:
-        try:
-            dt = datetime.strptime(text, date_format)
-        except ValueError as e:
-            logger.warning("fetch_rss_links scrape date parse strptime failed: value={!r} fmt={!r} err={}", text, date_format, e)
-            return None
-    else:
-        iso_text = text.replace('Z', '+00:00')
-        try:
-            dt = datetime.fromisoformat(iso_text)
-        except ValueError as e:
-            logger.warning("fetch_rss_links scrape date parse isoformat failed: value={!r} err={}", text, e)
-            return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return int(dt.timestamp() * 1000)
-
-
-def _extract_scrape_items(feed, html: str) -> list[dict]:
-    """Apply scrape_config selectors to HTML. Returns list of {url, title, published_at}."""
-    config = feed.scrape_config or {}
-    item_selector = config.get('item_selector')
-    if not item_selector:
-        return []
-
-    title_selector = config.get('title_selector')
-    link_selector = config.get('link_selector')
-    link_attr = config.get('link_attr') or 'href'
-    date_selector = config.get('date_selector')
-    date_attr = config.get('date_attr')
-    date_format = config.get('date_format')
-
-    soup = BeautifulSoup(html, 'lxml')
-    items = []
-    seen_urls = set()
-
-    for node in soup.select(item_selector):
-        link_node = node.select_one(link_selector) if link_selector else node
-        if link_node is None:
-            continue
-        href = link_node.get(link_attr)
-        if not href:
-            continue
-        url = urljoin(feed.url, href.strip())
-        if url in seen_urls:
-            continue
-        seen_urls.add(url)
-
-        if title_selector:
-            title_node = node.select_one(title_selector)
-            title = title_node.get_text(strip=True) if title_node else None
-        else:
-            title = node.get_text(strip=True) or None
-
-        published_at: Optional[int] = None
-        if date_selector:
-            date_node = node.select_one(date_selector)
-            if date_node is not None:
-                raw = date_node.get(date_attr) if date_attr else date_node.get_text(strip=True)
-                published_at = _parse_scrape_date(raw, date_format)
-
-        items.append({"url": url, "title": title, "published_at": published_at})
-
-    return items
-
-
-async def _process_scrape_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
-    if _in_cooldown(feed):
-        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "cooldown"}
-
-    if not feed.scrape_config or not feed.scrape_config.get('item_selector'):
-        logger.error("fetch_rss_links scrape feed={} missing item_selector", feed.rss_feed_id)
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
-        return {"feed_id": feed.rss_feed_id, "added": 0, "error": "missing item_selector"}
-
-    html = await _fetch_html(client, feed.url)
-    if html is None:
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
-        return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
-
-    try:
-        items = _extract_scrape_items(feed, html)
-    except Exception as e:
-        logger.exception("fetch_rss_links scrape feed={} parse error", feed.rss_feed_id)
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
-        return {"feed_id": feed.rss_feed_id, "added": 0, "error": f"parse error: {e}"}
-
-    if not items:
-        rss_feed_service.record_fetch_success(feed.rss_feed_id)
-        logger.info("fetch_rss_links scrape feed={} user={} added=0 (no items matched)", feed.rss_feed_id, user_id)
-        return {"feed_id": feed.rss_feed_id, "added": 0}
-
-    urls = [it["url"] for it in items]
-    existing = {e.base_url for e in link_repo.get_links_by_urls(urls)}
-
-    now_ms = int(time.time() * 1000)
-    added = 0
-    max_ts = feed.last_item_ts or 0
-
-    for idx, it in enumerate(items):
-        base_url = it["url"].split('?')[0].split('#')[0]
-        if base_url in existing:
-            continue
-        ts_ms = now_ms + idx
-        activity = link_service.add_link(
-            user_id,
-            it["url"],
-            title=it["title"],
-            timestamp=ts_ms,
-            published_at=it.get("published_at"),
-        )
-        link_repo.set_link_source_if_null(activity.link_id, "rss", feed.rss_feed_id)
-        added += 1
-        if ts_ms > max_ts:
-            max_ts = ts_ms
-
-    rss_feed_service.record_fetch_success(feed.rss_feed_id)
-    if max_ts > (feed.last_item_ts or 0):
-        rss_feed_service.update_fetch_state(feed.rss_feed_id, last_item_ts=max_ts)
-    logger.info("fetch_rss_links scrape feed={} user={} matched={} added={}",
-                feed.rss_feed_id, user_id, len(items), added)
     return {"feed_id": feed.rss_feed_id, "added": added}
 
 
