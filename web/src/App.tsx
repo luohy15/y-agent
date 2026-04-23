@@ -14,6 +14,7 @@ import TodoList from "./components/TodoList";
 import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
 import RssFeedList from "./components/RssFeedList";
+import EntityList from "./components/EntityList";
 import GitPanel from "./components/GitPanel";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 
@@ -56,7 +57,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    return saved === "todo" || saved === "chats" || saved === "notes" || saved === "links" || saved === "rss" || saved === "files" ? saved : "todo";
+    return saved === "todo" || saved === "chats" || saved === "notes" || saved === "links" || saved === "rss" || saved === "entity" || saved === "files" ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -590,6 +591,8 @@ export default function App() {
             <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           ) : sidebarPanel === "rss" ? (
             <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
+          ) : sidebarPanel === "entity" ? (
+            <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
           ) : sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={null} workDir={currentVmWorkDir} />
           ) : null}
