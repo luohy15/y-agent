@@ -88,9 +88,11 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   // Fetch chat detail (work_dir) when chatId changes or chat completes
   useEffect(() => {
     if (!chatId) return;
-    authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`)
+    const ac = new AbortController();
+    authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`, { signal: ac.signal })
       .then((r) => r.json())
       .then((data) => {
+        if (ac.signal.aborted) return;
         const wd = data.work_dir ?? null;
         setChatWorkDir(wd);
         onWorkDirChange?.(wd);
@@ -109,6 +111,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         }
       })
       .catch(() => {});
+    return () => ac.abort();
   }, [chatId, completed, onWorkDirChange]);
 
   const onCompleteRef = useRef(onComplete);

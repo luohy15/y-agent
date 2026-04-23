@@ -18,6 +18,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [searched, setSearched] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   // Focus input when opened
   useEffect(() => {
@@ -27,6 +28,9 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
       setSelectedIndex(0);
       setSearched(false);
       setTimeout(() => inputRef.current?.focus(), 0);
+    } else {
+      searchAbortRef.current?.abort();
+      searchAbortRef.current = null;
     }
   }, [open]);
 
@@ -35,20 +39,25 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
       setResults([]);
       return;
     }
+    searchAbortRef.current?.abort();
+    const ac = new AbortController();
+    searchAbortRef.current = ac;
     setLoading(true);
     setSearched(true);
     try {
       const searchPath = workDir || ".";
-      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}&path=${encodeURIComponent(searchPath)}${vmQuery}`);
+      const res = await authFetch(`${API}/api/file/search?q=${encodeURIComponent(q.trim())}&path=${encodeURIComponent(searchPath)}${vmQuery}`, { signal: ac.signal });
       const data = await res.json();
+      if (ac.signal.aborted) return;
       setResults(data.files || []);
       setSelectedIndex(0);
     } catch {
+      if (ac.signal.aborted) return;
       setResults([]);
     } finally {
-      setLoading(false);
+      if (!ac.signal.aborted) setLoading(false);
     }
-  }, [vmQuery]);
+  }, [vmQuery, workDir]);
 
   const handleSelect = (path: string) => {
     onSelectFile(path);
