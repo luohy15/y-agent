@@ -1,4 +1,4 @@
-"""Shared CSS-selector based HTML scrape helpers used by scrape_rss_sources."""
+"""Shared CSS-selector based HTML scrape helpers used by fetch_rss_xml."""
 
 from datetime import datetime, timezone
 from typing import Optional

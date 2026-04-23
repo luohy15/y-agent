@@ -66,20 +66,16 @@ def update_fetch_state(
     )
 
 
+def update_last_item_ts(rss_feed_id: str, last_item_ts: int) -> Optional[RssFeed]:
+    return rss_feed_repo.update_last_item_ts(rss_feed_id, last_item_ts)
+
+
 def record_fetch_success(rss_feed_id: str) -> Optional[RssFeed]:
     return rss_feed_repo.record_fetch_success(rss_feed_id)
 
 
 def record_fetch_failure(rss_feed_id: str) -> Optional[RssFeed]:
     return rss_feed_repo.record_fetch_failure(rss_feed_id)
-
-
-def record_scrape_success(rss_feed_id: str) -> Optional[RssFeed]:
-    return rss_feed_repo.record_scrape_success(rss_feed_id)
-
-
-def record_scrape_failure(rss_feed_id: str) -> Optional[RssFeed]:
-    return rss_feed_repo.record_scrape_failure(rss_feed_id)
 
 
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:

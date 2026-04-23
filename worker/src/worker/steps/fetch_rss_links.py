@@ -1,20 +1,19 @@
 """Scheduled action: stage 2 of two-stage RSS pipeline.
 
-Acquires a pipeline lock, loads each RssFeed's XML (HTTP for feed_type='rss',
-S3 for feed_type='scrape', written by `scrape_rss_sources`), parses with
-feedparser, and writes new LinkEntity/LinkActivityEntity rows tagged with
-source='rss'.
+Pure S3 -> feedparser -> link transform. For every RssFeed, read the staged
+XML from s3://$Y_AGENT_S3_BUCKET/rss/<rss_feed_id>.xml, parse with feedparser,
+and write new LinkEntity/LinkActivityEntity rows tagged with source='rss'.
+
+No HTTP IO, no cooldown, no failure tracking. Missing or unparseable XML is
+silently skipped — fetch failures are owned by stage 1 (`fetch_rss_xml`).
 """
 
 import asyncio
 import calendar
 import os
-import time
-from datetime import datetime
 from typing import Optional
 
 import feedparser
-import httpx
 from loguru import logger
 
 from storage.repository import link as link_repo
@@ -27,47 +26,12 @@ from worker.link_downloader import s3_get
 
 LOCK_NAME = "fetch_rss_links"
 
-FAIL_THRESHOLD = int(os.environ.get("RSS_FAIL_THRESHOLD", 3))
-FAIL_COOLDOWN = int(os.environ.get("RSS_FAIL_COOLDOWN_SECONDS", 86400))
-
-
-def _in_cooldown(feed) -> bool:
-    if (feed.fetch_failure_count or 0) < FAIL_THRESHOLD:
-        return False
-    last = feed.last_fetched_at
-    if not last:
-        return False
-    try:
-        last_ms = int(datetime.fromisoformat(last).timestamp() * 1000)
-    except ValueError:
-        return False
-    return int(time.time() * 1000) < last_ms + FAIL_COOLDOWN * 1000
-
 
 def _parse_feed_timestamp(entry) -> Optional[int]:
     ts_struct = entry.get("published_parsed") or entry.get("updated_parsed")
     if not ts_struct:
         return None
     return int(calendar.timegm(ts_struct) * 1000)
-
-
-async def _fetch_xml(client: httpx.AsyncClient, url: str) -> Optional[bytes]:
-    try:
-        resp = await client.get(url, follow_redirects=True)
-    except Exception as e:
-        logger.error("fetch_rss_links fetch error for {}: {}", url, e)
-        return None
-    if resp.status_code >= 400:
-        logger.error("fetch_rss_links HTTP {} for {}", resp.status_code, url)
-        return None
-    return resp.content
-
-
-async def _load_feed_xml(client: httpx.AsyncClient, feed) -> Optional[bytes]:
-    """For rss feeds fetch over HTTP; for scrape feeds read the staged XML from S3."""
-    if (feed.feed_type or 'rss') == 'scrape':
-        return await asyncio.to_thread(s3_get, f"rss/{feed.rss_feed_id}.xml")
-    return await _fetch_xml(client, feed.url)
 
 
 def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
@@ -96,29 +60,20 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
     return added, max_ts
 
 
-async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
-    if _in_cooldown(feed):
-        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "cooldown"}
-
-    xml = await _load_feed_xml(client, feed)
+def _process_feed(user_id: int, feed) -> dict:
+    xml = s3_get(f"rss/{feed.rss_feed_id}.xml")
     if xml is None:
-        if (feed.feed_type or 'rss') == 'scrape':
-            # No XML staged yet: stage 1 will record its own failure, don't double-count.
-            return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "no staged xml"}
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id)
-        return {"feed_id": feed.rss_feed_id, "added": 0, "error": "fetch failed"}
+        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "no_xml"}
 
     parsed = feedparser.parse(xml)
     if parsed.bozo and not parsed.entries:
-        err = str(parsed.bozo_exception)
-        logger.error("fetch_rss_links parse error feed={}: {}", feed.rss_feed_id, err)
-        rss_feed_service.record_fetch_failure(feed.rss_feed_id)
-        return {"feed_id": feed.rss_feed_id, "added": 0, "error": err}
+        logger.warning("fetch_rss_links parse warn feed={}: {}",
+                       feed.rss_feed_id, parsed.bozo_exception)
+        return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "bad_xml"}
 
     added, max_ts = _ingest_entries(user_id, feed, parsed)
-    rss_feed_service.record_fetch_success(feed.rss_feed_id)
     if max_ts > (feed.last_item_ts or 0):
-        rss_feed_service.update_fetch_state(feed.rss_feed_id, last_item_ts=max_ts)
+        rss_feed_service.update_last_item_ts(feed.rss_feed_id, max_ts)
     logger.info("fetch_rss_links feed={} user={} added={}", feed.rss_feed_id, user_id, added)
     return {"feed_id": feed.rss_feed_id, "added": added}
 
@@ -134,26 +89,20 @@ async def handle_fetch_rss_links() -> dict:
         if not feeds:
             return {"status": "ok", "action": LOCK_NAME, "feeds": 0, "items": 0}
 
-        rate_limit = int(os.environ.get("RSS_FETCH_RATE_LIMIT", 10))
+        rate_limit = int(os.environ.get("RSS_INGEST_RATE_LIMIT", 32))
         semaphore = asyncio.Semaphore(rate_limit)
-        timeout = int(os.environ.get("RSS_FETCH_TIMEOUT", 20))
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async def guarded(user_id, feed):
-                async with semaphore:
-                    try:
-                        return await _process_feed(client, user_id, feed)
-                    except Exception as e:
-                        logger.exception("fetch_rss_links feed={} unexpected error", feed.rss_feed_id)
-                        try:
-                            rss_feed_service.record_fetch_failure(feed.rss_feed_id)
-                        except Exception:
-                            logger.exception("fetch_rss_links feed={} record_fetch_failure failed", feed.rss_feed_id)
-                        return {"feed_id": feed.rss_feed_id, "added": 0, "error": str(e)}
+        async def guarded(user_id, feed):
+            async with semaphore:
+                try:
+                    return await asyncio.to_thread(_process_feed, user_id, feed)
+                except Exception as e:
+                    logger.exception("fetch_rss_links feed={} unexpected error", feed.rss_feed_id)
+                    return {"feed_id": feed.rss_feed_id, "added": 0, "error": str(e)}
 
-            results = await asyncio.gather(
-                *(guarded(user_id, feed) for user_id, feed in feeds)
-            )
+        results = await asyncio.gather(
+            *(guarded(user_id, feed) for user_id, feed in feeds)
+        )
 
         total_items = sum(r.get("added", 0) for r in results)
         errors = [r for r in results if r.get("error")]

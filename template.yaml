@@ -326,11 +326,11 @@ Resources:
           Properties:
             Schedule: rate(15 minutes)
             Input: '{"action": "fetch_rss_links"}'
-        ScrapeRssSourcesSchedule:
+        FetchRssXmlSchedule:
           Type: Schedule
           Properties:
             Schedule: rate(15 minutes)
-            Input: '{"action": "scrape_rss_sources"}'
+            Input: '{"action": "fetch_rss_xml"}'
         BatchDownloadLinksSchedule:
           Type: Schedule
           Properties:
