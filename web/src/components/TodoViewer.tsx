@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, Fragment, DragEvent } from "react";
 import useSWR, { mutate } from "swr";
 import useSWRInfinite from "swr/infinite";
-import { API, authFetch, clearToken } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import TodoContextMenu from "./TodoContextMenu";
 
 interface TodoNote {
@@ -29,15 +29,6 @@ interface Todo {
   history?: { timestamp: string; unix_timestamp: number; action: string; note?: string }[];
   notes?: TodoNote[];
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 const priorityColor: Record<string, string> = {
   high: "text-sol-red",

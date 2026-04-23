@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -70,15 +70,6 @@ interface HoldingsData {
   rows: HoldingRow[];
   totals: HoldingTotalRow[];
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 type Tab = "balance-sheet" | "income-statement" | "holdings" | "position";
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
@@ -13,15 +13,6 @@ interface TraceViewProps {
   onPreviewLink?: (activityId: string) => void;
   onOpenFile?: (path: string) => void;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 interface TodoHistoryEntry {
   timestamp: string;

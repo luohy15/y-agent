@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
-import { API, authFetch, clearToken } from "../api";
+import { API, jsonFetcher as fetcher } from "../api";
 
 export interface TraceListItem {
   trace_id: string;
@@ -10,15 +10,6 @@ export interface TraceListItem {
 }
 
 const PAGE_SIZE = 50;
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 interface TraceListProps {
   isLoggedIn: boolean;

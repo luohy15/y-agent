@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import useSWR from "swr";
-import { API, authFetch, clearToken } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 
 interface Link {
   activity_id: string;
@@ -19,15 +19,6 @@ interface Link {
 function linkTime(link: Link): number | undefined {
   return link.published_at ?? link.timestamp;
 }
-
-const fetcher = async (url: string) => {
-  const res = await authFetch(url);
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("Unauthorized");
-  }
-  return res.json();
-};
 
 type DateRange = "today" | "7d" | "30d" | "all";
 
