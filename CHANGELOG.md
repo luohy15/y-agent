@@ -5,6 +5,268 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Weekly release cadence since 0.5.1: one `0.5.x` per ISO week (Mon–Sun), dated to that
+week's final day. Backlog between 2026-02-15 and 2026-04-23 was reconstructed from git
+history.
+
+## [0.5.10] - 2026-04-23
+
+### Added
+- **RSS subscription pipeline** — `y rss` CLI, admin-side scheduling, worker scrape with two-stage fetch, unified S3 storage for feed content, and a web feed viewer
+- **Entity (knowledge graph)** — new entity table plus note and rss relations, frontend sidebar integration
+- **Shareable trace pages with password protection**
+- `y trace unshare` — CLI + UI + backend delete for shared traces
+- Link `published_at` extracted during scrape; link list shows title + URL; internal link-click navigation
+- Full-path breadcrumbs in the file viewer
+- Unified link viewer (centered layout in `links/` markdown files)
+- RSS feed fail cooldown and dedup
+
+### Changed
+- Immutable `trace_id` — align notify/steer on a single trace identifier
+- Restore S3 as backing store for link content (supersedes the 0.5.9 local-filesystem attempt)
+- WeChat article download routed through oxylabs
+
+### Fixed
+- Share popover bug (1806)
+- Note pages workdir resolution
+- RSS EventBridge schedule type (`Schedule`, not `ScheduleV2`)
+
+### Removed
+- Stale root `todo.md`
+
+## [0.5.9] - 2026-04-19
+
+### Added
+- **Note system** — `note` entity + `note_todo_relation`, `content_key` file pointer with front-matter JSON, Notes sidebar panel with Journals/Pages tabs, year/month filters, pages atime display, refresh button
+- **Reminder system** — entity, API, admin scheduler, and `y reminder` CLI
+- **Steer (mid-conversation messages)** — send user messages to a running Claude Code session; works in detach mode via `tail -f` stdin pipe
+- `y chat stop` CLI command
+- Auto-restart DM session when context usage exceeds 50% or turn count exceeds 50 (detached path included)
+- Chat status + unread tracking with frontend filters; auto-mark-as-read on SSE fetch
+- FileViewer edit mode with syntax highlighting, line numbers, and unsaved-edits preview
+- Global `~/.y-agent/config.toml` replaces scattered `.env` files
+- Notify 400 errors now include actionable hints
+- Concurrent DM handling; rejection of DM notify callbacks
+
+### Changed
+- `skill` field split into `role (manager/worker) + topic`; skill-manager renamed to `hr`, dev-manager to `cto`
+- Replaced S3 with local filesystem for link content storage (reverted in 0.5.10)
+- Chat initial load uses REST snapshot instead of SSE replay
+- Interrupt watchdog thread added for immediate stop during LLM wait
+- Claude `-p` uses `--tools` allowlist (disallows `AskUserQuestion` / `EnterPlanMode`)
+
+### Removed
+- AskUserQuestion / EnterPlanMode / WebSearch / WebFetch / Agent display code from MessageBubble
+- Auto-ack and Telegram notification on DM session restart
+
+### Fixed
+- Steer detach variable ordering, Lambda handoff dedup, result wait window
+- Lease release for cancelled tasks before SQS continuation
+- Stale-chat overwrite in notify after `append_message`
+
+## [0.5.8] - 2026-04-12
+
+### Added
+- **Codex CLI as a second coding backend** — `y notify --backend codex|claude_code`, backend field surfaced in chat detail/list/trace APIs
+- **Lambda worker detached process management** with event loop; SSH connection pool for monitoring detached processes
+- **Context usage telemetry** — token usage displayed on chat sessions, detailed tooltip breakdown, auto-restart DM session over 50% context or 50 turns
+- Todo pin/unpin, backend pagination + search, right-click context menu
+- Worktree lifecycle management — todo linkage, server state tracking, GC
+- Command palette (⌘K)
+- Calendar auto-scroll to current time + smart week persistence
+- Google Analytics on the web frontend
+- Bilibili subtitle download
+
+### Changed
+- Normalized `api_type` to `claude_code` (underscore), display consolidated in bot selector
+
+### Removed
+- Agent loop, codex backend loop, and local subprocess runner — claude_code/codex subprocesses are the only execution paths
+
+### Fixed
+- Lambda continuation when tail tasks are already reaped; lease release on pause
+- Detached mode routing, tail leak, offset save on deadline
+- Relative markdown link resolution in chat view
+- Codex tool call display: strip shell wrapper, match results
+
+## [0.5.7] - 2026-04-05
+
+### Added
+- **Personal Information Hub (Phase 1)** — link download/archiving via SSH/opencli, Twitter/X post + article support
+- Link preview panel with markdown content fetching; raw/preview toggle in FileViewer
+- "Add to link" button for `pages/` files in FileViewer
+- Desktop header bar with panel toggles; bottom terminal panel
+- Activity-level `download_status` for URLs with query parameters
+- `FETCHER_URL` and `Y_AGENT_S3_BUCKET` surfaced as SAM parameters
+- **ID Convention** section added to CLAUDE.md
+
+### Changed
+- Link relations use `activity_id` instead of `link_id`; S3 upload moved to worker
+- Activity bar reorder — terminal first, then todo and links
+- Link viewer turned into a sidebar mode with FileViewer preview
+
+### Fixed
+- DM callback resolves to the latest session instead of stale `from_chat`
+- Balance-sheet date filter made cumulative, not period-only
+- Finance API maps remote command failures to 502 instead of 500
+
+## [0.5.6] - 2026-03-29
+
+### Added
+- **Shareable trace pages** — todo trace waterfall + chat viewer, TOC navigation, trace prefix badges on user messages, unified badge color/style system
+- Navigate to a trace page from `#id` clicks in todo / chat / trace lists
+- Collapsible tablet panels — chat list, TOC, ChatToc, scroll-to-bottom
+- `y dev commit` supports a dynamic target branch
+- **Telegram DM callback short-circuit** at API layer — replies without invoking the LLM
+- Portfolio tracker for finance
+- AskUserQuestion tool display in ChatView
+- Diff viewer scrollbar change markers; per-file discard improvements in git panel
+
+### Changed
+- Unified todo status management; `completed_at` cleared on deactivate
+- Simplified notify flow; `send_chat_message` moved to service layer
+- Removed `channel_id` from chat in favor of skill-based Telegram routing
+- Base font size bumped to 110%
+- TraceView drops inline messages; skill labels clickable to open the chat
+
+### Fixed
+- ShareTraceView defaults to earliest chat; mobile waterfall shows only start/end labels
+- Trace participant resolution: prefer participant chat_id, then skill lookup, then create new
+- `work_dir` validation on resume
+- NotifyResponse `trace_id` made optional (prevents 500s)
+
+## [0.5.5] - 2026-03-22
+
+### Added
+- **Trace system (phase 1)** — `trace_id` as a first-class concept across notify / chat / worker, TraceView with waterfall + messages, mobile trace list, trace-id badges with copy
+- **Notify hub** — default skill is DM, trace/from meta line on notify messages, Telegram push routed to the target skill's topic, notify supports `chat_id` for callback/resume
+- **EC2 auto-wake** with `last_up` tracking and `ssh_exec` integration — replaces Sprites VM runner
+- **Telegram session management** — `/clear` command, forum topic support
+- Chat search with a dedicated `search_text` column
+- DevViewer, process summary, ChatView TOC, todo history, inline skill content
+
+### Changed
+- Trace context passed via env vars instead of message content
+- Trace decoupled from notify — participants registered in `run_chat`
+- One trace segment per message round (simplified segmentation)
+- Dev workflow: remove `chat dev`, add commit flag, use registry in hooks
+- Replace `sleep(10)` with an SSH connectivity check after EC2 wake
+
+### Fixed
+- `wt rm` leaving residual directories under `code/`
+- Notify user-id propagation; CLI reinstall quirks; process leak in monitor
+- TOC jump, notify prefix, DiffViewer full-file rendering
+
+## [0.5.4] - 2026-03-15
+
+### Added
+- **`y dev` commands with worktree support + todo-linked sessions**, plan and implement modes
+- Auto commit and PR submission after dev chat completes; worktree post-create symlink script
+- **Telegram bot** — webhook with secret verification, bind/unbind, reply post-hook, markdown → HTML conversion
+- Telegram photo support — download, store as base64, materialize on target machine for Claude Code
+- **Kanban board view** with drag-and-drop; due date display; search filter
+- Git panel with diff viewer (`@pierre/diffs`) and per-file discard
+- Chat search + get CLI commands
+- Terminal `clear` command + `Ctrl+L` shortcut
+- Mobile VM/dir buttons, `y image splice` command
+- GitHub secrets helper script
+
+### Changed
+- Bumped minimum Python to 3.11
+- Post-completion hooks (commit/PR, plan save) moved from CLI to worker
+- File directory follows chat selection; VM selector + dir toggle moved to left activity bar
+- Permission system removed — simplified CLI chat with a streaming client
+- Clear chat when VM changes instead of disabling the selector
+
+### Removed
+- Public `/set-webhook` endpoint (security)
+
+### Fixed
+- Markdown table placeholder bug in Telegram HTML converter
+- TodoDetail modal ergonomics — remove close button, auto-size textareas, cap history scroll
+
+## [0.5.3] - 2026-03-08
+
+### Added
+- **Finance** — beancount balance sheet and income statement
+- **Investment portfolio management** — market data, holdings, position tracking, investment plan
+- **Email management** with Gmail sync
+- **Link management** with Chrome bookmark sync
+- **Web terminal** feature
+- Markdown preview and enhanced file search in the web UI
+
+### Removed
+- **Sprites VM** support — replaced by EC2 + SSH architecture
+
+### Fixed
+- Batch link sync duplicate timestamp collision within the same batch
+- Batch link sync switched to bulk queries (removes per-item lookups)
+- App file detection uses `endsWith` to support `apps/` subdirectory
+
+## [0.5.2] - 2026-03-01
+
+### Added
+- File upload endpoint and upload button in FileTree; loading states for move/upload
+- `Y_AGENT_TIMEZONE` env var for calendar timezone-aware filtering
+- Claude Code history import with incremental sync (skip unchanged files via mtime)
+- Headless login (`--token`, `--no-browser`)
+- Clickable file paths in chat messages to open in the file editor
+- `/cle` alias for the clear command
+- VPC configuration for Lambda to reach RDS
+
+### Changed
+- **CLI `todo` and `calendar` commands use the API** instead of direct DB access
+- Switched from `psycopg2` to `psycopg` v3
+- Timezone conversion moved from server to CLI side
+- API entrypoint renamed `main.py` → `app.py`; port 8001
+- `.env` loaded consistently from `Y_AGENT_HOME`
+- Chat list refresh, work_dir display, and todo sorting improvements
+- Don't steal input focus when the user has text selected
+
+### Fixed
+- Todo list sort order for completed and unfiltered views
+- Treat empty `due_date` as NULL in todo sort
+
+## [0.5.1] - 2026-02-22
+
+### Added
+- **Todo system** — full-stack CRUD, TodoViewer with inline expanded rows, ESC to close, completed filter tab
+- **Calendar event management** across the full stack, with current-time ticker
+- **SSH exec tool** (paramiko-based) — subprocess stdout limit fix
+- **Claude Code worker backend** with session resume support
+- **Branch preview deployments** — per-branch SAM stacks, git tags, `list-previews` script
+- File upload staging, work_dir tracking + mismatch handling
+- File tree refresh, locate-in-tree / copy-path, VSCode excludes for file filtering
+- File search powered by `git ls-files` (respects `.gitignore`), wrap-around navigation
+- 3-level message filtering (process/detail toggle buttons)
+- Landing page with demo and sign-in; share copy feedback
+- Right-click context menu (copy path, skip non-printable entries)
+- Text wrapping in tool-call displays; running-cursor indicator
+- `selected_message_id` field on Chat for message tree branching
+- VM selector always visible, even with a single default VM
+- Git worktree setup guide in CLAUDE.md
+- Auto-resize textarea for mobile chat input; larger touch targets on mobile
+
+### Changed
+- Timestamps standardized to UTC ISO 8601 with `unix_timestamp` fields
+- Chat layout preferences persisted in localStorage
+- Sidebar hamburger replaced with a folder icon showing the work directory
+- Input bar hidden during run; always pinned to bottom
+- Logo click resets selected chat
+- Skip SAM deploy for web-only changes; skip deploy workflow for markdown-only changes
+
+### Removed
+- Preview GitHub Actions workflows (now deploy locally)
+
+### Fixed
+- CloudFront CNAME error when DomainName is empty
+- IME composition triggering message submit on Enter
+- Share button clipboard copy on Safari
+- Mobile paste, mobile chat-list drawer visibility
+- Process interruption: `kill()` for local, `channel.close()` for SSH
+- Horizontal overflow in chat view and code blocks
+- Calendar `todo_id` type switched from int FK to string external ID
+
 ## [0.5.0] - 2026-02-15
 
 ### Added
