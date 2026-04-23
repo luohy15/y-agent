@@ -20,6 +20,20 @@ def add_links_batch(user_id: int, links: List[dict]) -> int:
     return link_repo.save_links_batch(user_id, links)
 
 
+def upsert_link_info(
+    url: str,
+    title: Optional[str] = None,
+    published_at: Optional[int] = None,
+    source: Optional[str] = None,
+    source_feed_id: Optional[str] = None,
+) -> None:
+    """Upsert LinkEntity only (no activity row). Used by RSS for idempotent refresh."""
+    link_repo.upsert_link_info(
+        url, title=title, published_at=published_at,
+        source=source, source_feed_id=source_feed_id,
+    )
+
+
 def get_link(user_id: int, activity_id: str) -> Optional[LinkActivity]:
     return link_repo.get_link(user_id, activity_id)
 
