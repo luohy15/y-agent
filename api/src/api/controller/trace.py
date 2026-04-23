@@ -178,6 +178,52 @@ async def create_share(req: CreateShareRequest, request: Request):
     return resp
 
 
+@router.delete("/share")
+async def delete_share(request: Request, share_id: str = Query(...)):
+    """Delete a share link owned by the current user."""
+    from storage.repository.trace_share import get_by_share_id, delete_by_share_id
+
+    user_id = _get_user_id(request)
+    share = get_by_share_id(share_id)
+    if not share or share.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Share not found")
+    delete_by_share_id(share_id)
+    return {"deleted": True}
+
+
+@router.get("/share/mine")
+async def get_my_share(request: Request, trace_id: str = Query(...)):
+    """Get the current user's share for a trace, if any."""
+    from storage.repository.trace_share import get_by_trace_id
+
+    user_id = _get_user_id(request)
+    share = get_by_trace_id(user_id, trace_id)
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return {
+        "share_id": share.share_id,
+        "trace_id": share.trace_id,
+        "has_password": bool(share.password_hash),
+    }
+
+
+@router.get("/shares")
+async def list_shares(request: Request):
+    """List all shares owned by the current user."""
+    from storage.repository.trace_share import list_by_user
+
+    user_id = _get_user_id(request)
+    shares = list_by_user(user_id)
+    return [
+        {
+            "share_id": s.share_id,
+            "trace_id": s.trace_id,
+            "has_password": bool(s.password_hash),
+        }
+        for s in shares
+    ]
+
+
 @router.get("/share")
 async def get_share(share_id: str = Query(...), password: Optional[str] = Query(None)):
     """Public endpoint: get trace data by share_id."""
