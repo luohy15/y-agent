@@ -16,6 +16,7 @@ import NoteList from "./components/NoteList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
 import GitPanel from "./components/GitPanel";
+import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 
 interface VmConfigItem {
@@ -65,7 +66,10 @@ export default function App() {
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatBackend, setChatBackend] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(() => localStorage.getItem("selectedLinkId") || null);
+  const [selectedLinkLinkId, setSelectedLinkLinkId] = useState<string | null>(() => localStorage.getItem("selectedLinkLinkId") || null);
   const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(() => localStorage.getItem("selectedLinkContentKey") || null);
+  const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
+  const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(() => localStorage.getItem("selectedEntityId") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
@@ -105,6 +109,7 @@ export default function App() {
   useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
   useEffect(() => { if (previewFile) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
   useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
+  useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
   useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
 
@@ -359,6 +364,28 @@ export default function App() {
     setSelectedFeedLabel(null);
   }, []);
 
+  const handleExternalLinkClick = useCallback(async (url: string) => {
+    try {
+      const res = await authFetch(`${API}/api/link/resolve?url=${encodeURIComponent(url)}`);
+      if (!res.ok) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      const data = await res.json();
+      if (data.download_status === "done" && data.content_key) {
+        setSelectedLinkId(data.activity_id ?? null);
+        setSelectedLinkLinkId(data.link_id ?? null);
+        setSelectedLinkContentKey(data.content_key);
+        handleOpenFile("link.md");
+        return;
+      }
+      setPendingLinkUrl(url);
+      setPendingLinkStatus(data.download_status ?? null);
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, [handleOpenFile]);
+
   const handleLogout = useCallback(() => {
     auth.logout();
   }, [auth]);
@@ -588,7 +615,7 @@ export default function App() {
           ) : sidebarPanel === "notes" ? (
             <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
           ) : sidebarPanel === "links" ? (
-            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
+            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
           ) : sidebarPanel === "rss" ? (
             <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
           ) : sidebarPanel === "entity" ? (
@@ -643,7 +670,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -730,7 +757,7 @@ export default function App() {
                 ) : rightPanel === "notes" ? (
                   <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "files" ? (
                   <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
                 ) : (
@@ -794,7 +821,7 @@ export default function App() {
               ) : rightPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (
-                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "files" ? (
                 <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} />
               ) : (
@@ -806,6 +833,12 @@ export default function App() {
       </div>
       <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} />
       <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={commandActions} />
+      <LinkActionDialog
+        open={!!pendingLinkUrl}
+        url={pendingLinkUrl}
+        status={pendingLinkStatus}
+        onClose={() => { setPendingLinkUrl(null); setPendingLinkStatus(null); }}
+      />
     </div>
   );
 }
