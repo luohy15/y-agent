@@ -155,6 +155,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
                 buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                align="left"
               />
             </div>
 
