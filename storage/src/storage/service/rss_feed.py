@@ -70,20 +70,16 @@ def record_fetch_success(rss_feed_id: str) -> Optional[RssFeed]:
     return rss_feed_repo.record_fetch_success(rss_feed_id)
 
 
-def record_fetch_failure(
-    rss_feed_id: str, threshold: int, cooldown_seconds: int,
-) -> Optional[RssFeed]:
-    return rss_feed_repo.record_fetch_failure(rss_feed_id, threshold, cooldown_seconds)
+def record_fetch_failure(rss_feed_id: str) -> Optional[RssFeed]:
+    return rss_feed_repo.record_fetch_failure(rss_feed_id)
 
 
 def record_scrape_success(rss_feed_id: str) -> Optional[RssFeed]:
     return rss_feed_repo.record_scrape_success(rss_feed_id)
 
 
-def record_scrape_failure(
-    rss_feed_id: str, threshold: int, cooldown_seconds: int,
-) -> Optional[RssFeed]:
-    return rss_feed_repo.record_scrape_failure(rss_feed_id, threshold, cooldown_seconds)
+def record_scrape_failure(rss_feed_id: str) -> Optional[RssFeed]:
+    return rss_feed_repo.record_scrape_failure(rss_feed_id)
 
 
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:

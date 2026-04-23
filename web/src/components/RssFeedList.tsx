@@ -22,10 +22,12 @@ interface RssFeed {
   feed_type?: string;
   scrape_config?: ScrapeConfig;
   fetch_failure_count?: number;
-  fetch_disabled_until?: number;
   created_at?: string;
   updated_at?: string;
 }
+
+const FETCH_FAIL_THRESHOLD = 3;
+const FETCH_FAIL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 type FeedType = "rss" | "scrape";
 
@@ -361,9 +363,13 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                       )}
                       {(() => {
                         const failures = feed.fetch_failure_count ?? 0;
-                        const paused = feed.fetch_disabled_until && Date.now() < feed.fetch_disabled_until;
+                        const lastMs = feed.last_fetched_at ? Date.parse(feed.last_fetched_at) : NaN;
+                        const pausedUntil = !Number.isNaN(lastMs) && failures >= FETCH_FAIL_THRESHOLD
+                          ? lastMs + FETCH_FAIL_COOLDOWN_MS
+                          : 0;
+                        const paused = pausedUntil > Date.now();
                         if (paused) {
-                          const untilIso = new Date(feed.fetch_disabled_until!).toISOString();
+                          const untilIso = new Date(pausedUntil).toISOString();
                           return (
                             <span
                               className="shrink-0 px-1 py-0 bg-sol-base02 border border-sol-red/60 rounded text-sol-red text-[0.55rem] font-medium leading-tight"

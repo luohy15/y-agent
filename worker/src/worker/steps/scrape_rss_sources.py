@@ -6,8 +6,8 @@ and upload it to s3://$Y_AGENT_S3_BUCKET/rss/<rss_feed_id>.xml. Stage 2
 (`fetch_rss_links`) reads the XML back via feedparser to populate the link
 table.
 
-Failures are tracked separately from stage 2 via `scrape_failure_count` /
-`scrape_disabled_until` so the two stages can fail independently.
+Failures are tracked separately from stage 2 via `scrape_failure_count` and
+`scrape_last_run_at` so the two stages can fail (and cool down) independently.
 """
 
 import asyncio
@@ -35,10 +35,16 @@ FAIL_COOLDOWN = int(os.environ.get("RSS_SCRAPE_FAIL_COOLDOWN_SECONDS", 86400))
 
 
 def _in_cooldown(feed) -> bool:
-    until = getattr(feed, "scrape_disabled_until", None)
-    if until is None:
+    if (feed.scrape_failure_count or 0) < FAIL_THRESHOLD:
         return False
-    return int(time.time() * 1000) < until
+    last = feed.scrape_last_run_at
+    if not last:
+        return False
+    try:
+        last_ms = int(datetime.fromisoformat(last).timestamp() * 1000)
+    except ValueError:
+        return False
+    return int(time.time() * 1000) < last_ms + FAIL_COOLDOWN * 1000
 
 
 def _xml_s3_key(rss_feed_id: str) -> str:
@@ -82,19 +88,19 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
 
     if not feed.scrape_config or not feed.scrape_config.get('item_selector'):
         logger.error("scrape_rss_sources feed={} missing item_selector", feed.rss_feed_id)
-        rss_feed_service.record_scrape_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_scrape_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "error": "missing item_selector"}
 
     html = await fetch_html(client, feed.url)
     if html is None:
-        rss_feed_service.record_scrape_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_scrape_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "error": "fetch failed"}
 
     try:
         items = extract_scrape_items(feed, html)
     except Exception as e:
         logger.exception("scrape_rss_sources feed={} parse error", feed.rss_feed_id)
-        rss_feed_service.record_scrape_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_scrape_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "error": f"parse error: {e}"}
 
     xml_bytes = _build_rss_xml(feed, items)
@@ -102,7 +108,7 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
         s3_put(_xml_s3_key(feed.rss_feed_id), xml_bytes, content_type="application/rss+xml")
     except Exception as e:
         logger.exception("scrape_rss_sources feed={} s3 upload error", feed.rss_feed_id)
-        rss_feed_service.record_scrape_failure(feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN)
+        rss_feed_service.record_scrape_failure(feed.rss_feed_id)
         return {"feed_id": feed.rss_feed_id, "error": f"s3 upload error: {e}"}
 
     rss_feed_service.record_scrape_success(feed.rss_feed_id)
@@ -137,9 +143,7 @@ async def handle_scrape_rss_sources() -> dict:
                     except Exception as e:
                         logger.exception("scrape_rss_sources feed={} unexpected error", feed.rss_feed_id)
                         try:
-                            rss_feed_service.record_scrape_failure(
-                                feed.rss_feed_id, FAIL_THRESHOLD, FAIL_COOLDOWN,
-                            )
+                            rss_feed_service.record_scrape_failure(feed.rss_feed_id)
                         except Exception:
                             logger.exception("scrape_rss_sources feed={} record_scrape_failure failed", feed.rss_feed_id)
                         return {"feed_id": feed.rss_feed_id, "error": str(e)}
