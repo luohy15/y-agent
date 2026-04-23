@@ -1,3 +1,4 @@
+import datetime as _dt
 import os
 import re
 
@@ -6,6 +7,17 @@ import click
 from yagent.api_client import api_request
 
 BASE_DIR = "/Users/roy/luohy15"
+
+
+def _json_safe(value):
+    """Coerce YAML-parsed values into JSON-serialisable equivalents."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (_dt.datetime, _dt.date)):
+        return value.isoformat()
+    return value
 
 
 def _parse_front_matter(filepath):
@@ -17,9 +29,12 @@ def _parse_front_matter(filepath):
         return None
     try:
         import yaml
-        return yaml.safe_load(match.group(1))
+        parsed = yaml.safe_load(match.group(1))
     except Exception:
         return None
+    if not isinstance(parsed, dict):
+        return None
+    return _json_safe(parsed)
 
 
 def _compute_content_key(filepath):
