@@ -143,6 +143,27 @@ def _extract_search_text(chat: Chat) -> str:
     return "\n".join(parts)
 
 
+def _resolve_immutable_field(entity: ChatEntity, chat: Chat, field: str):
+    """Return the value to write for an immutable-once-set field.
+
+    Rules:
+    - entity value is None → take the DTO value (first-time assignment).
+    - entity value is set and DTO matches (or is None) → keep entity value.
+    - entity value is set and DTO differs → log warning and keep entity value.
+    """
+    entity_val = getattr(entity, field)
+    chat_val = getattr(chat, field)
+    if entity_val is None:
+        return chat_val
+    if chat_val is None or chat_val == entity_val:
+        return entity_val
+    logger.warning(
+        "Refusing to mutate immutable chat field {}: chat_id={} existing={} attempted={}",
+        field, chat.id, entity_val, chat_val,
+    )
+    return entity_val
+
+
 def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
     from storage.util import get_utc_iso8601_timestamp
     chat.update_time = get_utc_iso8601_timestamp()
@@ -166,9 +187,9 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.role = chat.role
-            entity.topic = chat.topic
-            entity.trace_id = chat.trace_id
+            entity.role = _resolve_immutable_field(entity, chat, "role")
+            entity.topic = _resolve_immutable_field(entity, chat, "topic")
+            entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
             entity.status = status
         else:
             entity = ChatEntity(
@@ -230,9 +251,9 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
-            entity.role = chat.role
-            entity.topic = chat.topic
-            entity.trace_id = chat.trace_id
+            entity.role = _resolve_immutable_field(entity, chat, "role")
+            entity.topic = _resolve_immutable_field(entity, chat, "topic")
+            entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
             entity.status = status
         else:
             raise ValueError(f"Chat with id {chat.id} not found")
