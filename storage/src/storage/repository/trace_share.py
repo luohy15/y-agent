@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from storage.database.base import get_db
 from storage.entity.trace_share import TraceShareEntity
@@ -33,3 +33,16 @@ def set_password_hash(share_id: str, password_hash: Optional[str]) -> None:
         session.query(TraceShareEntity).filter_by(share_id=share_id).update(
             {"password_hash": password_hash}
         )
+
+
+def delete_by_share_id(share_id: str) -> int:
+    with get_db() as session:
+        return session.query(TraceShareEntity).filter_by(share_id=share_id).delete()
+
+
+def list_by_user(user_id: int) -> List[TraceShareEntity]:
+    with get_db() as session:
+        entities = session.query(TraceShareEntity).filter_by(user_id=user_id).order_by(TraceShareEntity.id.desc()).all()
+        for e in entities:
+            session.expunge(e)
+        return entities

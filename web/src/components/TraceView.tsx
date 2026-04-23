@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, clearToken } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
-import SharePopover from "./SharePopover";
+import SharePopover, { type ExistingShare } from "./SharePopover";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -83,6 +83,19 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
     fetcher,
   );
 
+  // Fetch current share (if any) for this trace
+  const myShareKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
+  const { data: myShare, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
+    myShareKey,
+    async (url: string) => {
+      const res = await authFetch(url);
+      if (res.status === 404) return null;
+      if (res.status === 401) { clearToken(); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("fetch failed");
+      return res.json();
+    },
+  );
+
   const traceChats = traceData?.chats;
   const todoName = traceData?.todo_name;
   const todoStatus = traceData?.todo_status;
@@ -101,7 +114,16 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
       body: JSON.stringify({ trace_id: selectedTraceId, ...opts }),
     });
     if (!res.ok) throw new Error("share failed");
-    return res.json();
+    const result = await res.json();
+    mutateMyShare();
+    return result;
+  };
+  const deleteTraceShare = async (shareId: string) => {
+    const res = await authFetch(`${API}/api/trace/share?share_id=${encodeURIComponent(shareId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("delete failed");
+    mutateMyShare();
   };
   const buildTraceShareUrl = (shareId: string) => `${window.location.origin}/t/${shareId}`;
 
@@ -156,6 +178,8 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 buildUrl={buildTraceShareUrl}
                 buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
                 align="left"
+                existingShare={myShare ?? null}
+                onDelete={deleteTraceShare}
               />
             </div>
 
