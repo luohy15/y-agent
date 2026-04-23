@@ -12,9 +12,10 @@ interface SharePopoverProps {
   buildUrl: (shareId: string) => string;
   buttonClassName?: string;
   buttonLabel?: string;
+  align?: "left" | "right";
 }
 
-export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share" }: SharePopoverProps) {
+export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right" }: SharePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ShareMode>("public");
   const [customPassword, setCustomPassword] = useState("");
@@ -71,7 +72,7 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
         {label}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 w-56 bg-sol-base03 border border-sol-base02 rounded shadow-lg p-2 text-xs">
+        <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-1 z-20 w-56 bg-sol-base03 border border-sol-base02 rounded shadow-lg p-2 text-xs`}>
           <div className="text-sol-base01 mb-1.5">Share as</div>
           <label className="flex items-center gap-2 py-0.5 cursor-pointer">
             <input type="radio" name="share-mode" checked={mode === "public"} onChange={() => setMode("public")} />
