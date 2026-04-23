@@ -37,6 +37,9 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
         scrape_config=_parse_scrape_config(entity.scrape_config),
         fetch_failure_count=entity.fetch_failure_count or 0,
         fetch_disabled_until=entity.fetch_disabled_until,
+        scrape_failure_count=entity.scrape_failure_count or 0,
+        scrape_disabled_until=entity.scrape_disabled_until,
+        scrape_last_run_at=entity.scrape_last_run_at,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -173,6 +176,36 @@ def record_fetch_failure(
         if entity.fetch_failure_count >= threshold:
             now_ms = int(time.time() * 1000)
             entity.fetch_disabled_until = now_ms + cooldown_seconds * 1000
+        session.flush()
+        return _entity_to_dto(entity)
+
+
+def record_scrape_success(rss_feed_id: str) -> Optional[RssFeed]:
+    """Reset scrape_failure_count=0, clear scrape_disabled_until, set scrape_last_run_at=now."""
+    with get_db() as session:
+        entity = session.query(RssFeedEntity).filter_by(rss_feed_id=rss_feed_id).first()
+        if not entity:
+            return None
+        entity.scrape_failure_count = 0
+        entity.scrape_disabled_until = None
+        entity.scrape_last_run_at = datetime.now(timezone.utc).isoformat()
+        session.flush()
+        return _entity_to_dto(entity)
+
+
+def record_scrape_failure(
+    rss_feed_id: str, threshold: int, cooldown_seconds: int,
+) -> Optional[RssFeed]:
+    """Increment scrape_failure_count; if >= threshold, set scrape_disabled_until=now+cooldown."""
+    with get_db() as session:
+        entity = session.query(RssFeedEntity).filter_by(rss_feed_id=rss_feed_id).first()
+        if not entity:
+            return None
+        entity.scrape_failure_count = (entity.scrape_failure_count or 0) + 1
+        entity.scrape_last_run_at = datetime.now(timezone.utc).isoformat()
+        if entity.scrape_failure_count >= threshold:
+            now_ms = int(time.time() * 1000)
+            entity.scrape_disabled_until = now_ms + cooldown_seconds * 1000
         session.flush()
         return _entity_to_dto(entity)
 
