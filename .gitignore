@@ -24,3 +24,6 @@ wheels/
 .DS_Store
 node_modules/
 .codex
+
+# Migration SQL files (one-off, run manually via psql)
+migration_*.sql
