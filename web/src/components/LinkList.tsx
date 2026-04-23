@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
+import { ALL_RSS_FEEDS_ID } from "./RssFeedList";
 
 interface Link {
   activity_id: string;
@@ -169,7 +170,11 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   if (end !== undefined) params.set("end", String(end));
   if (query) params.set("query", query);
   if (todoId) params.set("todo_id", todoId);
-  if (feedId) params.set("source_feed_id", feedId);
+  if (feedId === ALL_RSS_FEEDS_ID) {
+    params.set("source", "rss");
+  } else if (feedId) {
+    params.set("source_feed_id", feedId);
+  }
   if (downloadedOnly) params.set("downloaded", "true");
   params.set("limit", String(LIMIT));
   params.set("offset", String(offset));

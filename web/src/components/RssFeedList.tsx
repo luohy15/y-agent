@@ -29,6 +29,8 @@ interface RssFeed {
 const FETCH_FAIL_THRESHOLD = 3;
 const FETCH_FAIL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
+export const ALL_RSS_FEEDS_ID = "__all_rss__";
+
 type FeedType = "rss" | "scrape";
 
 interface RssFeedListProps {
@@ -289,6 +291,23 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
           <p className="text-sol-base01 italic p-2">No feeds yet. Add one above.</p>
         ) : (
           <div className="space-y-0">
+            <div
+              onClick={() => { if (onSelectFeed) onSelectFeed(ALL_RSS_FEEDS_ID, "All feeds"); }}
+              className={`flex items-center gap-1.5 py-1 px-1 rounded cursor-pointer ${
+                selectedFeedId === ALL_RSS_FEEDS_ID ? "bg-sol-base02" : "hover:bg-sol-base02/50"
+              }`}
+              title="Show links from all RSS feeds"
+            >
+              <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-sol-base01">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </span>
+              <span className={`text-left truncate text-[0.7rem] flex-1 ${selectedFeedId === ALL_RSS_FEEDS_ID ? "text-sol-blue" : "text-sol-base0"}`}>
+                All feeds
+              </span>
+              <span className="text-sol-base01 text-[0.6rem] shrink-0" title={`${data.length} feeds`}>
+                {data.length}
+              </span>
+            </div>
             {data.map((feed) => {
               const isSelected = selectedFeedId === feed.rss_feed_id;
               const cancelLongPress = () => {
