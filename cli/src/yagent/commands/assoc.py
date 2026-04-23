@@ -4,6 +4,7 @@ import click
 
 from yagent.api_client import api_request
 from yagent.commands.note.import_note import import_single as import_note_single
+from yagent.commands.entity.import_entity import import_single as import_entity_single
 
 
 def _resolve_activity_id(id_value):
@@ -35,6 +36,17 @@ def _resolve_note_id(id_value):
     return id_value
 
 
+def _resolve_entity_id(id_value):
+    """If id_value looks like a file path, import it as an entity and return the entity_id.
+    Otherwise return id_value as-is."""
+    if '/' in id_value or id_value.endswith('.md'):
+        entity_id, _note_id = import_entity_single(id_value)
+        if not entity_id:
+            raise SystemExit(1)
+        return entity_id
+    return id_value
+
+
 @click.group("assoc")
 def assoc_group():
     """Associate resources with a todo."""
@@ -51,6 +63,32 @@ def assoc_note(ids, todo):
             note_id = _resolve_note_id(id_value)
             api_request("POST", "/api/note-todo", json={"note_id": note_id, "todo_id": todo})
             click.echo(f"Linked note {note_id} to todo {todo}")
+        except (SystemExit, Exception) as e:
+            click.echo(f"  ! {id_value}: {e}", err=True)
+
+
+@assoc_group.command("entity")
+@click.argument("ids", nargs=-1, required=True)
+@click.option("--note", "note_id", default=None, help="Note ID to associate with")
+@click.option("--rss", "rss_feed_id", default=None, help="RSS feed ID to associate with")
+def assoc_entity(ids, note_id, rss_feed_id):
+    """Associate entities with a note or rss feed. Each ID can be an entity_id or a local file path."""
+    if not note_id and not rss_feed_id:
+        click.echo("Must provide --note or --rss", err=True)
+        raise SystemExit(1)
+    if note_id and rss_feed_id:
+        click.echo("Provide only one of --note / --rss", err=True)
+        raise SystemExit(1)
+
+    for id_value in ids:
+        try:
+            entity_id = _resolve_entity_id(id_value)
+            if note_id:
+                api_request("POST", "/api/entity-note", json={"entity_id": entity_id, "note_id": note_id})
+                click.echo(f"Linked entity {entity_id} to note {note_id}")
+            else:
+                api_request("POST", "/api/entity-rss", json={"entity_id": entity_id, "rss_feed_id": rss_feed_id})
+                click.echo(f"Linked entity {entity_id} to rss {rss_feed_id}")
         except (SystemExit, Exception) as e:
             click.echo(f"  ! {id_value}: {e}", err=True)
 
@@ -88,6 +126,27 @@ def unassoc_note(note_id, todo):
     """Remove association between a note and a todo."""
     api_request("POST", "/api/note-todo/delete", json={"note_id": note_id, "todo_id": todo})
     click.echo(f"Removed link between note {note_id} and todo {todo}")
+
+
+@unassoc_group.command("entity")
+@click.argument("entity_id")
+@click.option("--note", "note_id", default=None, help="Note ID to disassociate from")
+@click.option("--rss", "rss_feed_id", default=None, help="RSS feed ID to disassociate from")
+def unassoc_entity(entity_id, note_id, rss_feed_id):
+    """Remove association between an entity and a note or rss feed."""
+    if not note_id and not rss_feed_id:
+        click.echo("Must provide --note or --rss", err=True)
+        raise SystemExit(1)
+    if note_id and rss_feed_id:
+        click.echo("Provide only one of --note / --rss", err=True)
+        raise SystemExit(1)
+
+    if note_id:
+        api_request("POST", "/api/entity-note/delete", json={"entity_id": entity_id, "note_id": note_id})
+        click.echo(f"Removed link between entity {entity_id} and note {note_id}")
+    else:
+        api_request("POST", "/api/entity-rss/delete", json={"entity_id": entity_id, "rss_feed_id": rss_feed_id})
+        click.echo(f"Removed link between entity {entity_id} and rss {rss_feed_id}")
 
 
 @unassoc_group.command("link")
