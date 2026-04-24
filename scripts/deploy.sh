@@ -75,6 +75,8 @@ add_param "SubnetIds" "SUBNET_IDS"
 add_param "LambdaSecurityGroupId" "LAMBDA_SECURITY_GROUP_ID"
 add_param "TelegramBotToken" "TELEGRAM_BOT_TOKEN"
 add_param "TelegramWebhookSecret" "TELEGRAM_WEBHOOK_SECRET"
+add_param "OxylabsUsername" "OXYLABS_USERNAME"
+add_param "OxylabsPassword" "OXYLABS_PASSWORD"
 
 # ============================================================================
 # SAM Deploy
