@@ -59,7 +59,8 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    return saved === "todo" || saved === "chats" || saved === "notes" || saved === "links" || saved === "rss" || saved === "entity" || saved === "files" || saved === "reminder" ? saved : "todo";
+    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "files", "reminder", "calendar", "finance", "email", "dev"];
+    return valid.includes(saved) ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -562,10 +563,6 @@ export default function App() {
           }}
           activePanel={sidebarPanel}
           onSelectPanel={setSidebarPanel}
-          onOpenFile={handleOpenFile}
-          activeFile={activeFile}
-          chatHide={chatHide}
-          onToggleChatHide={() => setChatHide((v) => !v)}
           email={auth.email}
           gsiReady={auth.gsiReady}
           onLogout={handleLogout}
@@ -591,10 +588,6 @@ export default function App() {
             onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
             activePanel={sidebarPanel}
             onSelectPanel={(panel) => { setSidebarPanel(panel); setActivityBarOpen(false); setSidebarOpen(true); }}
-            onOpenFile={(path) => { handleOpenFile(path); setActivityBarOpen(false); }}
-            activeFile={activeFile}
-            chatHide={chatHide}
-            onToggleChatHide={() => { setChatHide((v) => !v); setActivityBarOpen(false); }}
             email={auth.email}
             gsiReady={auth.gsiReady}
             onLogout={handleLogout}
@@ -609,23 +602,55 @@ export default function App() {
           `}
           style={{ width: sidebarWidth }}
         >
-          {sidebarPanel === "todo" ? (
-            <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-          ) : sidebarPanel === "chats" ? (
-            <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
-          ) : sidebarPanel === "notes" ? (
-            <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
-          ) : sidebarPanel === "links" ? (
-            <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
-          ) : sidebarPanel === "rss" ? (
-            <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
-          ) : sidebarPanel === "entity" ? (
-            <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
-          ) : sidebarPanel === "reminder" ? (
-            <ReminderList isLoggedIn={auth.isLoggedIn} />
-          ) : sidebarPanel === "files" ? (
-            <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={null} workDir={currentVmWorkDir} />
-          ) : null}
+          {(() => {
+            const panelFileMap: Partial<Record<SidebarPanel, { path: string; label: string }>> = {
+              todo: { path: "todo.md", label: "Open todo.md" },
+              calendar: { path: "calendar.md", label: "Open calendar.md" },
+              finance: { path: "finance.bean", label: "Open finance.bean" },
+              email: { path: "emails.md", label: "Open emails.md" },
+              dev: { path: "dev.md", label: "Open dev.md" },
+            };
+            const panelFile = panelFileMap[sidebarPanel];
+            const body =
+              sidebarPanel === "todo" ? (
+                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+              ) : sidebarPanel === "chats" ? (
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false);}} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+              ) : sidebarPanel === "notes" ? (
+                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
+              ) : sidebarPanel === "links" ? (
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
+              ) : sidebarPanel === "rss" ? (
+                <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
+              ) : sidebarPanel === "entity" ? (
+                <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
+              ) : sidebarPanel === "reminder" ? (
+                <ReminderList isLoggedIn={auth.isLoggedIn} />
+              ) : sidebarPanel === "files" ? (
+                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={null} workDir={currentVmWorkDir} />
+              ) : null;
+            return (
+              <div className="flex flex-col h-full min-h-0">
+                {panelFile && (
+                  <div className="p-2 border-b border-sol-base02 shrink-0">
+                    <button
+                      onClick={() => handleOpenFile(panelFile.path)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs text-sol-base1 bg-sol-base02 hover:bg-sol-base01/20 cursor-pointer"
+                      title={panelFile.label}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M15 3h6v6" /><path d="M10 14L21 3" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                      </svg>
+                      <span>{panelFile.label}</span>
+                    </button>
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {body}
+                </div>
+              </div>
+            );
+          })()}
           <div
             className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
             onPointerDown={handleResizeStart}
