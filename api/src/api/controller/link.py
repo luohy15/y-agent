@@ -52,6 +52,7 @@ async def list_links(
     limit: int = Query(50),
     offset: int = Query(0),
     todo_id: Optional[str] = Query(None),
+    entity_id: Optional[str] = Query(None),
     downloaded: Optional[bool] = Query(None),
     source_feed_id: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
@@ -61,6 +62,11 @@ async def list_links(
     if todo_id:
         from storage.repository.link_todo_relation import list_by_todo
         activity_ids = list_by_todo(user_id, todo_id)
+        if not activity_ids:
+            return []
+    elif entity_id:
+        from storage.repository.entity_link_relation import list_by_entity
+        activity_ids = list_by_entity(user_id, entity_id)
         if not activity_ids:
             return []
     links = link_service.list_links(
