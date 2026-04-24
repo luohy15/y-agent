@@ -2,6 +2,7 @@
 
 Routing rules:
 - twitter.com / x.com / youtube.com / youtu.be / bilibili.com → ssh (opencli)
+- openai.com → oxylabs direct (bot-protected, httpx returns 200 with empty shell)
 - everything else → httpx; fallback to oxylabs on failure
 """
 
@@ -22,6 +23,8 @@ SSH_DOMAINS = (
     "bilibili.com",
 )
 
+OXYLABS_FIRST_DOMAINS = ("openai.com",)
+
 
 def _host(url: str) -> str:
     try:
@@ -40,6 +43,16 @@ def _needs_ssh(url: str) -> bool:
     return False
 
 
+def _needs_oxylabs(url: str) -> bool:
+    host = _host(url)
+    if not host:
+        return False
+    for d in OXYLABS_FIRST_DOMAINS:
+        if host == d or host.endswith("." + d):
+            return True
+    return False
+
+
 async def route_and_download(
     user_id: int,
     url: str,
@@ -52,6 +65,9 @@ async def route_and_download(
     """
     if _needs_ssh(url):
         return await ssh_dl.download(user_id, url, timeout=timeout)
+
+    if _needs_oxylabs(url):
+        return await oxylabs_dl.download(url, timeout=min(timeout, 120))
 
     primary = await httpx_dl.download(url, timeout=min(timeout, 30))
     if primary["status"] == "done":
