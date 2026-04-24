@@ -23,7 +23,7 @@ SSH_DOMAINS = (
     "bilibili.com",
 )
 
-OXYLABS_FIRST_DOMAINS = ("openai.com",)
+OXYLABS_FIRST_DOMAINS = ("openai.com", "mp.weixin.qq.com")
 
 
 def _host(url: str) -> str:
