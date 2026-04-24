@@ -101,46 +101,106 @@ const APP_ITEMS: AppItem[] = [
   )},
 ];
 
-const STORAGE_KEY_PANELS = "activityBarOrderPanels";
-const STORAGE_KEY_APPS = "activityBarOrderApps";
+const STORAGE_KEY = "activityBarOrder";
+const LEGACY_STORAGE_KEY_PANELS = "activityBarOrderPanels";
+const LEGACY_STORAGE_KEY_APPS = "activityBarOrderApps";
 
-function loadOrder<T extends string>(storageKey: string, defaults: T[]): T[] {
+type DragGroup = "panel" | "app";
+interface OrderEntry { group: DragGroup; key: string }
+interface DragState { group: DragGroup; key: string }
+interface DropTargetState { group: DragGroup; key: string; pos: "before" | "after" }
+
+function entryId(group: DragGroup, key: string) {
+  return `${group}:${key}`;
+}
+
+function mergeWithDefaults(parsed: unknown, defaults: OrderEntry[]): OrderEntry[] {
+  const validIds = new Set(defaults.map(d => entryId(d.group, d.key)));
+  const seen = new Set<string>();
+  const result: OrderEntry[] = [];
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const group = (item as { group?: unknown }).group;
+      const key = (item as { key?: unknown }).key;
+      if ((group !== "panel" && group !== "app") || typeof key !== "string") continue;
+      const id = entryId(group, key);
+      if (!validIds.has(id) || seen.has(id)) continue;
+      result.push({ group, key });
+      seen.add(id);
+    }
+  }
+  for (const d of defaults) {
+    const id = entryId(d.group, d.key);
+    if (!seen.has(id)) {
+      result.push(d);
+      seen.add(id);
+    }
+  }
+  return result;
+}
+
+function migrateFromLegacy(defaults: OrderEntry[]): OrderEntry[] | null {
+  if (typeof window === "undefined") return null;
+  const legacyPanels = window.localStorage.getItem(LEGACY_STORAGE_KEY_PANELS);
+  const legacyApps = window.localStorage.getItem(LEGACY_STORAGE_KEY_APPS);
+  if (!legacyPanels && !legacyApps) return null;
+  const migrated: OrderEntry[] = [];
+  const pushKeys = (raw: string | null, group: DragGroup) => {
+    if (!raw) return;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const k of arr) {
+          if (typeof k === "string") migrated.push({ group, key: k });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+  pushKeys(legacyPanels, "panel");
+  pushKeys(legacyApps, "app");
+  return mergeWithDefaults(migrated, defaults);
+}
+
+function loadOrder(defaults: OrderEntry[]): OrderEntry[] {
   try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(storageKey) : null;
-    if (!raw) return defaults.slice();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return defaults.slice();
-    const defaultsSet = new Set<string>(defaults);
-    const seen = new Set<string>();
-    const ordered: T[] = [];
-    for (const k of parsed) {
-      if (typeof k === "string" && defaultsSet.has(k) && !seen.has(k)) {
-        ordered.push(k as T);
-        seen.add(k);
+    if (typeof window === "undefined") return defaults.slice();
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try {
+        return mergeWithDefaults(JSON.parse(raw), defaults);
+      } catch {
+        // fall through to migration / defaults
       }
     }
-    for (const k of defaults) {
-      if (!seen.has(k)) ordered.push(k);
+    const migrated = migrateFromLegacy(defaults);
+    if (migrated) {
+      saveOrder(migrated);
+      try {
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY_PANELS);
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY_APPS);
+      } catch {
+        // ignore
+      }
+      return migrated;
     }
-    return ordered;
+    return defaults.slice();
   } catch {
     return defaults.slice();
   }
 }
 
-function saveOrder(storageKey: string, order: string[]) {
+function saveOrder(order: OrderEntry[]) {
   try {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(storageKey, JSON.stringify(order));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
     }
   } catch {
     // ignore
   }
 }
-
-type DragGroup = "panel" | "app";
-interface DragState { group: DragGroup; key: string }
-interface DropTargetState { group: DragGroup; key: string; pos: "before" | "after" }
 
 export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenFile, activeFile, mobile, hideGroup1, chatHide, onToggleChatHide, email, gsiReady, onLogout }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
@@ -154,11 +214,12 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     }
   }, [isLoggedIn, gsiReady]);
 
-  const defaultPanelKeys = useMemo(() => PANEL_ITEMS.map(p => p.key), []);
-  const defaultAppKeys = useMemo(() => APP_ITEMS.map(a => a.key), []);
+  const defaultOrder = useMemo<OrderEntry[]>(() => [
+    ...PANEL_ITEMS.map(p => ({ group: "panel" as const, key: p.key })),
+    ...APP_ITEMS.map(a => ({ group: "app" as const, key: a.key })),
+  ], []);
 
-  const [panelOrder, setPanelOrder] = useState<SidebarPanel[]>(() => loadOrder(STORAGE_KEY_PANELS, defaultPanelKeys));
-  const [appOrder, setAppOrder] = useState<string[]>(() => loadOrder(STORAGE_KEY_APPS, defaultAppKeys));
+  const [order, setOrder] = useState<OrderEntry[]>(() => loadOrder(defaultOrder));
 
   const panelByKey = useMemo(() => {
     const m = new Map<SidebarPanel, PanelItem>();
@@ -171,13 +232,6 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     return m;
   }, []);
 
-  const orderedPanels = panelOrder
-    .map(k => panelByKey.get(k))
-    .filter((p): p is PanelItem => !!p);
-  const orderedApps = appOrder
-    .map(k => appByKey.get(k))
-    .filter((a): a is AppItem => !!a);
-
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
 
@@ -188,14 +242,14 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     setDrag({ group, key });
     try {
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", key);
+      e.dataTransfer.setData("text/plain", entryId(group, key));
     } catch {
       // some browsers throw if called outside user gesture; ignore
     }
   };
 
   const onItemDragOver = (group: DragGroup, key: string) => (e: DragEvent<HTMLDivElement>) => {
-    if (!dragEnabled || !drag || drag.group !== group) return;
+    if (!dragEnabled || !drag) return;
     e.preventDefault();
     try { e.dataTransfer.dropEffect = "move"; } catch { /* ignore */ }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -207,7 +261,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   };
 
   const onItemDrop = (group: DragGroup, key: string) => (e: DragEvent<HTMLDivElement>) => {
-    if (!dragEnabled || !drag || drag.group !== group) {
+    if (!dragEnabled || !drag) {
       setDrag(null);
       setDropTarget(null);
       return;
@@ -216,7 +270,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     const pos: "before" | "after" = e.clientY < midY ? "before" : "after";
-    applyReorder(group, drag.key, key, pos);
+    applyReorder(drag.group, drag.key, group, key, pos);
     setDrag(null);
     setDropTarget(null);
   };
@@ -226,33 +280,20 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     setDropTarget(null);
   };
 
-  function applyReorder(group: DragGroup, fromKey: string, toKey: string, pos: "before" | "after") {
-    if (fromKey === toKey) return;
-    if (group === "panel") {
-      const current = panelOrder.slice();
-      const fromIdx = current.indexOf(fromKey as SidebarPanel);
-      const toIdx = current.indexOf(toKey as SidebarPanel);
-      if (fromIdx === -1 || toIdx === -1) return;
-      let insertAt = pos === "after" ? toIdx + 1 : toIdx;
-      current.splice(fromIdx, 1);
-      if (fromIdx < insertAt) insertAt -= 1;
-      if (insertAt === fromIdx) return;
-      current.splice(insertAt, 0, fromKey as SidebarPanel);
-      setPanelOrder(current);
-      saveOrder(STORAGE_KEY_PANELS, current);
-    } else {
-      const current = appOrder.slice();
-      const fromIdx = current.indexOf(fromKey);
-      const toIdx = current.indexOf(toKey);
-      if (fromIdx === -1 || toIdx === -1) return;
-      let insertAt = pos === "after" ? toIdx + 1 : toIdx;
-      current.splice(fromIdx, 1);
-      if (fromIdx < insertAt) insertAt -= 1;
-      if (insertAt === fromIdx) return;
-      current.splice(insertAt, 0, fromKey);
-      setAppOrder(current);
-      saveOrder(STORAGE_KEY_APPS, current);
-    }
+  function applyReorder(fromGroup: DragGroup, fromKey: string, toGroup: DragGroup, toKey: string, pos: "before" | "after") {
+    if (fromGroup === toGroup && fromKey === toKey) return;
+    const current = order.slice();
+    const fromIdx = current.findIndex(e => e.group === fromGroup && e.key === fromKey);
+    const toIdx = current.findIndex(e => e.group === toGroup && e.key === toKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const moving = current[fromIdx];
+    let insertAt = pos === "after" ? toIdx + 1 : toIdx;
+    current.splice(fromIdx, 1);
+    if (fromIdx < insertAt) insertAt -= 1;
+    if (insertAt === fromIdx) return;
+    current.splice(insertAt, 0, moving);
+    setOrder(current);
+    saveOrder(current);
   }
 
   // Show minimal bar with just GitHub + login when not logged in
@@ -316,16 +357,15 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     return dragged ? `${base} opacity-50` : base;
   };
 
-  const wrapperClass = (group: DragGroup, key: string) => {
-    const isTarget = dropTarget && dropTarget.group === group && dropTarget.key === key && drag && drag.group === group && drag.key !== key;
-    const base = mobile ? "relative w-full" : "relative";
-    if (!isTarget) return base;
-    // 2px indicator bar, absolutely positioned so it doesn't shift the layout
-    return base;
+  const wrapperClass = (_group: DragGroup, _key: string) => {
+    return mobile ? "relative w-full" : "relative";
   };
 
+  const isDifferentFromDrag = (group: DragGroup, key: string) =>
+    !!drag && !(drag.group === group && drag.key === key);
+
   const indicator = (group: DragGroup, key: string, side: "before" | "after") => {
-    const show = !!(dropTarget && dropTarget.group === group && dropTarget.key === key && dropTarget.pos === side && drag && drag.group === group && drag.key !== key);
+    const show = !!(dropTarget && dropTarget.group === group && dropTarget.key === key && dropTarget.pos === side && isDifferentFromDrag(group, key));
     if (!show) return null;
     const sideCls = side === "before" ? "-top-0.5" : "-bottom-0.5";
     return (
@@ -335,38 +375,42 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   return (
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
-      {/* Group 1: Global panels */}
-      {!hideGroup1 && orderedPanels.map((p) => {
-        const isDragged = !!(drag && drag.group === "panel" && drag.key === p.key);
-        return (
-          <div
-            key={p.key}
-            className={wrapperClass("panel", p.key)}
-            draggable={dragEnabled}
-            onDragStart={onItemDragStart("panel", p.key)}
-            onDragOver={onItemDragOver("panel", p.key)}
-            onDrop={onItemDrop("panel", p.key)}
-            onDragEnd={onItemDragEnd}
-          >
-            {indicator("panel", p.key, "before")}
-            <button
-              onClick={() => handlePanelClick(p.key)}
-              className={btnClass(sidebarOpen && activePanel === p.key, isDragged)}
-              title={p.label}
+      {/* Unified ordered list of panels + apps */}
+      {order.map((entry) => {
+        if (entry.group === "panel") {
+          if (hideGroup1) return null;
+          const p = panelByKey.get(entry.key as SidebarPanel);
+          if (!p) return null;
+          const isDragged = !!(drag && drag.group === "panel" && drag.key === p.key);
+          return (
+            <div
+              key={`panel:${p.key}`}
+              className={wrapperClass("panel", p.key)}
+              draggable={dragEnabled}
+              onDragStart={onItemDragStart("panel", p.key)}
+              onDragOver={onItemDragOver("panel", p.key)}
+              onDrop={onItemDrop("panel", p.key)}
+              onDragEnd={onItemDragEnd}
             >
-              {p.icon}
-              {mobile && <span>{p.label}</span>}
-            </button>
-            {indicator("panel", p.key, "after")}
-          </div>
-        );
-      })}
-      {/* Group 2: Apps */}
-      {orderedApps.map((v) => {
+              {indicator("panel", p.key, "before")}
+              <button
+                onClick={() => handlePanelClick(p.key)}
+                className={btnClass(sidebarOpen && activePanel === p.key, isDragged)}
+                title={p.label}
+              >
+                {p.icon}
+                {mobile && <span>{p.label}</span>}
+              </button>
+              {indicator("panel", p.key, "after")}
+            </div>
+          );
+        }
+        const v = appByKey.get(entry.key);
+        if (!v) return null;
         const isDragged = !!(drag && drag.group === "app" && drag.key === v.key);
         return (
           <div
-            key={v.key}
+            key={`app:${v.key}`}
             className={wrapperClass("app", v.key)}
             draggable={dragEnabled}
             onDragStart={onItemDragStart("app", v.key)}
