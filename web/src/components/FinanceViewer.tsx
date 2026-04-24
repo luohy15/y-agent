@@ -34,18 +34,6 @@ interface IncomeStatementHistoryItem {
   expenses: Record<string, number>;
 }
 
-interface PositionData {
-  net_worth: number;
-  stock_holdings: number;
-  labor_income_12m: number;
-  monthly_expense: number;
-  living_reserve: number;
-  liability_allowance: number;
-  max_investable: number;
-  position_ratio: number;
-  currency: string;
-}
-
 interface HoldingAmount {
   number: number;
   currency: string;
@@ -71,7 +59,7 @@ interface HoldingsData {
   totals: HoldingTotalRow[];
 }
 
-type Tab = "balance-sheet" | "income-statement" | "holdings" | "position";
+type Tab = "balance-sheet" | "income-statement" | "holdings";
 
 // Solarized dark colors
 const SOL = {
@@ -339,37 +327,6 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
   );
 }
 
-function PositionView({ data }: { data: PositionData }) {
-  const rows: [string, string][] = [
-    ["Net Worth", `${formatAmount(data.net_worth)} ${data.currency}`],
-    ["Stock Holdings", `${formatAmount(data.stock_holdings)} ${data.currency}`],
-    ["Labor Income (12m)", `${formatAmount(data.labor_income_12m)} ${data.currency}`],
-    ["Monthly Expense", `${formatAmount(data.monthly_expense)} ${data.currency}`],
-    ["Living Reserve", `${formatAmount(data.living_reserve)} ${data.currency}`],
-    ["Liability Allowance", `${formatAmount(data.liability_allowance)} ${data.currency}`],
-    ["Max Investable", `${formatAmount(data.max_investable)} ${data.currency}`],
-    ["Position Ratio", `${(data.position_ratio * 100).toFixed(1)}%`],
-  ];
-
-  return (
-    <div className="mb-4">
-      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02">
-        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Position</span>
-      </div>
-      <table className="w-full text-sm">
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label} className="hover:bg-sol-base02/50">
-              <td className="py-1 px-3 text-sol-base01">{label}</td>
-              <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 type Granularity = "monthly" | "yearly";
 
 function GranularityToggle({ value, onChange }: { value: Granularity; onChange: (v: Granularity) => void }) {
@@ -582,11 +539,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/holdings${vmQueryOnly}`
     : null;
 
-  const posKey = tab === "position"
-    ? `${API}/api/finance/position?convert=USD${vmQuery}`
-    : null;
-
-  // Chart data fetches (also always fetch for active tab, except position)
+  // Chart data fetches (also always fetch for active tab, except holdings)
   const bsHistKey = tab === "balance-sheet"
     ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
@@ -598,17 +551,16 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const { data: bsData, isLoading: bsLoading, error: bsError } = useSWR<BalanceSheetData>(bsKey, fetcher, { revalidateOnFocus: false });
   const { data: isData, isLoading: isLoading, error: isError } = useSWR<IncomeStatementData>(isKey, fetcher, { revalidateOnFocus: false });
   const { data: holdingsData, isLoading: holdingsLoading, error: holdingsError } = useSWR<HoldingsData>(holdingsKey, fetcher, { revalidateOnFocus: false });
-  const { data: posData, isLoading: posLoading, error: posError } = useSWR<PositionData>(posKey, fetcher, { revalidateOnFocus: false });
 
   const { data: bsHistData, isLoading: bsHistLoading, error: bsHistError } = useSWR<BalanceSheetHistoryItem[]>(bsHistKey, fetcher, { revalidateOnFocus: false });
   const { data: isHistData, isLoading: isHistLoading, error: isHistError } = useSWR<IncomeStatementHistoryItem[]>(isHistKey, fetcher, { revalidateOnFocus: false });
 
   // Combined loading/error: table OR chart loading
-  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "holdings" ? holdingsLoading : posLoading;
+  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : holdingsLoading;
   const chartLoading = tab === "balance-sheet" ? bsHistLoading : tab === "income-statement" ? isHistLoading : false;
   const loading = tableLoading && chartLoading;
 
-  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "holdings" ? holdingsError : posError;
+  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : holdingsError;
   const chartError = tab === "balance-sheet" ? bsHistError : tab === "income-statement" ? isHistError : null;
   const error = tableError && chartError;
 
@@ -628,7 +580,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           />
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["position", "Position"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
@@ -697,14 +649,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           ) : holdingsData ? (
             <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
           ) : null
-        ) : tab === "position" && posData ? (
-          <div className="flex justify-center">
-            <div className="w-full max-w-md">
-              <PositionView data={posData} />
-            </div>
-          </div>
-        ) : posLoading ? (
-          <p className="text-sol-base01 italic px-3">Loading...</p>
         ) : null}
       </div>
     </div>
