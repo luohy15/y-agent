@@ -183,7 +183,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   const dragEnabled = !mobile;
 
-  const onItemDragStart = (group: DragGroup, key: string) => (e: DragEvent<HTMLButtonElement>) => {
+  const onItemDragStart = (group: DragGroup, key: string) => (e: DragEvent<HTMLDivElement>) => {
     if (!dragEnabled) return;
     setDrag({ group, key });
     try {
@@ -194,7 +194,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     }
   };
 
-  const onItemDragOver = (group: DragGroup, key: string) => (e: DragEvent<HTMLButtonElement>) => {
+  const onItemDragOver = (group: DragGroup, key: string) => (e: DragEvent<HTMLDivElement>) => {
     if (!dragEnabled || !drag || drag.group !== group) return;
     e.preventDefault();
     try { e.dataTransfer.dropEffect = "move"; } catch { /* ignore */ }
@@ -206,7 +206,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     }
   };
 
-  const onItemDrop = (group: DragGroup, key: string) => (e: DragEvent<HTMLButtonElement>) => {
+  const onItemDrop = (group: DragGroup, key: string) => (e: DragEvent<HTMLDivElement>) => {
     if (!dragEnabled || !drag || drag.group !== group) {
       setDrag(null);
       setDropTarget(null);
@@ -339,17 +339,20 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       {!hideGroup1 && orderedPanels.map((p) => {
         const isDragged = !!(drag && drag.group === "panel" && drag.key === p.key);
         return (
-          <div key={p.key} className={wrapperClass("panel", p.key)}>
+          <div
+            key={p.key}
+            className={wrapperClass("panel", p.key)}
+            draggable={dragEnabled}
+            onDragStart={onItemDragStart("panel", p.key)}
+            onDragOver={onItemDragOver("panel", p.key)}
+            onDrop={onItemDrop("panel", p.key)}
+            onDragEnd={onItemDragEnd}
+          >
             {indicator("panel", p.key, "before")}
             <button
               onClick={() => handlePanelClick(p.key)}
               className={btnClass(sidebarOpen && activePanel === p.key, isDragged)}
               title={p.label}
-              draggable={dragEnabled}
-              onDragStart={onItemDragStart("panel", p.key)}
-              onDragOver={onItemDragOver("panel", p.key)}
-              onDrop={onItemDrop("panel", p.key)}
-              onDragEnd={onItemDragEnd}
             >
               {p.icon}
               {mobile && <span>{p.label}</span>}
@@ -362,17 +365,20 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       {orderedApps.map((v) => {
         const isDragged = !!(drag && drag.group === "app" && drag.key === v.key);
         return (
-          <div key={v.key} className={wrapperClass("app", v.key)}>
+          <div
+            key={v.key}
+            className={wrapperClass("app", v.key)}
+            draggable={dragEnabled}
+            onDragStart={onItemDragStart("app", v.key)}
+            onDragOver={onItemDragOver("app", v.key)}
+            onDrop={onItemDrop("app", v.key)}
+            onDragEnd={onItemDragEnd}
+          >
             {indicator("app", v.key, "before")}
             <button
               onClick={() => onOpenFile?.(v.key)}
               className={btnClass(!!chatHide && activeFile === v.key, isDragged)}
               title={v.label}
-              draggable={dragEnabled}
-              onDragStart={onItemDragStart("app", v.key)}
-              onDragOver={onItemDragOver("app", v.key)}
-              onDrop={onItemDrop("app", v.key)}
-              onDragEnd={onItemDragEnd}
             >
               {v.icon}
               {mobile && <span>{v.label}</span>}
