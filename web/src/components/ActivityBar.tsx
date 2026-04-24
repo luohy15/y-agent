@@ -1,7 +1,7 @@
 import { useCallback, type RefCallback } from "react";
 import { isPreview } from "../hooks/useAuth";
 
-export type SidebarPanel = "todo" | "notes" | "chats" | "links" | "rss" | "entity" | "files";
+export type SidebarPanel = "todo" | "notes" | "chats" | "links" | "rss" | "entity" | "files" | "reminder";
 
 interface ActivityBarProps {
   isLoggedIn: boolean;
@@ -132,6 +132,16 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
             {mobile && <span>Todo</span>}
           </button>
           <button
+            onClick={() => handlePanelClick("reminder")}
+            className={btnClass(sidebarOpen && activePanel === "reminder")}
+            title="Reminders"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            {mobile && <span>Reminders</span>}
+          </button>
+          <button
             onClick={() => handlePanelClick("notes")}
             className={btnClass(sidebarOpen && activePanel === "notes")}
             title="Notes"
@@ -191,7 +201,6 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
             </svg>
             {mobile && <span>Files</span>}
           </button>
-          <div className={mobile ? "w-full border-t border-sol-base02 my-1" : "w-6 border-t border-sol-base02 my-1"} />
         </>
       )}
       {/* Group 2: Apps */}
@@ -207,14 +216,13 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         </button>
       ))}
       {/* Bottom: GitHub + Auth */}
-      <div className={mobile ? "w-full border-t border-sol-base02 my-1 mt-auto" : "w-6 border-t border-sol-base02 my-1 mt-auto"} />
       <a
         href="https://github.com/luohy15/y-agent"
         target="_blank"
         rel="noopener noreferrer"
         className={mobile
-          ? "w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
-          : "w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          ? "mt-auto w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          : "mt-auto w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
         }
         title="GitHub"
       >
