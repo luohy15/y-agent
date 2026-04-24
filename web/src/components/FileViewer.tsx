@@ -406,10 +406,27 @@ interface EntityFeed {
   title?: string | null;
 }
 
-function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityId: string; vmQuery: string; defaultWorkDir?: string; onOpenFile?: (path: string) => void }) {
+interface EntityLink {
+  activity_id: string;
+  url: string;
+  base_url: string;
+  title?: string | null;
+  content_key?: string | null;
+}
+
+function entityLinkDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLink }: { entityId: string; vmQuery: string; defaultWorkDir?: string; onOpenFile?: (path: string) => void; onPreviewLink?: (activityId: string, contentKey: string | null) => void }) {
   const [entity, setEntity] = useState<EntityDetail | null>(null);
   const [notes, setNotes] = useState<EntityNote[]>([]);
   const [feeds, setFeeds] = useState<EntityFeed[]>([]);
+  const [links, setLinks] = useState<EntityLink[]>([]);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -458,6 +475,10 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityI
         } else {
           if (!cancelled) setFeeds([]);
         }
+
+        const linksRes = await authFetch(`${API}/api/link/list?entity_id=${encodeURIComponent(entityId)}&limit=200`);
+        const entityLinks: EntityLink[] = linksRes.ok ? await linksRes.json() : [];
+        if (!cancelled) setLinks(entityLinks);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -502,7 +523,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityI
           <p className="text-sol-base01 italic text-sm p-3">Loading linked note content...</p>
         )}
       </div>
-      {(notes.length > 0 || feeds.length > 0) && (
+      {(notes.length > 0 || feeds.length > 0 || links.length > 0) && (
         <div className="border-t border-sol-base02 p-3 shrink-0 text-xs space-y-2">
           {notes.length > 0 && (
             <div>
@@ -535,6 +556,27 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile }: { entityI
                     <a href={f.url} target="_blank" rel="noreferrer" className="text-sol-blue hover:text-sol-cyan text-[0.6rem] truncate">{f.url}</a>
                   </li>
                 ))}
+              </ul>
+            </div>
+          )}
+          {links.length > 0 && (
+            <div>
+              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">Links ({links.length})</div>
+              <ul className="space-y-0.5">
+                {links.map((l) => {
+                  const label = l.title || entityLinkDomain(l.base_url);
+                  return (
+                    <li key={l.activity_id}>
+                      <button
+                        onClick={() => onPreviewLink?.(l.activity_id, l.content_key ?? null)}
+                        className="text-sol-blue hover:text-sol-cyan cursor-pointer truncate block text-left max-w-full"
+                        title={l.url}
+                      >
+                        {label}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -970,7 +1012,16 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   }}
                 />
               ) : fileEntityPreview ? (
-                <EntityView entityId={selectedEntityId || ""} vmQuery={vmQuery} defaultWorkDir={defaultWorkDir} onOpenFile={onPreviewFile} />
+                <EntityView
+                  entityId={selectedEntityId || ""}
+                  vmQuery={vmQuery}
+                  defaultWorkDir={defaultWorkDir}
+                  onOpenFile={onPreviewFile}
+                  onPreviewLink={(activityId, contentKey) => {
+                    if (onPreviewLinkFull) onPreviewLinkFull(activityId, contentKey);
+                    else if (onPreviewLink) onPreviewLink(activityId);
+                  }}
+                />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
