@@ -15,6 +15,7 @@ import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
+import ReminderList from "./components/ReminderList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
@@ -58,7 +59,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    return saved === "todo" || saved === "chats" || saved === "notes" || saved === "links" || saved === "rss" || saved === "entity" || saved === "files" ? saved : "todo";
+    return saved === "todo" || saved === "chats" || saved === "notes" || saved === "links" || saved === "rss" || saved === "entity" || saved === "files" || saved === "reminder" ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -620,6 +621,8 @@ export default function App() {
             <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
           ) : sidebarPanel === "entity" ? (
             <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
+          ) : sidebarPanel === "reminder" ? (
+            <ReminderList isLoggedIn={auth.isLoggedIn} />
           ) : sidebarPanel === "files" ? (
             <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={null} workDir={currentVmWorkDir} />
           ) : null}
