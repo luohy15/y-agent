@@ -242,8 +242,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             if backend_type == "codex":
                 # Codex: usage from turn.completed event
-                if result.get("session_id") or result.get("thread_id"):
-                    pass  # no external_id for codex
+                if result.get("thread_id"):
+                    fresh.external_id = result["thread_id"]
                 if result_data and not result_data.get("is_error"):
                     usage = result_data.get("usage", {})
                     if usage:
