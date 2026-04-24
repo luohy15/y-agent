@@ -25,8 +25,8 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         updated_at_unix=activity.updated_at_unix if activity.updated_at_unix else None,
         download_status=activity.download_status or link.download_status,
         content_key=activity.content_key or link.content_key,
-        source=link.source,
-        source_feed_id=link.source_feed_id,
+        source=activity.source,
+        source_feed_id=activity.source_feed_id,
         crawl_fail_count=link.crawl_fail_count,
         published_at=link.published_at,
     )
@@ -58,9 +58,9 @@ def list_links(
         if activity_ids is not None:
             q = q.filter(LinkActivityEntity.activity_id.in_(activity_ids))
         if source_feed_id is not None:
-            q = q.filter(LinkEntity.source_feed_id == source_feed_id)
+            q = q.filter(LinkActivityEntity.source_feed_id == source_feed_id)
         if source is not None:
-            q = q.filter(LinkEntity.source == source)
+            q = q.filter(LinkActivityEntity.source == source)
         if start is not None:
             q = q.filter(LinkActivityEntity.timestamp >= start)
         if end is not None:
@@ -256,6 +256,8 @@ def save_link_rss(
             url=url,
             title=title,
             timestamp=timestamp,
+            source="rss",
+            source_feed_id=source_feed_id,
         )
         session.add(activity)
         session.flush()

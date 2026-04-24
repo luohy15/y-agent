@@ -29,6 +29,8 @@ class LinkActivityEntity(Base, BaseEntity):
     timestamp = Column(BigInteger, nullable=False, index=True)  # unix ms from browser
     download_status = Column(String, nullable=True)  # per-activity download status (for url != base_url)
     content_key = Column(String, nullable=True)       # per-activity S3 key (for url != base_url)
+    source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
+    source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id when source='rss'
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id"),
