@@ -83,6 +83,8 @@ jobs:
           [ -n "$TELEGRAM_BOT_TOKEN" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES TelegramBotToken=$TELEGRAM_BOT_TOKEN"
           [ -n "$TELEGRAM_WEBHOOK_SECRET" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES TelegramWebhookSecret=$TELEGRAM_WEBHOOK_SECRET"
           [ -n "$Y_AGENT_S3_BUCKET" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES YAgentS3Bucket=$Y_AGENT_S3_BUCKET"
+          [ -n "$OXYLABS_USERNAME" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsUsername=$OXYLABS_USERNAME"
+          [ -n "$OXYLABS_PASSWORD" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsPassword=$OXYLABS_PASSWORD"
 
           if [ -n "$PARAM_OVERRIDES" ]; then
             sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides $PARAM_OVERRIDES
