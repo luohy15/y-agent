@@ -71,13 +71,15 @@ def assoc_note(ids, todo):
 @click.argument("ids", nargs=-1, required=True)
 @click.option("--note", "note_id", default=None, help="Note ID to associate with")
 @click.option("--rss", "rss_feed_id", default=None, help="RSS feed ID to associate with")
-def assoc_entity(ids, note_id, rss_feed_id):
-    """Associate entities with a note or rss feed. Each ID can be an entity_id or a local file path."""
-    if not note_id and not rss_feed_id:
-        click.echo("Must provide --note or --rss", err=True)
+@click.option("--link", "activity_id", default=None, help="Link activity ID to associate with")
+def assoc_entity(ids, note_id, rss_feed_id, activity_id):
+    """Associate entities with a note, rss feed, or link. Each ID can be an entity_id or a local file path."""
+    targets = [x for x in (note_id, rss_feed_id, activity_id) if x]
+    if not targets:
+        click.echo("Must provide --note, --rss, or --link", err=True)
         raise SystemExit(1)
-    if note_id and rss_feed_id:
-        click.echo("Provide only one of --note / --rss", err=True)
+    if len(targets) > 1:
+        click.echo("Provide only one of --note / --rss / --link", err=True)
         raise SystemExit(1)
 
     for id_value in ids:
@@ -86,9 +88,12 @@ def assoc_entity(ids, note_id, rss_feed_id):
             if note_id:
                 api_request("POST", "/api/entity-note", json={"entity_id": entity_id, "note_id": note_id})
                 click.echo(f"Linked entity {entity_id} to note {note_id}")
-            else:
+            elif rss_feed_id:
                 api_request("POST", "/api/entity-rss", json={"entity_id": entity_id, "rss_feed_id": rss_feed_id})
                 click.echo(f"Linked entity {entity_id} to rss {rss_feed_id}")
+            else:
+                api_request("POST", "/api/entity-link", json={"entity_id": entity_id, "activity_id": activity_id})
+                click.echo(f"Linked entity {entity_id} to link {activity_id}")
         except (SystemExit, Exception) as e:
             click.echo(f"  ! {id_value}: {e}", err=True)
 
@@ -132,21 +137,26 @@ def unassoc_note(note_id, todo):
 @click.argument("entity_id")
 @click.option("--note", "note_id", default=None, help="Note ID to disassociate from")
 @click.option("--rss", "rss_feed_id", default=None, help="RSS feed ID to disassociate from")
-def unassoc_entity(entity_id, note_id, rss_feed_id):
-    """Remove association between an entity and a note or rss feed."""
-    if not note_id and not rss_feed_id:
-        click.echo("Must provide --note or --rss", err=True)
+@click.option("--link", "activity_id", default=None, help="Link activity ID to disassociate from")
+def unassoc_entity(entity_id, note_id, rss_feed_id, activity_id):
+    """Remove association between an entity and a note, rss feed, or link."""
+    targets = [x for x in (note_id, rss_feed_id, activity_id) if x]
+    if not targets:
+        click.echo("Must provide --note, --rss, or --link", err=True)
         raise SystemExit(1)
-    if note_id and rss_feed_id:
-        click.echo("Provide only one of --note / --rss", err=True)
+    if len(targets) > 1:
+        click.echo("Provide only one of --note / --rss / --link", err=True)
         raise SystemExit(1)
 
     if note_id:
         api_request("POST", "/api/entity-note/delete", json={"entity_id": entity_id, "note_id": note_id})
         click.echo(f"Removed link between entity {entity_id} and note {note_id}")
-    else:
+    elif rss_feed_id:
         api_request("POST", "/api/entity-rss/delete", json={"entity_id": entity_id, "rss_feed_id": rss_feed_id})
         click.echo(f"Removed link between entity {entity_id} and rss {rss_feed_id}")
+    else:
+        api_request("POST", "/api/entity-link/delete", json={"entity_id": entity_id, "activity_id": activity_id})
+        click.echo(f"Removed link between entity {entity_id} and link {activity_id}")
 
 
 @unassoc_group.command("link")

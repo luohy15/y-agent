@@ -41,6 +41,7 @@ from api.controller.rss_feed import router as rss_feed_router
 from api.controller.entity import router as entity_router
 from api.controller.entity_note_relation import router as entity_note_relation_router
 from api.controller.entity_rss_relation import router as entity_rss_relation_router
+from api.controller.entity_link_relation import router as entity_link_relation_router
 from api.middleware.auth import AuthMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
@@ -79,6 +80,7 @@ api_router.include_router(rss_feed_router)
 api_router.include_router(entity_router)
 api_router.include_router(entity_note_relation_router)
 api_router.include_router(entity_rss_relation_router)
+api_router.include_router(entity_link_relation_router)
 app.include_router(api_router)
 
 def main():

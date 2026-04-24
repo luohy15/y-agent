@@ -34,3 +34,10 @@ def entity_get(entity_id):
         click.echo("RSS feeds:")
         for rid in rss_ids:
             click.echo(f"  - {rid}")
+
+    links_resp = api_request("GET", "/api/entity-link/by-entity", params={"entity_id": entity_id})
+    activity_ids = links_resp.json()
+    if activity_ids:
+        click.echo("Links:")
+        for aid in activity_ids:
+            click.echo(f"  - {aid}")

@@ -1,6 +1,7 @@
 import click
 
 from .import_entity import entity_import
+from .import_link import entity_import_link
 from .list import entity_list
 from .get import entity_get
 
@@ -12,5 +13,6 @@ def entity_group():
 
 
 entity_group.add_command(entity_import)
+entity_group.add_command(entity_import_link)
 entity_group.add_command(entity_list)
 entity_group.add_command(entity_get)
