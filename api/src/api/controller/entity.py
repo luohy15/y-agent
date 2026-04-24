@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from storage.service import entity as entity_service
 from storage.service import entity_note_relation as note_relation_service
 from storage.service import entity_rss_relation as rss_relation_service
+from storage.service import entity_link_relation as link_relation_service
 
 router = APIRouter(prefix="/entity")
 
@@ -90,6 +91,7 @@ async def list_entities(
     type: Optional[str] = Query(None),
     note_id: Optional[str] = Query(None),
     rss_feed_id: Optional[str] = Query(None),
+    activity_id: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
     if note_id:
@@ -100,6 +102,12 @@ async def list_entities(
         return [e.to_dict() for e in entities]
     if rss_feed_id:
         entity_ids = rss_relation_service.list_by_feed(user_id, rss_feed_id)
+        if not entity_ids:
+            return []
+        entities = entity_service.get_entities_by_ids(user_id, entity_ids)
+        return [e.to_dict() for e in entities]
+    if activity_id:
+        entity_ids = link_relation_service.list_by_activity(user_id, activity_id)
         if not entity_ids:
             return []
         entities = entity_service.get_entities_by_ids(user_id, entity_ids)
