@@ -5,12 +5,7 @@ import click
 from .balance_sheet import balance_sheet
 from .holdings import holdings
 from .income_statement import income_statement
-from .invest_plan import invest_plan
-from .position import position
-
 from .price_history import price_history
-from .target_holdings import target_holdings
-from .target_position import target_position
 from .update_market_data import update_market_data
 
 
@@ -25,7 +20,7 @@ def beancount_group(ctx, time: str, history: bool, granularity: str, convert: st
     ctx.ensure_object(dict)
 
     # Skip beancount loading for commands that don't need it
-    if ctx.invoked_subcommand in ("update-market-data", "target-position"):
+    if ctx.invoked_subcommand in ("update-market-data",):
         return
 
     from beancount import loader
@@ -59,8 +54,4 @@ beancount_group.add_command(income_statement)
 beancount_group.add_command(update_market_data)
 beancount_group.add_command(balance_sheet)
 beancount_group.add_command(holdings)
-beancount_group.add_command(invest_plan)
-beancount_group.add_command(position)
 beancount_group.add_command(price_history)
-beancount_group.add_command(target_holdings)
-beancount_group.add_command(target_position)

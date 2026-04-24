@@ -76,17 +76,6 @@ async def income_statement(
     output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
     return _parse_json(output)
 
-@router.get("/position")
-async def position(
-    request: Request,
-    convert: str = Query("USD"),
-    vm_name: str = Query(None),
-):
-    user_id = _get_user_id(request)
-    cmd = _beancount_cmd("position", "", False, "monthly", convert)
-    output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
-    return _parse_json(output)
-
 @router.get("/holdings")
 async def holdings(
     request: Request,
