@@ -1,8 +1,9 @@
 """Route a URL to the appropriate downloader.
 
 Routing rules:
+- openai.com → skip (bot-protected; oxylabs returns empty shell page)
 - twitter.com / x.com / youtube.com / youtu.be / bilibili.com → ssh (opencli)
-- openai.com → oxylabs direct (bot-protected, httpx returns 200 with empty shell)
+- mp.weixin.qq.com → oxylabs direct
 - everything else → httpx; fallback to oxylabs on failure
 """
 
@@ -23,7 +24,9 @@ SSH_DOMAINS = (
     "bilibili.com",
 )
 
-OXYLABS_FIRST_DOMAINS = ("openai.com", "mp.weixin.qq.com")
+OXYLABS_FIRST_DOMAINS = ("mp.weixin.qq.com",)
+
+SKIP_DOMAINS = ("openai.com",)
 
 
 def _host(url: str) -> str:
@@ -53,6 +56,16 @@ def _needs_oxylabs(url: str) -> bool:
     return False
 
 
+def _should_skip(url: str) -> bool:
+    host = _host(url)
+    if not host:
+        return False
+    for d in SKIP_DOMAINS:
+        if host == d or host.endswith("." + d):
+            return True
+    return False
+
+
 async def route_and_download(
     user_id: int,
     url: str,
@@ -63,6 +76,15 @@ async def route_and_download(
     Returns `{status, title, content, method_used, error}`. All downloaders
     return markdown content in memory; the caller is responsible for persisting it.
     """
+    if _should_skip(url):
+        return {
+            "status": "failed",
+            "title": None,
+            "content": None,
+            "method_used": "skip",
+            "error": "domain temporarily skipped",
+        }
+
     if _needs_ssh(url):
         return await ssh_dl.download(user_id, url, timeout=timeout)
 
