@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
 interface AccountNode {
@@ -59,7 +59,22 @@ interface HoldingsData {
   totals: HoldingTotalRow[];
 }
 
-type Tab = "balance-sheet" | "income-statement" | "holdings";
+type Tab = "balance-sheet" | "income-statement" | "holdings" | "fire";
+
+interface FireProgressData {
+  net_worth_usd: number;
+  target_usd: number;
+  gap_usd: number;
+  progress_pct: number | null;
+  ytd_income_usd: number;
+  ytd_expense_usd: number;
+  ytd_savings_rate: number | null;
+  monthly_expense_usd: number;
+  withdrawal_rate: number;
+  projected_months_to_target: number | null;
+  projected_date: string | null;
+  config_source: "file" | "default";
+}
 
 // Solarized dark colors
 const SOL = {
@@ -377,7 +392,7 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
   );
 }
 
-function BalanceSheetChart({ data, granularity, onGranularityChange }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
+function BalanceSheetChart({ data, granularity, onGranularityChange, targetLine }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void; targetLine?: number }) {
   const chartData = useMemo(() =>
     data.map((item) => ({
       period: formatPeriodLabel(item.period),
@@ -398,9 +413,122 @@ function BalanceSheetChart({ data, granularity, onGranularityChange }: { data: B
           <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
           <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
           <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} />
+          {targetLine != null && (
+            <ReferenceLine
+              y={targetLine}
+              stroke={SOL.yellow}
+              strokeDasharray="4 4"
+              label={{ value: `Target: ${(targetLine / 1000).toFixed(0)}k`, fill: SOL.yellow, fontSize: 11, position: "insideTopRight" }}
+            />
+          )}
           <Line type="linear" dataKey="Net Worth" stroke={SOL.green} dot={false} strokeWidth={2} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// --- FIRE Progress View ---
+
+function formatUsd(amount: number): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}k`;
+  return `${sign}$${abs.toFixed(0)}`;
+}
+
+function FireMetricCard({ title, value, sub, valueColor }: { title: string; value: string; sub?: string; valueColor?: string }) {
+  return (
+    <div className="bg-sol-base02/50 rounded p-3 border border-sol-base02">
+      <div className="text-sol-base01 text-[10px] uppercase tracking-wide mb-1">{title}</div>
+      <div className={`text-xl font-medium tabular-nums ${valueColor ?? "text-sol-base1"}`}>{value}</div>
+      {sub && <div className="text-sol-base01 text-xs mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function FireProgressView({ data }: { data: FireProgressData }) {
+  const pct = data.progress_pct ?? 0;
+  const clampedPct = Math.max(0, Math.min(100, pct));
+  const reached = data.gap_usd <= 0;
+  const ytdNet = data.ytd_income_usd - data.ytd_expense_usd;
+  const monthsElapsed = (() => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), 0, 1);
+    return Math.max((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44), 1 / 30.44);
+  })();
+  const avgMonthlySavings = ytdNet / monthsElapsed;
+
+  return (
+    <div className="space-y-4">
+      {data.config_source === "default" && (
+        <div className="px-3 py-2 rounded text-xs bg-sol-yellow/10 text-sol-yellow border border-sol-yellow/30">
+          Using default FIRE target. Edit <code className="px-1 bg-sol-base02/60 rounded">$Y_AGENT_HOME/finance/fire_target.json</code> to customize.
+        </div>
+      )}
+
+      {/* Headline */}
+      <div className="text-center py-3">
+        <div className="text-sol-base01 text-xs uppercase tracking-wide mb-1">
+          {reached ? "FIRE Reached" : "Distance to FIRE"}
+        </div>
+        <div className={`text-3xl font-medium tabular-nums ${reached ? "text-sol-green" : "text-sol-base1"}`}>
+          {reached ? "🎉 Done" : formatUsd(data.gap_usd)}
+        </div>
+        <div className="text-sol-base0 text-sm mt-1 tabular-nums">
+          {clampedPct.toFixed(2)}% complete
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="px-3">
+        <div className="flex items-center justify-between text-xs text-sol-base01 mb-1 tabular-nums">
+          <span>{formatUsd(data.net_worth_usd)}</span>
+          <span>{formatUsd(data.target_usd)}</span>
+        </div>
+        <div className="h-3 rounded-full bg-sol-base02 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{
+              width: `${clampedPct}%`,
+              background: reached ? SOL.green : SOL.cyan,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 4 metric cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 px-1">
+        <FireMetricCard
+          title="Net Worth"
+          value={formatUsd(data.net_worth_usd)}
+          sub={`${formatAmount(data.net_worth_usd)} USD`}
+          valueColor="text-sol-blue"
+        />
+        <FireMetricCard
+          title="FIRE Target"
+          value={formatUsd(data.target_usd)}
+          sub={`${formatUsd(data.monthly_expense_usd)}/mo × 12 ÷ ${(data.withdrawal_rate * 100).toFixed(1)}%`}
+          valueColor="text-sol-yellow"
+        />
+        <FireMetricCard
+          title="Gap"
+          value={formatUsd(data.gap_usd)}
+          sub={
+            data.projected_date
+              ? `Projected: ${data.projected_date}` + (data.projected_months_to_target != null ? ` (${data.projected_months_to_target.toFixed(1)} mo)` : "")
+              : "Need positive savings"
+          }
+          valueColor={reached ? "text-sol-green" : "text-sol-red"}
+        />
+        <FireMetricCard
+          title="YTD Savings Rate"
+          value={data.ytd_savings_rate != null ? `${(data.ytd_savings_rate * 100).toFixed(1)}%` : "—"}
+          sub={`${formatUsd(ytdNet)} saved · avg ${formatUsd(avgMonthlySavings)}/mo`}
+          valueColor={data.ytd_savings_rate != null && data.ytd_savings_rate >= 0 ? "text-sol-green" : "text-sol-red"}
+        />
+      </div>
     </div>
   );
 }
@@ -539,8 +667,12 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/holdings${vmQueryOnly}`
     : null;
 
+  const fireKey = tab === "fire"
+    ? `${API}/api/finance/fire-progress${vmQueryOnly}`
+    : null;
+
   // Chart data fetches (also always fetch for active tab, except holdings)
-  const bsHistKey = tab === "balance-sheet"
+  const bsHistKey = tab === "balance-sheet" || tab === "fire"
     ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
@@ -551,17 +683,18 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const { data: bsData, isLoading: bsLoading, error: bsError } = useSWR<BalanceSheetData>(bsKey, fetcher, { revalidateOnFocus: false });
   const { data: isData, isLoading: isLoading, error: isError } = useSWR<IncomeStatementData>(isKey, fetcher, { revalidateOnFocus: false });
   const { data: holdingsData, isLoading: holdingsLoading, error: holdingsError } = useSWR<HoldingsData>(holdingsKey, fetcher, { revalidateOnFocus: false });
+  const { data: fireData, isLoading: fireLoading, error: fireError } = useSWR<FireProgressData>(fireKey, fetcher, { revalidateOnFocus: false });
 
   const { data: bsHistData, isLoading: bsHistLoading, error: bsHistError } = useSWR<BalanceSheetHistoryItem[]>(bsHistKey, fetcher, { revalidateOnFocus: false });
   const { data: isHistData, isLoading: isHistLoading, error: isHistError } = useSWR<IncomeStatementHistoryItem[]>(isHistKey, fetcher, { revalidateOnFocus: false });
 
   // Combined loading/error: table OR chart loading
-  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : holdingsLoading;
-  const chartLoading = tab === "balance-sheet" ? bsHistLoading : tab === "income-statement" ? isHistLoading : false;
+  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "fire" ? fireLoading : holdingsLoading;
+  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHistLoading : tab === "income-statement" ? isHistLoading : false;
   const loading = tableLoading && chartLoading;
 
-  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : holdingsError;
-  const chartError = tab === "balance-sheet" ? bsHistError : tab === "income-statement" ? isHistError : null;
+  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "fire" ? fireError : holdingsError;
+  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHistError : tab === "income-statement" ? isHistError : null;
   const error = tableError && chartError;
 
   return (
@@ -580,7 +713,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           />
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["fire", "FIRE 进度"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
@@ -649,6 +782,28 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           ) : holdingsData ? (
             <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
           ) : null
+        ) : tab === "fire" ? (
+          <>
+            {fireLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : fireError ? (
+              <p className="text-sol-red px-3">Error loading FIRE progress</p>
+            ) : fireData ? (
+              <div className="px-2"><FireProgressView data={fireData} /></div>
+            ) : null}
+            {bsHistLoading ? (
+              <p className="text-sol-base01 italic px-3 mt-3">Loading chart...</p>
+            ) : bsHistError ? null : bsHistData ? (
+              <div className="mt-4">
+                <BalanceSheetChart
+                  data={bsHistData}
+                  granularity={granularity}
+                  onGranularityChange={handleGranularityChange}
+                  targetLine={fireData?.target_usd}
+                />
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>

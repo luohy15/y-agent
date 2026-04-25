@@ -3,6 +3,7 @@ import os
 import click
 
 from .balance_sheet import balance_sheet
+from .fire_progress import fire_progress
 from .holdings import holdings
 from .income_statement import income_statement
 from .price_history import price_history
@@ -55,3 +56,4 @@ beancount_group.add_command(update_market_data)
 beancount_group.add_command(balance_sheet)
 beancount_group.add_command(holdings)
 beancount_group.add_command(price_history)
+beancount_group.add_command(fire_progress)

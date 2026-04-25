@@ -85,3 +85,13 @@ async def holdings(
     cmd = _beancount_cmd("holdings", "", False, "monthly", "")
     output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
     return _parse_json(output)
+
+@router.get("/fire-progress")
+async def fire_progress(
+    request: Request,
+    vm_name: str = Query(None),
+):
+    user_id = _get_user_id(request)
+    cmd = ["y", "beancount", "--convert", "USD", "fire-progress"]
+    output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
+    return _parse_json(output)
