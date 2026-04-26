@@ -462,12 +462,6 @@ function FireProgressView({ data }: { data: FireProgressData }) {
 
   return (
     <div className="space-y-4">
-      {data.config_source === "default" && (
-        <div className="px-3 py-2 rounded text-xs bg-sol-yellow/10 text-sol-yellow border border-sol-yellow/30">
-          Using default FIRE target. Edit <code className="px-1 bg-sol-base02/60 rounded">$Y_AGENT_HOME/finance/fire_target.json</code> to customize.
-        </div>
-      )}
-
       {/* Headline */}
       <div className="text-center py-3">
         <div className="text-sol-base01 text-xs uppercase tracking-wide mb-1">
@@ -713,7 +707,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           />
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["fire", "FIRE 进度"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["fire", "FIRE"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
