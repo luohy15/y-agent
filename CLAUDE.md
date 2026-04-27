@@ -288,7 +288,9 @@ Every entity has two kinds of identifier:
 These three docs drift fast. Baseline cadence since 2026-04-23:
 
 - **CHANGELOG.md** — one `0.5.x` entry per ISO week (Mon–Sun), dated to that week's
-  final day. Run `git log --since="1 week ago" --no-merges --oneline`, pick 3–8
+  final day. Mid-week edits land under `## [Unreleased]`; on Sunday, swap that header
+  for `## [<next version>] - <YYYY-MM-DD>` and start a fresh `[Unreleased]` block on
+  the next edit. Run `git log --since="1 week ago" --no-merges --oneline`, pick 3–8
   user-facing highlights, group under Added / Changed / Fixed / Removed, commit as
   `docs(changelog): weekly update <YYYY-MM-DD>`. A weekly reminder handles the
   trigger.

@@ -6,10 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Weekly release cadence since 0.5.1: one `0.5.x` per ISO week (Mon–Sun), dated to that
-week's final day. Backlog between 2026-02-15 and 2026-04-23 was reconstructed from git
-history.
+week's final day. The current week's in-progress entry sits under `[Unreleased]` until
+that Sunday, when it is stamped with the next version and date. Backlog between
+2026-02-15 and 2026-04-23 was reconstructed from git history.
 
-## [0.5.11] - 2026-04-26
+## [Unreleased]
 
 ### Added
 - **Recursive session tree alignment (1876)** — `chat.skill` column added, decoupled from `topic`; `chat.role` column dropped (root vs non-root now derives from `topic == 'manager'`). Badges, docs, and comments reframed around the new model.
