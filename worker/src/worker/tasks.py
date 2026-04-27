@@ -11,10 +11,10 @@ from worker.runner import run_chat
 
 
 async def _run_chat_with_monitor(chat_id, bot_name, user_id, vm_name, work_dir,
-                                  post_hooks, trace_id, role, topic, skill, backend):
+                                  post_hooks, trace_id, topic, skill, backend):
     result = await run_chat(
         user_id, chat_id, bot_name=bot_name, vm_name=vm_name, work_dir=work_dir,
-        post_hooks=post_hooks, trace_id=trace_id, role=role, topic=topic, skill=skill, backend=backend,
+        post_hooks=post_hooks, trace_id=trace_id, topic=topic, skill=skill, backend=backend,
     )
     if result in ("detached", "continuation"):
         req_id = f"celery-{uuid.uuid4().hex[:8]}"
@@ -22,12 +22,12 @@ async def _run_chat_with_monitor(chat_id, bot_name, user_id, vm_name, work_dir,
 
 
 @app.task(name="worker.tasks.process_chat")
-def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, skill: str = None, backend: str = None):
+def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None):
     """Run the agent loop for a chat."""
     try:
         asyncio.run(_run_chat_with_monitor(
             chat_id, bot_name, user_id, vm_name, work_dir,
-            post_hooks, trace_id, role, topic, skill, backend,
+            post_hooks, trace_id, topic, skill, backend,
         ))
         logger.info("Finished chat {}", chat_id)
     except Exception as e:

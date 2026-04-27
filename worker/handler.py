@@ -63,7 +63,6 @@ async def _process_record(body: dict) -> str:
         work_dir=body.get("work_dir"),
         post_hooks=body.get("post_hooks"),
         trace_id=body.get("trace_id"),
-        role=body.get("role"),
         topic=body.get("topic"),
         skill=body.get("skill"),
         backend=body.get("backend"),
