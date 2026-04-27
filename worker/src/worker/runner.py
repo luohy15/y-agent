@@ -155,7 +155,7 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, backend: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -188,6 +188,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     elif not topic and chat.topic:
         topic = chat.topic
         logger.info("Using topic from chat: {}", topic)
+    if skill and not chat.skill:
+        chat.skill = skill
+    # Default skill = topic for non-manager topics. Covers chats created outside
+    # /api/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
+    if not chat.skill and chat.topic and chat.topic != "manager":
+        chat.skill = chat.topic
 
     # Reset interrupted flag and mark as running
     chat.interrupted = False
@@ -250,8 +256,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     if model:
         cmd.extend(["--model", model])
-    if topic and topic != "manager" and not resume:
-        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{topic}' skill."])
+    if chat.skill and not resume:
+        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
 
     # Build env
     env = None
@@ -268,7 +274,6 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         if trace_id:
             env["Y_TRACE_ID"] = trace_id
         if topic:
-            env["Y_SKILL"] = topic
             env["Y_TOPIC"] = topic
         if last_message_id:
             env["Y_MESSAGE_ID"] = last_message_id

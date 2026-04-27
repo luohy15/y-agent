@@ -65,6 +65,7 @@ async def _process_record(body: dict) -> str:
         trace_id=body.get("trace_id"),
         role=body.get("role"),
         topic=body.get("topic"),
+        skill=body.get("skill"),
         backend=body.get("backend"),
     )
     return result

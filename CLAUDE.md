@@ -236,8 +236,8 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 # Build web
 cd web && npm run build
 
-# Cross-skill notify
-y notify <topic> -m "..." [--backend claude_code|codex] [--trace-id ...] [--from-topic ...]
+# Cross-skill notify (--topic / --skill / --chat-id are all independently optional)
+y notify -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--backend claude_code|codex] [--trace-id ...] [--from-topic ...]
 
 # Dev worktree lifecycle
 y dev wt add <project_path> <name>
@@ -252,8 +252,9 @@ y dev commit <name> [-m "msg"]
 - Storage pattern: Entity (ORM) → Repository (CRUD) → Service (business logic) →
   Controller (API). Do not call repos directly from controllers.
 - All tool_calls use OpenAI format internally; providers convert to native format.
-- Cross-skill communication: `y notify <topic> -m "..."` with trace context
-  auto-propagation via env vars (`Y_TRACE_ID`, `Y_TOPIC`).
+- Cross-skill communication: `y notify --topic <name> -m "..."` (all flags
+  independently optional) with trace context auto-propagation via env vars
+  (`Y_TRACE_ID`, `Y_TOPIC`).
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
