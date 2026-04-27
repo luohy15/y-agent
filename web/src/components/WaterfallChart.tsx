@@ -10,6 +10,7 @@ export interface TraceChat {
   chat_id: string;
   title: string;
   topic: string;
+  skill?: string;
   backend?: string;
   segments: Segment[];
   messages?: unknown[];
@@ -58,6 +59,17 @@ function generateTicks(minTs: number, maxTs: number): number[] {
   return ticks;
 }
 
+function skillKey(c: TraceChat): string {
+  return (c.skill && c.skill.trim()) || (c.topic && c.topic.trim()) || "unknown";
+}
+
+interface SkillGroup {
+  key: string;
+  chats: TraceChat[];
+  earliestStart: number;
+  backend: string;
+}
+
 export default function WaterfallChart({ chats, onClickChat }: { chats: TraceChat[]; onClickChat?: (chatId: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -75,11 +87,33 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
     return { minTs: min - pad, maxTs: max + pad };
   }, [chats]);
 
+  // Group chats by skill (fallback topic → "unknown"), sorted by earliest segment start
+  const groups: SkillGroup[] = useMemo(() => {
+    const map = new Map<string, SkillGroup>();
+    for (const c of chats) {
+      const key = skillKey(c);
+      let g = map.get(key);
+      if (!g) {
+        g = { key, chats: [], earliestStart: Infinity, backend: c.backend || "" };
+        map.set(key, g);
+      }
+      g.chats.push(c);
+      for (const seg of c.segments) {
+        if (seg.start_unix && seg.start_unix < g.earliestStart) g.earliestStart = seg.start_unix;
+      }
+      if (c.backend && g.backend && c.backend !== g.backend) g.backend = "mixed";
+      else if (c.backend && !g.backend) g.backend = c.backend;
+    }
+    const arr = Array.from(map.values());
+    arr.sort((a, b) => a.earliestStart - b.earliestStart);
+    return arr;
+  }, [chats]);
+
   const ticks = useMemo(() => generateTicks(minTs, maxTs), [minTs, maxTs]);
   const range = maxTs - minTs || 1;
   const multiDay = useMemo(() => spansMultipleDays(minTs, maxTs), [minTs, maxTs]);
 
-  const LABEL_W = 96; // px for topic label column
+  const LABEL_W = 96; // px for skill label column
   const ROW_H = "2.25rem";
 
   return (
@@ -122,29 +156,33 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
         </div>
       </div>
 
-      {/* Session rows — one chat per row */}
+      {/* Skill rows — one row per skill, all member sessions' bars share the row */}
       <div className="flex">
         {/* Labels column */}
         <div style={{ width: LABEL_W }} className="shrink-0">
-          {chats.map((c) => {
-            const topic = c.topic || "unknown";
-            const colors = getTopicColors(topic);
-            const sessionLabel = c.title?.trim() || `#${c.chat_id.slice(-6)}`;
+          {groups.map((g) => {
+            const colors = getTopicColors(g.key);
+            const firstChatId = g.chats[0].chat_id;
             return (
               <div
-                key={c.chat_id}
+                key={g.key}
                 className="flex flex-col justify-center px-2 cursor-pointer hover:bg-sol-base02/50 rounded"
                 style={{ height: ROW_H }}
-                onClick={() => onClickChat?.(c.chat_id)}
+                onClick={() => onClickChat?.(firstChatId)}
+                title={g.chats.map((c) => `${c.title || c.chat_id} (#${c.chat_id.slice(-6)})`).join("\n")}
               >
                 <div className="flex items-center gap-1">
                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-                  <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{topic}</span>
-                  {c.backend && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{c.backend}</span>}
+                  <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{g.key}</span>
+                  {g.chats.length > 1 && (
+                    <span className="text-[0.55rem] text-sol-base01 font-mono">({g.chats.length})</span>
+                  )}
                 </div>
-                <span className="text-[0.55rem] text-sol-base01 font-mono truncate pl-2.5" title={c.title || c.chat_id}>
-                  {sessionLabel}
-                </span>
+                {g.backend && (
+                  <span className="text-[0.55rem] text-sol-base01 font-mono truncate pl-2.5">
+                    {g.backend}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -155,37 +193,38 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
           ref={timelineRef}
           className="flex-1 relative"
         >
-          {/* Per-chat rows */}
-          {chats.map((c) => {
-            const topic = c.topic || "unknown";
-            const colors = getTopicColors(topic);
+          {/* Per-skill rows */}
+          {groups.map((g) => {
+            const colors = getTopicColors(g.key);
             return (
-              <div key={c.chat_id} className="relative" style={{ height: ROW_H }}>
+              <div key={g.key} className="relative" style={{ height: ROW_H }}>
                 {/* Grid lines */}
                 {ticks.map((t) => {
                   const pct = ((t - minTs) / range) * 100;
                   return (
                     <div
-                      key={`${c.chat_id}-tick-${t}`}
+                      key={`${g.key}-tick-${t}`}
                       className="absolute top-0 bottom-0 border-l border-sol-base02/30"
                       style={{ left: `${pct}%` }}
                     />
                   );
                 })}
-                {/* Chat segment bars */}
-                {c.segments.map((seg, i) => {
-                  const left = ((seg.start_unix - minTs) / range) * 100;
-                  const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
-                  return (
-                    <div
-                      key={`${c.chat_id}-${i}`}
-                      className={`absolute top-1/2 -translate-y-1/2 h-4 rounded-sm cursor-pointer ${colors.bar}`}
-                      style={{ left: `${left}%`, width: `${width}%` }}
-                      title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
-                      onClick={() => onClickChat?.(c.chat_id)}
-                    />
-                  );
-                })}
+                {/* Bars from each member session, retaining source chat_id for click + tooltip */}
+                {g.chats.flatMap((c) =>
+                  c.segments.map((seg, i) => {
+                    const left = ((seg.start_unix - minTs) / range) * 100;
+                    const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
+                    return (
+                      <div
+                        key={`${c.chat_id}-${i}`}
+                        className={`absolute top-1/2 -translate-y-1/2 h-4 rounded-sm cursor-pointer ${colors.bar}`}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        title={`${c.title || c.chat_id} (#${c.chat_id.slice(-6)})\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
+                        onClick={() => onClickChat?.(c.chat_id)}
+                      />
+                    );
+                  })
+                )}
               </div>
             );
           })}

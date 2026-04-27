@@ -143,15 +143,18 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                   {todoStatus}
                 </span>
               )}
-              {/* Topic+backend badges */}
+              {/* Skill+backend badges */}
               {traceChats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
-                  {[...new Set(traceChats.map((c) => c.backend ? `${c.topic}:${c.backend}` : c.topic).filter(Boolean))].map((key) => {
-                    const topic = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+                  {[...new Set(traceChats.map((c) => {
+                    const skill = (c.skill && c.skill.trim()) || c.topic;
+                    return c.backend ? `${skill}:${c.backend}` : skill;
+                  }).filter(Boolean))].map((key) => {
+                    const skill = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
                     const backend = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
                     return (
-                      <span key={key} className={`text-[0.6rem] ${topicBadgeClass(topic)}`}>
-                        {topic}{backend && <span className="ml-0.5 opacity-70">{backend}</span>}
+                      <span key={key} className={`text-[0.6rem] ${topicBadgeClass(skill)}`}>
+                        {skill}{backend && <span className="ml-0.5 opacity-70">{backend}</span>}
                       </span>
                     );
                   })}
