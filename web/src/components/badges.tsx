@@ -101,7 +101,8 @@ export function actionBadgeClass(action: string): string {
   return ACTION_COLOR[action] || "bg-sol-base02 text-sol-base0";
 }
 
-// Strip [trace:... from:... to:... from_chat:... to_chat:...] prefix from message content
+// Strip [trace:<id> ...] prefix from message content. Permissive: only `trace:` is required;
+// any of `from`, `to`, `from_chat`, `to_chat` may be missing in any order.
 export function stripTracePrefix(content: string): string {
-  return content.replace(/^\[trace:\S+\s+from:\S+\s+to:\S+\s+from_chat:\S+\s+to_chat:\S+\]\n?/, "");
+  return content.replace(/^\[trace:\S+(?:\s+\w+:\S+)*\]\n?/, "");
 }
