@@ -155,7 +155,7 @@ def _get_celery_app():
     return app
 
 
-def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, backend: str = None):
+def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, skill: str = None, backend: str = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -178,6 +178,8 @@ def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, v
         payload["role"] = role
     if topic:
         payload["topic"] = topic
+    if skill:
+        payload["skill"] = skill
     if backend:
         payload["backend"] = backend
 
@@ -191,7 +193,7 @@ def send_chat_message(chat_id: str, bot_name: str = None, user_id: int = None, v
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": topic, "backend": backend})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": topic, "skill": skill, "backend": backend})
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:
