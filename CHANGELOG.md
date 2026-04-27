@@ -9,6 +9,35 @@ Weekly release cadence since 0.5.1: one `0.5.x` per ISO week (Mon–Sun), dated 
 week's final day. Backlog between 2026-02-15 and 2026-04-23 was reconstructed from git
 history.
 
+## [0.5.11] - 2026-04-26
+
+### Added
+- **Recursive session tree alignment (1876)** — `chat.skill` column added, decoupled from `topic`; `chat.role` column dropped (root vs non-root now derives from `topic == 'manager'`). Badges, docs, and comments reframed around the new model.
+- **`y notify` merged into top-level `y chat` (1890 / 1891)** — `y chat -m "..."` is now the default fire-and-forget dispatch; `y chat -i` opens the interactive REPL. `--topic` / `--skill` / `--chat-id` are independently optional; bare `y chat -m` creates an anonymous chat. API endpoint moved from `/api/notify` to `/api/chat/notify`.
+- **`y chat list --trace-id <id>` (1899)** — list every chat in a trace, sorted chronologically; list response now includes `skill`.
+- **TraceView waterfall grouped by skill** — per-session waterfall layout; `desc` rendered as markdown in TraceView and ShareTraceView.
+- **Todo read/unread tracking (1882)** — right-click context menu to toggle read/unread; sidebar badge integration.
+- **Topic singleton enforcement (1888)** — repository-level guard ensures one active chat per topic; Telegram and notify paths honor it.
+- **Activity bar overhaul (1848 / 1850 / 1855)** — dedicated reminder slot, unified active/icon styling, reorder, todo checkbox icon.
+- **Finance F.I.R.E. progress tab (1858 / 1860)** — `y beancount fire-progress` CLI + frontend tab.
+- **Entity ↔ Link relations** — entity-link relation table; entity viewer lists associated links.
+- **RSS via oxylabs (1843 / 1845 / 1849 / 1851)** — OpenAI and WeChat feeds now scrape through oxylabs; every RSS item gets an activity row; OpenAI skipped from direct download path.
+- **Activity source label (1844)** — surfaces which downloader produced an activity.
+- **ChatList items show `skill` instead of `backend` (1903)** — backend remains in chat detail.
+- README: Architecture section with ASCII session-tree diagram; dev/plan/impl/review skill-per-task example; demo image bumped to v3.
+
+### Changed
+- **Manager-topic callback rule made explicit (1887)** — API rejects callbacks aimed at root topics (root sessions are conversations, not function calls).
+- **Trace propagation made permissive (1886)** — MessageBubble accepts inherited `trace_id` even when the participant chat predates the trace.
+- **API restructure (1891)** — notify endpoints folded into `api/controller/chat.py`; `controller/notify.py` deleted.
+- Worker `run_chat` signature: `role` argument removed; skill defaulted from topic when not explicitly set.
+- Finance panel cleanup (1853).
+
+### Fixed
+- **Telegram routing tightened (worker)** — `_resolve_telegram_target` only DMs the `manager` topic; non-root topics without a `tg_topic` binding no longer fall back to DM.
+- **Codex resume bug (1834)** — session resume now picks up the right offset.
+- Activity bar reorder edge cases (1850).
+
 ## [0.5.10] - 2026-04-23
 
 ### Added
