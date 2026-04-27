@@ -24,6 +24,33 @@ A personal AI agent system built on coding agents. One person + a coding agent c
 
 - **Telegram Bot** — A Telegram bot listens for messages, triggers Lambda, and Lambda invokes Claude Code via SSH. Your DM binds to the `manager` topic; forum group topics can bind to other named topics.
 
+## Architecture
+
+Sessions form a tree where every node is the same kind of runtime: load skills, do work, optionally dispatch sub-tasks via `y chat`. Coordinating is a capability available to every session, not a role assigned to special ones. Skills load per task; topic is sugar for a long-lived, named address.
+
+```
+        Telegram DM  /  Web UI                     ← user input edge
+                  │
+                  ▼
+       ┌─────────────────────┐
+root   │  topic: manager     │   long-lived named address,
+       │  skills: per task   │   bound to Telegram DM (singleton)
+       └──────────┬──────────┘
+                  │   y chat --topic dev -m "..."
+                  ▼
+       ┌─────────────────────┐
+trunk  │  topic: dev         │   received a task,
+       │  (coordinator)      │   may dispatch further
+       └──┬───────┬───────┬──┘
+          │       │       │   y chat --skill {plan,impl,review}
+          ▼       ▼       ▼
+       ┌──────┐ ┌──────┐ ┌────────┐
+leaves │ plan │ │ impl │ │ review │   anonymous, ephemeral;
+       └──────┘ └──────┘ └────────┘   skill loaded per dispatch
+```
+
+A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so TraceView renders the chain as a waterfall.
+
 ## Capabilities
 
 A running y-agent deployment ships these user-facing features out of the box:
