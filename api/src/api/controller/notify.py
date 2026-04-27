@@ -48,15 +48,6 @@ def _resolve_skill(req: NotifyRequest) -> Optional[str]:
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # Root topics are long-lived conversations, not function calls — they have no
-    # parent to "return" to, so notify callbacks targeting them are rejected.
-    # Anonymous chats (no topic) and non-root topics are unaffected. --new is
-    # always allowed because it starts a fresh root session, not a callback.
-    # Today there is exactly one root topic ("manager"); the check is hard-coded
-    # to that name until the root-topic set becomes a first-class concept.
-    if req.topic == "manager" and not req.force_new:
-        raise HTTPException(status_code=400, detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.")
-
     skill = _resolve_skill(req)
 
     # Resolve target chat: explicit chat_id > topic+trace lookup > new
@@ -81,6 +72,28 @@ async def post_notify(req: NotifyRequest, request: Request):
             chat_id = generate_id()
     else:
         chat_id = generate_id()
+
+    # Root topics are long-lived conversations, not function calls — they have no
+    # parent to "return" to, so notify callbacks targeting them are rejected.
+    # The check fires on the resolved target chat's topic so that addressing a
+    # root chat by `--chat-id` (the canonical post-1876 callback shape) is also
+    # caught — pre-resolution `req.topic` is None in that case.
+    # Two arms: existing chat → callback (reject; --new doesn't apply because
+    # --chat-id semantically means "use this specific chat"); new chat → only
+    # reject when --new isn't set (preserves `--topic manager --new` to start a
+    # fresh root session).
+    # Today there is exactly one root topic ("manager"); the check is hard-coded
+    # to that name until the root-topic set becomes a first-class concept.
+    if existing_chat and existing_chat.topic == "manager":
+        raise HTTPException(
+            status_code=400,
+            detail="Root topic 'manager' does not accept notify callbacks. Send to from_chat instead, or use --new with --topic manager to start a fresh manager session.",
+        )
+    if not existing_chat and req.topic == "manager" and not req.force_new:
+        raise HTTPException(
+            status_code=400,
+            detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.",
+        )
 
     # Build message content with trace metadata prefix (only include parts we have)
     parts = []
