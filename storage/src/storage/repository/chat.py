@@ -363,7 +363,7 @@ def find_chat_by_topic(user_id: int, topic: str) -> Optional[Chat]:
 
 
 def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
-    """Find all chats in a trace, returning (chat_id, title, topic, backend, json_content) tuples.
+    """Find all chats in a trace, returning (chat_id, title, topic, skill, backend, json_content) tuples.
     Includes json_content so caller can extract message-level time segments."""
     with get_db() as session:
         rows = (session.query(ChatEntity)
@@ -371,7 +371,7 @@ def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
                 .order_by(ChatEntity.created_at_unix.asc())
                 .all())
         return [
-            (row.chat_id, row.title or "", row.topic or "", row.backend or "", row.json_content)
+            (row.chat_id, row.title or "", row.topic or "", row.skill or "", row.backend or "", row.json_content)
             for row in rows
         ]
 

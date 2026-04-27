@@ -275,7 +275,7 @@ export default function ShareTraceView() {
               )}
               {data.chats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
-                  {[...new Set(data.chats.map((c) => c.topic).filter(Boolean))].map((s) => (
+                  {[...new Set(data.chats.map((c) => (c.skill && c.skill.trim()) || c.topic).filter(Boolean))].map((s) => (
                     <span key={s} className={`text-[0.6rem] ${topicBadgeClass(s)}`}>
                       {s}
                     </span>
