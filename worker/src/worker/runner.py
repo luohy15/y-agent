@@ -83,8 +83,9 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
 def _resolve_telegram_target(chat, user_id: int):
     """Determine Telegram routing target based on chat topic.
 
-    If the chat's topic is bound to a Telegram forum-topic, route there;
-    otherwise fall back to the user's DM.
+    Root topic (manager / no topic) routes to the user's DM. Non-root topics
+    must have a Telegram forum-topic binding; otherwise no Telegram message
+    is sent (returns None).
 
     Returns (bot_token, tg_chat_id, topic_id) or None if no valid target.
     """
@@ -96,20 +97,18 @@ def _resolve_telegram_target(chat, user_id: int):
     if not bot_token:
         return None
 
-    tg_chat_id = None
-    topic_id = None
-    tg_topic = find_topic_by_name(user_id, chat.topic) if chat.topic else None
-    if tg_topic and tg_topic.topic_id is not None:
-        tg_chat_id = tg_topic.group_id
-        topic_id = tg_topic.topic_id
-    else:
-        user = get_user_by_id(user_id)
-        if not user or not user.telegram_id:
-            logger.debug("telegram: no telegram_id for user_id={}", user_id)
+    if chat.topic and chat.topic != 'manager':
+        tg_topic = find_topic_by_name(user_id, chat.topic)
+        if not tg_topic or tg_topic.topic_id is None:
+            logger.debug("telegram: no tg_topic binding for topic '{}', skip", chat.topic)
             return None
-        tg_chat_id = user.telegram_id
+        return (bot_token, tg_topic.group_id, tg_topic.topic_id)
 
-    return (bot_token, tg_chat_id, topic_id)
+    user = get_user_by_id(user_id)
+    if not user or not user.telegram_id:
+        logger.debug("telegram: no telegram_id for user_id={}", user_id)
+        return None
+    return (bot_token, user.telegram_id, None)
 
 
 def _send_telegram_user_message(chat, user_id: int) -> None:
