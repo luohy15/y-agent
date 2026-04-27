@@ -36,7 +36,7 @@ class NotifyResponse(BaseModel):
 
 
 def _resolve_skill(req: NotifyRequest) -> Optional[str]:
-    """Skill defaults to topic for non-manager topics; --skill overrides."""
+    """Skill defaults to topic for non-root topics; --skill overrides."""
     if req.skill:
         return req.skill
     if req.topic and req.topic != "manager":
@@ -48,9 +48,12 @@ def _resolve_skill(req: NotifyRequest) -> Optional[str]:
 async def post_notify(req: NotifyRequest, request: Request):
     user_id = _get_user_id(request)
 
-    # Root-topic chats (currently only "manager") are conversations, not function
-    # calls — the API rejects callbacks targeting them. Anonymous chats (no topic)
-    # and non-root topics are unaffected. --new is always allowed to start fresh.
+    # Root topics are long-lived conversations, not function calls — they have no
+    # parent to "return" to, so notify callbacks targeting them are rejected.
+    # Anonymous chats (no topic) and non-root topics are unaffected. --new is
+    # always allowed because it starts a fresh root session, not a callback.
+    # Today there is exactly one root topic ("manager"); the check is hard-coded
+    # to that name until the root-topic set becomes a first-class concept.
     if req.topic == "manager" and not req.force_new:
         raise HTTPException(status_code=400, detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.")
 
