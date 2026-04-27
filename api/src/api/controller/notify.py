@@ -145,6 +145,14 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_repo.save_chat(user_id, chat)
         already_running = False
 
+        # Singleton root topic: a new chat claiming a topic without a trace_id is a
+        # root chat (e.g. fresh manager session). Release the topic from any other
+        # chat that still holds it so (user_id, topic) has a single owner.
+        if req.topic and not req.trace_id:
+            released = chat_repo.release_topic(user_id, req.topic, except_chat_id=chat_id)
+            if released:
+                logger.info("Released topic '{}' from {} previous chat(s) on new claim by {}", req.topic, released, chat_id)
+
     # Enqueue worker only if not already running
     if not already_running:
         send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill, backend=req.backend)

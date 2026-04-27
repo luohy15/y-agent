@@ -188,6 +188,12 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat(user.id, chat)
 
+    # Singleton root topic: /clear always starts a fresh root chat (no trace),
+    # so release any prior holder of the same topic.
+    released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
+    if released:
+        logger.info("Released topic '{}' from {} previous chat(s) on /clear by user {}", topic, released, user.id)
+
     await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
     return {"ok": True}
 
@@ -304,6 +310,14 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         )
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user.id, chat)
+
+        # Singleton root topic: a Telegram DM creates a fresh root chat (no trace),
+        # so release any prior holder of the same topic. Normally a no-op because
+        # this branch only runs when find_latest_chat_by_topic returned None, but
+        # the call hardens the invariant against future code changes.
+        released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
+        if released:
+            logger.info("Released topic '{}' from {} previous chat(s) on Telegram new chat by user {}", topic, released, user.id)
 
     # Queue for processing — pass topic so runner knows where to route replies
     try:
