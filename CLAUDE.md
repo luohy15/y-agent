@@ -51,7 +51,7 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Trace** — every notify / chat / worker step carries a `trace_id` and optional
   `from_chat` / `from_topic`. Participants are registered in `run_chat`; TraceView renders
   the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
-- **Notify (cross-skill)** — `/api/notify` and `y chat -m "..."` (fire-and-forget,
+- **Notify (cross-skill)** — `/api/chat/notify` and `y chat -m "..."` (fire-and-forget,
   default top-level mode) dispatch a message to a topic (skill). Default target is
   the DM (manager). Trace/from meta is attached on send; short-circuited callbacks
   back to root topics never invoke the LLM.
@@ -128,7 +128,7 @@ exceptions noted):
 Grouped by feature area:
 
 - **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (CRUD + SSE streaming +
-  share + stop + steer), `notify.py` (cross-skill dispatch), `trace.py` (listing,
+  share + stop + steer + cross-skill notify dispatch), `trace.py` (listing,
   share, lookup by chat_id), `file.py` (list/read/search/upload, local + SSH),
   `git.py` (status/diff/discard), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
@@ -178,7 +178,7 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `beancount`, `image`, `bot`, `trace`,
-  `assoc` / `unassoc`, plus `init` / `login` / `logout` / `notify`
+  `assoc` / `unassoc`, plus `init` / `login` / `logout`
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,

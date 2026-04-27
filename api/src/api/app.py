@@ -31,7 +31,6 @@ from api.controller.telegram import router as telegram_router
 from api.controller.git import router as git_router
 from api.controller.dev_worktree import router as dev_worktree_router
 from api.controller.tg_topic import router as tg_topic_router
-from api.controller.notify import router as notify_router
 from api.controller.trace import router as trace_router
 from api.controller.link_todo_relation import router as link_todo_relation_router
 from api.controller.note import router as note_router
@@ -70,7 +69,6 @@ api_router.include_router(telegram_router)
 api_router.include_router(git_router)
 api_router.include_router(dev_worktree_router)
 api_router.include_router(tg_topic_router)
-api_router.include_router(notify_router)
 api_router.include_router(trace_router)
 api_router.include_router(link_todo_relation_router)
 api_router.include_router(note_router)

@@ -47,7 +47,7 @@ def _fire_and_forget(
     from_chat_id: Optional[str],
     backend: Optional[str],
 ):
-    """POST a message to /api/notify and print the resulting chat_id."""
+    """POST a message to /api/chat/notify and print the resulting chat_id."""
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
@@ -71,7 +71,7 @@ def _fire_and_forget(
     if backend:
         payload["backend"] = backend
     try:
-        resp = api_request("POST", "/api/notify", json=payload)
+        resp = api_request("POST", "/api/chat/notify", json=payload)
         data = resp.json()
         click.echo(data["chat_id"])
     except httpx.HTTPStatusError as e:

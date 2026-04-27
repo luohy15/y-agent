@@ -192,7 +192,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     if skill and not chat.skill:
         chat.skill = skill
     # Default skill = topic for non-root topics. Covers chats created outside
-    # /api/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
+    # /api/chat/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
     if not chat.skill and chat.topic and chat.topic != "manager":
         chat.skill = chat.topic
 
