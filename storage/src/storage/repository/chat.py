@@ -316,6 +316,22 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str
         ]
 
 
+def release_topic(user_id: int, topic: str, except_chat_id: Optional[str] = None) -> int:
+    """Rename `topic` to f'{topic}-archived' on all chats matching (user_id, topic),
+    except `except_chat_id`. Returns the affected row count.
+
+    Used to enforce single-owner semantics for root topics (e.g. 'manager') when a
+    new chat is about to claim that topic. Direct UPDATE so `_resolve_immutable_field`
+    in `_save_chat_*_sync` doesn't apply — otherwise an in-flight worker holding a
+    stale DTO with the old topic could silently re-acquire it on its next save.
+    """
+    with get_db() as session:
+        q = session.query(ChatEntity).filter_by(user_id=user_id, topic=topic)
+        if except_chat_id:
+            q = q.filter(ChatEntity.chat_id != except_chat_id)
+        return q.update({"topic": f"{topic}-archived"})
+
+
 def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Optional[Chat]:
     """Find a chat with the given topic and trace_id."""
     with get_db() as session:
