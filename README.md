@@ -18,7 +18,7 @@ A personal AI agent system built on coding agents. One person + a coding agent c
 
 - **Session Persistence & Visualization** — Claude Code output is streamed via stream-json. A Lambda monitors output, writes to DB, and a web interface displays everything in real time.
 
-- **Multi-Agent Collaboration** — Sessions form a recursive tree: every session can dispatch sub-tasks via `y notify`. The long-lived root session (`manager` topic) is where humans send work, but trees can also start anonymously. Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/0de510).
+- **Multi-Agent Collaboration** — Sessions form a recursive tree: every session can dispatch sub-tasks via `y chat -m "..."` (fire-and-forget). The long-lived root session (`manager` topic) is where humans send work, but trees can also start anonymously. Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/0de510).
 
 - **Long-Running Tasks** — Agents run inside tmux detached sessions on EC2. The monitoring layer only tails stdout and writes to DB, so agents can run for hours without hitting Lambda's 15-minute timeout. When a Lambda deadline is near, the worker hands off via SQS to continue seamlessly.
 

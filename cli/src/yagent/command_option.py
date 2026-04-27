@@ -19,7 +19,6 @@ from yagent.commands.entity.click import entity_group
 from yagent.commands.reminder.click import reminder_group
 from yagent.commands.rss.click import rss_group
 from yagent.commands.trace.click import trace_group
-from yagent.commands.notify import notify
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(context_settings=CONTEXT_SETTINGS)
@@ -48,4 +47,3 @@ cli.add_command(unassoc_group)
 cli.add_command(reminder_group)
 cli.add_command(rss_group)
 cli.add_command(trace_group)
-cli.add_command(notify)

@@ -51,9 +51,10 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Trace** — every notify / chat / worker step carries a `trace_id` and optional
   `from_chat` / `from_topic`. Participants are registered in `run_chat`; TraceView renders
   the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
-- **Notify (cross-skill)** — `/api/notify` and `y notify` dispatch a message to a topic
-  (skill). Default target is the DM (manager). Trace/from meta is attached on send;
-  short-circuited callbacks back to root topics never invoke the LLM.
+- **Notify (cross-skill)** — `/api/notify` and `y chat -m "..."` (fire-and-forget,
+  default top-level mode) dispatch a message to a topic (skill). Default target is
+  the DM (manager). Trace/from meta is attached on send; short-circuited callbacks
+  back to root topics never invoke the LLM.
 - **Topic** — every chat has an optional `topic` (named persistent address). The
   conventional root topic is `manager`; the API rejects notify callbacks aimed at
   root topics (they are conversations, not function calls).
@@ -84,8 +85,9 @@ entity + controller + service + CLI slices, and most have a web panel.
 The repo no longer contains an in-process agent loop — the worker shells out.
 
 - **Backends** — `agent/src/agent/claude_code.py` (Claude Code) and
-  `agent/src/agent/codex.py` (Codex CLI). `y notify --backend codex|claude_code` picks
-  one; default is `claude_code`. The chat's `backend` field is persisted and displayed.
+  `agent/src/agent/codex.py` (Codex CLI). `y chat --backend codex|claude_code -m "..."`
+  picks one; default is `claude_code`. The chat's `backend` field is persisted and
+  displayed.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
   SSHes in, tails stdout, and streams JSON events back. `agent/ssh_pool.py` reuses SSH
   connections across monitor passes; `agent/ec2_wake.py` auto-wakes the instance.
@@ -237,7 +239,9 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 cd web && npm run build
 
 # Cross-skill notify (--topic / --skill / --chat-id are all independently optional)
-y notify -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--backend claude_code|codex] [--trace-id ...] [--from-topic ...]
+y chat -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--backend claude_code|codex] [--trace-id ...] [--from-topic ...]
+# Interactive REPL — same `y chat` command with -i
+y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 
 # Dev worktree lifecycle
 y dev wt add <project_path> <name>
@@ -252,9 +256,9 @@ y dev commit <name> [-m "msg"]
 - Storage pattern: Entity (ORM) → Repository (CRUD) → Service (business logic) →
   Controller (API). Do not call repos directly from controllers.
 - All tool_calls use OpenAI format internally; providers convert to native format.
-- Cross-skill communication: `y notify --topic <name> -m "..."` (all flags
-  independently optional) with trace context auto-propagation via env vars
-  (`Y_TRACE_ID`, `Y_TOPIC`).
+- Cross-skill communication: `y chat --topic <name> -m "..."` (fire-and-forget,
+  the default top-level mode of `y chat`; all flags independently optional) with
+  trace context auto-propagation via env vars (`Y_TRACE_ID`, `Y_TOPIC`).
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
