@@ -174,9 +174,13 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         trace_id = chat.trace_id
         logger.info("Using trace_id from chat: {}", trace_id)
 
-    # Persist trace context on the chat. Root-topic chats (manager) deliberately
-    # don't carry trace_id — they're long-lived participants in many traces, not
-    # bound to one. Many-to-many trace participation is a future refactor.
+    # Persist trace context on the chat. Root-topic chats (today: 'manager')
+    # deliberately don't carry a trace_id: a root is a long-lived inbox that
+    # participates in many traces over its lifetime, so binding it to a single
+    # trace would be wrong. The data model has one trace_id column per chat, so
+    # we just skip persisting on root and let trace context flow through the
+    # per-message metadata instead. A proper many-to-many chat↔trace table is
+    # the right long-term shape but is deferred (see plan-1876 §4).
     from storage.repository import chat as chat_repo
     if trace_id and chat.topic != 'manager' and not chat.trace_id:
         chat.trace_id = trace_id
@@ -187,7 +191,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         logger.info("Using topic from chat: {}", topic)
     if skill and not chat.skill:
         chat.skill = skill
-    # Default skill = topic for non-manager topics. Covers chats created outside
+    # Default skill = topic for non-root topics. Covers chats created outside
     # /api/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
     if not chat.skill and chat.topic and chat.topic != "manager":
         chat.skill = chat.topic

@@ -221,7 +221,10 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     chat = find_latest_chat_by_topic(user.id, topic)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
 
-    # Root-topic concurrency: if manager chat is busy, create overflow chat
+    # Root-topic concurrency: a root chat is a long-lived inbox, so when one is
+    # busy we spawn a parallel overflow chat instead of queueing on top of the
+    # in-flight turn. Only applies to root topics (today: 'manager'); non-root
+    # topics serialize naturally because they're scoped to a single task.
     if topic == 'manager' and chat and chat.running:
         logger.info("_handle_message: manager chat {} is busy, creating overflow chat", chat.id)
         chat_id = generate_id()
