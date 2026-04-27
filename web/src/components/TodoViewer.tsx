@@ -300,7 +300,7 @@ async function moveTodoToStatus(todoId: string, fromStatus: string, toStatus: st
   return res.ok;
 }
 
-function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void }) {
+function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onMoved: () => void; onChatListRefresh?: () => void }) {
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
@@ -391,13 +391,14 @@ function KanbanBoard({ todos, onMoved }: { todos: Todo[]; onMoved: () => void })
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onAction={onMoved}
+          onChatListRefresh={onChatListRefresh}
         />
       )}
     </div>
   );
 }
 
-export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode }) {
+export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { viewMode?: ViewMode; onChatListRefresh?: () => void }) {
 
   const [historyCollapsed, setHistoryCollapsed] = useState(() => localStorage.getItem("todoHistoryCollapsed") !== "false");
   useEffect(() => { localStorage.setItem("todoHistoryCollapsed", String(historyCollapsed)); }, [historyCollapsed]);
@@ -544,7 +545,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
             />
           </div>
           <div className="flex-1 overflow-hidden">
-            <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} />
+            <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} onChatListRefresh={onChatListRefresh} />
           </div>
         </div>
         <ActivityHistory todos={allTodosForHistory} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
@@ -669,6 +670,7 @@ export default function TodoViewer({ viewMode = "table" }: { viewMode?: ViewMode
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onAction={revalidateTodos}
+          onChatListRefresh={onChatListRefresh}
         />
       )}
     </div>

@@ -27,9 +27,10 @@ interface TodoListProps {
   isLoggedIn: boolean;
   onSelectTodo: (todoId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+  onChatListRefresh?: () => void;
 }
 
-export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: TodoListProps) {
+export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onChatListRefresh }: TodoListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
@@ -170,6 +171,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace }: To
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onAction={() => mutate()}
+          onChatListRefresh={onChatListRefresh}
         />
       )}
     </div>

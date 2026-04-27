@@ -431,6 +431,32 @@ def set_chat_unread(chat_id: str, unread: bool) -> None:
         session.query(ChatEntity).filter_by(chat_id=chat_id).filter(ChatEntity.unread != unread).update({"unread": unread})
 
 
+def mark_chats_read_by_trace(user_id: int, trace_id: str) -> int:
+    """Mark all chats with the given trace_id as read. Returns affected row count."""
+    with get_db() as session:
+        return (session.query(ChatEntity)
+                .filter_by(user_id=user_id, trace_id=trace_id)
+                .filter(ChatEntity.unread == True)
+                .update({"unread": False}))
+
+
+def mark_latest_chat_unread_by_trace(user_id: int, trace_id: str) -> Optional[str]:
+    """Mark the most recently updated chat in the trace as unread. Returns its chat_id, or None if no chats."""
+    with get_db() as session:
+        row = (session.query(ChatEntity.chat_id)
+               .filter_by(user_id=user_id, trace_id=trace_id)
+               .order_by(ChatEntity.updated_at_unix.desc())
+               .first())
+        if not row:
+            return None
+        chat_id = row.chat_id
+        (session.query(ChatEntity)
+         .filter_by(user_id=user_id, chat_id=chat_id)
+         .filter(ChatEntity.unread == False)
+         .update({"unread": True}))
+        return chat_id
+
+
 def get_share_password_hash(user_id: int, chat_id: str) -> Optional[str]:
     with get_db() as session:
         row = (session.query(ChatEntity.share_password_hash)
