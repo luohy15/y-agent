@@ -12,7 +12,7 @@ interface Chat {
   updated_at?: string;
   topic?: string;
   trace_id?: string;
-  backend?: string;
+  skill?: string;
   status?: string;
   unread?: boolean;
 }
@@ -257,7 +257,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         {c.chat_id.slice(0, 8)}
                       </button>
                       {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
-                      {c.backend && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.backend}</span>}
+                      {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
