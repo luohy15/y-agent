@@ -11,16 +11,11 @@ from yagent.api_client import api_request
 @click.option('--trace-id', default=None, help='Trace ID')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--from-topic', default='manager', help='Caller topic name')
-@click.option('--from-skill', default=None, hidden=True, help='Deprecated: use --from-topic')
 @click.option('--chat-id', default=None, help='Target chat ID to resume (skips topic+trace lookup)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
 @click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex'], case_sensitive=False), help='Backend to use (default: claude_code)')
-def notify(topic_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_topic: str, from_skill: str, chat_id: str, from_chat_id: str, backend: str):
+def notify(topic_name: str, message: str, work_dir: str, trace_id: str, force_new: bool, from_topic: str, chat_id: str, from_chat_id: str, backend: str):
     """Send a message to a topic via trace-based communication."""
-    # Backward compat: --from-skill overrides --from-topic if provided
-    if from_skill:
-        from_topic = from_skill
-
     # Default from_chat_id to Y_CHAT_ID env var
     if not from_chat_id:
         import os

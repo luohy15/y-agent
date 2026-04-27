@@ -17,7 +17,7 @@ interface ChatViewProps {
   botName?: string | null;
   defaultWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
-  onTopicChange?: (skill: string | null) => void;
+  onTopicChange?: (topic: string | null) => void;
   onTraceIdChange?: (traceId: string | null) => void;
   onBackendChange?: (backend: string | null) => void;
   onComplete?: () => void;

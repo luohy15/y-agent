@@ -58,7 +58,7 @@ function generateTicks(minTs: number, maxTs: number): number[] {
   return ticks;
 }
 
-export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceChat[]; onClickSkill?: (chatId: string) => void }) {
+export default function WaterfallChart({ chats, onClickChat }: { chats: TraceChat[]; onClickChat?: (chatId: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Group chats by topic+backend, preserving order of first appearance
@@ -150,7 +150,7 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
               <div
                 key={key}
                 className="flex items-center min-h-[1.75rem] px-2 gap-1 cursor-pointer hover:bg-sol-base02/50 rounded"
-                onClick={() => firstChat && onClickSkill?.(firstChat.chat_id)}
+                onClick={() => firstChat && onClickChat?.(firstChat.chat_id)}
               >
                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
                 <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{topic}</span>
@@ -194,7 +194,7 @@ export default function WaterfallChart({ chats, onClickSkill }: { chats: TraceCh
                         className={`absolute top-1 h-4 rounded-sm cursor-pointer ${colors.bar}`}
                         style={{ left: `${left}%`, width: `${width}%` }}
                         title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
-                        onClick={() => onClickSkill?.(c.chat_id)}
+                        onClick={() => onClickChat?.(c.chat_id)}
                       />
                     );
                   })

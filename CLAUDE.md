@@ -53,10 +53,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
 - **Notify (cross-skill)** — `/api/notify` and `y notify` dispatch a message to a topic
   (skill). Default target is the DM (manager). Trace/from meta is attached on send;
-  short-circuited callbacks back to the manager never invoke the LLM.
-- **Role + Topic** — every chat has a `role` (`manager` / `worker`) and a `topic`
-  (skill name). Replaces the earlier single `skill` field. Renames: skill-manager → `hr`,
-  dev-manager → `cto`.
+  short-circuited callbacks back to root topics never invoke the LLM.
+- **Topic** — every chat has an optional `topic` (named persistent address). The
+  conventional root topic is `manager`; the API rejects notify callbacks aimed at
+  root topics (they are conversations, not function calls).
 - **Note** — `note` + `note_todo_relation` tables. A note has a `content_key` file
   pointer (relative to Y_AGENT_HOME) plus JSON `front_matter`; used for plan /
   requirement / decision / journal context tied to todos.
@@ -71,8 +71,8 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
-  markdown → HTML conversion, per-skill routing, DM callback short-circuit at the API
-  layer.
+  markdown → HTML conversion, per-topic routing, root-topic callbacks short-circuited
+  at the API layer.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
@@ -95,8 +95,9 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Steer** — mid-conversation user messages are delivered to a running session. In
   detach mode they go through a `tail -f` stdin pipe. `y chat stop` is the explicit
   interrupt path; an interrupt watchdog thread also fires during LLM waits.
-- **Context monitor** — per-chat token usage is tracked; when a DM session crosses 50%
-  context or 50 turns, it auto-restarts in a fresh chat with a short summary.
+- **Context monitor** — per-chat token usage is tracked; when a root-topic session
+  crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short
+  summary.
 - **Tools** — `agent/tools/` holds shims for `bash`, `file_read/write/edit`, `local_exec`,
   `ssh_exec`. These are surfaced to Claude Code as JSON tool descriptors.
 - **Skills** — discovered from `~/.agents/skills/`; each skill is a directory with
