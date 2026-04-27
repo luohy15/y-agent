@@ -61,23 +61,6 @@ function generateTicks(minTs: number, maxTs: number): number[] {
 export default function WaterfallChart({ chats, onClickChat }: { chats: TraceChat[]; onClickChat?: (chatId: string) => void }) {
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  // Group chats by topic+backend, preserving order of first appearance
-  const topicGroups = useMemo(() => {
-    const groups: Record<string, TraceChat[]> = {};
-    const order: string[] = [];
-    for (const c of chats) {
-      const topic = c.topic || "unknown";
-      const backend = c.backend || "";
-      const key = backend ? `${topic}:${backend}` : topic;
-      if (!groups[key]) {
-        groups[key] = [];
-        order.push(key);
-      }
-      groups[key].push(c);
-    }
-    return { groups, order };
-  }, [chats]);
-
   // Compute timeline bounds from all segments
   const { minTs, maxTs } = useMemo(() => {
     let min = Infinity, max = -Infinity;
@@ -97,6 +80,7 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
   const multiDay = useMemo(() => spansMultipleDays(minTs, maxTs), [minTs, maxTs]);
 
   const LABEL_W = 96; // px for topic label column
+  const ROW_H = "2.25rem";
 
   return (
     <div className="mt-2 relative">
@@ -138,23 +122,29 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
         </div>
       </div>
 
-      {/* Skill rows */}
+      {/* Session rows — one chat per row */}
       <div className="flex">
-        {/* Topic labels column */}
+        {/* Labels column */}
         <div style={{ width: LABEL_W }} className="shrink-0">
-          {topicGroups.order.map((key) => {
-            const [topic, backend] = key.includes(":") ? [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)] : [key, ""];
+          {chats.map((c) => {
+            const topic = c.topic || "unknown";
             const colors = getTopicColors(topic);
-            const firstChat = topicGroups.groups[key][0];
+            const sessionLabel = c.title?.trim() || `#${c.chat_id.slice(-6)}`;
             return (
               <div
-                key={key}
-                className="flex items-center min-h-[1.75rem] px-2 gap-1 cursor-pointer hover:bg-sol-base02/50 rounded"
-                onClick={() => firstChat && onClickChat?.(firstChat.chat_id)}
+                key={c.chat_id}
+                className="flex flex-col justify-center px-2 cursor-pointer hover:bg-sol-base02/50 rounded"
+                style={{ height: ROW_H }}
+                onClick={() => onClickChat?.(c.chat_id)}
               >
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-                <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{topic}</span>
-                {backend && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{backend}</span>}
+                <div className="flex items-center gap-1">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                  <span className={`text-[0.65rem] font-semibold truncate ${colors.text}`}>{topic}</span>
+                  {c.backend && <span className="text-[0.55rem] text-sol-base01 font-mono truncate">{c.backend}</span>}
+                </div>
+                <span className="text-[0.55rem] text-sol-base01 font-mono truncate pl-2.5" title={c.title || c.chat_id}>
+                  {sessionLabel}
+                </span>
               </div>
             );
           })}
@@ -165,40 +155,37 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
           ref={timelineRef}
           className="flex-1 relative"
         >
-          {/* Topic row bars */}
-          {topicGroups.order.map((key) => {
-            const topic = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
+          {/* Per-chat rows */}
+          {chats.map((c) => {
+            const topic = c.topic || "unknown";
             const colors = getTopicColors(topic);
-            const topicChats = topicGroups.groups[key];
             return (
-              <div key={key} className="relative h-[1.75rem]">
+              <div key={c.chat_id} className="relative" style={{ height: ROW_H }}>
                 {/* Grid lines */}
                 {ticks.map((t) => {
                   const pct = ((t - minTs) / range) * 100;
                   return (
                     <div
-                      key={`${key}-tick-${t}`}
+                      key={`${c.chat_id}-tick-${t}`}
                       className="absolute top-0 bottom-0 border-l border-sol-base02/30"
                       style={{ left: `${pct}%` }}
                     />
                   );
                 })}
                 {/* Chat segment bars */}
-                {topicChats.flatMap((c) =>
-                  c.segments.map((seg, i) => {
-                    const left = ((seg.start_unix - minTs) / range) * 100;
-                    const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
-                    return (
-                      <div
-                        key={`${c.chat_id}-${i}`}
-                        className={`absolute top-1 h-4 rounded-sm cursor-pointer ${colors.bar}`}
-                        style={{ left: `${left}%`, width: `${width}%` }}
-                        title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
-                        onClick={() => onClickChat?.(c.chat_id)}
-                      />
-                    );
-                  })
-                )}
+                {c.segments.map((seg, i) => {
+                  const left = ((seg.start_unix - minTs) / range) * 100;
+                  const width = Math.max(((seg.end_unix - seg.start_unix) / range) * 100, 0.5);
+                  return (
+                    <div
+                      key={`${c.chat_id}-${i}`}
+                      className={`absolute top-1/2 -translate-y-1/2 h-4 rounded-sm cursor-pointer ${colors.bar}`}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      title={`${c.title || c.chat_id}\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
+                      onClick={() => onClickChat?.(c.chat_id)}
+                    />
+                  );
+                })}
               </div>
             );
           })}
