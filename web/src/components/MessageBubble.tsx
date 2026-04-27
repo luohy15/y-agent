@@ -134,21 +134,50 @@ function formatDateTime(ts?: string): string {
   }
 }
 
-function parseTracePrefix(content: string): { traceId: string; fromSkill: string; fromChatId: string; cleanContent: string } | null {
-  const match = content.match(/^\[trace:(\S+)\s+from:(\S+)\s+to:\S+\s+from_chat:(\S+)\s+to_chat:\S+\]\n?/);
-  if (!match) return null;
-  return { traceId: match[1], fromSkill: match[2], fromChatId: match[3], cleanContent: content.slice(match[0].length) };
+interface TraceInfo {
+  traceId: string;
+  fromSkill?: string;
+  toSkill?: string;
+  fromChatId?: string;
+  toChatId?: string;
+  cleanContent: string;
 }
 
-function TimestampLine({ timestamp, traceId, fromSkill, fromChatId, onSelectChat, onSelectTrace }: { timestamp?: string; traceId?: string; fromSkill?: string; fromChatId?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
+// Permissive parser: only `trace:` is required; `from`, `to`, `from_chat`, `to_chat` are
+// independently optional and may appear in any order.
+function parseTracePrefix(content: string): TraceInfo | null {
+  const match = content.match(/^\[trace:(\S+)((?:\s+\w+:\S+)*)\]\n?/);
+  if (!match) return null;
+  const rest = match[2];
+  const get = (k: string): string | undefined => {
+    const r = rest.match(new RegExp(`\\s${k}:(\\S+)`));
+    return r ? r[1] : undefined;
+  };
+  return {
+    traceId: match[1],
+    fromSkill: get("from"),
+    toSkill: get("to"),
+    fromChatId: get("from_chat"),
+    toChatId: get("to_chat"),
+    cleanContent: content.slice(match[0].length),
+  };
+}
+
+function TimestampLine({ timestamp, traceId, fromSkill, toSkill, fromChatId, toChatId, onSelectChat, onSelectTrace }: { timestamp?: string; traceId?: string; fromSkill?: string; toSkill?: string; fromChatId?: string; toChatId?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
   const formatted = formatDateTime(timestamp);
-  if (!formatted && !fromSkill) return null;
+  const hasAny = formatted || traceId || fromSkill || toSkill || fromChatId || toChatId;
+  if (!hasAny) return null;
+  const hasFrom = fromSkill || fromChatId;
+  const hasTo = toSkill || toChatId;
   return (
     <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1 flex items-center">
       {formatted && <span>{formatted}</span>}
       {traceId && <span className={`ml-1.5 text-[0.6rem] ${TRACE_BADGE} ${onSelectTrace ? "hover:bg-sol-base01/30 cursor-pointer" : ""}`} onClick={() => onSelectTrace?.(traceId)}>#{traceId}</span>}
       {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${topicBadgeClass(fromSkill)}`}>{fromSkill}</span>}
       {fromChatId && <span className={`ml-1 text-[0.6rem] ${CHAT_BADGE} hover:bg-sol-blue/30 cursor-pointer`} onClick={() => onSelectChat?.(fromChatId)}>{fromChatId}</span>}
+      {hasFrom && hasTo && <span className="ml-1 text-sol-base01">→</span>}
+      {toSkill && <span className={`ml-1 text-[0.6rem] ${topicBadgeClass(toSkill)}`}>{toSkill}</span>}
+      {toChatId && <span className={`ml-1 text-[0.6rem] ${CHAT_BADGE} hover:bg-sol-blue/30 cursor-pointer`} onClick={() => onSelectChat?.(toChatId)}>{toChatId}</span>}
     </div>
   );
 }
@@ -294,7 +323,16 @@ function UserMessage({ content, timestamp, onSelectChat, onSelectTrace }: { cont
 
   return (
     <div>
-      <TimestampLine timestamp={timestamp} traceId={traceInfo?.traceId} fromSkill={traceInfo?.fromSkill} fromChatId={traceInfo?.fromChatId} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
+      <TimestampLine
+        timestamp={timestamp}
+        traceId={traceInfo?.traceId}
+        fromSkill={traceInfo?.fromSkill}
+        toSkill={traceInfo?.toSkill}
+        fromChatId={traceInfo?.fromChatId}
+        toChatId={traceInfo?.toChatId}
+        onSelectChat={onSelectChat}
+        onSelectTrace={onSelectTrace}
+      />
       <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
         <div className="flex items-baseline">
           <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
