@@ -272,7 +272,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
             )}
 
             {traceChats.length > 0 ? (
-              <WaterfallChart chats={traceChats} onClickSkill={onSelectChat} />
+              <WaterfallChart chats={traceChats} onClickChat={onSelectChat} />
             ) : (
               <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
             )}

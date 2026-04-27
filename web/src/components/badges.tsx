@@ -16,13 +16,8 @@ export function getTopicSolColor(topic: string): string {
   return TOPIC_SOL_COLOR[topic] || DEFAULT_SOL_COLOR;
 }
 
-/** @deprecated Use getTopicSolColor */
-export function getSkillSolColor(skill: string): string {
-  return getTopicSolColor(skill);
-}
-
 // Static color maps — TailwindCSS needs complete class strings in source
-const SKILL_COLOR_MAP: Record<string, { bg: string; text: string }> = {
+const TOPIC_COLOR_MAP: Record<string, { bg: string; text: string }> = {
   blue:    { bg: "bg-sol-blue/20",    text: "text-sol-blue" },
   green:   { bg: "bg-sol-green/20",   text: "text-sol-green" },
   cyan:    { bg: "bg-sol-cyan/20",    text: "text-sol-cyan" },
@@ -33,7 +28,7 @@ const SKILL_COLOR_MAP: Record<string, { bg: string; text: string }> = {
   red:     { bg: "bg-sol-red/20",     text: "text-sol-red" },
 };
 
-const SKILL_CHART_COLOR_MAP: Record<string, { bg: string; border: string; text: string; dot: string; bar: string }> = {
+const TOPIC_CHART_COLOR_MAP: Record<string, { bg: string; border: string; text: string; dot: string; bar: string }> = {
   blue:    { bg: "bg-sol-blue/10",    border: "border-sol-blue/30",    text: "text-sol-blue",    dot: "bg-sol-blue",    bar: "bg-sol-blue/60" },
   green:   { bg: "bg-sol-green/10",   border: "border-sol-green/30",   text: "text-sol-green",   dot: "bg-sol-green",   bar: "bg-sol-green/60" },
   cyan:    { bg: "bg-sol-cyan/10",    border: "border-sol-cyan/30",    text: "text-sol-cyan",    dot: "bg-sol-cyan",    bar: "bg-sol-cyan/60" },
@@ -44,22 +39,17 @@ const SKILL_CHART_COLOR_MAP: Record<string, { bg: string; border: string; text: 
   red:     { bg: "bg-sol-red/10",     border: "border-sol-red/30",     text: "text-sol-red",     dot: "bg-sol-red",     bar: "bg-sol-red/60" },
 };
 
-const DEFAULT_SKILL_COLOR = SKILL_COLOR_MAP["violet"];
-const DEFAULT_CHART_COLOR = SKILL_CHART_COLOR_MAP["violet"];
+const DEFAULT_TOPIC_COLOR = TOPIC_COLOR_MAP["violet"];
+const DEFAULT_CHART_COLOR = TOPIC_CHART_COLOR_MAP["violet"];
 
 export function getTopicColor(topic: string) {
-  return SKILL_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_SKILL_COLOR;
+  return TOPIC_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_TOPIC_COLOR;
 }
 
 // Extended color set for waterfall chart / trace views
 export function getTopicChartColors(topic: string) {
-  return SKILL_CHART_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_CHART_COLOR;
+  return TOPIC_CHART_COLOR_MAP[getTopicSolColor(topic)] || DEFAULT_CHART_COLOR;
 }
-
-/** @deprecated Use getTopicColor */
-export function getSkillColor(skill: string) { return getTopicColor(skill); }
-/** @deprecated Use getTopicChartColors */
-export function getSkillChartColors(skill: string) { return getTopicChartColors(skill); }
 
 // --- Badge base classes ---
 const BADGE_BASE = "inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0";
@@ -75,9 +65,6 @@ export function topicBadgeClass(topic: string) {
   const c = getTopicColor(topic);
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
 }
-
-/** @deprecated Use topicBadgeClass */
-export function skillBadgeClass(skill: string) { return topicBadgeClass(skill); }
 
 // --- Status badge (todo status) ---
 const STATUS_COLOR: Record<string, string> = {

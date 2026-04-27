@@ -18,11 +18,11 @@ A personal AI agent system built on coding agents. One person + a coding agent c
 
 - **Session Persistence & Visualization** — Claude Code output is streamed via stream-json. A Lambda monitors output, writes to DB, and a web interface displays everything in real time.
 
-- **Multi-Agent Collaboration** — Skills define each agent's role and responsibilities. Agents communicate via async fire-and-forget messaging (`y notify`) with a hub-and-spoke topology — the manager dispatches tasks to specialized skills (dev, blog, finance, etc.). Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/c6eff2).
+- **Multi-Agent Collaboration** — Sessions form a recursive tree: every session can dispatch sub-tasks via `y notify`. The long-lived root session (`manager` topic) is where humans send work, but trees can also start anonymously. Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/c6eff2).
 
 - **Long-Running Tasks** — Agents run inside tmux detached sessions on EC2. The monitoring layer only tails stdout and writes to DB, so agents can run for hours without hitting Lambda's 15-minute timeout. When a Lambda deadline is near, the worker hands off via SQS to continue seamlessly.
 
-- **Telegram Bot** — A Telegram bot listens for messages, triggers Lambda, and Lambda invokes Claude Code via SSH. Forum topics route each skill to its own channel.
+- **Telegram Bot** — A Telegram bot listens for messages, triggers Lambda, and Lambda invokes Claude Code via SSH. Forum topics route each topic to its own channel.
 
 ## Capabilities
 

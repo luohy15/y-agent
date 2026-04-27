@@ -381,7 +381,7 @@ export default function ShareTraceView() {
 
             {/* Waterfall chart */}
             {data.chats.length > 0 ? (
-              <WaterfallChart chats={data.chats} onClickSkill={(chatId) => setSelectedChatId(chatId)} />
+              <WaterfallChart chats={data.chats} onClickChat={(chatId) => setSelectedChatId(chatId)} />
             ) : (
               <p className="text-sol-base01 italic text-xs mt-2">No chats found</p>
             )}

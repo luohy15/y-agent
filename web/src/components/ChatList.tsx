@@ -142,7 +142,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             <div className="relative w-24">
               <input
                 type="text"
-                placeholder="Skill..."
+                placeholder="Topic..."
                 value={topicFilter}
                 onChange={(e) => setTopicFilter(e.target.value)}
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
@@ -151,7 +151,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <button
                   onClick={() => setTopicFilter("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                  title="Clear skill filter"
+                  title="Clear topic filter"
                 >
                   ✕
                 </button>
