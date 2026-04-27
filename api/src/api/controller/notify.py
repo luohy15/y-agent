@@ -54,8 +54,6 @@ async def post_notify(req: NotifyRequest, request: Request):
     if req.topic == "manager" and not req.force_new:
         raise HTTPException(status_code=400, detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.")
 
-    # Derive role for backward-compat with the queue/chat schema (dropped in batch C).
-    role = "manager" if req.topic == "manager" else ("worker" if req.topic else None)
     skill = _resolve_skill(req)
 
     # Resolve target chat: explicit chat_id > topic+trace lookup > new
@@ -121,9 +119,7 @@ async def post_notify(req: NotifyRequest, request: Request):
         await chat_repo.save_chat_by_id(updated_chat)
     else:
         chat = await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
-        # Stamp identity fields on creation. role/topic remain dropped in batch C; skill is the new home.
-        if role:
-            chat.role = role
+        # Stamp identity fields on creation.
         if req.topic:
             chat.topic = req.topic
         if skill:
@@ -135,6 +131,6 @@ async def post_notify(req: NotifyRequest, request: Request):
 
     # Enqueue worker only if not already running
     if not already_running:
-        send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, role=role, topic=req.topic, skill=skill, backend=req.backend)
+        send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill, backend=req.backend)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)

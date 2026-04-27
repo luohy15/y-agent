@@ -168,15 +168,13 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
 
     # Determine topic from telegram forum topic
     topic = "manager"
-    role = "manager"
     if message_thread_id:
         from storage.repository.tg_topic import get_topic_by_thread_id
         tg_topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
         if tg_topic:
             topic = tg_topic.topic_name
-            role = "worker"
 
-    # Create a new empty chat with role/topic set
+    # Create a new empty chat with topic set
     chat_id = generate_id()
     from storage.dto.chat import Chat as ChatDTO
     timestamp = get_utc_iso8601_timestamp()
@@ -185,7 +183,6 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         create_time=timestamp,
         update_time=timestamp,
         messages=[],
-        role=role,
         topic=topic,
     )
     from storage.repository import chat as chat_repo
@@ -212,22 +209,20 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         except Exception as e:
             logger.warning("tg_topic auto-discover failed: {}", e)
 
-    # Determine topic and role from telegram forum topic
+    # Determine topic from telegram forum topic
     topic = 'manager'
-    role = 'manager'
     if message_thread_id:
         from storage.repository.tg_topic import get_topic_by_thread_id
         tg_topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
         if tg_topic:
             topic = tg_topic.topic_name
-            role = 'worker'
 
     # Find or create chat for this topic
     chat = find_latest_chat_by_topic(user.id, topic)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
 
-    # Manager concurrency: if manager chat is busy, create overflow chat
-    if role == 'manager' and chat and chat.running:
+    # Root-topic concurrency: if manager chat is busy, create overflow chat
+    if topic == 'manager' and chat and chat.running:
         logger.info("_handle_message: manager chat {} is busy, creating overflow chat", chat.id)
         chat_id = generate_id()
         msg_dict = {
@@ -248,7 +243,6 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             create_time=timestamp,
             update_time=timestamp,
             messages=[user_msg],
-            role='manager',
             topic='manager',
             running=True,
         )
@@ -257,7 +251,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
 
         try:
             from storage.service.chat import send_chat_message
-            send_chat_message(chat_id, user_id=user.id, role='manager', topic='manager')
+            send_chat_message(chat_id, user_id=user.id, topic='manager')
         except Exception as e:
             logger.exception("_handle_message: failed to queue overflow manager message: {}", e)
         return {"ok": True}
@@ -302,20 +296,18 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             create_time=timestamp,
             update_time=timestamp,
             messages=[user_msg],
-            role=role,
             topic=topic,
             running=True,
         )
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat(user.id, chat)
 
-    # Queue for processing — pass role+topic so runner knows where to route replies
+    # Queue for processing — pass topic so runner knows where to route replies
     try:
         from storage.service.chat import send_chat_message
         send_chat_message(
             chat_id,
             user_id=user.id,
-            role=role,
             topic=topic,
         )
     except Exception as e:

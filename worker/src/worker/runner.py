@@ -81,7 +81,10 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
 
 
 def _resolve_telegram_target(chat, user_id: int):
-    """Determine Telegram routing target based on chat role/topic.
+    """Determine Telegram routing target based on chat topic.
+
+    If the chat's topic is bound to a Telegram forum-topic, route there;
+    otherwise fall back to the user's DM.
 
     Returns (bot_token, tg_chat_id, topic_id) or None if no valid target.
     """
@@ -95,11 +98,8 @@ def _resolve_telegram_target(chat, user_id: int):
 
     tg_chat_id = None
     topic_id = None
-    if chat.role == 'worker' and chat.topic:
-        tg_topic = find_topic_by_name(user_id, chat.topic)
-        if not tg_topic or tg_topic.topic_id is None:
-            logger.debug("telegram: no tg_topic for topic '{}'", chat.topic)
-            return None
+    tg_topic = find_topic_by_name(user_id, chat.topic) if chat.topic else None
+    if tg_topic and tg_topic.topic_id is not None:
         tg_chat_id = tg_topic.group_id
         topic_id = tg_topic.topic_id
     else:
@@ -136,7 +136,7 @@ def _send_telegram_user_message(chat, user_id: int) -> None:
 
 
 def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
-    """Send assistant reply to Telegram, routing by role/topic."""
+    """Send assistant reply to Telegram, routing by topic."""
     from storage.util import send_telegram_message
 
     target = _resolve_telegram_target(chat, user_id)
@@ -155,7 +155,7 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -174,15 +174,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         trace_id = chat.trace_id
         logger.info("Using trace_id from chat: {}", trace_id)
 
-    # Persist trace context on the chat
+    # Persist trace context on the chat. Root-topic chats (manager) deliberately
+    # don't carry trace_id — they're long-lived participants in many traces, not
+    # bound to one. Many-to-many trace participation is a future refactor.
     from storage.repository import chat as chat_repo
-    if trace_id and role != 'manager' and not chat.trace_id:
+    if trace_id and chat.topic != 'manager' and not chat.trace_id:
         chat.trace_id = trace_id
-    if role and not chat.role:
-        chat.role = role
-    elif not role and chat.role:
-        role = chat.role
-        logger.info("Using role from chat: {}", role)
     if topic and not chat.topic:
         chat.topic = topic
     elif not topic and chat.topic:

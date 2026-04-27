@@ -54,7 +54,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
 
   // Separate fetch for pinned manager chat (always visible)
   const { data: pinnedManagerData, mutate: mutatePinnedManager } = useSWR<Chat[]>(
-    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&role=manager` : null,
+    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&topic=manager` : null,
     fetcher,
   );
   const pinnedManager = pinnedManagerData?.[0] ?? null;
