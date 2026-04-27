@@ -8,6 +8,7 @@ interface TodoContextMenuProps {
   y: number;
   onClose: () => void;
   onAction: () => void;
+  onChatListRefresh?: () => void;
 }
 
 async function changeTodoStatus(todoId: string, status: string): Promise<boolean> {
@@ -19,7 +20,27 @@ async function changeTodoStatus(todoId: string, status: string): Promise<boolean
   return res.ok;
 }
 
-export default function TodoContextMenu({ todo, x, y, onClose, onAction }: TodoContextMenuProps) {
+async function markTraceRead(traceId: string): Promise<boolean> {
+  const res = await authFetch(`${API}/api/chat/trace/read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trace_id: traceId }),
+  });
+  return res.ok;
+}
+
+async function markTraceUnread(traceId: string): Promise<boolean> {
+  const res = await authFetch(`${API}/api/chat/trace/unread`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trace_id: traceId }),
+  });
+  return res.ok;
+}
+
+type MenuItem = { type: "item"; label: string; action: () => void } | { type: "separator" };
+
+export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatListRefresh }: TodoContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,56 +61,90 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction }: TodoC
     };
   }, [onClose]);
 
-  const items: { label: string; action: () => void }[] = [];
+  const items: MenuItem[] = [];
 
   if (todo.status === "pending") {
     items.push({
+      type: "item",
       label: "Activate",
       action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Delete",
       action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
     });
   }
   if (todo.status === "active") {
     items.push({
+      type: "item",
       label: "Finish",
       action: async () => { await changeTodoStatus(todo.todo_id, "completed"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Deactivate",
       action: async () => { await changeTodoStatus(todo.todo_id, "pending"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Delete",
       action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
     });
   }
   if (todo.status === "completed") {
     items.push({
+      type: "item",
       label: "Reopen",
       action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Delete",
       action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
     });
   }
   if (todo.status === "deleted") {
     items.push({
+      type: "item",
       label: "Re-add",
       action: async () => { await changeTodoStatus(todo.todo_id, "pending"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Reopen",
       action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
     });
     items.push({
+      type: "item",
       label: "Finish",
       action: async () => { await changeTodoStatus(todo.todo_id, "completed"); onAction(); onClose(); },
     });
   }
+
+  if (items.length > 0) {
+    items.push({ type: "separator" });
+  }
+  items.push({
+    type: "item",
+    label: "Mark read",
+    action: async () => {
+      await markTraceRead(todo.todo_id);
+      onChatListRefresh?.();
+      onAction();
+      onClose();
+    },
+  });
+  items.push({
+    type: "item",
+    label: "Mark unread",
+    action: async () => {
+      await markTraceUnread(todo.todo_id);
+      onChatListRefresh?.();
+      onAction();
+      onClose();
+    },
+  });
 
   if (items.length === 0) return null;
 
@@ -99,15 +154,20 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction }: TodoC
       className="fixed z-[100] bg-sol-base02 border border-sol-base01 rounded shadow-lg py-0.5"
       style={{ left: x, top: y }}
     >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          onClick={item.action}
-          className="w-full text-left px-2.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base01/30 cursor-pointer"
-        >
-          {item.label}
-        </button>
-      ))}
+      {items.map((item, idx) => {
+        if (item.type === "separator") {
+          return <div key={`sep-${idx}`} className="border-t border-sol-base01/30 my-0.5" />;
+        }
+        return (
+          <button
+            key={item.label}
+            onClick={item.action}
+            className="w-full text-left px-2.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base01/30 cursor-pointer"
+          >
+            {item.label}
+          </button>
+        );
+      })}
     </div>,
     document.body,
   );

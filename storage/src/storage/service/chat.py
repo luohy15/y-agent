@@ -208,6 +208,16 @@ def mark_chat_unread(chat_id: str) -> None:
     set_chat_unread(chat_id, True)
 
 
+def mark_trace_read(user_id: int, trace_id: str) -> int:
+    from storage.repository.chat import mark_chats_read_by_trace
+    return mark_chats_read_by_trace(user_id, trace_id)
+
+
+def mark_trace_unread(user_id: int, trace_id: str) -> Optional[str]:
+    from storage.repository.chat import mark_latest_chat_unread_by_trace
+    return mark_latest_chat_unread_by_trace(user_id, trace_id)
+
+
 async def generate_share_html(chat_id: str) -> str:
     home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
     tmp_dir = os.path.join(home, "tmp")
