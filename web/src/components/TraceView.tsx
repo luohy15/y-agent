@@ -1,5 +1,7 @@
 import { useState } from "react";
 import useSWR from "swr";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
@@ -189,7 +191,9 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                     {todoInfo.desc && (
                       <>
                         <span className="text-sol-base01">Desc</span>
-                        <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.desc}</span>
+                        <div className="text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{todoInfo.desc}</ReactMarkdown>
+                        </div>
                       </>
                     )}
                     {todoInfo.priority && (
