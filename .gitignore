@@ -26,4 +26,6 @@ node_modules/
 .codex
 
 # Migration SQL files (one-off, run manually via psql)
-migration_*.sql
+# Local-only directory shared across worktrees via symlink (see worktree/post-create.sh)
+# Pattern with no trailing slash matches both the real dir (main repo) and symlink (worktrees)
+/migration
