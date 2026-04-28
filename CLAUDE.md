@@ -264,8 +264,14 @@ y dev commit <name> [-m "msg"]
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
   `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`.
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
-  Do not wire up automatic migrations. Migration `.sql` files under the repo are
-  gitignored.
+  Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
+  `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared
+  across worktrees: the main repo owns the real `migration/`, and `worktree/post-create.sh`
+  symlinks `migration` → `/Users/roy/luohy15/code/y-agent/migration` in each new
+  worktree, so SQL written inside a worktree survives `y dev wt rm`. For an existing
+  worktree that predates this setup, run
+  `ln -sfn /Users/roy/luohy15/code/y-agent/migration migration` from the worktree
+  root once.
 
 ### ID Convention
 
