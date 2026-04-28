@@ -1,79 +1,79 @@
 # y-agent
 
-A personal AI agent system built on coding agents. One person + a coding agent can maintain a complete, daily-use agent system with near-zero infra cost.
+A personal AI agent system built on top of coding agents.
 
-> Renamed from [y-cli](https://luohy15.com/y-cli-introduction). y-cli was a wrapper around model APIs; y-agent is a wrapper around coding agents.
+> Renamed from [y-cli](https://luohy15.com/y-cli-introduction). y-cli wrapped model APIs; y-agent wraps coding agents.
 
 ## Demo
 
 ![y-agent TraceView](https://cdn.luohy15.com/y-agent-demo-4.png)
 
-[Live trace example](https://yovy.app/t/6fc5c4) — every cross-skill call chain is a shareable, public trace.
+A real trace: https://yovy.app/t/6fc5c4
 
-## Core Features
+---
 
-- **Task Management** — `y todo` CLI for creating, updating, and tracking tasks. Humans use the GUI, agents use the CLI, both operate on the same data.
+Coding agents like Claude Code / Codex are great for code, but code is only part of my daily life. I also have ledgers, calendars, todos, notes, emails. I want the agent to handle those too.
 
-- **Remote Coding Agents** — Run Claude Code (or Codex) directly on AWS EC2. A Lambda SSHes into EC2 to execute commands. EC2 auto-hibernates when idle — no cost when nothing is running.
+Three things came up while extending a coding agent into a personal agent system:
 
-- **Session Persistence & Visualization** — Claude Code output is streamed via stream-json. A Lambda monitors output, writes to DB, and a web interface displays everything in real time.
+1. How to give the agent context
+2. How to keep the agent always-on
+3. How to orchestrate multiple agents
 
-- **Multi-Agent Collaboration** — Sessions form a recursive tree where every session is homogeneous: it can do work, and it can dispatch sub-tasks via `y chat -m "..."` (fire-and-forget) — coordinating is a capability, not a role. Long-lived sessions are addressed by a **topic** name (the `manager` topic backs your Telegram DM); ephemeral sub-trees stay anonymous. Skills load per task, decoupled from topic — e.g. dev work itself splits into `dev` / `plan` / `impl` / `review` skills, each loaded per sub-task via `--skill`. Sessions are linked by trace IDs for full-chain visibility in [TraceView](https://yovy.app/t/6fc5c4).
+### Context
 
-- **Long-Running Tasks** — Agents run inside tmux detached sessions on EC2. The monitoring layer only tails stdout and writes to DB, so agents can run for hours without hitting Lambda's 15-minute timeout. When a Lambda deadline is near, the worker hands off via SQS to continue seamlessly.
+Same data for me and for the agent. Files go through `read` / `write` / `edit`. Anything I'd reach for a GUI to do, the agent reaches for a CLI — it's already happy in Bash. Rule: whatever I can do in the GUI, the agent can do via CLI. The underlying file or DB row is the same.
 
-- **Telegram Bot** — A Telegram bot listens for messages, triggers Lambda, and Lambda invokes Claude Code via SSH. Your DM binds to the `manager` topic; forum group topics can bind to other named topics.
+### Always-on
 
-## Architecture
+I don't want to carry a laptop or open a terminal to use it. Coding agents run on a remote VM (EC2) inside `tmux`; a tail process parses their output into the database, so the web UI can chat with them directly. A Telegram bot covers mobile input. EC2 auto-hibernates when idle, so cost is near zero when nothing is running.
 
-Sessions form a tree where every node is the same kind of runtime: load skills, do work, optionally dispatch sub-tasks via `y chat`. Coordinating is a capability available to every session, not a role assigned to special ones. Skills load per task; topic is sugar for a long-lived, named address.
+### Orchestration
+
+One session usually can't handle the whole thing — requests have to be routed to the right session. Claude Code ships sub-agents, but I wanted that layer outside, so sub-agent chats stay in my own DB and I can steer them mid-run.
 
 ```
-        Telegram DM  /  Web UI                     ← user input edge
-                  │
-                  ▼
-       ┌─────────────────────┐
-root   │  topic: manager     │   long-lived named address,
-       │  skills: per task   │   bound to Telegram DM (singleton)
-       └──────────┬──────────┘
-                  │   y chat --topic dev -m "..."
-                  ▼
-       ┌─────────────────────┐
-trunk  │  topic: dev         │   received a task,
-       │  (coordinator)      │   may dispatch further
-       └──┬───────┬───────┬──┘
-          │       │       │   y chat --skill {plan,impl,review}
-          ▼       ▼       ▼
-       ┌──────┐ ┌──────┐ ┌────────┐
-leaves │ plan │ │ impl │ │ review │   anonymous, ephemeral;
-       └──────┘ └──────┘ └────────┘   skill loaded per dispatch
+   user        ┌──────────────────┐
+   input ────► │  skill: manager  │   dispatch only,
+        │     └────────┬──────────┘   no execution
+        │              │   y chat --skill dev -m "..."
+        │              ▼
+        │     ┌──────────────────┐
+        ├───► │  skill: dev      │   coordinator,
+        │     │                  │   runs lower-level skill sessions
+        │     └──┬──────┬──────┬─┘
+        │        │      │      │   y chat --skill {plan,impl,review}
+        │        ▼      ▼      ▼
+        │     ┌──────┐ ┌──────┐ ┌────────┐
+        └───► │ plan │ │ impl │ │ review │   anonymous, ephemeral;
+              └──────┘ └──────┘ └────────┘   skill loaded per dispatch
 ```
 
-A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so TraceView renders the chain as a waterfall.
+A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so [TraceView](https://yovy.app/t/6fc5c4) renders the chain as a waterfall.
 
 ## Capabilities
 
-A running y-agent deployment ships these user-facing features out of the box:
+A running deployment ships these out of the box:
 
-- **Todo** — full-stack CRUD, kanban board, pagination, pin, search, history.
-- **Note** — structured notes with `content_key` file pointers and JSON front-matter; Journals + Pages sidebar panels.
-- **Entity (knowledge graph)** — link notes and RSS feeds to people, projects, or any concept; browse from a dedicated sidebar.
-- **Calendar** — timezone-aware events, current-time ticker, week-aware persistence.
+- **Todo** — full-stack CRUD, kanban, pagination, pin, search, history.
+- **Note** — structured notes with `content_key` file pointers and JSON front-matter; Journals + Pages panels.
+- **Entity (knowledge graph)** — link notes and RSS feeds to people, projects, or any concept.
+- **Calendar** — timezone-aware events, current-time ticker.
 - **Reminder** — time-based reminders delivered via Telegram, optionally attached to a todo or event.
 - **Link archive** — Chrome bookmark sync; Twitter / X, Bilibili, WeChat article download; in-app markdown preview.
-- **RSS** — feed subscription with a two-stage scrape pipeline; per-item content stored on S3; unified viewer.
+- **RSS** — feed subscription with a two-stage scrape pipeline; per-item content on S3.
 - **Finance** — beancount balance sheet, income statement, portfolio tracker.
-- **Email** — Gmail sync for lightweight inbox review inside the UI.
+- **Email** — Gmail sync for lightweight inbox review.
 - **Trace + Share** — every cross-skill call chain has a waterfall TraceView, shareable as a public page (optionally with password).
 - **Dev worktrees** — `y dev` CLI + web panel to create/remove worktrees per task, auto-commit, dynamic merge target.
-- **Telegram bot** — webhook with secret verification, forum topic routing, markdown → HTML conversion, DM callback short-circuit.
+- **Telegram bot** — webhook with secret verification, forum topic routing, markdown → HTML conversion.
 - **Web terminal** — shell access scoped to the current VM / work_dir.
-- **Git panel** — file-level status, diff viewer with change markers, per-file discard.
+- **Git panel** — file-level status, diff viewer, per-file discard.
 - **File viewer / editor** — syntax highlighting, line numbers, unsaved-edits preview, click-to-open relative links.
 
 ## Install / Run
 
-y-agent is a UV workspace. You need Python 3.11+, Node 20+, the UV package manager, and an AWS account for the deployed version. Local dev runs entirely on your machine.
+UV workspace. Needs Python 3.11+, Node 20+, the UV package manager, and an AWS account for the deployed version. Local dev runs entirely on your machine.
 
 ```bash
 # Install the CLI (wires the workspace into a tool venv)
@@ -81,9 +81,7 @@ uv tool install --force -e ./cli
 
 # Configure
 mkdir -p ~/.y-agent
-$EDITOR ~/.y-agent/config.toml        # DATABASE_URL, JWT_SECRET_KEY, TELEGRAM_BOT_TOKEN,
-                                       # GOOGLE_CLIENT_ID, SQS_QUEUE_URL, Y_AGENT_S3_BUCKET,
-                                       # Y_AGENT_TIMEZONE, FETCHER_URL, ...
+$EDITOR ~/.y-agent/config.toml        # see "Minimal config keys" below
 
 # Init schema (once)
 cd admin && uv run python -c "from handler import lambda_handler; lambda_handler({'action':'init_db'}, None)"
@@ -123,12 +121,6 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 | `Y_AGENT_TIMEZONE` | IANA tz for calendar/journal/display |
 | `FETCHER_URL` | Optional upstream fetcher for link downloads |
 
-## Design Principles
-
-- **Shared context** — Everything lives in one directory on EC2. Humans and agents share the same view via CLI tools and skills.
-- **Thin abstraction** — A minimal wrapper on top of coding agents. If something can be wrapped, don't rebuild it.
-- **Decoupled execution** — Agent subprocesses run on EC2; the monitoring layer (Lambda) only tails and records, and can disconnect/reconnect freely.
-
 ## Blog Post
 
-For a detailed introduction, design rationale, and comparisons with other agent orchestration projects, see the [full blog post](https://luohy15.com/y-agent-introduction).
+Longer write-up, design rationale, and comparisons: [full blog post](https://luohy15.com/y-agent-introduction).
