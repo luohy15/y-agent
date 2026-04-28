@@ -4,6 +4,8 @@ from pathlib import Path
 
 import click
 
+from storage.global_config import load_global_config
+
 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
 
 
@@ -41,13 +43,15 @@ def image_tinify(inputs, output):
     overwriting each input in place. Use -o to write to a specific path
     when compressing a single file.
 
-    Requires TINIFY_API_KEY environment variable. Get a key from
+    Requires TINIFY_API_KEY in ~/.y-agent/config.toml. Get a key from
     https://tinypng.com/developers.
     """
+    load_global_config()
+
     api_key = os.getenv("TINIFY_API_KEY")
     if not api_key:
         raise click.ClickException(
-            "TINIFY_API_KEY not found. Set it in your environment or a .env file.\n"
+            "TINIFY_API_KEY not found. Set it in ~/.y-agent/config.toml.\n"
             "Get a key from: https://tinypng.com/developers"
         )
 
