@@ -4,7 +4,8 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-from dotenv import load_dotenv
+
+from storage.global_config import load_global_config
 
 
 def _assets_dir() -> Path:
@@ -28,12 +29,12 @@ def image_generate(prompt, inputs, output):
         y image generate -p "Merge into a collage" -i img1.jpg -i img2.jpg
         y image generate -p "A serene sunset" -o sunset.png
     """
-    load_dotenv()
+    load_global_config()
 
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise click.ClickException(
-            "GOOGLE_API_KEY not found. Set it in your environment or a .env file.\n"
+            "GOOGLE_API_KEY not found. Set it in ~/.y-agent/config.toml.\n"
             "Get a key from: https://aistudio.google.com/apikey"
         )
 

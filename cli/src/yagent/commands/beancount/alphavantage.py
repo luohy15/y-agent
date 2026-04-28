@@ -1,22 +1,21 @@
 """Alpha Vantage API client utilities."""
 
 import os
-from pathlib import Path
 
 import click
 import httpx
-from dotenv import load_dotenv
+
+from storage.global_config import load_global_config
 
 
 BASE_URL = "https://www.alphavantage.co/query"
 
 
 def get_api_key() -> str:
-    home = Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent")))
-    load_dotenv(home / ".env")
+    load_global_config()
     key = os.getenv("ALPHAVANTAGE_API_KEY")
     if not key:
-        raise click.ClickException("ALPHAVANTAGE_API_KEY not found in $Y_AGENT_HOME/.env")
+        raise click.ClickException("ALPHAVANTAGE_API_KEY not found in ~/.y-agent/config.toml")
     return key
 
 
