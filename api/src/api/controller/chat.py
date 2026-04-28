@@ -262,6 +262,8 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["work_dir"] = chat.work_dir
     if chat.topic:
         result["topic"] = chat.topic
+    if chat.skill:
+        result["skill"] = chat.skill
     if chat.trace_id:
         result["trace_id"] = chat.trace_id
     if chat.backend:

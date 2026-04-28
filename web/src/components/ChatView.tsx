@@ -18,6 +18,7 @@ interface ChatViewProps {
   defaultWorkDir?: string;
   onWorkDirChange?: (workDir: string | null) => void;
   onTopicChange?: (topic: string | null) => void;
+  onSkillChange?: (skill: string | null) => void;
   onTraceIdChange?: (traceId: string | null) => void;
   onBackendChange?: (backend: string | null) => void;
   onComplete?: () => void;
@@ -26,7 +27,7 @@ interface ChatViewProps {
   onSelectTrace?: (traceId: string) => void;
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -97,6 +98,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         setChatWorkDir(wd);
         onWorkDirChange?.(wd);
         onTopicChange?.(data.topic ?? null);
+        onSkillChange?.(data.skill ?? null);
         onTraceIdChange?.(data.trace_id ?? null);
         onBackendChange?.(data.backend ?? null);
         if (data.context_window) {
