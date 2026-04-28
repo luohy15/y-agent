@@ -598,6 +598,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   });
   const [editContent, setEditContent] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const savingRef = useRef<Record<string, boolean>>({});
   const [zoom, setZoom] = useState(100);
   const [noteImported, setNoteImported] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
@@ -746,21 +747,29 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   }, [editContent, cache]);
 
   const handleSave = useCallback(async (path: string) => {
+    if (savingRef.current[path]) return;
     if (!isDirty(path)) return;
+    const snapshot = editContent[path];
+    savingRef.current[path] = true;
     setSaving((prev) => ({ ...prev, [path]: true }));
     try {
       const res = await authFetch(`${API}/api/file/write${vmQuery ? "?" + vmQuery.slice(1) : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, content: editContent[path] }),
+        body: JSON.stringify({ path, content: snapshot }),
       });
       if (!res.ok) throw new Error("Failed to save");
-      // Update cache with saved content, clear edit state
-      setCache((prev) => ({ ...prev, [path]: { ...prev[path], content: editContent[path], loading: false } }));
-      setEditContent((prev) => { const next = { ...prev }; delete next[path]; return next; });
+      setCache((prev) => ({ ...prev, [path]: { ...prev[path], content: snapshot, loading: false } }));
+      setEditContent((prev) => {
+        if (prev[path] !== snapshot) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
     } catch (e: any) {
       alert(`Save failed: ${e.message}`);
     } finally {
+      savingRef.current[path] = false;
       setSaving((prev) => ({ ...prev, [path]: false }));
     }
   }, [isDirty, editContent, vmQuery]);
