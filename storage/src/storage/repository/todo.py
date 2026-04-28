@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy import case, func
 from storage.entity.todo import TodoEntity
+from storage.entity.chat import ChatEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
 
@@ -39,11 +40,27 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
 
 def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
     with get_db() as session:
-        q = session.query(TodoEntity).filter_by(user_id=user_id)
+        # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
+        # Falls back to todo.updated_at_unix when a todo has no associated chat.
+        chat_max = (
+            session.query(
+                ChatEntity.trace_id.label("tid"),
+                func.max(ChatEntity.updated_at_unix).label("max_updated"),
+            )
+            .filter(ChatEntity.user_id == user_id)
+            .filter(ChatEntity.trace_id.isnot(None))
+            .group_by(ChatEntity.trace_id)
+            .subquery()
+        )
+        effective_updated = func.coalesce(chat_max.c.max_updated, TodoEntity.updated_at_unix)
+
+        q = (session.query(TodoEntity)
+             .outerjoin(chat_max, chat_max.c.tid == TodoEntity.todo_id)
+             .filter(TodoEntity.user_id == user_id))
         if status:
-            q = q.filter_by(status=status)
+            q = q.filter(TodoEntity.status == status)
         if priority:
-            q = q.filter_by(priority=priority)
+            q = q.filter(TodoEntity.priority == priority)
         if query:
             pattern = f"%{query}%"
             q = q.filter(
@@ -52,7 +69,7 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
         if status == "pending":
             # pending: two-group sorting
             # Group 0: has due_date within today + 14 days → sort by due_date ASC
-            # Group 1: everything else → sort by priority ASC, updated_at DESC
+            # Group 1: everything else → sort by priority ASC, effective_updated DESC
             cutoff = (date.today() + timedelta(days=14)).isoformat()
             is_soon = case(
                 (TodoEntity.due_date.isnot(None) & (TodoEntity.due_date != "") & (TodoEntity.due_date <= cutoff), 0),
@@ -63,15 +80,15 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
                 is_soon.asc(),
                 case((is_soon == 0, TodoEntity.due_date), else_=None).asc(),
                 case((is_soon == 1, _PRIORITY_ORDER), else_=None).asc(),
-                case((is_soon == 1, TodoEntity.updated_at), else_=None).desc(),
+                case((is_soon == 1, effective_updated), else_=None).desc(),
             )
         elif status == "active":
-            # active: due_date asc (nulls last), priority asc, updated_at desc
+            # active: due_date asc (nulls last), priority asc, effective_updated desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
-            q = q.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), TodoEntity.updated_at.desc())
+            q = q.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), effective_updated.desc())
         else:
-            # completed or no filter: updated_at desc
-            q = q.order_by(TodoEntity.pinned.desc(), TodoEntity.updated_at.desc())
+            # completed or no filter: effective_updated desc
+            q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         q = q.offset(offset).limit(limit)
         return [_entity_to_dto(row) for row in q.all()]
 
