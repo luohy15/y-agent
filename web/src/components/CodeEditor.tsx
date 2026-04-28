@@ -90,6 +90,7 @@ export default function CodeEditor({
       theme="none"
       className={className}
       height="100%"
+      style={{ height: "100%", overflow: "hidden" }}
       indentWithTab={false}
     />
   );
