@@ -38,12 +38,13 @@ interface FileTreeNodeProps {
   collapseVersion: number;
   onContextMenu: (e: React.MouseEvent, path: string) => void;
   vmQuery: string;
+  onUpload: (files: File[], destDir: string) => void;
 }
 
 function FileTreeNode({
   name, path, type, depth, onSelectFile,
   selected, selection, selectedPaths, dirRefreshMap, visiblePathsRef, collapseVersion,
-  onContextMenu: onCtxMenu, vmQuery,
+  onContextMenu: onCtxMenu, vmQuery, onUpload,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -142,7 +143,9 @@ function FileTreeNode({
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.stopPropagation();
+    const isFiles = e.dataTransfer.types.includes("Files");
+    e.dataTransfer.dropEffect = isFiles ? "copy" : "move";
     setDragOver(true);
   }, []);
 
@@ -152,9 +155,18 @@ function FileTreeNode({
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
+    // External files dragged from the OS file manager
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onUpload(Array.from(e.dataTransfer.files), destDir);
+      return;
+    }
+    // Internal move: payload is JSON list of source paths
+    const payload = e.dataTransfer.getData("application/json");
+    if (!payload) return;
     try {
-      const sources: string[] = JSON.parse(e.dataTransfer.getData("application/json"));
+      const sources: string[] = JSON.parse(payload);
       const valid = sources.filter(s => s !== path && !destDir.startsWith(s + "/"));
       if (valid.length === 0) return;
       setMoving(true);
@@ -175,7 +187,7 @@ function FileTreeNode({
     } finally {
       setMoving(false);
     }
-  }, [path, destDir, dirRefreshMap]);
+  }, [path, destDir, dirRefreshMap, vmQuery, onUpload]);
 
   return (
     <div>
@@ -214,6 +226,7 @@ function FileTreeNode({
           collapseVersion={collapseVersion}
           onContextMenu={onCtxMenu}
           vmQuery={vmQuery}
+          onUpload={onUpload}
         />
       ))}
     </div>
@@ -235,9 +248,12 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const [rootDragOver, setRootDragOver] = useState(false);
+  const [uploadDialog, setUploadDialog] = useState<{ dir: string } | null>(null);
   const dirRefreshMapRef = useRef<DirRefreshMap>(new Map());
   const anchorRef = useRef<string | null>(null);
   const visiblePathsRef = useRef<string[]>([]);
+  const lastUploadDirRef = useRef<string | null>(null);
   const rootPath = workDir || ".";
   // Clear visible paths at the start of each render so nodes re-register
   visiblePathsRef.current = [];
@@ -316,14 +332,8 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
+  const uploadFiles = useCallback(async (files: File[], destDir: string) => {
     if (files.length === 0) return;
-
-    // Upload into the root directory by default
-    const destDir = ".";
-
     setUploading(true);
     try {
       for (const file of files) {
@@ -336,16 +346,38 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
         form.append("dest_dir", destDir);
         if (vmName) form.append("vm_name", vmName);
         if (workDir) form.append("work_dir", workDir);
-        await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
+        const res = await authFetch(`${API}/api/file/upload`, { method: "POST", body: form });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          alert(`Upload failed for ${file.name}: ${detail || res.status}`);
+        }
       }
     } finally {
       setUploading(false);
     }
-
-    // Refresh affected directories
-    const refresh = dirRefreshMapRef.current.get(destDir) ?? dirRefreshMapRef.current.get(".");
+    lastUploadDirRef.current = destDir;
+    // Refresh the destination dir if it's expanded; otherwise refresh root.
+    const refresh = dirRefreshMapRef.current.get(destDir) ?? dirRefreshMapRef.current.get(rootPath);
     if (refresh) refresh();
-  }, [vmName, workDir]);
+  }, [vmName, workDir, rootPath]);
+
+  const openUploadDialog = useCallback(() => {
+    // Default target dir: last-used → single selected dir → root
+    let defaultDir = lastUploadDirRef.current || rootPath;
+    if (selectedPaths.size === 1) {
+      defaultDir = Array.from(selectedPaths)[0];
+    }
+    setUploadDialog({ dir: defaultDir });
+  }, [rootPath, selectedPaths]);
+
+  const handleUploadInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    const destDir = uploadDialog?.dir.trim() || rootPath;
+    setUploadDialog(null);
+    await uploadFiles(files, destDir);
+  }, [uploadDialog, rootPath, uploadFiles]);
 
   const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -381,9 +413,9 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
       <div className="flex items-center gap-3 px-2 py-1.5 sm:py-1 border-b border-sol-base02 shrink-0">
         {workDir && <span className="text-sm sm:text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
         {!workDir && <span className="flex-1" />}
-        <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
+        <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadInputChange} />
         <button
-          onClick={() => uploadInputRef.current?.click()}
+          onClick={openUploadDialog}
           disabled={uploading}
           className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           title="Upload file(s)"
@@ -411,7 +443,25 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
           </svg>
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto py-1" onClick={handleBackgroundClick}>
+      <div
+        className={`flex-1 overflow-y-auto py-1 ${rootDragOver ? "outline outline-1 -outline-offset-1 outline-sol-blue bg-sol-base02/40" : ""}`}
+        onClick={handleBackgroundClick}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          setRootDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setRootDragOver(false);
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+          e.preventDefault();
+          setRootDragOver(false);
+          uploadFiles(Array.from(e.dataTransfer.files), rootPath);
+        }}
+      >
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic text-sm p-3">Sign in to browse files</p>
         ) : loading && roots === null ? (
@@ -435,10 +485,60 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
               collapseVersion={collapseVersion}
               onContextMenu={handleNodeContextMenu}
               vmQuery={vmQuery}
-                />
+              onUpload={uploadFiles}
+            />
           ))
         ) : null}
       </div>
+      {uploadDialog && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setUploadDialog(null)}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-sol-base02">
+              <div className="text-sol-base1 text-sm font-semibold">Upload files</div>
+              <div className="text-sol-base01 text-xs mt-1">
+                Files will be uploaded to the target directory. Missing parents are created automatically.
+              </div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-2">
+              <label className="text-xs text-sol-base01">Target directory</label>
+              <input
+                type="text"
+                autoFocus
+                value={uploadDialog.dir}
+                onChange={(e) => setUploadDialog({ dir: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") uploadInputRef.current?.click();
+                  if (e.key === "Escape") setUploadDialog(null);
+                }}
+                placeholder={rootPath}
+                className="px-2 py-1 bg-sol-base02 text-sol-base1 text-sm rounded border border-sol-base01 focus:outline-none focus:border-sol-blue"
+              />
+              <div className="flex gap-2 justify-end mt-2">
+                <button
+                  onClick={() => setUploadDialog(null)}
+                  className="px-3 py-1.5 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={uploading}
+                  className="px-3 py-1.5 rounded text-sm bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-blue/40"
+                >
+                  Choose files...
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {ctxMenu && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
