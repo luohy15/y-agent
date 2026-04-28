@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import click
 
-from .registry import load_registry, create_worktree, remove_worktree, get_worktree
+from .registry import load_registry, create_worktree, remove_worktree
 
 SESSION_BASE = "/tmp/dev-sessions"
 
@@ -26,23 +26,49 @@ def _kill_session_processes(session_dir: str):
             continue
         try:
             pid = int(open(path).read().strip())
-            os.kill(pid, signal.SIGTERM)
+            # Guard: kill(0,…) signals the whole calling process group; kill(1,…) hits init.
+            # A bogus pid file (e.g. "0") would otherwise nuke us.
+            if pid > 1:
+                os.kill(pid, signal.SIGTERM)
         except (ProcessLookupError, ValueError, OSError):
             pass
-    # Remove session dir
     if os.path.exists(session_dir):
-        shutil.rmtree(session_dir)
+        try:
+            shutil.rmtree(session_dir)
+        except OSError as e:
+            click.echo(f"  Warning: failed to remove session dir {session_dir}: {e}", err=True)
+
+
+_HEAVY_DIR_NAMES = (
+    "node_modules", "dist", "build", "__pycache__",
+    ".pytest_cache", ".mypy_cache", ".next", ".turbo",
+)
+
+
+def _remove_path(p: str):
+    """Best-effort remove a file / dir / symlink; warn on failure."""
+    if not (os.path.exists(p) or os.path.islink(p)):
+        return
+    try:
+        if os.path.islink(p) or not os.path.isdir(p):
+            os.remove(p)
+        else:
+            shutil.rmtree(p)
+    except OSError as e:
+        click.echo(f"  Warning: failed to remove {p}: {e}", err=True)
 
 
 def _cleanup_worktree_artifacts(worktree_path: str):
-    """Remove symlinked artifacts from worktree."""
+    """Remove symlinked artifacts and heavy build dirs that can block git worktree remove."""
     for rel in ["web/node_modules", "web/.env.local", ".env", ".venv"]:
-        p = os.path.join(worktree_path, rel)
-        if os.path.exists(p) or os.path.islink(p):
-            if os.path.isdir(p) and not os.path.islink(p):
-                shutil.rmtree(p)
-            else:
-                os.remove(p)
+        _remove_path(os.path.join(worktree_path, rel))
+
+    for root, dirs, _files in os.walk(worktree_path, topdown=True, followlinks=False):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for d in list(dirs):
+            if d in _HEAVY_DIR_NAMES or d.endswith(".egg-info"):
+                _remove_path(os.path.join(root, d))
+                dirs.remove(d)
 
 
 def _gc_orphaned_sessions():
@@ -107,34 +133,45 @@ def wt_add(project_path: str, name: str, todo_id: str):
 @click.command('rm')
 @click.argument('name')
 def wt_rm(name: str):
-    """Remove a worktree and clean up all associated resources."""
-    entry = get_worktree(name)
+    """Remove a worktree and clean up all associated resources.
+
+    Idempotent: missing or partially-cleaned worktrees emit warnings instead
+    of errors so the command always exits 0 unless something catastrophic raises.
+    """
+    registry = load_registry()
+    entry = registry.get(name)
+
+    session_dir = os.path.join(SESSION_BASE, name)
+    _kill_session_processes(session_dir)
+
+    if entry is None:
+        click.echo(f"Worktree '{name}' not found in registry; skipping git/worktree cleanup.")
+        _gc_orphaned_sessions()
+        return
+
     project_path = entry["project_path"]
     worktree_path = entry["worktree_path"]
     branch = entry["branch"]
 
-    # 1. Kill processes for this worktree
-    session_dir = os.path.join(SESSION_BASE, name)
-    _kill_session_processes(session_dir)
-
-    # 2. Clean up worktree artifacts and remove git worktree
     if os.path.exists(worktree_path):
         _cleanup_worktree_artifacts(worktree_path)
-        subprocess.check_call(["git", "-C", project_path, "worktree", "remove", "--force", worktree_path])
+        rc = subprocess.call(["git", "-C", project_path, "worktree", "remove", "--force", worktree_path])
+        if rc != 0:
+            click.echo(f"  Warning: git worktree remove failed (rc={rc}); falling back to rmtree", err=True)
     if os.path.exists(worktree_path):
-        shutil.rmtree(worktree_path)
+        try:
+            shutil.rmtree(worktree_path)
+        except OSError as e:
+            click.echo(f"  Warning: rmtree failed for {worktree_path}: {e}", err=True)
     subprocess.call(["git", "-C", project_path, "branch", "-D", branch])
     click.echo(f"Removed worktree at {worktree_path}")
 
-    # 3. Reinstall CLI
     cli_dir = os.path.join(project_path, "cli")
     if os.path.isdir(cli_dir):
         subprocess.call(["uv", "tool", "install", "--force", "-e", cli_dir])
 
-    # 4. Unregister
     remove_worktree(name)
 
-    # 5. GC orphaned sessions
     _gc_orphaned_sessions()
 
 
