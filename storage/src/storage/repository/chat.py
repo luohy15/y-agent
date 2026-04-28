@@ -418,6 +418,22 @@ def find_latest_chat_by_topic(user_id: int, topic: Optional[str]) -> Optional[Ch
             return None
 
 
+def find_latest_chat_by_trace_id(user_id: int, trace_id: str) -> Optional[Chat]:
+    """Find the most recent chat for a given trace_id."""
+    with get_db() as session:
+        row = (session.query(ChatEntity)
+               .filter_by(user_id=user_id, trace_id=trace_id)
+               .order_by(ChatEntity.updated_at_unix.desc())
+               .first())
+        if not row:
+            return None
+        try:
+            return _entity_to_chat(row)
+        except Exception as e:
+            logger.exception("Error parsing chat JSON: {}", e)
+            return None
+
+
 def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
     """Return {trace_id: {"has_running": bool, "has_unread": bool}} for given trace_ids."""
     from sqlalchemy import func, case
