@@ -40,11 +40,12 @@ async def list_todos(
     status: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
+    unread: Optional[bool] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
 ):
     user_id = _get_user_id(request)
-    todos = todo_service.list_todos(user_id, status=status, priority=priority, query=query, limit=limit, offset=offset)
+    todos = todo_service.list_todos(user_id, status=status, priority=priority, query=query, unread=unread, limit=limit, offset=offset)
     result = [t.to_dict() for t in todos]
 
     # Batch-lookup chat status for all todo_ids (trace_id == todo_id)

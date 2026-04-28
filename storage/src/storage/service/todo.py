@@ -6,8 +6,8 @@ from storage.repository import todo as todo_repo
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 
-def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
-    return todo_repo.list_todos(user_id, status=status, priority=priority, query=query, limit=limit, offset=offset)
+def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, unread: Optional[bool] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
+    return todo_repo.list_todos(user_id, status=status, priority=priority, query=query, unread=unread, limit=limit, offset=offset)
 
 
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:

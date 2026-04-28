@@ -36,18 +36,16 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => localStorage.getItem("chatStatusFilter") || "");
-  const [unreadFilter, setUnreadFilter] = useState<boolean>(() => localStorage.getItem("chatUnreadFilter") === "true");
   const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
-  const unreadParam = unreadFilter ? `&unread=true` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${statusParam}${unreadParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -83,7 +81,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, statusFilter, unreadFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -164,12 +162,6 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${statusFilter === "running" ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
             >
               running
-            </button>
-            <button
-              onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("chatUnreadFilter", String(v)); }}
-              className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
-            >
-              unread
             </button>
           </div>
         </div>
