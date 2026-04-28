@@ -35,13 +35,16 @@ def _expand(patterns):
 @click.command('tinify')
 @click.argument('inputs', nargs=-1, required=True)
 @click.option('--output', '-o', default=None, type=click.Path(),
-              help='Output path. Only valid for a single input; defaults to in-place overwrite.')
-def image_tinify(inputs, output):
+              help='Explicit output path. Only valid for a single input.')
+@click.option('--in-place', '-i', 'in_place', is_flag=True,
+              help='Overwrite the original file(s) instead of writing a .min copy.')
+def image_tinify(inputs, output, in_place):
     """Compress images using TinyPNG / Tinify (PNG, JPEG, WebP).
 
-    Accepts one or more files, directories, or glob patterns. Defaults to
-    overwriting each input in place. Use -o to write to a specific path
-    when compressing a single file.
+    Accepts one or more files, directories, or glob patterns. By default
+    each input is compressed into a sibling `<stem>.min<ext>` file. Use
+    `-o` to pick the output path for a single input, or `-i` to overwrite
+    the originals.
 
     Requires TINIFY_API_KEY in ~/.y-agent/config.toml. Get a key from
     https://tinypng.com/developers.
@@ -63,6 +66,8 @@ def image_tinify(inputs, output):
     if missing:
         raise click.ClickException(f"File(s) not found: {', '.join(str(p) for p in missing)}")
 
+    if output is not None and in_place:
+        raise click.ClickException("--output/-o and --in-place/-i are mutually exclusive.")
     if output is not None and len(paths) != 1:
         raise click.ClickException("--output/-o is only allowed with a single input file.")
 
@@ -72,7 +77,12 @@ def image_tinify(inputs, output):
     total_in = 0
     total_out = 0
     for src in paths:
-        dst = Path(output) if output else src
+        if output is not None:
+            dst = Path(output)
+        elif in_place:
+            dst = src
+        else:
+            dst = src.with_name(f"{src.stem}.min{src.suffix}")
         size_in = src.stat().st_size
         try:
             source = tinify.from_file(str(src))
