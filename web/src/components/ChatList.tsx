@@ -35,7 +35,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>(() => localStorage.getItem("chatStatusFilter") || "");
+  const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
