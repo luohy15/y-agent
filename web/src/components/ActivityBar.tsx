@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState, type DragEvent, type ReactNode, type RefCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefCallback } from "react";
 import { isPreview } from "../hooks/useAuth";
+import { useUserPreference, type SyncStatus } from "../hooks/useUserPreference";
 
 export type SidebarPanel =
   | "todo"
@@ -255,6 +256,71 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   const [order, setOrder] = useState<SidebarPanel[]>(() => loadOrder(defaultOrder));
 
+  const pref = useUserPreference<SidebarPanel[]>("activityBarOrder", { enabled: isLoggedIn });
+  // True after the user has reordered locally; suppresses one-shot server overwrite
+  // so a slow GET doesn't snap their fresh change back to an older value.
+  const userTouchedRef = useRef(false);
+  // Per-login bootstrap guard: once we've reconciled the initial server value
+  // (or pushed local→server when server is empty), don't run that branch again.
+  const reconciledRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      userTouchedRef.current = false;
+      reconciledRef.current = false;
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !pref.loaded || reconciledRef.current) return;
+    reconciledRef.current = true;
+    if (pref.serverValue && Array.isArray(pref.serverValue)) {
+      if (userTouchedRef.current) return;
+      const merged = mergeWithDefaults(pref.serverValue, defaultOrder);
+      setOrder(merged);
+      saveOrder(merged);
+    } else {
+      // Server has no value — bootstrap with local order if it differs from default
+      const isDefault =
+        order.length === defaultOrder.length &&
+        order.every((k, i) => k === defaultOrder[i]);
+      if (!isDefault) {
+        pref.setValue(order);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, pref.loaded, pref.serverValue]);
+
+  // Sync status pill: show on error/offline, briefly flash "Synced" after recovery.
+  type PillVariant = "error" | "offline" | "success";
+  const [pill, setPill] = useState<PillVariant | null>(null);
+  const prevPillRef = useRef<PillVariant | null>(null);
+  useEffect(() => {
+    if (pref.status === "error") {
+      setPill("error");
+      prevPillRef.current = "error";
+      return;
+    }
+    if (pref.status === "offline") {
+      setPill("offline");
+      prevPillRef.current = "offline";
+      return;
+    }
+    if (pref.status === "synced" && (prevPillRef.current === "error" || prevPillRef.current === "offline")) {
+      setPill("success");
+      prevPillRef.current = "success";
+      const t = window.setTimeout(() => setPill(null), 1500);
+      return () => window.clearTimeout(t);
+    }
+    if (pref.status === "synced" || pref.status === "idle") {
+      // Clear any lingering success pill on subsequent successful syncs.
+      if (prevPillRef.current === "success") {
+        setPill(null);
+        prevPillRef.current = null;
+      }
+    }
+  }, [pref.status]);
+
   const panelByKey = useMemo(() => {
     const m = new Map<SidebarPanel, PanelItem>();
     PANEL_ITEMS.forEach(p => m.set(p.key, p));
@@ -323,6 +389,10 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     current.splice(insertAt, 0, moving);
     setOrder(current);
     saveOrder(current);
+    if (isLoggedIn) {
+      userTouchedRef.current = true;
+      pref.setValue(current);
+    }
   }
 
   // Show minimal bar with just GitHub + login when not logged in
@@ -482,6 +552,27 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           </button>
         )
       )}
+      <SyncStatusPill variant={pill} status={pref.status} />
+    </div>
+  );
+}
+
+function SyncStatusPill({ variant, status }: { variant: "error" | "offline" | "success" | null; status: SyncStatus }) {
+  if (!variant) return null;
+  const text =
+    variant === "error" ? (status === "syncing" ? "Retrying…" : "Sync failed")
+    : variant === "offline" ? "Offline — will retry"
+    : "Synced";
+  const cls =
+    variant === "error" ? "bg-sol-red/15 border-sol-red/30 text-sol-red"
+    : variant === "offline" ? "bg-sol-yellow/15 border-sol-yellow/30 text-sol-yellow"
+    : "bg-sol-green/15 border-sol-green/30 text-sol-green";
+  return (
+    <div
+      role="status"
+      className={`fixed bottom-3 left-3 z-50 px-2.5 py-1 rounded-full border text-xs shadow-sm pointer-events-none ${cls}`}
+    >
+      {text}
     </div>
   );
 }

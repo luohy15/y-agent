@@ -12,6 +12,7 @@ from storage.dto.dev_worktree import DevWorktreeHistoryEntry, DevWorktree
 from storage.dto.tg_topic import TgTopic
 from storage.dto.reminder import Reminder
 from storage.dto.rss_feed import RssFeed
+from storage.dto.user_preference import UserPreference
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -26,4 +27,5 @@ __all__ = [
     "TgTopic",
     "Reminder",
     "RssFeed",
+    "UserPreference",
 ]
