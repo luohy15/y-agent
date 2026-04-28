@@ -39,7 +39,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Codex resume bug (1834)** — session resume now picks up the right offset.
 - Activity bar reorder edge cases (1850).
 
-## [0.5.10] - 2026-04-23
+## [0.5.10] - 2026-04-26
 
 ### Added
 - **RSS subscription pipeline** — `y rss` CLI, admin-side scheduling, worker scrape with two-stage fetch, unified S3 storage for feed content, and a web feed viewer
