@@ -32,9 +32,9 @@ export const solarizedDarkTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.04)" },
     ".cm-activeLineGutter": { backgroundColor: "transparent" },
-    ".cm-selectionBackground, ::selection": { backgroundColor: "#073642" },
+    ".cm-selectionBackground, ::selection": { backgroundColor: "rgba(38,139,210,0.30)" },
     "&.cm-focused .cm-selectionBackground, &.cm-focused ::selection": {
-      backgroundColor: "#073642",
+      backgroundColor: "rgba(38,139,210,0.45)",
     },
     ".cm-scroller": { fontFamily: "inherit" },
     ".cm-line": { padding: "0 12px 0 16px" },
