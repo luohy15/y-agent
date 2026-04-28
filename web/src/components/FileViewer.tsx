@@ -11,6 +11,7 @@ import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView from "./TraceView";
 import LinkList from "./LinkList";
+import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -1055,56 +1056,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
                   <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} onExternalLinkClick={onExternalLinkClick} />
                 ) : (
-                  <div className="flex h-full overflow-hidden">
-                    <div
-                      className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 bg-sol-base03 font-mono text-sm leading-relaxed pt-3 overflow-hidden shrink-0"
-                    >
-                      {(editContent[filePath] ?? fileData.content ?? "").split("\n").map((_, i) => (
-                        <div key={i}>{i + 1}</div>
-                      ))}
-                    </div>
-                    <div className="flex-1 relative min-w-0">
-                      <pre
-                        className="absolute inset-0 font-mono text-sm leading-relaxed pl-4 pr-3 pt-3 m-0 bg-sol-base03 pointer-events-none hljs overflow-hidden"
-                        style={{ whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
-                        dangerouslySetInnerHTML={{
-                          __html: (() => {
-                            const code = editContent[filePath] ?? fileData.content ?? "";
-                            const lang = getExt(filePath);
-                            try {
-                              if (lang && hljs.getLanguage(lang)) {
-                                return hljs.highlight(code, { language: lang }).value + "\n";
-                              }
-                              return hljs.highlightAuto(code).value + "\n";
-                            } catch {
-                              return code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "\n";
-                            }
-                          })()
-                        }}
-                      />
-                      <textarea
-                        data-editor="true"
-                        className="absolute inset-0 font-mono text-sm leading-relaxed pl-4 pr-3 pt-3 bg-transparent resize-none outline-none overflow-auto"
-                        style={{ color: "transparent", caretColor: "#839496", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
-                        value={editContent[filePath] ?? fileData.content}
-                        onChange={(e) => setEditContent((prev) => ({ ...prev, [filePath]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                            e.preventDefault();
-                            handleSave(filePath);
-                          }
-                        }}
-                        onScroll={(e) => {
-                          const ta = e.currentTarget;
-                          const container = ta.parentElement;
-                          const pre = container?.querySelector("pre");
-                          const gutter = container?.parentElement?.firstElementChild as HTMLElement | null;
-                          if (pre) pre.scrollTop = ta.scrollTop;
-                          if (gutter) gutter.scrollTop = ta.scrollTop;
-                        }}
-                        spellCheck={false}
-                      />
-                    </div>
+                  <div className="h-full overflow-hidden bg-sol-base03" data-editor="true">
+                    <CodeEditor
+                      filePath={filePath}
+                      value={editContent[filePath] ?? fileData.content ?? ""}
+                      onChange={(v) => setEditContent((prev) => ({ ...prev, [filePath]: v }))}
+                      onSave={handleSave}
+                    />
                   </div>
                 )
               ) : null}
