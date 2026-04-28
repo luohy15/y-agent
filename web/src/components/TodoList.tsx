@@ -38,15 +38,17 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
     const saved = localStorage.getItem("todoListStatusFilter");
     return (saved === "pending" || saved === "active" || saved === "completed" || saved === "all") ? saved : "pending";
   });
+  const [unreadFilter, setUnreadFilter] = useState<boolean>(() => localStorage.getItem("todoListUnreadFilter") === "true");
   useEffect(() => { localStorage.setItem("todoListStatusFilter", statusFilter); }, [statusFilter]);
 
   const statusParam = statusFilter === "all" ? "" : `&status=${statusFilter}`;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
+  const unreadParam = unreadFilter ? `&unread=true` : "";
 
   const getKey = (pageIndex: number, previousPageData: Todo[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null;
-    return `${API}/api/todo/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${statusParam}${queryParam}`;
+    return `${API}/api/todo/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${statusParam}${queryParam}${unreadParam}`;
   };
 
   const { data, isLoading, error, size, setSize, isValidating, mutate } = useSWRInfinite<Todo[]>(getKey, fetcher);
@@ -71,7 +73,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
 
   useEffect(() => {
     setSize(1);
-  }, [statusFilter, search, setSize]);
+  }, [statusFilter, search, unreadFilter, setSize]);
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
@@ -92,7 +94,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
             <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center">
           {(["pending", "active", "completed", "all"] as const).map((f) => (
             <button
               key={f}
@@ -106,6 +108,12 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
               {f}
             </button>
           ))}
+          <button
+            onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("todoListUnreadFilter", String(v)); }}
+            className={`ml-auto px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+          >
+            unread
+          </button>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
