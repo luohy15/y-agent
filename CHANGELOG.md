@@ -19,12 +19,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **TraceView waterfall grouped by skill** — per-session waterfall layout; `desc` rendered as markdown in TraceView and ShareTraceView.
 - **Todo read/unread tracking (1882)** — right-click context menu to toggle read/unread; sidebar badge integration.
 - **Topic singleton enforcement (1888)** — repository-level guard ensures one active chat per topic; Telegram and notify paths honor it.
-- **Activity bar overhaul (1848 / 1850 / 1855)** — dedicated reminder slot, unified active/icon styling, reorder, todo checkbox icon.
-- **Finance F.I.R.E. progress tab (1858 / 1860)** — `y beancount fire-progress` CLI + frontend tab.
-- **Entity ↔ Link relations** — entity-link relation table; entity viewer lists associated links.
-- **RSS via oxylabs (1843 / 1845 / 1849 / 1851)** — OpenAI and WeChat feeds now scrape through oxylabs; every RSS item gets an activity row; OpenAI skipped from direct download path.
-- **Activity source label (1844)** — surfaces which downloader produced an activity.
 - **ChatList items show `skill` instead of `backend` (1903)** — backend remains in chat detail.
+- **`y image` CLI** — image generation and tinify sub-commands.
 - README: Architecture section with ASCII session-tree diagram; dev/plan/impl/review skill-per-task example; demo image bumped to v3.
 
 ### Changed
@@ -32,34 +28,38 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Trace propagation made permissive (1886)** — MessageBubble accepts inherited `trace_id` even when the participant chat predates the trace.
 - **API restructure (1891)** — notify endpoints folded into `api/controller/chat.py`; `controller/notify.py` deleted.
 - Worker `run_chat` signature: `role` argument removed; skill defaulted from topic when not explicitly set.
-- Finance panel cleanup (1853).
 
 ### Fixed
 - **Telegram routing tightened (worker)** — `_resolve_telegram_target` only DMs the `manager` topic; non-root topics without a `tg_topic` binding no longer fall back to DM.
-- **Codex resume bug (1834)** — session resume now picks up the right offset.
-- Activity bar reorder edge cases (1850).
 
 ## [0.5.10] - 2026-04-26
 
 ### Added
 - **RSS subscription pipeline** — `y rss` CLI, admin-side scheduling, worker scrape with two-stage fetch, unified S3 storage for feed content, and a web feed viewer
 - **Entity (knowledge graph)** — new entity table plus note and rss relations, frontend sidebar integration
+- **Entity ↔ Link relations** — entity-link relation table; entity viewer lists associated links
 - **Shareable trace pages with password protection**
 - `y trace unshare` — CLI + UI + backend delete for shared traces
 - Link `published_at` extracted during scrape; link list shows title + URL; internal link-click navigation
 - Full-path breadcrumbs in the file viewer
 - Unified link viewer (centered layout in `links/` markdown files)
 - RSS feed fail cooldown and dedup
+- **Activity bar overhaul (1848 / 1850 / 1855)** — dedicated reminder slot, unified active/icon styling, reorder, todo checkbox icon
+- **Finance F.I.R.E. progress tab (1858 / 1860)** — `y beancount fire-progress` CLI + frontend tab
+- **Activity source label (1844)** — surfaces which downloader produced an activity
 
 ### Changed
 - Immutable `trace_id` — align notify/steer on a single trace identifier
 - Restore S3 as backing store for link content (supersedes the 0.5.9 local-filesystem attempt)
-- WeChat article download routed through oxylabs
+- **RSS via oxylabs (1843 / 1845 / 1849 / 1851)** — OpenAI and WeChat feeds now scrape through oxylabs; every RSS item gets an activity row; OpenAI skipped from direct download path
+- Finance panel cleanup (1853)
 
 ### Fixed
 - Share popover bug (1806)
 - Note pages workdir resolution
 - RSS EventBridge schedule type (`Schedule`, not `ScheduleV2`)
+- **Codex resume bug (1834)** — session resume now picks up the right offset
+- Activity bar reorder edge cases (1850)
 
 ### Removed
 - Stale root `todo.md`
