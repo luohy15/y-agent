@@ -63,6 +63,28 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
 
   const items: MenuItem[] = [];
 
+  items.push({
+    type: "item",
+    label: "Mark read",
+    action: async () => {
+      await markTraceRead(todo.todo_id);
+      onChatListRefresh?.();
+      onAction();
+      onClose();
+    },
+  });
+  items.push({
+    type: "item",
+    label: "Mark unread",
+    action: async () => {
+      await markTraceUnread(todo.todo_id);
+      onChatListRefresh?.();
+      onAction();
+      onClose();
+    },
+  });
+  items.push({ type: "separator" });
+
   if (todo.status === "pending") {
     items.push({
       type: "item",
@@ -121,32 +143,6 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
       action: async () => { await changeTodoStatus(todo.todo_id, "completed"); onAction(); onClose(); },
     });
   }
-
-  if (items.length > 0) {
-    items.push({ type: "separator" });
-  }
-  items.push({
-    type: "item",
-    label: "Mark read",
-    action: async () => {
-      await markTraceRead(todo.todo_id);
-      onChatListRefresh?.();
-      onAction();
-      onClose();
-    },
-  });
-  items.push({
-    type: "item",
-    label: "Mark unread",
-    action: async () => {
-      await markTraceUnread(todo.todo_id);
-      onChatListRefresh?.();
-      onAction();
-      onClose();
-    },
-  });
-
-  if (items.length === 0) return null;
 
   return createPortal(
     <div
