@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 from typing import List, Optional
 
 import jwt
@@ -14,6 +15,11 @@ from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
 
 router = APIRouter(prefix="/telegram")
+
+# Matches a `/{chat_id}<whitespace>` prefix where chat_id is 6 lowercase hex
+# digits — same shape as `generate_id()`. The trailing `\s+` requires at least
+# one whitespace separator so the body is non-empty after the prefix.
+_TG_ROUTE_PREFIX_RE = re.compile(r"^/([0-9a-f]{6})\s+")
 
 TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
@@ -86,11 +92,24 @@ async def telegram_webhook(request: Request):
             "Use /bind <jwt_token> to link your account.\n"
             "Use /unbind to unlink your account.\n"
             "Use /clear to start a new session.\n"
-            "Send any text to chat.\n\n"
+            "Send any text to chat.\n"
+            "Prefix with /<chat_id> to target a specific chat (e.g. /ba4988 hi).\n\n"
             "In forum groups, each topic is a separate chat session.",
             message_thread_id=message_thread_id,
         )
         return {"ok": True}
+
+    # Explicit chat routing: `/{chat_id} <message>` targets a specific chat
+    # instead of the default topic. Matched before the default route so the
+    # prefix wins over the manager-DM fallback.
+    route_match = _TG_ROUTE_PREFIX_RE.match(text)
+    if route_match:
+        target_chat_id = route_match.group(1)
+        body = text[route_match.end():]
+        return await _handle_routed_message(
+            telegram_chat_id, telegram_user_id, target_chat_id, body,
+            images=images, message_thread_id=message_thread_id,
+        )
 
     # Regular message — route to chat
     return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images, message_thread_id=message_thread_id)
@@ -195,6 +214,67 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         logger.info("Released topic '{}' from {} previous chat(s) on /clear by user {}", topic, released, user.id)
 
     await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
+    return {"ok": True}
+
+
+async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None, message_thread_id=None):
+    """Route a Telegram message to an explicit chat by id.
+
+    Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
+    to the bound user (so a stranger's chat id resolves as 'not found'), then
+    appends the message and queues the worker — same append-or-steer semantics
+    as the /api/chat/notify path. The target chat receives the message but
+    does not reply to Telegram: only top-level chats with a tg_topic / DM
+    binding emit replies, and child chats addressed by id stay silent.
+    """
+    user = get_user_by_telegram_id(telegram_user_id)
+    if not user:
+        await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+        return {"ok": True}
+
+    if not text.strip():
+        await _send_message(telegram_chat_id, f"Usage: /{target_chat_id} <message>", message_thread_id=message_thread_id)
+        return {"ok": True}
+
+    from storage.repository import chat as chat_repo
+    target_chat = await chat_repo.get_chat(user.id, target_chat_id)
+    if not target_chat:
+        await _send_message(telegram_chat_id, f"chat /{target_chat_id} not found", message_thread_id=message_thread_id)
+        return {"ok": True}
+
+    msg_dict = {
+        "role": "user",
+        "content": text,
+        "timestamp": get_utc_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+        "source": "telegram",
+    }
+    if images:
+        msg_dict["images"] = images
+    user_msg = Message.from_dict(msg_dict)
+    target_chat.messages.append(user_msg)
+    target_chat.interrupted = False
+    already_running = target_chat.running
+    if not already_running:
+        target_chat.running = True
+    await chat_repo.save_chat_by_id(target_chat)
+
+    # If the chat is already running, the running worker picks up the new
+    # message via steer polling — don't enqueue a duplicate task.
+    if not already_running:
+        try:
+            from storage.service.chat import send_chat_message
+            send_chat_message(
+                target_chat_id,
+                user_id=user.id,
+                topic=target_chat.topic,
+                trace_id=target_chat.trace_id,
+                skill=target_chat.skill,
+                backend=target_chat.backend,
+            )
+        except Exception as e:
+            logger.exception("_handle_routed_message: failed to queue: {}", e)
     return {"ok": True}
 
 
