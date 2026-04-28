@@ -9,7 +9,7 @@ from loguru import logger
 from fastapi import APIRouter, Request
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
-from storage.repository.chat import find_latest_chat_by_topic, save_chat as repo_save_chat
+from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
@@ -20,6 +20,10 @@ router = APIRouter(prefix="/telegram")
 # digits — same shape as `generate_id()`. The trailing `\s+` requires at least
 # one whitespace separator so the body is non-empty after the prefix.
 _TG_ROUTE_PREFIX_RE = re.compile(r"^/([0-9a-f]{6})\s+")
+# Matches a `/{todo_id}<whitespace>` prefix where todo_id is all digits. Tried
+# after the chat_id regex so 6-digit hex (which can be all-digits) still routes
+# as chat_id when applicable.
+_TG_ROUTE_TODO_PREFIX_RE = re.compile(r"^/(\d+)\s+")
 
 TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
@@ -93,7 +97,8 @@ async def telegram_webhook(request: Request):
             "Use /unbind to unlink your account.\n"
             "Use /clear to start a new session.\n"
             "Send any text to chat.\n"
-            "Prefix with /<chat_id> to target a specific chat (e.g. /ba4988 hi).\n\n"
+            "Prefix with /<chat_id> to target a specific chat (e.g. /ba4988 hi).\n"
+            "Prefix with /<todo_id> to target the latest chat of a todo (e.g. /1938 hi).\n\n"
             "In forum groups, each topic is a separate chat session.",
             message_thread_id=message_thread_id,
         )
@@ -108,6 +113,26 @@ async def telegram_webhook(request: Request):
         body = text[route_match.end():]
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat_id, body,
+            images=images, message_thread_id=message_thread_id,
+        )
+
+    # Explicit todo routing: `/{todo_id} <message>` resolves to the most
+    # recently updated chat in that todo's trace. chat_id (6-hex) is matched
+    # first above so all-digit 6-hex strings keep routing as chat_id.
+    todo_match = _TG_ROUTE_TODO_PREFIX_RE.match(text)
+    if todo_match:
+        todo_id = todo_match.group(1)
+        body = text[todo_match.end():]
+        user = get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+            return {"ok": True}
+        target_chat = find_latest_chat_by_trace_id(user.id, todo_id)
+        if not target_chat:
+            await _send_message(telegram_chat_id, f"no chat for todo /{todo_id}", message_thread_id=message_thread_id)
+            return {"ok": True}
+        return await _handle_routed_message(
+            telegram_chat_id, telegram_user_id, target_chat.id, body,
             images=images, message_thread_id=message_thread_id,
         )
 
