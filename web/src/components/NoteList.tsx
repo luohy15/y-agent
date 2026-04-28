@@ -27,7 +27,21 @@ interface NoteListProps {
   hideFilters?: boolean;
 }
 
-type NoteTab = "journals" | "pages";
+type NoteTab = "journals" | "pages" | "blog";
+type BlogLang = "en" | "zhs" | "zht" | "ja";
+
+interface BlogEntry {
+  title: string;
+  create_time?: string;
+  update_time?: string;
+  url: string;
+}
+
+const BLOG_LANGS: BlogLang[] = ["en", "zhs", "zht", "ja"];
+
+function blogDirForLang(lang: BlogLang): string {
+  return lang === "en" ? "blog" : `blog/${lang}`;
+}
 
 function formatMonth(dateStr: string): string {
   // dateStr like "2026-04-12.md" → extract YYYY-MM
@@ -56,15 +70,24 @@ function groupByMonth(files: string[]): [string, string[]][] {
 export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
-    return saved === "journals" || saved === "pages" ? saved : "journals";
+    return saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
   });
   const [searchInput, setSearchInput] = useState("");
   const [journalYear, setJournalYear] = useState<string>(() => localStorage.getItem("noteListJournalYear") || "");
   const [journalMonth, setJournalMonth] = useState<string>(() => localStorage.getItem("noteListJournalMonth") || "");
+  const [blogLang, setBlogLang] = useState<BlogLang>(() => {
+    const saved = localStorage.getItem("noteListBlogLang");
+    return BLOG_LANGS.includes(saved as BlogLang) ? (saved as BlogLang) : "en";
+  });
 
   const handleTabChange = useCallback((t: NoteTab) => {
     setTab(t);
     localStorage.setItem("noteListTab", t);
+  }, []);
+
+  const handleBlogLangChange = useCallback((l: BlogLang) => {
+    setBlogLang(l);
+    localStorage.setItem("noteListBlogLang", l);
   }, []);
 
   const journalsParams = new URLSearchParams();
@@ -76,11 +99,17 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   pagesParams.set("sort", "atime");
   if (vmName) pagesParams.set("vm_name", vmName);
 
+  const blogParams = new URLSearchParams();
+  blogParams.set("path", `${blogDirForLang(blogLang)}/index.jsonl`);
+  if (vmName) blogParams.set("vm_name", vmName);
+
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
   const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
+  const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/file/read?${blogParams.toString()}` : null;
 
   const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
+  const { data: blogData, isLoading: blogLoading, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
   const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
@@ -173,6 +202,20 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     return files;
   }, [pagesData, searchInput]);
 
+  const blogEntries = useMemo<BlogEntry[]>(() => {
+    if (!blogData?.content) return [];
+    const out: BlogEntry[] = [];
+    for (const line of blogData.content.split("\n")) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const obj = JSON.parse(t);
+        if (obj && typeof obj === "object" && obj.url) out.push(obj as BlogEntry);
+      } catch {}
+    }
+    return out;
+  }, [blogData]);
+
   const tabClass = (active: boolean) =>
     `px-2 py-0.5 rounded text-[0.65rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
 
@@ -242,8 +285,9 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         <div className="flex gap-1 items-center">
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
+          <button onClick={() => handleTabChange("blog")} className={tabClass(tab === "blog")}>Blog</button>
           <button
-            onClick={() => { if (tab === "journals") mutateJournals(); else mutatePages(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else mutateBlog(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
             className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
@@ -267,6 +311,13 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
               </div>
             )}
           </>
+        )}
+        {tab === "blog" && (
+          <div className="flex gap-1 flex-wrap">
+            {BLOG_LANGS.map((l) => (
+              <button key={l} onClick={() => handleBlogLangChange(l)} className={pillClass(blogLang === l)}>{l}</button>
+            ))}
+          </div>
         )}
         {tab === "pages" && (
           <div className="flex gap-1 items-center">
@@ -340,7 +391,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
               </div>
             ))
           )
-        ) : (
+        ) : tab === "pages" ? (
           pagesLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : pagesError ? (
@@ -373,6 +424,35 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                   })()}
                 </button>
               ))}
+            </div>
+          )
+        ) : (
+          blogLoading ? (
+            <p className="text-sol-base01 italic p-2">Loading...</p>
+          ) : blogError ? (
+            <p className="text-sol-base01 italic p-2">Error loading blog</p>
+          ) : blogEntries.length === 0 ? (
+            <p className="text-sol-base01 italic p-2">No posts found</p>
+          ) : (
+            <div className="space-y-0">
+              {blogEntries.map((entry) => {
+                const filename = entry.url.split("/").pop() || "";
+                const relPath = `${blogDirForLang(blogLang)}/${filename}`;
+                const fullPath = workDir ? `${workDir}/${relPath}` : relPath;
+                return (
+                  <button
+                    key={entry.url}
+                    onClick={() => onOpenFile(fullPath)}
+                    onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: fullPath }); }}
+                    className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                  >
+                    <span className="truncate flex-1">{entry.title}</span>
+                    {entry.update_time && (
+                      <span className="text-sol-base01 text-[0.6rem] shrink-0 text-right">{entry.update_time}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )
         )}
