@@ -461,15 +461,6 @@ export default function App() {
                 #{chatListTraceId.slice(0, 8)}
               </button>
             )}
-            {chatListRoutineId && (
-              <button
-                onClick={() => setChatListRoutineId(null)}
-                className="inline-flex items-center gap-1 text-sol-base01 hover:text-sol-red text-xs font-mono cursor-pointer"
-                title="Clear routine filter"
-              >
-                routine={chatListRoutineId.slice(0, 8)} ✕
-              </button>
-            )}
             <div className="relative shrink-0" ref={vmDropdownRef}>
               <button
                 onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
@@ -635,7 +626,7 @@ export default function App() {
               sidebarPanel === "todo" ? (
                 <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { setSelectedTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} }).catch(() => {}); }} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : sidebarPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
               ) : sidebarPanel === "links" ? (
@@ -652,11 +643,11 @@ export default function App() {
                   onShowChats={(rid) => {
                     setChatListRoutineId(rid);
                     setChatListTraceId(null);
-                    setRightPanelCollapsed(false);
-                    setRightPanel("chats");
+                    setSidebarPanel("chats");
                     if (window.innerWidth < 768) {
-                      setSidebarOpen(false);
-                      setChatListOpen(true);
+                      setSidebarOpen(true);
+                    } else {
+                      setDesktopSidebarOpen(true);
                     }
                   }}
                 />
@@ -816,7 +807,10 @@ export default function App() {
               {/* Right panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {rightPanel === "chats" ? (
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  // Right-side ChatList is the in-context, trace-bound view — only filters
+                  // by trace_id (the surrounding chat's todo). Routine filtering lives on
+                  // the left-side ChatList instead.
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : rightPanel === "notes" ? (
                   <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
@@ -880,7 +874,9 @@ export default function App() {
             {/* Mobile right panel content */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {rightPanel === "chats" ? (
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                // Right-side ChatList is the in-context, trace-bound view — only filters
+                // by trace_id. Routine filtering lives on the left-side ChatList.
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : rightPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (

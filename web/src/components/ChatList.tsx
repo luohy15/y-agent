@@ -37,10 +37,9 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
-  const [internalRoutineId, setInternalRoutineId] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
-  const routineId = externalRoutineId || internalRoutineId;
+  const routineId = externalRoutineId || "";
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
@@ -86,7 +85,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, routineId, externalRoutineId, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -105,6 +104,9 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       {!hideFilters && (
+        // Filter row inputs: search, trace_id (todo), topic, status. No routine input —
+        // routine_id is set externally via the routineId prop (e.g. RoutineList "Chats"
+        // handoff into the left-side panel) and surfaced below as a clear-pill.
         <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
           <div className="flex gap-1.5">
             <input
@@ -160,33 +162,23 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 </button>
               )}
             </div>
-            <div className="relative w-24">
-              <input
-                type="text"
-                placeholder="Routine..."
-                value={routineId}
-                onChange={(e) => setInternalRoutineId(e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-                readOnly={!!externalRoutineId}
-              />
-              {(externalRoutineId || internalRoutineId) && (
-                <button
-                  onClick={() => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(""); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                  title="Clear routine filter"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center flex-wrap">
             <button
               onClick={() => { const v = statusFilter === "running" ? "" : "running"; setStatusFilter(v); localStorage.setItem("chatStatusFilter", v); }}
               className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${statusFilter === "running" ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
             >
               running
             </button>
+            {externalRoutineId && (
+              <button
+                onClick={() => { if (onClearRoutineId) onClearRoutineId(); }}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 cursor-pointer font-mono"
+                title="Clear routine filter"
+              >
+                routine={externalRoutineId.slice(0, 8)} ✕
+              </button>
+            )}
           </div>
         </div>
       )}
