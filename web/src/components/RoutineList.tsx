@@ -335,15 +335,17 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
 
   const handleUpdate = async (form: RoutineFormState) => {
     if (!editing) return;
-    const body: Record<string, any> = { routine_id: editing.routine_id };
-    body.name = form.name.trim();
-    body.schedule = form.schedule.trim();
-    body.message = form.message;
-    body.description = form.description;
-    body.target_topic = form.target_topic.trim();
-    body.target_skill = form.target_skill.trim();
-    body.work_dir = form.work_dir.trim();
-    body.backend = form.backend;
+    const body: Record<string, any> = {
+      routine_id: editing.routine_id,
+      name: form.name.trim(),
+      schedule: form.schedule.trim(),
+      message: form.message,
+    };
+    if (form.description.trim()) body.description = form.description;
+    if (form.target_topic.trim()) body.target_topic = form.target_topic.trim();
+    if (form.target_skill.trim()) body.target_skill = form.target_skill.trim();
+    if (form.work_dir.trim()) body.work_dir = form.work_dir.trim();
+    if (form.backend) body.backend = form.backend;
     await apiPost("/api/routine/update", body);
     setEditing(null);
     mutate();
