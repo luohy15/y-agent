@@ -1,9 +1,28 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import fs from "node:fs";
+import path from "node:path";
+
+// Dev-only: serve repo `docs/*.md` at `/docs-content/<slug>.md`,
+// matching what `scripts/deploy-web.sh` produces in `web/dist/docs-content/`.
+const docsContentMiddleware = () => ({
+  name: "docs-content-middleware",
+  configureServer(server: any) {
+    server.middlewares.use((req: any, res: any, next: any) => {
+      if (!req.url || !req.url.startsWith("/docs-content/")) return next();
+      const rel = req.url.slice("/docs-content/".length).split("?")[0];
+      if (!rel.endsWith(".md") || rel.includes("..") || rel.includes("/")) return next();
+      const filePath = path.resolve(__dirname, "..", "docs", rel);
+      if (!fs.existsSync(filePath)) return next();
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      fs.createReadStream(filePath).pipe(res);
+    });
+  },
+});
 
 export default defineConfig({
-  plugins: [tailwindcss(), react()],
+  plugins: [tailwindcss(), react(), docsContentMiddleware()],
   resolve: {
     dedupe: ["react", "react-dom"],
   },

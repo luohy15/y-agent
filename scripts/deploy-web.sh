@@ -31,6 +31,11 @@ if [ ! -d "$STATIC_DIR" ]; then
     exit 1
 fi
 
+# Copy docs/*.md into the build output so the SPA can fetch them at /docs-content/<slug>.md
+echo "Copying docs to $STATIC_DIR/docs-content/..."
+mkdir -p "$STATIC_DIR/docs-content"
+cp docs/*.md "$STATIC_DIR/docs-content/"
+
 echo "Deploying static files to S3 bucket: $WEB_BUCKET_NAME"
 
 # Sync files to S3
