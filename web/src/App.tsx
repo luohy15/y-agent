@@ -642,7 +642,6 @@ export default function App() {
                   isLoggedIn={auth.isLoggedIn}
                   onShowChats={(rid) => {
                     setChatListRoutineId(rid);
-                    setChatListTraceId(null);
                     setSidebarPanel("chats");
                     if (window.innerWidth < 768) {
                       setSidebarOpen(true);
