@@ -1,3 +1,9 @@
+---
+title: Lambda detached mode
+category: Reference
+order: 1
+---
+
 # Lambda Detached Process Management
 
 Worker Lambda manages long-running Claude Code processes on EC2 without being limited by Lambda's 15-minute timeout.

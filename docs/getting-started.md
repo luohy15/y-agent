@@ -1,3 +1,9 @@
+---
+title: Getting started
+category: Intro
+order: 1
+---
+
 # Getting Started
 
 This page walks through what y-agent looks like after you sign in. It assumes a deployed instance (e.g. `yovy.app`) — installing your own copy is in [the README](https://github.com/luohy15/y-agent#install--run).
