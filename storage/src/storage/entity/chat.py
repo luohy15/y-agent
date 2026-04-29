@@ -15,6 +15,7 @@ class ChatEntity(Base, BaseEntity):
     topic = Column(String, nullable=True, index=True)
     skill = Column(String, nullable=True, index=True)
     trace_id = Column(String, nullable=True, index=True)
+    routine_id = Column(String, nullable=True, index=True)
     json_content = Column(Text, nullable=False)
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
     status = Column(String, nullable=False, server_default="idle")
