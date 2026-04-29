@@ -16,6 +16,7 @@ import NoteList from "./components/NoteList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
 import ReminderList from "./components/ReminderList";
+import RoutineList from "./components/RoutineList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
@@ -59,7 +60,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "files", "reminder", "calendar", "finance", "email", "dev"];
+    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "files", "reminder", "routine", "calendar", "finance", "email", "dev"];
     return valid.includes(saved) ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -85,6 +86,7 @@ export default function App() {
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
+  const [chatListRoutineId, setChatListRoutineId] = useState<string | null>(localStorage.getItem("chatListRoutineId") || null);
   const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(() => localStorage.getItem("bottomPanelCollapsed") === "true");
   const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
     const saved = localStorage.getItem("bottomPanelHeight");
@@ -201,6 +203,7 @@ export default function App() {
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
+  useEffect(() => { if (chatListRoutineId) localStorage.setItem("chatListRoutineId", chatListRoutineId); else localStorage.removeItem("chatListRoutineId"); }, [chatListRoutineId]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(rightPanelWidth)); }, [rightPanelWidth]);
   useEffect(() => { localStorage.setItem("chatListCollapsed", String(rightPanelCollapsed)); }, [rightPanelCollapsed]);
@@ -458,6 +461,15 @@ export default function App() {
                 #{chatListTraceId.slice(0, 8)}
               </button>
             )}
+            {chatListRoutineId && (
+              <button
+                onClick={() => setChatListRoutineId(null)}
+                className="inline-flex items-center gap-1 text-sol-base01 hover:text-sol-red text-xs font-mono cursor-pointer"
+                title="Clear routine filter"
+              >
+                routine={chatListRoutineId.slice(0, 8)} ✕
+              </button>
+            )}
             <div className="relative shrink-0" ref={vmDropdownRef}>
               <button
                 onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
@@ -634,6 +646,20 @@ export default function App() {
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
+              ) : sidebarPanel === "routine" ? (
+                <RoutineList
+                  isLoggedIn={auth.isLoggedIn}
+                  onShowChats={(rid) => {
+                    setChatListRoutineId(rid);
+                    setChatListTraceId(null);
+                    setRightPanelCollapsed(false);
+                    setRightPanel("chats");
+                    if (window.innerWidth < 768) {
+                      setSidebarOpen(false);
+                      setChatListOpen(true);
+                    }
+                  }}
+                />
               ) : sidebarPanel === "files" ? (
                 <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} vmName={null} workDir={currentVmWorkDir} />
               ) : null;
@@ -692,7 +718,7 @@ export default function App() {
               </button>
               <div className="w-px h-4 bg-sol-base02 mx-0.5" />
               <button
-                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }}
+                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }}
                 className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                 title="New chat"
               >
@@ -790,7 +816,7 @@ export default function App() {
               {/* Right panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {rightPanel === "chats" ? (
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
                 ) : rightPanel === "notes" ? (
                   <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
@@ -854,7 +880,7 @@ export default function App() {
             {/* Mobile right panel content */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {rightPanel === "chats" ? (
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} hideFilters onSelectTrace={(traceId) => { setSelectedTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : rightPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (
