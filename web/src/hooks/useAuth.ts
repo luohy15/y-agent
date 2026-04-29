@@ -54,6 +54,9 @@ export function useAuth() {
     clearToken();
     setEmail(null);
     setIsLoggedIn(false);
+    // Hard-redirect to landing so RootGate re-decides and any in-memory state
+    // (open chats, file viewers, SWR caches) is wiped.
+    window.location.replace("/");
   }, []);
 
   // On mount: handle auth redirects
