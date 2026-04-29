@@ -33,7 +33,7 @@ interface TodoListProps {
 export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onChatListRefresh }: TodoListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string }; x: number; y: number } | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const saved = localStorage.getItem("todoListStatusFilter");
     return (saved === "pending" || saved === "active" || saved === "completed" || saved === "all") ? saved : "pending";
@@ -131,7 +131,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
               <div
                 key={t.todo_id}
                 onClick={() => onSelectTodo(t.todo_id)}
-                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority }, x: e.clientX, y: e.clientY }); }}
                 className="px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
