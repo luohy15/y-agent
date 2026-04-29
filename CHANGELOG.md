@@ -21,16 +21,36 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Topic singleton enforcement (1888)** — repository-level guard ensures one active chat per topic; Telegram and notify paths honor it.
 - **ChatList items show `skill` instead of `backend` (1903)** — backend remains in chat detail.
 - **`y image` CLI** — image generation and tinify sub-commands.
-- README: Architecture section with ASCII session-tree diagram; dev/plan/impl/review skill-per-task example; demo image bumped to v3.
+- **Routine system (1910)** — `routine` entity + repo/service, REST controller, `y routine` CLI (`add` / `list` / `get` / `update` / `enable` / `disable` / `delete` / `run`), admin Lambda scheduler wired up via EventBridge, and a web `RoutineList` panel with sidebar handoff to the chat list.
+- **Landing page redesign (1947)** — dedicated `Landing` component with hero image and demo trace matching README, extracted `GoogleSignInButton`, `DocsView` with sidebar + TOC, `getting-started` doc, and `scripts/build-docs.sh` integrated into web deploy.
+- **Avatar / user menu (1948)** — `UserMenu` + `UserInfoModal` replace the inline avatar button in ActivityBar.
+- **CodeMirror 6 FileViewer (1933)** — FileViewer rewritten on CodeMirror 6 with language detection and a Solarized theme, plus follow-ups for save concurrency, scroll restoration, and cursor jump.
+- **Telegram DM smart routing (1938 / 1939)** — DM messages auto-route to the right topic chat; todo references inside a DM resolve to the topic that owns the todo.
+- **Cross-device activity bar order (1930)** — new `user_preference` entity + REST controller; `useUserPreference` syncs ActivityBar layout across devices.
+- **FileTree upload (1927)** — drag-and-drop and click-to-upload directly in FileTree.
+- **Sidebar filter unification (1923)** — shared filter state between todo and chat lists, with repo-level filtering.
+- **Sidebar `running` filter (1926)** — ChatList exposes a "running" filter chip.
+- **Click-to-reload chat (1925)** — re-clicking the selected chat re-fetches it.
+- **`y pdf` CLI (1924)** — PDF parsing skill + CLI command group.
+- **Todo priority submenu (1943)** + **viewport-aware context menu flip (1944)** + **mark-as-read on top of context menu (1922)** — TodoContextMenu polish pass.
+- **Sidebar sort (1921)** — repo-level ordering for the sidebar todo list.
+- **Blog tab in NoteList (1929)** — separate tab for blog-tagged pages.
+- **Chat header skill label (1928)** — chat header shows the skill name.
+- README: Architecture section with ASCII session-tree diagram; dev/plan/impl/review skill-per-task example; demo image bumped to v4 with trace URL refresh; copy simplified (1941).
 
 ### Changed
 - **Manager-topic callback rule made explicit (1887)** — API rejects callbacks aimed at root topics (root sessions are conversations, not function calls).
 - **Trace propagation made permissive (1886)** — MessageBubble accepts inherited `trace_id` even when the participant chat predates the trace.
 - **API restructure (1891)** — notify endpoints folded into `api/controller/chat.py`; `controller/notify.py` deleted.
 - Worker `run_chat` signature: `role` argument removed; skill defaulted from topic when not explicitly set.
+- **`y image tinify` writes `<stem>.min<ext>` by default** — original is preserved; `-i/--in-place` restores the old overwrite behavior.
+- **API keys loaded from `~/.y-agent/config.toml`** — `y image generate` / `tinify` and `y beancount alphavantage` read `GOOGLE_API_KEY` / `TINIFY_API_KEY` / `ALPHAVANTAGE_API_KEY` from the central config instead of an implicit `.env`.
+- **Shared `migration/` across worktrees (1932)** — `worktree/post-create.sh` symlinks `migration` to the main repo so SQL written in a worktree survives `wt rm`.
+- **`y dev wt rm` made idempotent (1934)** — safe to re-run when residual state lingers.
 
 ### Fixed
 - **Telegram routing tightened (worker)** — `_resolve_telegram_target` only DMs the `manager` topic; non-root topics without a `tg_topic` binding no longer fall back to DM.
+- **Routine see-chats handoff** — left-side click no longer clears the right-side ChatList's trace filter.
 
 ## [0.5.10] - 2026-04-26
 
