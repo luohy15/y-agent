@@ -23,6 +23,7 @@ class ChatSummary:
     topic: str = ""
     skill: str = ""
     trace_id: str = ""
+    routine_id: str = ""
     backend: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
@@ -38,10 +39,12 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
         chat.backend = entity.backend
     if entity.skill is not None:
         chat.skill = entity.skill
+    if entity.routine_id is not None:
+        chat.routine_id = entity.routine_id
     return chat
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, status: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, status: Optional[str] = None, routine_id: Optional[str] = None) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -55,6 +58,8 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
             q = q.filter(ChatEntity.trace_id == trace_id)
         if topic:
             q = q.filter(ChatEntity.topic == topic)
+        if routine_id:
+            q = q.filter(ChatEntity.routine_id == routine_id)
         if status:
             q = q.filter(ChatEntity.status == status)
         rows = (q.order_by(ChatEntity.updated_at.desc())
@@ -70,6 +75,7 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
                 topic=row.topic or "",
                 skill=row.skill or "",
                 trace_id=row.trace_id or "",
+                routine_id=row.routine_id or "",
                 backend=row.backend or "",
                 status=row.status or "idle",
                 unread=bool(row.unread),
@@ -188,6 +194,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
+            entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
             entity.status = status
         else:
             entity = ChatEntity(
@@ -200,6 +207,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 topic=chat.topic,
                 skill=chat.skill,
                 trace_id=chat.trace_id,
+                routine_id=chat.routine_id,
                 json_content=content,
                 search_text=search_text,
                 status=status,
@@ -252,6 +260,7 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
+            entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
             entity.status = status
         else:
             raise ValueError(f"Chat with id {chat.id} not found")
@@ -390,6 +399,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 updated_at=row.updated_at or "",
                 topic=row.topic or "",
                 skill=row.skill or "",
+                routine_id=row.routine_id or "",
                 backend=row.backend or "",
                 created_at_unix=row.created_at_unix or 0,
                 updated_at_unix=row.updated_at_unix or 0,

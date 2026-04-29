@@ -134,6 +134,7 @@ class Chat:
     topic: Optional[str] = None  # named persistent address (e.g. "dev", "hr")
     skill: Optional[str] = None  # capability the session loads (independent of topic)
     trace_id: Optional[str] = None
+    routine_id: Optional[str] = None  # set when chat was fired by a routine
     work_dir: Optional[str] = None
     interrupted: bool = False
     running: bool = False
@@ -163,6 +164,7 @@ class Chat:
             topic=data.get('topic'),
             skill=data.get('skill'),
             trace_id=data.get('trace_id'),
+            routine_id=data.get('routine_id'),
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
@@ -199,6 +201,8 @@ class Chat:
             result['skill'] = self.skill
         if self.trace_id is not None:
             result['trace_id'] = self.trace_id
+        if self.routine_id is not None:
+            result['routine_id'] = self.routine_id
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
         if self.interrupted:
