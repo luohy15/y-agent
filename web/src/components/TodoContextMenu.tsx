@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API, authFetch } from "../api";
 import { priorityColorClass } from "./badges";
@@ -58,7 +58,40 @@ const PRIORITY_OPTIONS = ["high", "medium", "low", "none"] as const;
 
 export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatListRefresh }: TodoContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  const submenuRowRef = useRef<HTMLDivElement>(null);
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [submenuFlip, setSubmenuFlip] = useState<{ up: boolean; left: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 4;
+    let left = x;
+    let top = y;
+    if (left + rect.width > vw - margin) left = Math.max(margin, vw - rect.width - margin);
+    if (top + rect.height > vh - margin) top = Math.max(margin, y - rect.height);
+    setPos({ left, top });
+  }, [x, y]);
+
+  useLayoutEffect(() => {
+    if (!openSubmenu) {
+      setSubmenuFlip(null);
+      return;
+    }
+    if (!submenuRef.current || !submenuRowRef.current) return;
+    const subRect = submenuRef.current.getBoundingClientRect();
+    const rowRect = submenuRowRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 4;
+    const flipLeft = rowRect.right + subRect.width > vw - margin;
+    const flipUp = rowRect.top + subRect.height > vh - margin;
+    setSubmenuFlip({ up: flipUp, left: flipLeft });
+  }, [openSubmenu]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -184,7 +217,11 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
     <div
       ref={menuRef}
       className="fixed z-[100] bg-sol-base02 border border-sol-base01 rounded shadow-lg py-0.5 min-w-[8rem]"
-      style={{ left: x, top: y }}
+      style={{
+        left: pos?.left ?? x,
+        top: pos?.top ?? y,
+        visibility: pos ? "visible" : "hidden",
+      }}
     >
       {items.map((item, idx) => {
         if (item.type === "separator") {
@@ -192,9 +229,15 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
         }
         if (item.type === "submenu") {
           const open = openSubmenu === item.key;
+          const flip = open ? submenuFlip : null;
+          const submenuPosClass = [
+            flip?.left ? "right-full mr-0.5" : "left-full ml-0.5",
+            flip?.up ? "bottom-0 -mb-0.5" : "top-0 -mt-0.5",
+          ].join(" ");
           return (
             <div
               key={item.key}
+              ref={open ? submenuRowRef : undefined}
               className="relative"
               onMouseEnter={() => setOpenSubmenu(item.key)}
             >
@@ -203,7 +246,11 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
                 <span className="text-sol-base01">{"▸"}</span>
               </div>
               {open && (
-                <div className="absolute left-full top-0 -mt-0.5 ml-0.5 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-0.5 min-w-[6rem]">
+                <div
+                  ref={submenuRef}
+                  className={`absolute ${submenuPosClass} bg-sol-base02 border border-sol-base01 rounded shadow-lg py-0.5 min-w-[6rem]`}
+                  style={{ visibility: submenuFlip ? "visible" : "hidden" }}
+                >
                   {item.children.map((c) => (
                     <button
                       key={c.label}
