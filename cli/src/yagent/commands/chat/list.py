@@ -17,11 +17,14 @@ def get_column_widths(weights: dict):
 @click.command('list')
 @click.option('--limit', '-l', default=10, help='Maximum number of chats to show (default: 10)')
 @click.option('--trace-id', default=None, help='Filter chats by trace_id (sorted oldest-first)')
-def list_chats(limit: int, trace_id: str):
+@click.option('--routine', 'routine_id', default=None, help='Filter chats by routine_id')
+def list_chats(limit: int, trace_id: str, routine_id: str):
     """List chat conversations sorted by update time (newest first)."""
     params = {"limit": limit}
     if trace_id:
         params["trace_id"] = trace_id
+    if routine_id:
+        params["routine_id"] = routine_id
     resp = api_request("GET", "/api/chat/list", params=params)
     chats = resp.json()
 
@@ -45,6 +48,22 @@ def list_chats(limit: int, trace_id: str):
             for chat in chats
         ]
         headers = ["ID", "Topic", "Skill", "Created"]
+    elif routine_id:
+        # Routine listing: surface routine_id + topic so the caller can
+        # confirm the dispatch target alongside the originating routine.
+        weights = {"ID": 2, "Title": 4, "Topic": 2, "Routine": 2, "Updated": 3}
+        widths = get_column_widths(weights)
+        table_data = [
+            [
+                chat["chat_id"],
+                chat["title"],
+                chat.get("topic") or "",
+                chat.get("routine_id") or "",
+                utc_to_local(chat["updated_at"]),
+            ]
+            for chat in chats
+        ]
+        headers = ["ID", "Title", "Topic", "Routine", "Updated"]
     else:
         weights = {"ID": 1, "Title": 5, "Updated": 3}
         widths = get_column_widths(weights)
