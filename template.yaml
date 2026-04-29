@@ -376,6 +376,11 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "check_reminders"}'
+        TickRoutinesSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Input: '{"action": "tick_routines"}'
 
 Outputs:
   APIFunctionArn:

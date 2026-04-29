@@ -12,6 +12,7 @@ def lambda_handler(event, context):
     Supported actions:
         init_db: Initialize database tables
         check_reminders: Send due reminders via Telegram
+        tick_routines: Fire due routines via the chat dispatch pipeline
     """
     action = event.get("action", "")
     logger.info("[admin] action={} event={}", action, json.dumps(event))
@@ -25,6 +26,9 @@ def lambda_handler(event, context):
 
     if action == "check_reminders":
         return _check_reminders()
+
+    if action == "tick_routines":
+        return _tick_routines()
 
     return {"status": "error", "message": f"Unknown action: {action}"}
 
@@ -85,7 +89,63 @@ def _check_reminders():
     return result
 
 
+def _tick_routines():
+    """Fire enabled routines whose cron schedule is due."""
+    from storage.service import routine as routine_svc
+    from storage.repository import user as user_repo
+    from storage.util import get_telegram_bot_token, send_telegram_message
+
+    due = routine_svc.list_due_routines()
+    logger.info("[tick_routines] found {} due routines", len(due))
+
+    bot_token = get_telegram_bot_token()
+    fired = 0
+    errors = []
+    for item in due:
+        user_id = item["user_id"]
+        routine = item["routine"]
+        try:
+            chat_id = routine_svc.fire_routine(user_id, routine.routine_id)
+            fired += 1
+            logger.info(
+                "[tick_routines] fired routine {} ({}) -> chat {}",
+                routine.routine_id,
+                routine.name,
+                chat_id,
+            )
+        except Exception as e:
+            errors.append({"routine_id": routine.routine_id, "error": str(e)})
+            logger.exception(
+                "[tick_routines] fire failed routine={} err={}",
+                routine.routine_id,
+                e,
+            )
+            if not bot_token:
+                continue
+            user = user_repo.get_user_by_id(user_id)
+            if not user or not user.telegram_id:
+                continue
+            try:
+                send_telegram_message(
+                    bot_token,
+                    user.telegram_id,
+                    f"⚠️ routine '{routine.name}' failed: {e}",
+                )
+            except Exception as notify_err:
+                logger.exception(
+                    "[tick_routines] telegram notify failed routine={} err={}",
+                    routine.routine_id,
+                    notify_err,
+                )
+
+    result = {"status": "ok", "action": "tick_routines", "fired": fired, "total": len(due)}
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 if __name__ == "__main__":
     result = lambda_handler({"action": "init_db"}, None)
     # result = lambda_handler({"action": "check_reminders"}, None)
+    # result = lambda_handler({"action": "tick_routines"}, None)
     print(result)
