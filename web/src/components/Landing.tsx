@@ -68,7 +68,7 @@ export default function Landing() {
             GitHub
           </a>
           <a
-            href="/t/7ef7c6"
+            href="/t/6fc5c4"
             className="px-5 py-2.5 text-sm font-semibold text-sol-base1 hover:text-sol-cyan"
           >
             See a demo trace →
@@ -77,8 +77,8 @@ export default function Landing() {
 
         <div className="mt-12 rounded-lg overflow-hidden border border-sol-base02 bg-sol-base02">
           <img
-            src={`${CDN}/y-agent-home.png`}
-            alt="y-agent home view: chat, sidebar, file viewer, trace"
+            src="https://cdn.luohy15.com/y-agent-demo-4.png"
+            alt="y-agent TraceView: waterfall of a real cross-skill task"
             className="w-full block"
             loading="eager"
           />
