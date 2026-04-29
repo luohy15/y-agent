@@ -26,26 +26,31 @@ interface ChatListProps {
   onClearTraceId?: () => void;
   onSelectTrace?: (traceId: string) => void;
   hideFilters?: boolean;
+  routineId?: string | null;
+  onClearRoutineId?: () => void;
 }
 
 const PAGE_SIZE = 50;
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
+  const [internalRoutineId, setInternalRoutineId] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
+  const routineId = externalRoutineId || internalRoutineId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
+  const routineIdParam = routineId.trim() ? `&routine_id=${encodeURIComponent(routineId.trim())}` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${statusParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${routineIdParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -81,7 +86,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, routineId, externalRoutineId, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -150,6 +155,25 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                   onClick={() => setTopicFilter("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
                   title="Clear topic filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="relative w-24">
+              <input
+                type="text"
+                placeholder="Routine..."
+                value={routineId}
+                onChange={(e) => setInternalRoutineId(e.target.value)}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                readOnly={!!externalRoutineId}
+              />
+              {(externalRoutineId || internalRoutineId) && (
+                <button
+                  onClick={() => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(""); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                  title="Clear routine filter"
                 >
                   ✕
                 </button>
