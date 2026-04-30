@@ -64,7 +64,6 @@ Two paths, depending on whether you want to run your own instance:
 **Self-host** — run the API + worker yourself.
 
 - [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
-- [docs/lambda-detached-mode.md](docs/lambda-detached-mode.md) — how long chats hand off across Lambda invocations.
 
 ## Blog Post
 
