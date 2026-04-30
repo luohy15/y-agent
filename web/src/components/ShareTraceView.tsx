@@ -93,7 +93,7 @@ function ShareToc({ messages, containerRef }: { messages: Message[]; containerRe
   };
 
   return (
-    <div className="hidden lg:flex flex-col shrink-0 w-48 border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
+    <div className="hidden lg:flex flex-col shrink-0 w-48 max-h-[50vh] border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
       {userMessages.length >= 2 && userMessages.map((um, i) => (
         <button
           key={um.index}
