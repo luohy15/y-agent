@@ -87,14 +87,16 @@ function ShareToc({ messages, containerRef }: { messages: Message[]; containerRe
     return items;
   }, [messages]);
 
+  if (userMessages.length < 2) return null;
+
   const scrollTo = (index: number) => {
     const el = containerRef.current?.querySelector(`#user-msg-${index}`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
-    <div className="hidden lg:flex flex-col shrink-0 w-48 max-h-[50vh] border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
-      {userMessages.length >= 2 && userMessages.map((um, i) => (
+    <div className="flex flex-col max-h-[50vh] border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh]">
+      {userMessages.map((um, i) => (
         <button
           key={um.index}
           onClick={() => scrollTo(um.index)}
@@ -233,32 +235,36 @@ export default function ShareTraceView() {
         </div>
       </div>
 
-      {/* 3-column layout: chatlist | content | toc */}
-      <div className="flex-1 flex min-h-0 justify-center">
-        {/* Left: chat selector list */}
-        {data.chats.length > 1 && (
-          <div className="hidden lg:flex flex-col shrink-0 w-48 border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh] mx-2 self-start">
-            {data.chats.map((c) => {
-              const topicColor = getTopicColor(c.topic);
-              const isSelected = c.chat_id === selectedChatId;
-              const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "") || c.chat_id.slice(0, 8);
-              return (
-                <button
-                  key={c.chat_id}
-                  onClick={() => setSelectedChatId(c.chat_id)}
-                  className={`text-left text-[0.65rem] px-2 py-1 cursor-pointer truncate ${
-                    isSelected
-                      ? `${topicColor.bg} ${topicColor.text}`
-                      : "text-sol-base01 hover:text-sol-base0 hover:bg-sol-base02"
-                  }`}
-                >
-                  <span className="font-medium">{c.topic || "chat"}</span>
-                  <span className="ml-1 opacity-70">{displayTitle}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+      {/* 3-column layout: chatlist | content | toc.
+          Both side slots are always rendered with equal width so the
+          centered content stays centered even when only one side has content. */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left slot: chat selector list */}
+        <div className="hidden lg:block shrink-0 w-48 mx-2 self-start">
+          {data.chats.length > 1 && (
+            <div className="flex flex-col border border-sol-base02 rounded overflow-y-auto py-1 my-[25vh]">
+              {data.chats.map((c) => {
+                const topicColor = getTopicColor(c.topic);
+                const isSelected = c.chat_id === selectedChatId;
+                const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "") || c.chat_id.slice(0, 8);
+                return (
+                  <button
+                    key={c.chat_id}
+                    onClick={() => setSelectedChatId(c.chat_id)}
+                    className={`text-left text-[0.65rem] px-2 py-1 cursor-pointer truncate ${
+                      isSelected
+                        ? `${topicColor.bg} ${topicColor.text}`
+                        : "text-sol-base01 hover:text-sol-base0 hover:bg-sol-base02"
+                    }`}
+                  >
+                    <span className="font-medium">{c.topic || "chat"}</span>
+                    <span className="ml-1 opacity-70">{displayTitle}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Center: todo header + waterfall + messages */}
         <div ref={scrollRef} className="flex-1 max-w-3xl overflow-y-auto px-4 py-3">
@@ -397,8 +403,10 @@ export default function ShareTraceView() {
           )}
         </div>
 
-        {/* Right: TOC */}
-        <ShareToc messages={selectedMessages} containerRef={scrollRef} />
+        {/* Right slot: TOC */}
+        <div className="hidden lg:block shrink-0 w-48 mx-2 self-start">
+          <ShareToc messages={selectedMessages} containerRef={scrollRef} />
+        </div>
       </div>
 
       {/* Bottom bar */}
