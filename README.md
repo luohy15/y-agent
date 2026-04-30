@@ -51,76 +51,23 @@ One session usually can't handle the whole thing — requests have to be routed 
 
 A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so [TraceView](https://yovy.app/t/6fc5c4) renders the chain as a waterfall.
 
-## Capabilities
+## Docs
 
-A running deployment ships these out of the box:
+Two paths, depending on whether you want to run your own instance:
 
-- **Todo** — full-stack CRUD, kanban, pagination, pin, search, history.
-- **Note** — structured notes with `content_key` file pointers and JSON front-matter; Journals + Pages panels.
-- **Entity (knowledge graph)** — link notes and RSS feeds to people, projects, or any concept.
-- **Calendar** — timezone-aware events, current-time ticker.
-- **Reminder** — time-based reminders delivered via Telegram, optionally attached to a todo or event.
-- **Link archive** — Chrome bookmark sync; Twitter / X, Bilibili, WeChat article download; in-app markdown preview.
-- **RSS** — feed subscription with a two-stage scrape pipeline; per-item content on S3.
-- **Finance** — beancount balance sheet, income statement, portfolio tracker.
-- **Email** — Gmail sync for lightweight inbox review.
-- **Trace + Share** — every cross-skill call chain has a waterfall TraceView, shareable as a public page (optionally with password).
-- **Dev worktrees** — `y dev` CLI + web panel to create/remove worktrees per task, auto-commit, dynamic merge target.
-- **Telegram bot** — webhook with secret verification, forum topic routing, markdown → HTML conversion.
-- **Web terminal** — shell access scoped to the current VM / work_dir.
-- **Git panel** — file-level status, diff viewer, per-file discard.
-- **File viewer / editor** — syntax highlighting, line numbers, unsaved-edits preview, click-to-open relative links.
+**Use the hosted instance** — `y login` against `yovy.app` and go.
 
-## Install / Run
+- [docs/cli.md](docs/cli.md) — install the CLI, sign in, common commands.
+- [docs/getting-started.md](docs/getting-started.md) — what the web UI looks like after sign-in.
+- [docs/capabilities.md](docs/capabilities.md) — what subsystems ship in a running deployment.
 
-UV workspace. Needs Python 3.11+, Node 20+, the UV package manager, and an AWS account for the deployed version. Local dev runs entirely on your machine.
+**Self-host** — run the API + worker yourself.
 
-```bash
-# Install the CLI (wires the workspace into a tool venv)
-uv tool install --force -e ./cli
-
-# Configure
-mkdir -p ~/.y-agent
-$EDITOR ~/.y-agent/config.toml        # see "Minimal config keys" below
-
-# Init schema (once)
-cd admin && uv run python -c "from handler import lambda_handler; lambda_handler({'action':'init_db'}, None)"
-
-# Dev API server (port 8001)
-cd api && uv run uvicorn api.app:app --reload --port 8001
-
-# Dev web (port 5174+, auto-selects next free port per worktree)
-cd web && npm install && npm run dev
-
-# Dev worker (Celery filesystem broker)
-cd worker && uv run celery -A worker.celery_app worker --loglevel=info
-```
-
-### Deploy (AWS)
-
-```bash
-./scripts/deploy.sh          # SAM build + deploy backend (Lambda + SQS + EventBridge)
-./scripts/deploy-web.sh      # Vite build + S3 sync + CloudFront invalidation
-
-# Branch previews
-./scripts/deploy-preview.sh
-./scripts/list-previews.sh
-./scripts/delete-preview.sh <branch>
-```
-
-### Minimal config keys
-
-| Key | Purpose |
-|-----|---------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `JWT_SECRET_KEY` | HS256 signing key for auth |
-| `SQS_QUEUE_URL` | Chat task queue (dev: Celery filesystem broker instead) |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Telegram bot surface |
-| `GOOGLE_CLIENT_ID` | Google Sign-In |
-| `Y_AGENT_S3_BUCKET` | Link + RSS content storage |
-| `Y_AGENT_TIMEZONE` | IANA tz for calendar/journal/display |
-| `FETCHER_URL` | Optional upstream fetcher for link downloads |
+- [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
+- [docs/lambda-detached-mode.md](docs/lambda-detached-mode.md) — how long chats hand off across Lambda invocations.
 
 ## Blog Post
 
 Longer write-up, design rationale, and comparisons: [full blog post](https://luohy15.com/y-agent-introduction).
+
+[CHANGELOG](CHANGELOG.md) tracks weekly updates.
