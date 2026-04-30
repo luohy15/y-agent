@@ -267,7 +267,7 @@ export default function ShareTraceView() {
         </div>
 
         {/* Center: todo header + waterfall + messages */}
-        <div ref={scrollRef} className="flex-1 max-w-3xl overflow-y-auto px-4 py-3">
+        <div ref={scrollRef} className="flex-1 min-w-0 max-w-3xl overflow-y-auto px-4 py-3">
           {/* Todo header */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-1">
@@ -301,11 +301,11 @@ export default function ShareTraceView() {
                   <span className="font-medium text-sol-base0">Todo Detail</span>
                 </button>
                 {todoDetailOpen && (<>
-                  <div className="px-2 pb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <div className="px-2 pb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
                     {todoInfo.desc && (
                       <>
                         <span className="text-sol-base01">Desc</span>
-                        <div className="text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
+                        <div className="min-w-0 break-words text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{todoInfo.desc}</ReactMarkdown>
                         </div>
                       </>
