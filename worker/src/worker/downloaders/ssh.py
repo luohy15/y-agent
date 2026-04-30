@@ -1,4 +1,4 @@
-"""SSH downloader: run `y link download <url>` on the user's VM and return markdown."""
+"""SSH downloader: run `y fetch get --json <url>` on the user's VM and return markdown."""
 
 import json
 
@@ -18,15 +18,15 @@ class _CmdRunner(Tool):
 
 
 async def download(user_id: int, url: str, timeout: int = 300) -> dict:
-    """Run `y link download <url>` via SSH on the user's VM; return content in memory."""
+    """Run `y fetch get --json <url>` via SSH on the user's VM; return content in memory."""
     try:
         vm_config = resolve_vm_config(user_id)
         runner = _CmdRunner(vm_config)
         output = await runner.run_cmd(
-            ["y", "link", "download", url],
+            ["y", "fetch", "get", "--json", url],
             timeout=timeout,
         )
-        logger.info("ssh y link download output (truncated): {}", output[:200])
+        logger.info("ssh y fetch get output (truncated): {}", output[:200])
         result = json.loads(output.strip())
         status = result.get("status", "failed")
         return {

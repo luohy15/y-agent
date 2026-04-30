@@ -1,69 +1,10 @@
-"""Route a URL to the appropriate downloader.
+"""Route a URL to the SSH downloader.
 
-Routing rules:
-- openai.com → skip (bot-protected; oxylabs returns empty shell page)
-- twitter.com / x.com / youtube.com / youtu.be / bilibili.com → ssh (opencli)
-- mp.weixin.qq.com → oxylabs direct
-- everything else → httpx; fallback to oxylabs on failure
+Always SSH to the user's VM and call `y fetch get --json` (single source of truth).
+See `pages/plan-1965-fetch-link-dry.md` for the rationale.
 """
 
-from urllib.parse import urlparse
-
-from loguru import logger
-
-from worker.downloaders import httpx as httpx_dl
-from worker.downloaders import oxylabs as oxylabs_dl
 from worker.downloaders import ssh as ssh_dl
-
-
-SSH_DOMAINS = (
-    "twitter.com",
-    "x.com",
-    "youtube.com",
-    "youtu.be",
-    "bilibili.com",
-)
-
-OXYLABS_FIRST_DOMAINS = ("mp.weixin.qq.com",)
-
-SKIP_DOMAINS = ("openai.com",)
-
-
-def _host(url: str) -> str:
-    try:
-        return (urlparse(url).hostname or "").lower()
-    except Exception:
-        return ""
-
-
-def _needs_ssh(url: str) -> bool:
-    host = _host(url)
-    if not host:
-        return False
-    for d in SSH_DOMAINS:
-        if host == d or host.endswith("." + d):
-            return True
-    return False
-
-
-def _needs_oxylabs(url: str) -> bool:
-    host = _host(url)
-    if not host:
-        return False
-    for d in OXYLABS_FIRST_DOMAINS:
-        if host == d or host.endswith("." + d):
-            return True
-    return False
-
-
-def _should_skip(url: str) -> bool:
-    host = _host(url)
-    if not host:
-        return False
-    for d in SKIP_DOMAINS:
-        if host == d or host.endswith("." + d):
-            return True
-    return False
 
 
 async def route_and_download(
@@ -71,41 +12,8 @@ async def route_and_download(
     url: str,
     timeout: int = 300,
 ) -> dict:
-    """Dispatch to ssh / httpx / oxylabs based on domain.
+    """Dispatch every URL through SSH → `y fetch get --json` on the user's VM.
 
-    Returns `{status, title, content, method_used, error}`. All downloaders
-    return markdown content in memory; the caller is responsible for persisting it.
+    Returns `{status, title, content, method_used, error}`.
     """
-    if _should_skip(url):
-        return {
-            "status": "failed",
-            "title": None,
-            "content": None,
-            "method_used": "skip",
-            "error": "domain temporarily skipped",
-        }
-
-    if _needs_ssh(url):
-        return await ssh_dl.download(user_id, url, timeout=timeout)
-
-    if _needs_oxylabs(url):
-        return await oxylabs_dl.download(url, timeout=min(timeout, 120))
-
-    primary = await httpx_dl.download(url, timeout=min(timeout, 30))
-    if primary["status"] == "done":
-        return primary
-
-    logger.info(
-        "httpx failed for {} ({}), falling back to oxylabs",
-        url,
-        primary.get("error"),
-    )
-    fallback = await oxylabs_dl.download(url, timeout=min(timeout, 120))
-    if fallback["status"] == "done":
-        return fallback
-    # Return the oxylabs failure (more informative than httpx for blocked sites),
-    # but preserve the httpx error hint in the message.
-    fallback["error"] = (
-        f"httpx: {primary.get('error')} | oxylabs: {fallback.get('error')}"
-    )
-    return fallback
+    return await ssh_dl.download(user_id, url, timeout=timeout)

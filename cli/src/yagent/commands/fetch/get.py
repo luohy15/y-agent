@@ -390,13 +390,26 @@ async def _run(url: str, page: int, lang: str) -> Path:
         return await _fetch_page(client, url)
 
 
+def _extract_title(md: str) -> str:
+    for line in md.splitlines():
+        line = line.strip()
+        if line.startswith('# '):
+            return line[2:].strip()
+        if line:
+            break
+    return ''
+
+
 @click.command('get')
 @click.argument('url')
 @click.option('--page', '-p', type=int, default=1,
               help='Page number (for Bilibili multi-part videos).')
 @click.option('--lang', '-l', default='en',
               help='Preferred subtitle language for YouTube (default: en).')
-def fetch_get(url: str, page: int, lang: str):
+@click.option('--json', 'json_output', is_flag=True,
+              help='Emit one-line JSON {status,title,content,path,error} on stdout '
+                   'instead of the human "Saved: ..." line. File is still written.')
+def fetch_get(url: str, page: int, lang: str, json_output: bool):
     """Fetch URL content and save as markdown.
 
     Output: ~/luohy15/assets/web/<YYYYMMDD>/https/<host>/<path>.md
@@ -420,11 +433,50 @@ def fetch_get(url: str, page: int, lang: str):
 
     if _detect_source(url) not in ('youtube', 'twitter'):
         if not os.environ.get('OXYLABS_USERNAME') or not os.environ.get('OXYLABS_PASSWORD'):
+            if json_output:
+                click.echo(json.dumps({
+                    "status": "failed",
+                    "title": None,
+                    "content": None,
+                    "path": None,
+                    "error": "OXYLABS_USERNAME and OXYLABS_PASSWORD must be set",
+                }))
+                return
             raise click.ClickException("OXYLABS_USERNAME and OXYLABS_PASSWORD must be set")
 
     try:
         out_path = asyncio.run(_run(url, page, lang))
     except Exception as e:
+        if json_output:
+            click.echo(json.dumps({
+                "status": "failed",
+                "title": None,
+                "content": None,
+                "path": None,
+                "error": str(e),
+            }))
+            return
         raise click.ClickException(str(e))
+
+    if json_output:
+        try:
+            content = out_path.read_text(encoding='utf-8')
+        except Exception as e:
+            click.echo(json.dumps({
+                "status": "failed",
+                "title": None,
+                "content": None,
+                "path": str(out_path),
+                "error": f"failed to read output file: {e}",
+            }))
+            return
+        click.echo(json.dumps({
+            "status": "done",
+            "title": _extract_title(content) or None,
+            "content": content,
+            "path": str(out_path),
+            "error": None,
+        }))
+        return
 
     click.echo(f"Saved: {out_path}")
