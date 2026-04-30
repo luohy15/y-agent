@@ -238,7 +238,7 @@ export default function ShareTraceView() {
       {/* 3-column layout: chatlist | content | toc.
           Both side slots are always rendered with equal width so the
           centered content stays centered even when only one side has content. */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 justify-center">
         {/* Left slot: chat selector list */}
         <div className="hidden lg:block shrink-0 w-48 mx-2 self-start">
           {data.chats.length > 1 && (
