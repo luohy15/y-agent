@@ -79,7 +79,3 @@ The full set the API + worker consume. CLI-only keys (e.g. `Y_AGENT_WEB_URL`) li
 | `Y_AGENT_CLOUDFRONT_DISTRIBUTION_ID` | CDN invalidation after asset upload |
 | `Y_AGENT_TIMEZONE` | IANA tz for calendar / journal / display |
 | `FETCHER_URL` | Optional upstream fetcher for link downloads |
-
-## Internals
-
-For how the worker hands off long-running chats across Lambda invocations, see [lambda-detached-mode.md](lambda-detached-mode.md).
