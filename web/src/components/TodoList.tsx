@@ -34,6 +34,8 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string }; x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const saved = localStorage.getItem("todoListStatusFilter");
     return (saved === "pending" || saved === "active" || saved === "completed" || saved === "all") ? saved : "pending";
@@ -127,12 +129,39 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
           <p className="text-sol-base01 italic p-2">No todos</p>
         ) : (
           <>
-            {todos.map((t) => (
+            {todos.map((t) => {
+              const cancelLongPress = () => {
+                if (longPressTimerRef.current !== null) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              };
+              return (
               <div
                 key={t.todo_id}
-                onClick={() => onSelectTodo(t.todo_id)}
+                onClick={() => {
+                  if (longPressTriggeredRef.current) {
+                    longPressTriggeredRef.current = false;
+                    return;
+                  }
+                  onSelectTodo(t.todo_id);
+                }}
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority }, x: e.clientX, y: e.clientY }); }}
-                className="px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors"
+                onPointerDown={(e) => {
+                  if (e.pointerType !== "touch") return;
+                  longPressTriggeredRef.current = false;
+                  cancelLongPress();
+                  const x = e.clientX;
+                  const y = e.clientY;
+                  longPressTimerRef.current = window.setTimeout(() => {
+                    longPressTriggeredRef.current = true;
+                    setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority }, x, y });
+                  }, 500);
+                }}
+                onPointerMove={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+                onPointerUp={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+                onPointerCancel={cancelLongPress}
+                className="px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors select-none [-webkit-touch-callout:none]"
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <button
@@ -163,7 +192,8 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                   })()}
                 </div>
               </div>
-            ))}
+              );
+            })}
             {!isReachingEnd && (
               <div ref={sentinelRef} className="py-2 text-center text-sol-base01 italic">
                 {isValidating ? "Loading..." : ""}
