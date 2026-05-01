@@ -21,6 +21,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Topic singleton enforcement (1888)** — repository-level guard ensures one active chat per topic; Telegram and notify paths honor it.
 - **ChatList items show `skill` instead of `backend` (1903)** — backend remains in chat detail.
 - **`y image` CLI** — image generation and tinify sub-commands.
+- **`y fetch` CLI (1961)** — new top-level `y fetch` command group with `get` / `click` subcommands and bilibili / oxylabs / youtube fetchers.
 - **Routine system (1910)** — `routine` entity + repo/service, REST controller, `y routine` CLI (`add` / `list` / `get` / `update` / `enable` / `disable` / `delete` / `run`), admin Lambda scheduler wired up via EventBridge, and a web `RoutineList` panel with sidebar handoff to the chat list.
 - **Landing page redesign (1947)** — dedicated `Landing` component with hero image and demo trace matching README, extracted `GoogleSignInButton`, `DocsView` with sidebar + TOC, `getting-started` doc, and `scripts/build-docs.sh` integrated into web deploy.
 - **Avatar / user menu (1948)** — `UserMenu` + `UserInfoModal` replace the inline avatar button in ActivityBar.
@@ -47,10 +48,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **API keys loaded from `~/.y-agent/config.toml`** — `y image generate` / `tinify` and `y beancount alphavantage` read `GOOGLE_API_KEY` / `TINIFY_API_KEY` / `ALPHAVANTAGE_API_KEY` from the central config instead of an implicit `.env`.
 - **Shared `migration/` across worktrees (1932)** — `worktree/post-create.sh` symlinks `migration` to the main repo so SQL written in a worktree survives `wt rm`.
 - **`y dev wt rm` made idempotent (1934)** — safe to re-run when residual state lingers.
+- **Link download consolidated into `y fetch get` (1965)** — fetch path handles link download with dry-run support; worker downloaders pruned (`httpx.py` / `oxylabs.py` removed, `router.py` simplified, `link/download.py` retired).
+- **README + docs restructure (1959)** — README slimmed down; `docs/capabilities.md`, `docs/cli.md`, `docs/self-host.md` split out for self-host details. Internal `lambda-detached-mode.md` doc dropped from the repo.
 
 ### Fixed
 - **Telegram routing tightened (worker)** — `_resolve_telegram_target` only DMs the `manager` topic; non-root topics without a `tg_topic` binding no longer fall back to DM.
 - **Routine see-chats handoff** — left-side click no longer clears the right-side ChatList's trace filter.
+- **ShareTraceView TOC + mobile polish (1958 / 1962)** — TOC scroll behavior, centering layout, and mobile overflow fixes on the public share page.
 
 ## [0.5.10] - 2026-04-26
 
