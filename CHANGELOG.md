@@ -34,6 +34,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Click-to-reload chat (1925)** — re-clicking the selected chat re-fetches it.
 - **`y pdf` CLI (1924)** — PDF parsing skill + CLI command group.
 - **Todo priority submenu (1943)** + **viewport-aware context menu flip (1944)** + **mark-as-read on top of context menu (1922)** — TodoContextMenu polish pass.
+- **Todo long-press on touch (1976)** — TodoList opens the context menu on a 500ms long-press on touch devices, with movement/cancel guards so a tap still selects the todo.
 - **Sidebar sort (1921)** — repo-level ordering for the sidebar todo list.
 - **Blog tab in NoteList (1929)** — separate tab for blog-tagged pages.
 - **Chat header skill label (1928)** — chat header shows the skill name.
