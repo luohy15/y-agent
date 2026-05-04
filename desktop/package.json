@@ -1,0 +1,13 @@
+{
+  "name": "y-agent-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "y-agent Mac desktop shell (Electron) — loads https://yovy.app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}
