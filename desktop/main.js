@@ -14,7 +14,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let mainWindow = null;
 let promptWindow = null;
+let resultWindow = null;
 let lastSelection = '';
+// Name of the app frontmost at the moment the global shortcut fired. Used to
+// re-activate that app before pasting back, since hiding our prompt window does
+// not on its own restore focus to the previous app.
+let lastFrontmostApp = null;
 
 // Trigger ⌘C in the frontmost app, read whatever lands on the clipboard, then
 // restore the user's previous clipboard contents. Returns the captured text
@@ -85,8 +90,45 @@ function showPromptWindow(selection) {
   }
 }
 
+// Ask System Events which process is frontmost. Done before showing the prompt
+// window so we know where to paste back to. Returns null on failure or when the
+// frontmost app is our own Electron shell.
+async function getFrontmostApp() {
+  try {
+    const { stdout } = await execAsync(
+      'osascript -e \'tell application "System Events" to name of first application process whose frontmost is true\'',
+    );
+    const name = stdout.trim();
+    if (!name) return null;
+    if (/electron|y-agent/i.test(name)) return null;
+    return name;
+  } catch (err) {
+    console.error('[selection] frontmost-app probe failed:', err.message);
+    return null;
+  }
+}
+
+async function activateApp(name) {
+  if (!name) return;
+  const escaped = name.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  try {
+    await execAsync(`osascript -e 'tell application "${escaped}" to activate'`);
+  } catch (err) {
+    console.error('[paste] activate failed:', err.message);
+  }
+}
+
+async function pasteViaCmdV() {
+  await execAsync(
+    'osascript -e \'tell application "System Events" to keystroke "v" using command down\'',
+  );
+}
+
 async function handleSelectionShortcut() {
   try {
+    // Record the previously-focused app BEFORE we capture (Cmd+C also runs
+    // against the frontmost app, so this reads the one the user actually meant).
+    lastFrontmostApp = await getFrontmostApp();
     const selection = await captureSelection();
     showPromptWindow(selection);
   } catch (err) {
@@ -165,11 +207,62 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-ipcMain.handle('prompt:submit', async (_e, instruction) => {
+function createResultWindow() {
+  resultWindow = new BrowserWindow({
+    width: 360,
+    height: 80,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    // Non-focusable so showing the popup does not steal focus from whichever
+    // app the user moves to next (or from the prompt window itself).
+    focusable: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  resultWindow.loadFile(path.join(__dirname, 'result-popup.html'));
+  resultWindow.on('closed', () => { resultWindow = null; });
+}
+
+function showResultPopup(result) {
+  if (!resultWindow) createResultWindow();
+  const send = () => {
+    resultWindow.webContents.send('result:show', { result });
+    resultWindow.showInactive();
+  };
+  if (resultWindow.webContents.isLoading()) {
+    resultWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
+
+ipcMain.handle('prompt:submit', async (_e, payload) => {
+  const instruction = (payload && payload.instruction) || '';
+  const mode = (payload && payload.mode) === 'copy' ? 'copy' : 'paste';
   try {
     const { result } = await callInlineApi(lastSelection, instruction);
-    // TODO(1981-paste-back): write `result` to clipboard and AppleScript ⌘V.
-    console.log('[inline] result:', JSON.stringify(result));
+    const text = typeof result === 'string' ? result : String(result ?? '');
+
+    if (mode === 'copy') {
+      clipboard.writeText(text);
+      if (promptWindow) promptWindow.hide();
+      showResultPopup(text);
+    } else {
+      // Paste-back: hide our window, bring the original app forward, then
+      // write the clipboard and synthesize ⌘V. The short sleep gives macOS a
+      // beat to actually switch focus before the keystroke is delivered.
+      if (promptWindow) promptWindow.hide();
+      await activateApp(lastFrontmostApp);
+      await sleep(80);
+      clipboard.writeText(text);
+      await pasteViaCmdV();
+    }
     return { ok: true };
   } catch (err) {
     console.error('[inline] request failed:', err.message);
@@ -181,10 +274,15 @@ ipcMain.on('prompt:close', () => {
   if (promptWindow) promptWindow.hide();
 });
 
+ipcMain.on('result:close', () => {
+  if (resultWindow) resultWindow.hide();
+});
+
 app.whenReady().then(() => {
   spoofUserAgent();
   createWindow();
   createPromptWindow();
+  createResultWindow();
 
   const registered = globalShortcut.register(SELECTION_SHORTCUT, handleSelectionShortcut);
   if (!registered) {
