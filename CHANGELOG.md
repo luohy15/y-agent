@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.11] - 2026-05-03
+
+### Added
 - **Recursive session tree alignment (1876)** — `chat.skill` column added, decoupled from `topic`; `chat.role` column dropped (root vs non-root now derives from `topic == 'manager'`). Badges, docs, and comments reframed around the new model.
 - **`y notify` merged into top-level `y chat` (1890 / 1891)** — `y chat -m "..."` is now the default fire-and-forget dispatch; `y chat -i` opens the interactive REPL. `--topic` / `--skill` / `--chat-id` are independently optional; bare `y chat -m` creates an anonymous chat. API endpoint moved from `/api/notify` to `/api/chat/notify`.
 - **`y chat list --trace-id <id>` (1899)** — list every chat in a trace, sorted chronologically; list response now includes `skill`.
