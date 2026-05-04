@@ -1,9 +1,26 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, shell, net } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell, net } = require('electron');
 const path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
 const execAsync = promisify(exec);
+
+// Once we've nagged the user about a given permission category, don't re-prompt
+// during the same session — the system-settings shortcut already opened the
+// pane and re-popping a sheet on every keystroke is worse than the underlying
+// failure.
+const permissionNoticeShown = { automation: false, accessibility: false };
+
+// Detect AppleScript / TCC denial from osascript stderr. -1743 is "user denied
+// authorization", -25006/-25007 are accessibility refusals, "not allowed" /
+// "not authorized" / "assistive access" are the textual variants seen across
+// macOS versions.
+function classifyPermissionError(err) {
+  const msg = String((err && (err.stderr || err.message)) || '');
+  if (/-1743|not authorized|not allowed sending events/i.test(msg)) return 'automation';
+  if (/-25006|-25007|assistive access|accessibility/i.test(msg)) return 'accessibility';
+  return null;
+}
 
 const APP_URL = 'https://yovy.app';
 const SELECTION_SHORTCUT = 'Alt+Space';
@@ -37,6 +54,7 @@ async function captureSelection() {
   } catch (err) {
     console.error('[selection] AppleScript Cmd+C failed:', err.message);
     if (previousText) clipboard.writeText(previousText);
+    showPermissionNotice(classifyPermissionError(err));
     return '';
   }
 
@@ -108,6 +126,43 @@ async function getFrontmostApp() {
   }
 }
 
+// Surface a permission-related AppleScript failure as a sheet over the main
+// window with a one-click jump to the relevant System Settings pane. Idempotent
+// per session per category so we don't spam the user mid-flow.
+function showPermissionNotice(kind) {
+  if (!kind || permissionNoticeShown[kind]) return;
+  permissionNoticeShown[kind] = true;
+
+  const isAutomation = kind === 'automation';
+  const title = isAutomation
+    ? 'Automation permission needed'
+    : 'Accessibility permission needed';
+  const detail = isAutomation
+    ? 'y-agent uses AppleScript to copy your selection (⌘C) and paste the result back (⌘V). macOS just blocked that.\n\nGrant access under System Settings → Privacy & Security → Automation, then enable "System Events" under y-agent.'
+    : 'y-agent needs Accessibility access to synthesize keystrokes for selection capture and paste-back.\n\nGrant access under System Settings → Privacy & Security → Accessibility and toggle y-agent on.';
+  const settingsUrl = isAutomation
+    ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+    : 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+
+  const opts = {
+    type: 'warning',
+    buttons: ['Open System Settings', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    title,
+    message: title,
+    detail,
+  };
+
+  const promise = mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showMessageBox(mainWindow, opts)
+    : dialog.showMessageBox(opts);
+
+  promise.then(({ response }) => {
+    if (response === 0) shell.openExternal(settingsUrl);
+  }).catch((err) => console.error('[perms] dialog failed:', err.message));
+}
+
 async function activateApp(name) {
   if (!name) return;
   const escaped = name.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -119,9 +174,15 @@ async function activateApp(name) {
 }
 
 async function pasteViaCmdV() {
-  await execAsync(
-    'osascript -e \'tell application "System Events" to keystroke "v" using command down\'',
-  );
+  try {
+    await execAsync(
+      'osascript -e \'tell application "System Events" to keystroke "v" using command down\'',
+    );
+  } catch (err) {
+    console.error('[paste] AppleScript Cmd+V failed:', err.message);
+    showPermissionNotice(classifyPermissionError(err));
+    throw err;
+  }
 }
 
 async function handleSelectionShortcut() {
