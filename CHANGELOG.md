@@ -13,6 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **macOS desktop inline rewrites** — new Electron app under `desktop/` plus `POST /api/inline` endpoint (Claude Haiku 4.5): `Alt+Space` captures the current selection via AppleScript `Cmd+C`, an input window calls `/api/inline`, and the result is pasted back via `Cmd+V` or shown in a copy popover. Includes macOS Accessibility permission docs and in-app permission-error surfacing.
 
 ### Changed
 
