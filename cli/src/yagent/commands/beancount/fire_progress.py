@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import tomllib
 
 import click
 
@@ -9,19 +10,65 @@ from .helpers import convert_balance, filter_by_date, sum_tree
 
 def _load_fire_config():
     home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
-    path = os.path.join(home, "finance", "fire_target.json")
-    if os.path.exists(path):
-        with open(path) as f:
-            cfg = json.load(f)
-        return cfg, "file"
-    monthly_expense = 5000.0
-    withdrawal_rate = 0.04
+    fire_path = os.path.join(home, "finance", "fire_target.json")
+    position_path = os.path.join(home, "finance", "position.json")
+    config_path = os.path.expanduser("~/.y-agent/config.toml")
+
+    fire_cfg = {}
+    if os.path.exists(fire_path):
+        with open(fire_path) as f:
+            fire_cfg = json.load(f)
+
+    position_cfg = {}
+    if os.path.exists(position_path):
+        with open(position_path) as f:
+            position_cfg = json.load(f)
+
+    toml_cfg = {}
+    if os.path.exists(config_path):
+        with open(config_path, "rb") as f:
+            toml_cfg = tomllib.load(f)
+
+    monthly_expense = None
+    source = None
+
+    if "FINANCE_MONTHLY_EXPENSE" in toml_cfg:
+        try:
+            monthly_expense = float(toml_cfg["FINANCE_MONTHLY_EXPENSE"])
+            source = "config"
+        except (TypeError, ValueError):
+            pass
+
+    if monthly_expense is None and position_cfg.get("monthly_expense") is not None:
+        try:
+            monthly_expense = float(position_cfg["monthly_expense"])
+            source = "position"
+        except (TypeError, ValueError):
+            pass
+
+    if monthly_expense is None and fire_cfg.get("monthly_expense_usd") is not None:
+        try:
+            monthly_expense = float(fire_cfg["monthly_expense_usd"])
+            source = "fire_target"
+        except (TypeError, ValueError):
+            pass
+
+    if monthly_expense is None:
+        monthly_expense = 5000.0
+        source = "default"
+
+    withdrawal_rate = float(fire_cfg.get("withdrawal_rate", 0.04) or 0.04)
+    target_usd = fire_cfg.get("target_usd")
+    if target_usd is None:
+        target_usd = round(monthly_expense * 12 / withdrawal_rate, 2) if withdrawal_rate else 0
+    currency = fire_cfg.get("currency", "USD")
+
     return {
-        "target_usd": round(monthly_expense * 12 / withdrawal_rate, 2),
+        "target_usd": target_usd,
         "monthly_expense_usd": monthly_expense,
         "withdrawal_rate": withdrawal_rate,
-        "currency": "USD",
-    }, "default"
+        "currency": currency,
+    }, source
 
 
 @click.command("fire-progress")
