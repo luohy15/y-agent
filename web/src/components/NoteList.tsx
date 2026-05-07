@@ -27,8 +27,11 @@ interface NoteListProps {
   hideFilters?: boolean;
 }
 
-type NoteTab = "journals" | "pages" | "blog";
+type NoteTab = "finance" | "journals" | "pages" | "blog";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
+type FinanceSubTab = "weekly" | "tickers";
+
+const FINANCE_DIR = "/Users/roy/luohy15/finance";
 
 interface BlogEntry {
   title: string;
@@ -70,7 +73,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
 export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
-    return saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
+    return saved === "finance" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
   });
   const [searchInput, setSearchInput] = useState("");
   const [journalYear, setJournalYear] = useState<string>(() => localStorage.getItem("noteListJournalYear") || "");
@@ -78,6 +81,10 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const [blogLang, setBlogLang] = useState<BlogLang>(() => {
     const saved = localStorage.getItem("noteListBlogLang");
     return BLOG_LANGS.includes(saved as BlogLang) ? (saved as BlogLang) : "en";
+  });
+  const [financeSubTab, setFinanceSubTab] = useState<FinanceSubTab>(() => {
+    const saved = localStorage.getItem("noteListFinanceSubTab");
+    return saved === "tickers" ? "tickers" : "weekly";
   });
 
   const handleTabChange = useCallback((t: NoteTab) => {
@@ -88,6 +95,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const handleBlogLangChange = useCallback((l: BlogLang) => {
     setBlogLang(l);
     localStorage.setItem("noteListBlogLang", l);
+  }, []);
+
+  const handleFinanceSubTabChange = useCallback((s: FinanceSubTab) => {
+    setFinanceSubTab(s);
+    localStorage.setItem("noteListFinanceSubTab", s);
   }, []);
 
   const journalsParams = new URLSearchParams();
@@ -103,13 +115,19 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   blogParams.set("path", `${blogDirForLang(blogLang)}/index.jsonl`);
   if (vmName) blogParams.set("vm_name", vmName);
 
+  const financeParams = new URLSearchParams();
+  financeParams.set("path", `${FINANCE_DIR}/${financeSubTab}`);
+  if (vmName) financeParams.set("vm_name", vmName);
+
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
   const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
   const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/file/read?${blogParams.toString()}` : null;
+  const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/file/list?${financeParams.toString()}` : null;
 
   const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
   const { data: blogData, isLoading: blogLoading, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
+  const { data: financeData, isLoading: financeLoading, error: financeError, mutate: mutateFinance } = useSWR<{ path: string; entries: FileEntry[] }>(financeKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
   const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
@@ -202,6 +220,15 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     return files;
   }, [pagesData, searchInput]);
 
+  const financeFiles = useMemo(() => {
+    if (!financeData?.entries) return [];
+    const files = financeData.entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).map((e) => e.name);
+    if (financeSubTab === "weekly") {
+      return files.sort((a, b) => b.localeCompare(a));
+    }
+    return files.sort((a, b) => a.localeCompare(b));
+  }, [financeData, financeSubTab]);
+
   const blogEntries = useMemo<BlogEntry[]>(() => {
     if (!blogData?.content) return [];
     const out: BlogEntry[] = [];
@@ -283,11 +310,12 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     <div className="flex flex-col h-full text-xs overflow-hidden">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
         <div className="flex gap-1 items-center">
+          <button onClick={() => handleTabChange("finance")} className={tabClass(tab === "finance")}>Finance</button>
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
           <button onClick={() => handleTabChange("blog")} className={tabClass(tab === "blog")}>Blog</button>
           <button
-            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else mutateBlog(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else if (tab === "blog") mutateBlog(); else mutateFinance(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
             className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
@@ -317,6 +345,12 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             {BLOG_LANGS.map((l) => (
               <button key={l} onClick={() => handleBlogLangChange(l)} className={pillClass(blogLang === l)}>{l}</button>
             ))}
+          </div>
+        )}
+        {tab === "finance" && (
+          <div className="flex gap-1 flex-wrap">
+            <button onClick={() => handleFinanceSubTabChange("weekly")} className={pillClass(financeSubTab === "weekly")}>weekly</button>
+            <button onClick={() => handleFinanceSubTabChange("tickers")} className={pillClass(financeSubTab === "tickers")}>tickers</button>
           </div>
         )}
         {tab === "pages" && (
@@ -356,6 +390,30 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
       <div className="flex-1 overflow-y-auto p-1.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view notes</p>
+        ) : tab === "finance" ? (
+          financeLoading ? (
+            <p className="text-sol-base01 italic p-2">Loading...</p>
+          ) : financeError ? (
+            <p className="text-sol-base01 italic p-2">Error loading {financeSubTab}</p>
+          ) : financeFiles.length === 0 ? (
+            <p className="text-sol-base01 italic p-2">No files found</p>
+          ) : (
+            <div className="space-y-0">
+              {financeFiles.map((file) => {
+                const fullPath = `${FINANCE_DIR}/${financeSubTab}/${file}`;
+                return (
+                  <button
+                    key={file}
+                    onClick={() => onOpenFile(fullPath)}
+                    onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: fullPath }); }}
+                    className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                  >
+                    <span className="truncate flex-1">{file.replace(/\.md$/, "")}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )
         ) : tab === "journals" ? (
           journalsLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
