@@ -29,7 +29,7 @@ interface NoteListProps {
 
 type NoteTab = "finance" | "journals" | "pages" | "blog";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
-type FinanceSubTab = "weekly" | "tickers";
+type FinanceSubTab = "notes" | "weekly" | "tickers";
 
 const FINANCE_DIR = "/Users/roy/luohy15/finance";
 
@@ -84,7 +84,8 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   });
   const [financeSubTab, setFinanceSubTab] = useState<FinanceSubTab>(() => {
     const saved = localStorage.getItem("noteListFinanceSubTab");
-    return saved === "tickers" ? "tickers" : "weekly";
+    if (saved === "notes" || saved === "weekly" || saved === "tickers") return saved;
+    return "notes";
   });
 
   const handleTabChange = useCallback((t: NoteTab) => {
@@ -117,6 +118,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
 
   const financeParams = new URLSearchParams();
   financeParams.set("path", `${FINANCE_DIR}/${financeSubTab}`);
+  if (financeSubTab === "notes") financeParams.set("sort", "atime");
   if (vmName) financeParams.set("vm_name", vmName);
 
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
@@ -223,6 +225,9 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const financeFiles = useMemo(() => {
     if (!financeData?.entries) return [];
     const files = financeData.entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).map((e) => e.name);
+    if (financeSubTab === "notes") {
+      return files;
+    }
     if (financeSubTab === "weekly") {
       return files.sort((a, b) => b.localeCompare(a));
     }
@@ -349,6 +354,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         )}
         {tab === "finance" && (
           <div className="flex gap-1 flex-wrap">
+            <button onClick={() => handleFinanceSubTabChange("notes")} className={pillClass(financeSubTab === "notes")}>notes</button>
             <button onClick={() => handleFinanceSubTabChange("weekly")} className={pillClass(financeSubTab === "weekly")}>weekly</button>
             <button onClick={() => handleFinanceSubTabChange("tickers")} className={pillClass(financeSubTab === "tickers")}>tickers</button>
           </div>
