@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **macOS desktop inline rewrites** — new Electron app under `desktop/` plus `POST /api/inline` endpoint (Claude Haiku 4.5): `Alt+Space` captures the current selection via AppleScript `Cmd+C`, an input window calls `/api/inline`, and the result is pasted back via `Cmd+V` or shown in a copy popover. Includes macOS Accessibility permission docs and in-app permission-error surfacing.
+- **Finance tab in NoteList** — new top-level "Finance" tab with `notes` / `weekly` / `tickers` sub-tabs reading from `~/finance/`; `notes` uses access-time sort, `weekly` reverse-lex, `tickers` lex.
+- **`FINANCE_MONTHLY_EXPENSE` config override (1993)** — `y beancount fire-progress` resolves `monthly_expense` with precedence `config.toml` → `position.json` → `fire_target.json` → default 5000, and reports the resolved source so the FIRE tab and weekly rebalance can share the value via `~/.y-agent/config.toml`.
 
 ### Changed
 
