@@ -38,7 +38,7 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
     )
 
 
-def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, unread: Optional[bool] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
+def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, unread: Optional[bool] = None, completed_since: Optional[str] = None, completed_until: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
     with get_db() as session:
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
@@ -75,6 +75,10 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
                 .exists()
             )
             q = q.filter(unread_exists)
+        if completed_since:
+            q = q.filter(TodoEntity.completed_at.isnot(None)).filter(TodoEntity.completed_at >= completed_since)
+        if completed_until:
+            q = q.filter(TodoEntity.completed_at.isnot(None)).filter(TodoEntity.completed_at < completed_until)
         if status == "pending":
             # pending: two-group sorting
             # Group 0: has due_date within today + 14 days → sort by due_date ASC
