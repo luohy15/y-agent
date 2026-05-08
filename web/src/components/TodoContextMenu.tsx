@@ -48,13 +48,21 @@ async function markTraceUnread(traceId: string): Promise<boolean> {
   return res.ok;
 }
 
-type SubmenuChild = { label: string; action: () => void; checked?: boolean; className?: string };
+type SubmenuChild = { label: string; action: () => void; checked?: boolean; disabled?: boolean; className?: string };
 type MenuItem =
   | { type: "item"; label: string; action: () => void }
   | { type: "submenu"; label: string; key: string; children: SubmenuChild[] }
   | { type: "separator" };
 
 const PRIORITY_OPTIONS = ["high", "medium", "low", "none"] as const;
+const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
+
+const STATUS_COLOR_CLASS: Record<string, string> = {
+  pending: "text-sol-base0",
+  active: "text-sol-blue",
+  completed: "text-sol-green",
+  deleted: "text-sol-red",
+};
 
 export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatListRefresh }: TodoContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -152,66 +160,23 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
       },
     })),
   });
-  items.push({ type: "separator" });
 
-  if (todo.status === "pending") {
-    items.push({
-      type: "item",
-      label: "Activate",
-      action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Delete",
-      action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
-    });
-  }
-  if (todo.status === "active") {
-    items.push({
-      type: "item",
-      label: "Finish",
-      action: async () => { await changeTodoStatus(todo.todo_id, "completed"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Deactivate",
-      action: async () => { await changeTodoStatus(todo.todo_id, "pending"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Delete",
-      action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
-    });
-  }
-  if (todo.status === "completed") {
-    items.push({
-      type: "item",
-      label: "Reopen",
-      action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Delete",
-      action: async () => { await changeTodoStatus(todo.todo_id, "deleted"); onAction(); onClose(); },
-    });
-  }
-  if (todo.status === "deleted") {
-    items.push({
-      type: "item",
-      label: "Re-add",
-      action: async () => { await changeTodoStatus(todo.todo_id, "pending"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Reopen",
-      action: async () => { await changeTodoStatus(todo.todo_id, "active"); onAction(); onClose(); },
-    });
-    items.push({
-      type: "item",
-      label: "Finish",
-      action: async () => { await changeTodoStatus(todo.todo_id, "completed"); onAction(); onClose(); },
-    });
-  }
+  items.push({
+    type: "submenu",
+    label: "Set status",
+    key: "status",
+    children: STATUS_OPTIONS.map((s) => ({
+      label: s,
+      checked: s === todo.status,
+      disabled: s === todo.status,
+      className: STATUS_COLOR_CLASS[s],
+      action: async () => {
+        await changeTodoStatus(todo.todo_id, s);
+        onAction();
+        onClose();
+      },
+    })),
+  });
 
   return createPortal(
     <div
@@ -254,8 +219,9 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
                   {item.children.map((c) => (
                     <button
                       key={c.label}
-                      onClick={c.action}
-                      className={`w-full text-left px-2.5 py-0.5 text-xs hover:bg-sol-base01/30 cursor-pointer flex items-center gap-1.5 ${c.className || "text-sol-base0"}`}
+                      onClick={c.disabled ? undefined : c.action}
+                      disabled={c.disabled}
+                      className={`w-full text-left px-2.5 py-0.5 text-xs flex items-center gap-1.5 ${c.disabled ? "opacity-60 cursor-default" : "hover:bg-sol-base01/30 cursor-pointer"} ${c.className || "text-sol-base0"}`}
                     >
                       <span className="w-2.5 shrink-0 text-sol-base0">{c.checked ? "✓" : ""}</span>
                       <span>{c.label}</span>
