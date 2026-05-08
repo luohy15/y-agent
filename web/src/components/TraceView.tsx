@@ -1,11 +1,10 @@
 import { useState } from "react";
 import useSWR from "swr";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import { topicBadgeClass, statusBadgeClass, priorityColorClass, actionBadgeClass } from "./badges";
+import { topicBadgeClass, statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
+import TraceTodoDetail, { type TodoInfo } from "./TraceTodoDetail";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -14,27 +13,6 @@ interface TraceViewProps {
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
   onOpenFile?: (path: string) => void;
-}
-
-interface TodoHistoryEntry {
-  timestamp: string;
-  action: string;
-  note?: string;
-}
-
-interface TodoInfo {
-  todo_id: string;
-  name: string;
-  status: string;
-  desc?: string;
-  tags?: string[];
-  priority?: string;
-  due_date?: string;
-  progress?: string;
-  completed_at?: string;
-  created_at?: string;
-  updated_at?: string;
-  history?: TodoHistoryEntry[];
 }
 
 interface TraceLink {
@@ -71,10 +49,8 @@ function getDomain(url: string): string {
 
 export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile }: TraceViewProps) {
   // Fetch chats for selected trace
-  const { data: traceData } = useSWR<TraceChatsResponse>(
-    selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null,
-    fetcher,
-  );
+  const traceChatsKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
+  const { data: traceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher);
 
   // Fetch current share (if any) for this trace
   const myShareKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
@@ -181,101 +157,22 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
 
             {/* Todo detail section */}
             {todoInfo && (
-              <div className="mb-3 border border-sol-base02 rounded">
-                <button
-                  onClick={() => setTodoDetailOpen((v) => !v)}
-                  className="w-full flex items-center gap-2 px-2 py-1 text-xs text-sol-base01 hover:text-sol-base0 cursor-pointer"
-                >
-                  <span className="text-[0.6rem]">{todoDetailOpen ? "▼" : "▶"}</span>
-                  <span className="font-medium text-sol-base0">Todo Detail</span>
-                </button>
-                {todoDetailOpen && (<>
-                  <div className="px-2 pb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                    {todoInfo.desc && (
-                      <>
-                        <span className="text-sol-base01">Desc</span>
-                        <div className="min-w-0 break-words text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{todoInfo.desc}</ReactMarkdown>
-                        </div>
-                      </>
-                    )}
-                    {todoInfo.priority && (
-                      <>
-                        <span className="text-sol-base01">Priority</span>
-                        <span className={priorityColorClass(todoInfo.priority)}>{todoInfo.priority}</span>
-                      </>
-                    )}
-                    {todoInfo.due_date && (
-                      <>
-                        <span className="text-sol-base01">Due</span>
-                        <span className="text-sol-base0">{todoInfo.due_date}</span>
-                      </>
-                    )}
-                    {todoInfo.tags && todoInfo.tags.length > 0 && (
-                      <>
-                        <span className="text-sol-base01">Tags</span>
-                        <div className="flex flex-wrap gap-1">
-                          {todoInfo.tags.map((tag) => (
-                            <span key={tag} className="bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded text-[0.6rem]">{tag}</span>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    {todoInfo.progress && (
-                      <>
-                        <span className="text-sol-base01">Progress</span>
-                        <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
-                      </>
-                    )}
-                    {todoInfo.created_at && (
-                      <>
-                        <span className="text-sol-base01">Created</span>
-                        <span className="text-sol-base0 font-mono text-[0.65rem]">{new Date(todoInfo.created_at).toLocaleString()}</span>
-                      </>
-                    )}
-                    {todoInfo.updated_at && (
-                      <>
-                        <span className="text-sol-base01">Updated</span>
-                        <span className="text-sol-base0 font-mono text-[0.65rem]">{new Date(todoInfo.updated_at).toLocaleString()}</span>
-                      </>
-                    )}
-                    {todoInfo.completed_at && (
-                      <>
-                        <span className="text-sol-base01">Completed</span>
-                        <span className="text-sol-green font-mono text-[0.65rem]">{new Date(todoInfo.completed_at).toLocaleString()}</span>
-                      </>
-                    )}
-                  </div>
-                  {/* History section */}
-                  {todoInfo.history && todoInfo.history.length > 0 && (
-                    <div className="px-2 pb-2">
-                      <button
-                        onClick={() => setHistoryOpen((v) => !v)}
-                        className="flex items-center gap-1.5 text-[0.65rem] text-sol-base01 hover:text-sol-base0 cursor-pointer mb-1"
-                      >
-                        <span className="text-[0.55rem]">{historyOpen ? "▼" : "▶"}</span>
-                        <span>History ({todoInfo.history.length})</span>
-                      </button>
-                      {historyOpen && (
-                        <div className="ml-1 border-l border-sol-base02 pl-2 space-y-1.5">
-                          {todoInfo.history.map((h, i) => {
-                            return (
-                              <div key={i} className="flex items-start gap-1.5 relative">
-                                <div className="absolute -left-[calc(0.5rem+1px)] top-1 w-1.5 h-1.5 rounded-full bg-sol-base01 border border-sol-base02" />
-                                <span className="text-[0.6rem] text-sol-base01 font-mono shrink-0">
-                                  {new Date(h.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                                <span className={`text-[0.55rem] px-1 rounded shrink-0 ${actionBadgeClass(h.action)}`}>{h.action}</span>
-                                {h.note && <span className="text-[0.6rem] text-sol-base0 break-all">{h.note}</span>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>)}
-              </div>
+              <TraceTodoDetail
+                todoInfo={todoInfo}
+                open={todoDetailOpen}
+                setOpen={setTodoDetailOpen}
+                historyOpen={historyOpen}
+                setHistoryOpen={setHistoryOpen}
+                onSaveProgress={async (newProgress) => {
+                  const res = await authFetch(`${API}/api/todo/update`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ todo_id: todoInfo.todo_id, progress: newProgress }),
+                  });
+                  if (!res.ok) throw new Error("update failed");
+                  await mutateTrace();
+                }}
+              />
             )}
 
             {traceChats.length > 0 ? (
