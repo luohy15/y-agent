@@ -16,8 +16,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **macOS desktop inline rewrites** — new Electron app under `desktop/` plus `POST /api/inline` endpoint (Claude Haiku 4.5): `Alt+Space` captures the current selection via AppleScript `Cmd+C`, an input window calls `/api/inline`, and the result is pasted back via `Cmd+V` or shown in a copy popover. Includes macOS Accessibility permission docs and in-app permission-error surfacing.
 - **Finance tab in NoteList** — new top-level "Finance" tab with `notes` / `weekly` / `tickers` sub-tabs reading from `~/finance/`; `notes` uses access-time sort, `weekly` reverse-lex, `tickers` lex.
 - **`FINANCE_MONTHLY_EXPENSE` config override (1993)** — `y beancount fire-progress` resolves `monthly_expense` with precedence `config.toml` → `position.json` → `fire_target.json` → default 5000, and reports the resolved source so the FIRE tab and weekly rebalance can share the value via `~/.y-agent/config.toml`.
+- **Todo `completed_at` date filters (1998)** — `GET /api/todo/list` and `y todo list` accept `--completed-on` / `--completed-since` / `--completed-until` (local-tz `YYYY-MM-DD`) to scope completed todos to a single day or range.
+- **Inline trace progress edit (1995)** — TraceView's todo progress field is now editable with a dirty-aware draft + Save flow; shared between TraceView and ShareTraceView via a new `TraceTodoDetail` component (read-only on the share view).
 
 ### Changed
+- **TodoContextMenu status submenu (1994)** — status transitions consolidated into a single "Status" submenu with color-coded options and the current status disabled, replacing the per-status flat action list.
 
 ### Fixed
 
