@@ -10,6 +10,7 @@ class NoteEntity(Base, BaseEntity):
     note_id = Column(String, nullable=False)
     content_key = Column(String, nullable=False)
     front_matter = Column(JSON, nullable=True)
+    deleted_at = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "note_id"),

@@ -31,6 +31,7 @@ class ImportNoteRequest(BaseModel):
 
 class DeleteNoteRequest(BaseModel):
     note_id: str
+    force: bool = False
 
 
 @router.post("")
@@ -59,27 +60,35 @@ async def update_note(req: UpdateNoteRequest, request: Request):
 @router.post("/delete")
 async def delete_note(req: DeleteNoteRequest, request: Request):
     user_id = _get_user_id(request)
-    deleted = note_service.delete_note(user_id, req.note_id)
-    return {"ok": True, "deleted": deleted}
+    result = note_service.delete_note(user_id, req.note_id, force=req.force)
+    if not result.get("ok"):
+        raise HTTPException(status_code=409, detail=result)
+    return result
 
 
 @router.get("/detail")
-async def get_note(request: Request, note_id: str = Query(...)):
+async def get_note(request: Request, note_id: str = Query(...), include_deleted: bool = Query(False)):
     user_id = _get_user_id(request)
-    note = note_service.get_note(user_id, note_id)
+    note = note_service.get_note(user_id, note_id, include_deleted=include_deleted)
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     return note.to_dict()
 
 
 @router.get("/list")
-async def list_notes(request: Request, limit: int = Query(50), offset: int = Query(0), todo_id: Optional[str] = Query(None)):
+async def list_notes(
+    request: Request,
+    limit: int = Query(50),
+    offset: int = Query(0),
+    todo_id: Optional[str] = Query(None),
+    include_deleted: bool = Query(False),
+):
     user_id = _get_user_id(request)
     if todo_id:
         note_ids = relation_service.list_by_todo(user_id, todo_id)
         if not note_ids:
             return []
-        notes = note_service.get_notes_by_ids(user_id, note_ids)
+        notes = note_service.get_notes_by_ids(user_id, note_ids, include_deleted=include_deleted)
         return [n.to_dict() for n in notes]
-    notes = note_service.list_notes(user_id, limit=limit, offset=offset)
+    notes = note_service.list_notes(user_id, limit=limit, offset=offset, include_deleted=include_deleted)
     return [n.to_dict() for n in notes]
