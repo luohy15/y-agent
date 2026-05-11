@@ -240,10 +240,24 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             result_data = result.get("result_data")
 
+            # Only persist the run's session/thread id back to chat.external_id
+            # when the run's cwd matched chat.work_dir. Claude Code / Codex
+            # session files are scoped per cwd, so a session created in a
+            # mismatched cwd is unresumable from the chat's recorded work_dir
+            # and would permanently break future resumes if written back.
+            run_work_dir = proc.get("work_dir")
+            cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
+
             if backend_type == "codex":
                 # Codex: usage from turn.completed event
                 if result.get("thread_id"):
-                    fresh.external_id = result["thread_id"]
+                    if cwd_matches:
+                        fresh.external_id = result["thread_id"]
+                    else:
+                        logger.warning(
+                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
+                            chat_id, run_work_dir, fresh.work_dir, result["thread_id"],
+                        )
                 if result_data and not result_data.get("is_error"):
                     usage = result_data.get("usage", {})
                     if usage:
@@ -263,7 +277,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             else:
                 # Claude Code: existing logic
                 if result.get("session_id"):
-                    fresh.external_id = result["session_id"]
+                    if cwd_matches:
+                        fresh.external_id = result["session_id"]
+                    else:
+                        logger.warning(
+                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
+                            chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                        )
 
                 if result_data:
                     model_usage = result_data.get("modelUsage", {})

@@ -432,6 +432,19 @@ async def tail_codex_output(
         if last_error_data:
             status = "error"
             result_data = last_error_data
+        elif result_data is None:
+            # tmux session exited without ever emitting a turn.completed event —
+            # typically a startup / resume failure. Surface a concrete error so
+            # the chat doesn't silently die.
+            logger.warning(
+                "tail_codex_output: chat_id={} exited with no turn.completed event (offset={})",
+                chat_id, current_offset,
+            )
+            status = "error"
+            result_data = {
+                "is_error": True,
+                "result": "Codex exited before producing output — likely a session resume failure or startup error.",
+            }
 
         return {
             "offset": current_offset,
