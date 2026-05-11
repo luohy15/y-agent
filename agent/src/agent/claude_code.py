@@ -651,7 +651,21 @@ async def tail_ssh_output(
 
         # Process finished normally
         status = "completed"
-        if result_data and result_data.get("is_error"):
+        if result_data is None:
+            # tmux session exited without ever emitting a stream-json `result`
+            # event — typically a startup failure (e.g. `claude -p -r <id>` with
+            # a session_id that doesn't exist in the current cwd). Surface a
+            # concrete error so the chat doesn't silently die.
+            logger.warning(
+                "tail_ssh_output: chat_id={} exited with no result event (offset={})",
+                chat_id, current_offset,
+            )
+            status = "error"
+            result_data = {
+                "is_error": True,
+                "result": "Claude Code exited before producing output — likely a session resume failure or startup error.",
+            }
+        elif result_data.get("is_error"):
             status = "error"
 
         return {

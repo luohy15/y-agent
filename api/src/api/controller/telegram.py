@@ -297,6 +297,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
                 trace_id=target_chat.trace_id,
                 skill=target_chat.skill,
                 backend=target_chat.backend,
+                work_dir=target_chat.work_dir,
             )
         except Exception as e:
             logger.exception("_handle_routed_message: failed to queue: {}", e)
@@ -424,13 +425,18 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         if released:
             logger.info("Released topic '{}' from {} previous chat(s) on Telegram new chat by user {}", topic, released, user.id)
 
-    # Queue for processing — pass topic so runner knows where to route replies
+    # Queue for processing — pass topic so runner knows where to route replies.
+    # work_dir is forwarded so the worker resumes the existing claude-code
+    # session under the same cwd it was created in (fresh chats from /clear or
+    # the else-branch above stay with work_dir=None, which lets the runner
+    # assign the default VM cwd on first run).
     try:
         from storage.service.chat import send_chat_message
         send_chat_message(
             chat_id,
             user_id=user.id,
             topic=topic,
+            work_dir=chat.work_dir,
         )
     except Exception as e:
         logger.exception("_handle_message: failed to queue message: {}", e)
