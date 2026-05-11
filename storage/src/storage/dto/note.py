@@ -7,6 +7,7 @@ class Note:
     note_id: str
     content_key: str
     front_matter: Optional[Dict] = None
+    deleted_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -18,6 +19,7 @@ class Note:
             note_id=data['note_id'],
             content_key=data['content_key'],
             front_matter=data.get('front_matter'),
+            deleted_at=data.get('deleted_at'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -31,6 +33,8 @@ class Note:
         }
         if self.front_matter is not None:
             result['front_matter'] = self.front_matter
+        if self.deleted_at is not None:
+            result['deleted_at'] = self.deleted_at
         if self.created_at is not None:
             result['created_at'] = self.created_at
         if self.updated_at is not None:
