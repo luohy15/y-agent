@@ -13,10 +13,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **`y note delete` (2009)** — new CLI command + `POST /api/note/delete` endpoint with safe-delete guards: refuses when an entity backs the note (delete the entity first) and requires `--force` to unlink live `note_todo` relations before soft-deleting.
+- **Finance `topics` sub-tab** — NoteList's finance tab gains a fourth `topics` sub-tab alongside `notes` / `weekly` / `tickers`, persisted via `noteListFinanceSubTab`.
 
 ### Changed
 
 ### Fixed
+- **Telegram resume preserves `work_dir` (2011)** — `_handle_message` and `_handle_routed_message` now forward the chat's `work_dir` when re-queuing, so the worker resumes the existing claude-code session under the same cwd instead of falling back to the VM default.
 
 ### Removed
 
