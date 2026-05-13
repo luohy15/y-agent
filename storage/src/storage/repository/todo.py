@@ -125,6 +125,33 @@ def list_todos(
         return [_entity_to_dto(row) for row in q.all()]
 
 
+def list_todo_ids(
+    user_id: int,
+    status: Optional[str] = None,
+    query: Optional[str] = None,
+    unread: Optional[bool] = None,
+) -> List[str]:
+    with get_db() as session:
+        q = session.query(TodoEntity.todo_id).filter(TodoEntity.user_id == user_id)
+        if status:
+            q = q.filter(TodoEntity.status == status)
+        if query:
+            pattern = f"%{query}%"
+            q = q.filter(
+                TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+            )
+        if unread:
+            unread_exists = (
+                session.query(ChatEntity.trace_id)
+                .filter(ChatEntity.user_id == user_id)
+                .filter(ChatEntity.unread.is_(True))
+                .filter(ChatEntity.trace_id == TodoEntity.todo_id)
+                .exists()
+            )
+            q = q.filter(unread_exists)
+        return [row[0] for row in q.all()]
+
+
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
     with get_db() as session:
         row = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id).first()

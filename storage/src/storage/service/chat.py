@@ -243,6 +243,21 @@ def mark_trace_unread(user_id: int, trace_id: str) -> Optional[str]:
     return mark_latest_chat_unread_by_trace(user_id, trace_id)
 
 
+def mark_all_traces_read(
+    user_id: int,
+    status: Optional[str] = None,
+    query: Optional[str] = None,
+    unread: Optional[bool] = None,
+) -> int:
+    """Mark every chat whose trace_id matches the filtered todo list as read."""
+    from storage.repository import todo as todo_repo
+    from storage.repository.chat import mark_chats_read_by_trace_ids
+    trace_ids = todo_repo.list_todo_ids(user_id, status=status, query=query, unread=unread)
+    if not trace_ids:
+        return 0
+    return mark_chats_read_by_trace_ids(user_id, trace_ids)
+
+
 async def generate_share_html(chat_id: str) -> str:
     home = os.path.expanduser(os.getenv("Y_AGENT_HOME", "~/.y-agent"))
     tmp_dir = os.path.join(home, "tmp")
