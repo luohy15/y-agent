@@ -51,6 +51,7 @@ async function markTraceUnread(traceId: string): Promise<boolean> {
 type SubmenuChild = { label: string; action: () => void; checked?: boolean; disabled?: boolean; className?: string };
 type MenuItem =
   | { type: "item"; label: string; action: () => void }
+  | { type: "option"; label: string; action: () => void; checked?: boolean; disabled?: boolean; className?: string }
   | { type: "submenu"; label: string; key: string; children: SubmenuChild[] }
   | { type: "separator" };
 
@@ -123,6 +124,22 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
 
   const items: MenuItem[] = [];
 
+  for (const s of STATUS_OPTIONS) {
+    items.push({
+      type: "option",
+      label: s,
+      checked: s === todo.status,
+      disabled: s === todo.status,
+      className: STATUS_COLOR_CLASS[s],
+      action: async () => {
+        await changeTodoStatus(todo.todo_id, s);
+        onAction();
+        onClose();
+      },
+    });
+  }
+  items.push({ type: "separator" });
+
   items.push({
     type: "item",
     label: "Mark read",
@@ -161,23 +178,6 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
     })),
   });
 
-  items.push({
-    type: "submenu",
-    label: "Set status",
-    key: "status",
-    children: STATUS_OPTIONS.map((s) => ({
-      label: s,
-      checked: s === todo.status,
-      disabled: s === todo.status,
-      className: STATUS_COLOR_CLASS[s],
-      action: async () => {
-        await changeTodoStatus(todo.todo_id, s);
-        onAction();
-        onClose();
-      },
-    })),
-  });
-
   return createPortal(
     <div
       ref={menuRef}
@@ -191,6 +191,20 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
       {items.map((item, idx) => {
         if (item.type === "separator") {
           return <div key={`sep-${idx}`} className="border-t border-sol-base01/30 my-0.5" />;
+        }
+        if (item.type === "option") {
+          return (
+            <button
+              key={`opt-${idx}-${item.label}`}
+              onClick={item.disabled ? undefined : item.action}
+              onMouseEnter={() => setOpenSubmenu(null)}
+              disabled={item.disabled}
+              className={`w-full text-left px-2.5 py-0.5 text-xs flex items-center gap-1.5 ${item.disabled ? "opacity-60 cursor-default" : "hover:bg-sol-base01/30 cursor-pointer"} ${item.className || "text-sol-base0"}`}
+            >
+              <span className="w-2.5 shrink-0 text-sol-base0">{item.checked ? "✓" : ""}</span>
+              <span>{item.label}</span>
+            </button>
+          );
         }
         if (item.type === "submenu") {
           const open = openSubmenu === item.key;
