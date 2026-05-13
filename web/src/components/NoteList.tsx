@@ -233,6 +233,15 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     return files;
   }, [pagesData, searchInput]);
 
+  const filteredSkills = useMemo(() => {
+    if (!skillsData?.skills) return [];
+    if (!searchInput) return skillsData.skills;
+    const q = searchInput.toLowerCase();
+    return skillsData.skills.filter(
+      (s) => s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q),
+    );
+  }, [skillsData, searchInput]);
+
   const financeFiles = useMemo(() => {
     if (!financeData?.entries) return [];
     const files = financeData.entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).map((e) => e.name);
@@ -372,6 +381,17 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <button onClick={() => handleFinanceSubTabChange("topics")} className={pillClass(financeSubTab === "topics")}>topics</button>
           </div>
         )}
+        {tab === "skills" && (
+          <div className="flex gap-1 items-center">
+            <input
+              type="text"
+              placeholder="Search skills..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            />
+          </div>
+        )}
         {tab === "pages" && (
           <div className="flex gap-1 items-center">
             <input
@@ -440,9 +460,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <p className="text-sol-base01 italic p-2">Error loading skills</p>
           ) : !skillsData?.skills?.length ? (
             <p className="text-sol-base01 italic p-2">No skills found</p>
+          ) : filteredSkills.length === 0 ? (
+            <p className="text-sol-base01 italic p-2">No matching skills</p>
           ) : (
             <div className="space-y-0">
-              {skillsData.skills.map((skill) => (
+              {filteredSkills.map((skill) => (
                 <button
                   key={skill.name}
                   onClick={() => onOpenFile(skill.path)}
