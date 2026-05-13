@@ -136,12 +136,11 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
     }
   };
 
-  const weekEnd = addDays(weekStart, 7);
-  const startISO = weekStart.toISOString();
-  const endISO = weekEnd.toISOString();
+  const fromDate = toISODate(weekStart);
+  const toDate = toISODate(addDays(weekStart, 6));
 
   const { data: events, isLoading, error } = useSWR<CalendarEvent[]>(
-    `${API}/api/calendar/list?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`,
+    `${API}/api/calendar/list?from=${fromDate}&to=${toDate}`,
     fetcher,
   );
 
