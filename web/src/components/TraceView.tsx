@@ -4,7 +4,7 @@ import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
-import TraceTodoDetail, { type TodoInfo } from "./TraceTodoDetail";
+import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
 
 interface TraceViewProps {
   isLoggedIn: boolean;
@@ -163,11 +163,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 setOpen={setTodoDetailOpen}
                 historyOpen={historyOpen}
                 setHistoryOpen={setHistoryOpen}
-                onSaveProgress={async (newProgress) => {
+                onSave={async (patch: TodoPatch) => {
                   const res = await authFetch(`${API}/api/todo/update`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ todo_id: todoInfo.todo_id, progress: newProgress }),
+                    body: JSON.stringify({ todo_id: todoInfo.todo_id, ...patch }),
                   });
                   if (!res.ok) throw new Error("update failed");
                   await mutateTrace();
