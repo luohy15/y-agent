@@ -304,7 +304,7 @@ function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onM
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; pinned?: boolean }; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -369,7 +369,7 @@ function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onM
                 draggable
                 onDragStart={(e) => handleDragStart(e, t)}
                 onClickName={() => setModalTodo(t)}
-                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, pinned: t.pinned }, x: e.clientX, y: e.clientY }); }}
                 className={`cursor-grab active:cursor-grabbing ${moving === t.todo_id ? "opacity-50" : ""}`}
               />
             ))}
@@ -509,7 +509,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
   };
 
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string }; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; pinned?: boolean }; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -608,7 +608,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
                   <tr
                     id={`todo-row-${t.todo_id}`}
                     className={`border-b border-sol-base02 ${expandedId === t.todo_id ? "bg-sol-base02/50" : ""} ${t.pinned ? "border-l-2 border-l-sol-yellow" : ""}`}
-                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status }, x: e.clientX, y: e.clientY }); }}
+                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, pinned: t.pinned }, x: e.clientX, y: e.clientY }); }}
                   >
                     <td
                       className="py-1 px-1.5 text-sol-base01 cursor-pointer hover:text-sol-blue"
