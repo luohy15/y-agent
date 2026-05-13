@@ -123,6 +123,110 @@ function FileContentTable({ filePath, content }: { filePath: string; content: st
   );
 }
 
+function parseFrontMatterScalar(raw: string): string {
+  let v = raw.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  return v;
+}
+
+function parseFrontMatter(content: string): { data: Record<string, unknown>; body: string } {
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
+  if (!m) return { data: {}, body: content };
+  const yaml = m[1];
+  const body = content.slice(m[0].length);
+  const data: Record<string, unknown> = {};
+  const lines = yaml.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") { i++; continue; }
+    const kv = line.match(/^([A-Za-z_][\w.-]*)\s*:\s*(.*)$/);
+    if (!kv) { i++; continue; }
+    const key = kv[1];
+    const rest = kv[2];
+    if (rest.trim() === "") {
+      const items: string[] = [];
+      let j = i + 1;
+      while (j < lines.length) {
+        const item = lines[j].match(/^\s+-\s+(.*)$/);
+        if (!item) break;
+        items.push(parseFrontMatterScalar(item[1]));
+        j++;
+      }
+      data[key] = items.length > 0 ? items : "";
+      i = items.length > 0 ? j : i + 1;
+      continue;
+    }
+    const val = rest.trim();
+    if (val.startsWith("[") && val.endsWith("]")) {
+      const inner = val.slice(1, -1).trim();
+      data[key] = inner === "" ? [] : inner.split(",").map((s) => parseFrontMatterScalar(s));
+    } else {
+      data[key] = parseFrontMatterScalar(val);
+    }
+    i++;
+  }
+  return { data, body };
+}
+
+function FrontMatterCard({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return null;
+  const title = typeof data.title === "string" ? data.title : undefined;
+  const tagsRaw = data.tags ?? data.tag;
+  const tagList: string[] = Array.isArray(tagsRaw)
+    ? tagsRaw.map(String).filter((s) => s.length > 0)
+    : typeof tagsRaw === "string" && tagsRaw.trim() !== ""
+    ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  const rest = entries.filter(([k, v]) => {
+    if (k === "title" || k === "tags" || k === "tag") return false;
+    if (v === "" || v === null || v === undefined) return false;
+    if (Array.isArray(v) && v.length === 0) return false;
+    return true;
+  });
+  if (!title && tagList.length === 0 && rest.length === 0) return null;
+
+  const formatValue = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    if (Array.isArray(v)) return v.map(String).join(", ");
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  };
+
+  return (
+    <div className="not-prose mb-4 rounded-lg border border-sol-base02 bg-sol-base02/30 px-4 py-3">
+      {title && (
+        <div className="text-sol-base1 font-semibold text-base break-words mb-2">{title}</div>
+      )}
+      {tagList.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {tagList.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] font-mono bg-sol-base02 text-sol-base01"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      {rest.length > 0 && (
+        <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
+          {rest.map(([k, v]) => (
+            <Fragment key={k}>
+              <div className="text-sol-base01">{k}</div>
+              <div className="text-sol-base0 break-words">{formatValue(v)}</div>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: string }[]; onSelect?: () => void }) {
   return (
     <ul className="space-y-1">
@@ -167,8 +271,9 @@ function isAbsoluteHttpLink(href: string): boolean {
 function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void; onExternalLinkClick?: (url: string) => void }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
+  const { data: frontMatter, body } = useMemo(() => parseFrontMatter(content ?? ""), [content]);
   const headings = useMemo(() => {
-    const lines = (content ?? "").split("\n");
+    const lines = (body ?? "").split("\n");
     const result: { text: string; id: string }[] = [];
     for (const line of lines) {
       const m = line.match(/^## (.+)/);
@@ -179,11 +284,12 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
       }
     }
     return result;
-  }, [content]);
+  }, [body]);
 
   return (
     <div className="flex h-full">
       <div className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full relative">
+        <FrontMatterCard data={frontMatter} />
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -225,7 +331,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
             },
           }}
         >
-          {content}
+          {body}
         </ReactMarkdown>
       </div>
       {/* Desktop (lg+): sidebar TOC */}
