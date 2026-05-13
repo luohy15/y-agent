@@ -7,6 +7,7 @@ from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 # Match web UI sort: high=0, medium=1, low=2, other=3
 _PRIORITY_ORDER = case(
@@ -38,7 +39,24 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
     )
 
 
-def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, unread: Optional[bool] = None, completed_since: Optional[str] = None, completed_until: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
+def list_todos(
+    user_id: int,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    query: Optional[str] = None,
+    unread: Optional[bool] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Todo]:
     with get_db() as session:
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
@@ -75,10 +93,11 @@ def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[st
                 .exists()
             )
             q = q.filter(unread_exists)
-        if completed_since:
-            q = q.filter(TodoEntity.completed_at.isnot(None)).filter(TodoEntity.completed_at >= completed_since)
-        if completed_until:
-            q = q.filter(TodoEntity.completed_at.isnot(None)).filter(TodoEntity.completed_at < completed_until)
+        if on is not None or from_ is not None or to is not None:
+            q = q.filter(TodoEntity.completed_at.isnot(None))
+            q = apply_time_filter(q, TodoEntity.completed_at, on=on, from_=from_, to=to)
+        q = apply_time_filter(q, TodoEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        q = apply_time_filter(q, TodoEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         if status == "pending":
             # pending: two-group sorting
             # Group 0: has due_date within today + 14 days → sort by due_date ASC

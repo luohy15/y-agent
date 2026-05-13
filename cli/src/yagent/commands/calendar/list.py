@@ -1,34 +1,32 @@
 import click
 from tabulate import tabulate
 from yagent.api_client import api_request
-from yagent.time_util import utc_to_local, local_to_utc, local_date_to_utc_range
+from yagent.time_filter import collect_time_params, time_filter_options
+from yagent.time_util import utc_to_local
 
 
 @click.command('list')
-@click.option('--date', '-d', default=None, help='Filter by date (YYYY-MM-DD)')
-@click.option('--start', default=None, help='Filter start >= this time (local, e.g. 2026-02-25T08:00)')
-@click.option('--end', default=None, help='Filter start <= this time (local, e.g. 2026-02-25T20:00)')
+@time_filter_options
 @click.option('--limit', '-n', default=50, help='Max results')
 @click.option('--source', default=None, help='Filter by source')
 @click.option('--todo-id', default=None, type=int, help='Filter by linked todo')
 @click.option('--include-deleted', is_flag=True, default=False, help='Include deleted events')
-def calendar_list(date, start, end, limit, source, todo_id, include_deleted):
-    """List calendar events."""
+def calendar_list(on, from_, to, created_on, created_from, created_to,
+                  updated_on, updated_from, updated_to,
+                  limit, source, todo_id, include_deleted):
+    """List calendar events. Canonical time field: start_time."""
     params = {"limit": limit}
-    if date is not None:
-        utc_start, utc_end = local_date_to_utc_range(date)
-        params["start"] = utc_start
-        params["end"] = utc_end
-    if start is not None:
-        params["start"] = local_to_utc(start)
-    if end is not None:
-        params["end"] = local_to_utc(end)
     if source is not None:
         params["source"] = source
     if todo_id is not None:
         params["todo_id"] = todo_id
     if include_deleted:
         params["include_deleted"] = True
+    params.update(collect_time_params(
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    ))
 
     resp = api_request("GET", "/api/calendar/list", params=params)
     events = resp.json()

@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_
 from storage.entity.link import LinkEntity, LinkActivityEntity
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.database.base import get_db
-from storage.util import generate_id, generate_long_id
+from storage.util import apply_time_filter, generate_id, generate_long_id
 
 
 def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
@@ -34,8 +34,6 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
 
 def list_links(
     user_id: int,
-    start: Optional[int] = None,
-    end: Optional[int] = None,
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -44,6 +42,15 @@ def list_links(
     downloaded_only: bool = False,
     source_feed_id: Optional[str] = None,
     source: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -61,10 +68,9 @@ def list_links(
             q = q.filter(LinkActivityEntity.source_feed_id == source_feed_id)
         if source is not None:
             q = q.filter(LinkActivityEntity.source == source)
-        if start is not None:
-            q = q.filter(LinkActivityEntity.timestamp >= start)
-        if end is not None:
-            q = q.filter(LinkActivityEntity.timestamp <= end)
+        q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms")
+        q = apply_time_filter(q, LinkActivityEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        q = apply_time_filter(q, LinkActivityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         if query:
             pattern = f"%{query}%"
             q = q.filter(
@@ -102,11 +108,12 @@ def list_links(
 
 def list_link_summaries(
     user_id: int,
-    start: Optional[int] = None,
-    end: Optional[int] = None,
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
 ) -> List[LinkSummary]:
     with get_db() as session:
         q = (
@@ -114,10 +121,7 @@ def list_link_summaries(
             .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
             .filter(LinkActivityEntity.user_id == user_id)
         )
-        if start is not None:
-            q = q.filter(LinkActivityEntity.timestamp >= start)
-        if end is not None:
-            q = q.filter(LinkActivityEntity.timestamp <= end)
+        q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms")
         if query:
             pattern = f"%{query}%"
             q = q.filter(

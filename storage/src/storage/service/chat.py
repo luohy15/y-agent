@@ -14,8 +14,33 @@ from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_p
 IS_WINDOWS = sys.platform == 'win32'
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, status: Optional[str] = None, routine_id: Optional[str] = None) -> List[ChatSummary]:
-    return await chat_repo.list_chats(user_id, limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic, status=status, routine_id=routine_id)
+async def list_chats(
+    user_id: int,
+    limit: int = 10,
+    query: Optional[str] = None,
+    offset: int = 0,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    status: Optional[str] = None,
+    routine_id: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[ChatSummary]:
+    return await chat_repo.list_chats(
+        user_id,
+        limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic,
+        status=status, routine_id=routine_id,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:

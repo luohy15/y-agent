@@ -45,9 +45,23 @@ async def list_routines(
     request: Request,
     enabled: Optional[bool] = Query(None),
     limit: int = Query(50),
+    on: Optional[str] = Query(None),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    created_on: Optional[str] = Query(None),
+    created_from: Optional[str] = Query(None),
+    created_to: Optional[str] = Query(None),
+    updated_on: Optional[str] = Query(None),
+    updated_from: Optional[str] = Query(None),
+    updated_to: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
-    routines = routine_service.list_routines(user_id, enabled=enabled, limit=limit)
+    routines = routine_service.list_routines(
+        user_id, enabled=enabled, limit=limit,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
     return [r.to_dict() for r in routines]
 
 

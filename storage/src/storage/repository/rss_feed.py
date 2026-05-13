@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from storage.entity.rss_feed import RssFeedEntity
 from storage.dto.rss_feed import RssFeed
 from storage.database.base import get_db
-from storage.util import generate_id
+from storage.util import apply_time_filter, generate_id
 
 
 def _parse_scrape_config(raw: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -43,11 +43,26 @@ def _entity_to_dto(entity: RssFeedEntity) -> RssFeed:
     )
 
 
-def list_feeds(user_id: int, include_deleted: bool = False) -> List[RssFeed]:
+def list_feeds(
+    user_id: int,
+    include_deleted: bool = False,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[RssFeed]:
     with get_db() as session:
         query = session.query(RssFeedEntity).filter_by(user_id=user_id)
         if not include_deleted:
             query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        query = apply_time_filter(query, RssFeedEntity.last_fetched_at, on=on, from_=from_, to=to)
+        query = apply_time_filter(query, RssFeedEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        query = apply_time_filter(query, RssFeedEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         rows = query.order_by(RssFeedEntity.id.asc()).all()
         return [_entity_to_dto(row) for row in rows]
 

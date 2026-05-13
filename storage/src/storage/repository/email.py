@@ -4,7 +4,7 @@ from typing import List, Optional
 from storage.entity.email import EmailEntity
 from storage.dto.email import Email
 from storage.database.base import get_db
-from storage.util import generate_id
+from storage.util import apply_time_filter, generate_id
 
 
 def _row_to_dto(entity: EmailEntity) -> Email:
@@ -69,6 +69,15 @@ def list_emails(
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[Email]:
     with get_db() as session:
         q = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
@@ -79,6 +88,9 @@ def list_emails(
                 | (EmailEntity.from_addr.like(pattern))
                 | (EmailEntity.content.like(pattern))
             )
+        q = apply_time_filter(q, EmailEntity.date, on=on, from_=from_, to=to, field_type="unix_ms")
+        q = apply_time_filter(q, EmailEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        q = apply_time_filter(q, EmailEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         q = q.order_by(EmailEntity.date.desc())
         q = q.offset(offset).limit(limit)
         return [_row_to_dto(e) for e in q.all()]

@@ -1,49 +1,47 @@
 """Todo service."""
 
-import os
-from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 
-def _get_configured_tz():
-    """Return the configured timezone, falling back to system local."""
-    from dateutil import tz as dateutil_tz
-    tz_name = os.getenv("Y_AGENT_TIMEZONE")
-    if tz_name:
-        tz = dateutil_tz.gettz(tz_name)
-        if tz:
-            return tz
-    return dateutil_tz.tzlocal()
-
-
-def _local_date_to_utc_iso(date_str: str) -> str:
-    """Convert YYYY-MM-DD (in configured local tz) to UTC ISO 8601 'start of day'."""
-    dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=_get_configured_tz())
-    utc_dt = dt.astimezone(timezone.utc)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc_dt.microsecond // 1000:03d}Z"
-
-
-def _local_date_end_to_utc_iso(date_str: str) -> str:
-    """Convert YYYY-MM-DD to UTC ISO 8601 'start of next day' (exclusive upper bound)."""
-    next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    return _local_date_to_utc_iso(next_day)
-
-
-def list_todos(user_id: int, status: Optional[str] = None, priority: Optional[str] = None, query: Optional[str] = None, unread: Optional[bool] = None, completed_on: Optional[str] = None, completed_since: Optional[str] = None, completed_until: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Todo]:
-    since_iso: Optional[str] = None
-    until_iso: Optional[str] = None
-    if completed_on:
-        since_iso = _local_date_to_utc_iso(completed_on)
-        until_iso = _local_date_end_to_utc_iso(completed_on)
-    else:
-        if completed_since:
-            since_iso = _local_date_to_utc_iso(completed_since)
-        if completed_until:
-            until_iso = _local_date_end_to_utc_iso(completed_until)
-    return todo_repo.list_todos(user_id, status=status, priority=priority, query=query, unread=unread, completed_since=since_iso, completed_until=until_iso, limit=limit, offset=offset)
+def list_todos(
+    user_id: int,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    query: Optional[str] = None,
+    unread: Optional[bool] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> List[Todo]:
+    return todo_repo.list_todos(
+        user_id,
+        status=status,
+        priority=priority,
+        query=query,
+        unread=unread,
+        on=on,
+        from_=from_,
+        to=to,
+        created_on=created_on,
+        created_from=created_from,
+        created_to=created_to,
+        updated_on=updated_on,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:

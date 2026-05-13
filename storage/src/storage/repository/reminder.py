@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.reminder import ReminderEntity
 from storage.dto.reminder import Reminder
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 
 def _entity_to_dto(entity: ReminderEntity) -> Reminder:
@@ -27,11 +28,23 @@ def list_reminders(
     user_id: int,
     status: Optional[str] = None,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[Reminder]:
     with get_db() as session:
         query = session.query(ReminderEntity).filter_by(user_id=user_id)
         if status:
             query = query.filter_by(status=status)
+        query = apply_time_filter(query, ReminderEntity.remind_at, on=on, from_=from_, to=to)
+        query = apply_time_filter(query, ReminderEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        query = apply_time_filter(query, ReminderEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         query = query.order_by(ReminderEntity.remind_at.asc())
         query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]

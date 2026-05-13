@@ -1,12 +1,103 @@
 import os
 import re
 import time
-from typing import List
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 from loguru import logger
 
 def get_unix_timestamp() -> int:
     """Get current time as 13-digit unix timestamp (milliseconds)"""
     return int(time.time() * 1000)
+
+
+# --- Unified time-filter helper (see todo 2052) -----------------------------
+
+_TIME_FILTER_DATE_FMT = "%Y-%m-%d"
+_TIME_FILTER_DATETIME_FMTS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M")
+
+
+def _time_filter_tz():
+    """Configured local timezone (Y_AGENT_TIMEZONE), falling back to system local."""
+    from dateutil import tz as dateutil_tz
+    tz_name = os.getenv("Y_AGENT_TIMEZONE")
+    if tz_name:
+        tz = dateutil_tz.gettz(tz_name)
+        if tz:
+            return tz
+    return dateutil_tz.tzlocal()
+
+
+def _parse_time_filter_input(value: str) -> tuple[datetime, bool]:
+    """Parse a local-tz date or datetime string. Returns (utc_dt, is_date_only)."""
+    local_tz = _time_filter_tz()
+    for fmt in _TIME_FILTER_DATETIME_FMTS:
+        try:
+            dt = datetime.strptime(value, fmt).replace(tzinfo=local_tz)
+            return dt.astimezone(timezone.utc), False
+        except ValueError:
+            continue
+    try:
+        dt = datetime.strptime(value, _TIME_FILTER_DATE_FMT).replace(tzinfo=local_tz)
+        return dt.astimezone(timezone.utc), True
+    except ValueError:
+        raise ValueError(
+            f"Cannot parse date/datetime: {value!r} (expected YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS])"
+        )
+
+
+def _emit_time_filter_value(dt: datetime, field_type: str):
+    if field_type == "iso":
+        return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+    if field_type == "unix_ms":
+        return int(dt.timestamp() * 1000)
+    raise ValueError(f"Unknown field_type: {field_type!r}")
+
+
+def apply_time_filter(
+    query,
+    field,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    *,
+    field_type: str = "iso",
+):
+    """Apply a unified time-range filter to a SQLAlchemy query.
+
+    Inputs are local-tz (Y_AGENT_TIMEZONE):
+    - `on`    : 'YYYY-MM-DD' — restricts to the full local day on `field`
+    - `from_` : 'YYYY-MM-DD' (start-of-day) or 'YYYY-MM-DDTHH:MM[:SS]' — closed
+                lower bound
+    - `to`    : 'YYYY-MM-DD' → next-day-start exclusive (covers the whole day);
+                'YYYY-MM-DDTHH:MM[:SS]' → exact half-open upper bound
+
+    `field_type` selects the stored representation:
+    - `"iso"`     → UTC ISO 8601 strings (default)
+    - `"unix_ms"` → unix milliseconds (int)
+
+    `on` takes precedence and is mutually exclusive with `from_/to` by convention
+    (callers / CLI enforce; here we apply whichever is set).
+    """
+    if on is not None:
+        start_dt, is_date = _parse_time_filter_input(on)
+        if not is_date:
+            raise ValueError(f"`on` requires YYYY-MM-DD, got: {on!r}")
+        end_dt = start_dt + timedelta(days=1)
+        query = query.filter(field >= _emit_time_filter_value(start_dt, field_type))
+        query = query.filter(field < _emit_time_filter_value(end_dt, field_type))
+        return query
+
+    if from_ is not None:
+        start_dt, _ = _parse_time_filter_input(from_)
+        query = query.filter(field >= _emit_time_filter_value(start_dt, field_type))
+
+    if to is not None:
+        end_dt, is_date = _parse_time_filter_input(to)
+        if is_date:
+            end_dt = end_dt + timedelta(days=1)
+        query = query.filter(field < _emit_time_filter_value(end_dt, field_type))
+
+    return query
 
 def get_utc_iso8601_timestamp() -> str:
     """Get current UTC time as ISO 8601 string with ms precision and Z suffix.

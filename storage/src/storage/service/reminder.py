@@ -85,8 +85,22 @@ def list_reminders(
     user_id: int,
     status: Optional[str] = None,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[Reminder]:
-    return reminder_repo.list_reminders(user_id, status=status, limit=limit)
+    return reminder_repo.list_reminders(
+        user_id, status=status, limit=limit,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 def get_pending_reminders(before: Optional[str] = None) -> List[dict]:

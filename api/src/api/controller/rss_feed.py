@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.service import rss_feed as rss_feed_service
@@ -74,9 +74,25 @@ class FeedIdRequest(BaseModel):
 
 
 @router.get("/list")
-async def list_feeds(request: Request):
+async def list_feeds(
+    request: Request,
+    on: Optional[str] = Query(None),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    created_on: Optional[str] = Query(None),
+    created_from: Optional[str] = Query(None),
+    created_to: Optional[str] = Query(None),
+    updated_on: Optional[str] = Query(None),
+    updated_from: Optional[str] = Query(None),
+    updated_to: Optional[str] = Query(None),
+):
     user_id = _get_user_id(request)
-    feeds = rss_feed_service.list_feeds(user_id)
+    feeds = rss_feed_service.list_feeds(
+        user_id,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
     return [f.to_dict() for f in feeds]
 
 

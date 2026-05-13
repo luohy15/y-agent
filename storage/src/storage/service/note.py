@@ -80,8 +80,30 @@ def get_note(user_id: int, note_id: str, include_deleted: bool = False) -> Optio
     return note_repo.get_note(user_id, note_id, include_deleted=include_deleted)
 
 
-def list_notes(user_id: int, limit: int = 50, offset: int = 0, include_deleted: bool = False) -> List[Note]:
-    return note_repo.list_notes(user_id, limit=limit, offset=offset, include_deleted=include_deleted)
+def list_notes(
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    include_deleted: bool = False,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[Note]:
+    return note_repo.list_notes(
+        user_id,
+        limit=limit,
+        offset=offset,
+        include_deleted=include_deleted,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 def get_notes_by_ids(user_id: int, note_ids: List[str], include_deleted: bool = False) -> List[Note]:

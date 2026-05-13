@@ -115,8 +115,22 @@ def list_routines(
     user_id: int,
     enabled: Optional[bool] = None,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[Routine]:
-    return routine_repo.list_routines(user_id, enabled=enabled, limit=limit)
+    return routine_repo.list_routines(
+        user_id, enabled=enabled, limit=limit,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 def list_due_routines(now: Optional[datetime] = None) -> List[dict]:

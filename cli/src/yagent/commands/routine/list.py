@@ -2,6 +2,7 @@ import click
 from tabulate import tabulate
 
 from yagent.api_client import api_request
+from yagent.time_filter import collect_time_params, time_filter_options
 from yagent.time_util import utc_to_local
 
 
@@ -16,9 +17,11 @@ def _format_target(r: dict) -> str:
 @click.command('list')
 @click.option('--enabled', 'enabled_flag', is_flag=True, default=False, help='Only enabled routines')
 @click.option('--disabled', 'disabled_flag', is_flag=True, default=False, help='Only disabled routines')
+@time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def routine_list(enabled_flag, disabled_flag, limit):
-    """List routines."""
+def routine_list(enabled_flag, disabled_flag, on, from_, to, created_on, created_from, created_to,
+                 updated_on, updated_from, updated_to, limit):
+    """List routines. Canonical time field: last_run_at."""
     if enabled_flag and disabled_flag:
         raise click.UsageError("--enabled and --disabled are mutually exclusive")
 
@@ -27,6 +30,11 @@ def routine_list(enabled_flag, disabled_flag, limit):
         params["enabled"] = "true"
     elif disabled_flag:
         params["enabled"] = "false"
+    params.update(collect_time_params(
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    ))
 
     resp = api_request("GET", "/api/routine/list", params=params)
     routines = resp.json()

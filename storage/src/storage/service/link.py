@@ -59,8 +59,6 @@ def get_link(user_id: int, activity_id: str) -> Optional[LinkActivity]:
 
 def list_links(
     user_id: int,
-    start: Optional[int] = None,
-    end: Optional[int] = None,
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -69,27 +67,41 @@ def list_links(
     downloaded_only: bool = False,
     source_feed_id: Optional[str] = None,
     source: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
-        user_id, start=start, end=end, query=query,
+        user_id, query=query,
         limit=limit, offset=offset, link_ids=link_ids,
         activity_ids=activity_ids, downloaded_only=downloaded_only,
         source_feed_id=source_feed_id,
         source=source,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
 
 
 def list_link_summaries(
     user_id: int,
-    start: Optional[int] = None,
-    end: Optional[int] = None,
     query: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
 ) -> List[LinkSummary]:
     return link_repo.list_link_summaries(
-        user_id, start=start, end=end, query=query,
+        user_id, query=query,
         limit=limit, offset=offset,
+        on=on, from_=from_, to=to,
     )
 
 

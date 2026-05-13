@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.calendar_event import CalendarEventEntity
 from storage.entity.dto import CalendarEvent
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 
 def _entity_to_dto(entity: CalendarEventEntity) -> CalendarEvent:
@@ -28,25 +29,27 @@ def _entity_to_dto(entity: CalendarEventEntity) -> CalendarEvent:
 
 def list_events(
     user_id: int,
-    date: Optional[str] = None,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
     source: Optional[str] = None,
     todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[CalendarEvent]:
     with get_db() as session:
         query = session.query(CalendarEventEntity).filter_by(user_id=user_id)
         if not include_deleted:
             query = query.filter(CalendarEventEntity.deleted_at.is_(None))
-        if date:
-            # Match events whose start_time begins with the date string (YYYY-MM-DD)
-            query = query.filter(CalendarEventEntity.start_time.like(f"{date}%"))
-        if start:
-            query = query.filter(CalendarEventEntity.start_time >= start)
-        if end:
-            query = query.filter(CalendarEventEntity.start_time <= end)
+        query = apply_time_filter(query, CalendarEventEntity.start_time, on=on, from_=from_, to=to)
+        query = apply_time_filter(query, CalendarEventEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        query = apply_time_filter(query, CalendarEventEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         if source:
             query = query.filter_by(source=source)
         if todo_id is not None:

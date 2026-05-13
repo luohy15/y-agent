@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.routine import RoutineEntity
 from storage.dto.routine import Routine
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 
 def _entity_to_dto(entity: RoutineEntity) -> Routine:
@@ -32,11 +33,23 @@ def list_routines(
     user_id: int,
     enabled: Optional[bool] = None,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[Routine]:
     with get_db() as session:
         query = session.query(RoutineEntity).filter_by(user_id=user_id)
         if enabled is not None:
             query = query.filter_by(enabled=enabled)
+        query = apply_time_filter(query, RoutineEntity.last_run_at, on=on, from_=from_, to=to)
+        query = apply_time_filter(query, RoutineEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        query = apply_time_filter(query, RoutineEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         query = query.order_by(RoutineEntity.created_at_unix.asc())
         query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]
