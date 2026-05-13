@@ -38,7 +38,7 @@ function formatDayHeader(key: string): string {
   return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} - ${days[d.getDay()]}`;
 }
 
-function groupByDay(reminders: Reminder[]): [string, Reminder[]][] {
+function groupByDay(reminders: Reminder[], direction: "asc" | "desc"): [string, Reminder[]][] {
   const groups = new Map<string, Reminder[]>();
   for (const r of reminders) {
     const d = new Date(r.remind_at);
@@ -47,7 +47,9 @@ function groupByDay(reminders: Reminder[]): [string, Reminder[]][] {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(r);
   }
-  return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  return [...groups.entries()].sort((a, b) =>
+    direction === "asc" ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]),
+  );
 }
 
 function formatLocalInput(d: Date): string {
@@ -251,12 +253,18 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
   const key = isLoggedIn ? `${API}/api/reminder/list?limit=100${statusParam}` : null;
   const { data, isLoading, error, mutate } = useSWR<Reminder[]>(key, fetcher, { revalidateOnFocus: false });
 
+  const sortDirection: "asc" | "desc" = statusFilter === "pending" ? "asc" : "desc";
+
   const sortedReminders = useMemo(() => {
     if (!data) return [];
-    return [...data].sort((a, b) => b.remind_at.localeCompare(a.remind_at));
-  }, [data]);
+    return [...data].sort((a, b) =>
+      sortDirection === "asc"
+        ? a.remind_at.localeCompare(b.remind_at)
+        : b.remind_at.localeCompare(a.remind_at),
+    );
+  }, [data, sortDirection]);
 
-  const groups = useMemo(() => groupByDay(sortedReminders), [sortedReminders]);
+  const groups = useMemo(() => groupByDay(sortedReminders, sortDirection), [sortedReminders, sortDirection]);
 
   const openCreate = () => {
     setFormError(null);
