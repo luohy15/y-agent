@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { actionBadgeClass, priorityColorClass } from "./badges";
@@ -43,6 +43,9 @@ interface TraceTodoDetailProps {
   /** When provided, the panel becomes editable; on Save we forward the patch (only dirty
    *  fields). When undefined, the panel is read-only (share / public view). */
   onSave?: (patch: TodoPatch) => Promise<void>;
+  /** Notify parent when the dirty state of the patch buffer flips. Used to put a
+   *  navigation guard on todo switches. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
@@ -57,6 +60,7 @@ export default function TraceTodoDetail({
   historyOpen,
   setHistoryOpen,
   onSave,
+  onDirtyChange,
 }: TraceTodoDetailProps) {
   const editable = !!onSave;
   const [patch, setPatch] = useState<TodoPatch>({});
@@ -64,6 +68,24 @@ export default function TraceTodoDetail({
   const [saving, setSaving] = useState(false);
 
   const dirty = Object.keys(patch).length > 0;
+
+  // Drop the patch buffer when we navigate to a different todo. The parent confirms
+  // discard-on-switch via onDirtyChange before actually updating todoInfo.todo_id.
+  useEffect(() => {
+    setPatch({});
+    setTagInput("");
+  }, [todoInfo.todo_id]);
+
+  // Mirror dirty state to parent so it can install a navigation guard.
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  const handleCancel = () => {
+    setPatch({});
+    setTagInput("");
+  };
 
   // Effective values: patch overrides server value
   const nameValue = patch.name ?? todoInfo.name ?? "";
@@ -322,7 +344,14 @@ export default function TraceTodoDetail({
             )}
           </div>
           {editable && dirty && (
-            <div className="px-2 pb-2 flex justify-end">
+            <div className="px-2 pb-2 flex justify-end gap-1.5">
+              <button
+                onClick={handleCancel}
+                disabled={saving}
+                className="px-3 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base0 hover:opacity-90 cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
