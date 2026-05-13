@@ -28,6 +28,7 @@ class UpdateTodoRequest(BaseModel):
     due_date: Optional[str] = None
     priority: Optional[str] = None
     progress: Optional[str] = None
+    status: Optional[str] = None
 
 
 class TodoIdRequest(BaseModel):
@@ -105,12 +106,19 @@ async def create_todo(req: CreateTodoRequest, request: Request):
 @router.post("/update")
 async def update_todo(req: UpdateTodoRequest, request: Request):
     user_id = _get_user_id(request)
-    fields = {k: v for k, v in req.model_dump(exclude={"todo_id"}).items() if v is not None}
+    fields = req.model_dump(exclude={"todo_id"}, exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
-    todo = todo_service.update_todo(user_id, req.todo_id, **fields)
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
+    status = fields.pop("status", None)
+    todo = None
+    if status is not None:
+        todo = todo_service.update_status(user_id, req.todo_id, status)
+        if not todo:
+            raise HTTPException(status_code=404, detail="Todo not found")
+    if fields:
+        todo = todo_service.update_todo(user_id, req.todo_id, **fields)
+        if not todo:
+            raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
 
 

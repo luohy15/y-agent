@@ -268,7 +268,7 @@ export default function ShareTraceView() {
               )}
             </div>
 
-            {/* Todo detail section (read-only: no onSaveProgress) */}
+            {/* Todo detail section (read-only: no onSave) */}
             {todoInfo && (
               <TraceTodoDetail
                 todoInfo={todoInfo}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { actionBadgeClass, priorityColorClass } from "./badges";
@@ -24,16 +24,31 @@ export interface TodoInfo {
   history?: TodoHistoryEntry[];
 }
 
+export interface TodoPatch {
+  name?: string;
+  status?: string;
+  desc?: string | null;
+  tags?: string[] | null;
+  priority?: string | null;
+  due_date?: string | null;
+  progress?: string | null;
+}
+
 interface TraceTodoDetailProps {
   todoInfo: TodoInfo;
   open: boolean;
   setOpen: (v: boolean) => void;
   historyOpen: boolean;
   setHistoryOpen: (v: boolean) => void;
-  /** When provided, the Progress field renders as an editable textarea + Save button.
-   *  When undefined, Progress is read-only (share / public view). */
-  onSaveProgress?: (newProgress: string | null) => Promise<void>;
+  /** When provided, the panel becomes editable; on Save we forward the patch (only dirty
+   *  fields). When undefined, the panel is read-only (share / public view). */
+  onSave?: (patch: TodoPatch) => Promise<void>;
 }
+
+const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
+const PRIORITY_OPTIONS = ["none", "high", "medium", "low"] as const;
+
+const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
 
 export default function TraceTodoDetail({
   todoInfo,
@@ -41,26 +56,103 @@ export default function TraceTodoDetail({
   setOpen,
   historyOpen,
   setHistoryOpen,
-  onSaveProgress,
+  onSave,
 }: TraceTodoDetailProps) {
-  const editable = !!onSaveProgress;
-  // Editing state uses an undefined sentinel: when undefined, the prop is the source
-  // of truth (textarea reflects todoInfo.progress, no dirty marker). On first edit
-  // we capture into a string draft. On save success we release back to undefined so
-  // a subsequent SWR revalidation flows straight through.
-  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const editable = !!onSave;
+  const [patch, setPatch] = useState<TodoPatch>({});
+  const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const propValue = todoInfo.progress || "";
-  const effectiveValue = draft ?? propValue;
-  const dirty = editable && draft !== undefined && draft !== propValue;
+
+  const dirty = Object.keys(patch).length > 0;
+
+  // Effective values: patch overrides server value
+  const nameValue = patch.name ?? todoInfo.name ?? "";
+  const statusValue = patch.status ?? todoInfo.status ?? "pending";
+  const descValue = patch.desc !== undefined ? (patch.desc ?? "") : (todoInfo.desc ?? "");
+  const priorityValue = patch.priority !== undefined ? (patch.priority ?? "") : (todoInfo.priority ?? "");
+  const dueValue = patch.due_date !== undefined ? (patch.due_date ?? "") : (todoInfo.due_date ?? "");
+  const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
+  const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
+
+  // Set a field on the patch, or drop it if it matches the original server value.
+  const setNullableField = (key: "desc" | "priority" | "due_date" | "progress", value: string | null) => {
+    setPatch((p) => {
+      const next = { ...p };
+      const orig = (todoInfo[key] ?? null) as string | null;
+      if ((value ?? null) === orig) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
+    });
+  };
+
+  const handleName = (v: string) => {
+    setPatch((p) => {
+      const next = { ...p };
+      if (v === todoInfo.name) delete next.name;
+      else next.name = v;
+      return next;
+    });
+  };
+  const handleStatus = (v: string) => {
+    setPatch((p) => {
+      const next = { ...p };
+      if (v === todoInfo.status) delete next.status;
+      else next.status = v;
+      return next;
+    });
+  };
+  const handleDesc = (v: string) => setNullableField("desc", v.length ? v : null);
+  const handlePriority = (v: string) => setNullableField("priority", v === "none" || v === "" ? null : v);
+  const handleDue = (v: string) => setNullableField("due_date", v.length ? v : null);
+  const handleProgress = (v: string) => setNullableField("progress", v.length ? v : null);
+
+  const sameTags = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const commitTags = (next: string[]) => {
+    setPatch((p) => {
+      const orig = todoInfo.tags ?? [];
+      const stored = next.length ? next : null;
+      const np = { ...p };
+      if (sameTags(next, orig)) {
+        delete np.tags;
+      } else {
+        np.tags = stored;
+      }
+      return np;
+    });
+  };
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (!t) return;
+    if (tagsValue.includes(t)) {
+      setTagInput("");
+      return;
+    }
+    commitTags([...tagsValue, t]);
+    setTagInput("");
+  };
+  const removeTag = (tag: string) => {
+    commitTags(tagsValue.filter((x) => x !== tag));
+  };
+  const onTagKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTag();
+    } else if (e.key === "Backspace" && tagInput === "" && tagsValue.length > 0) {
+      e.preventDefault();
+      commitTags(tagsValue.slice(0, -1));
+    }
+  };
 
   const handleSave = async () => {
-    if (!onSaveProgress || draft === undefined) return;
+    if (!onSave || !dirty) return;
     setSaving(true);
-    const valueToSave = draft.trim() ? draft : null;
     try {
-      await onSaveProgress(valueToSave);
-      setDraft(undefined);
+      await onSave(patch);
+      setPatch({});
+      setTagInput("");
     } finally {
       setSaving(false);
     }
@@ -78,67 +170,138 @@ export default function TraceTodoDetail({
       {open && (
         <>
           <div className="px-2 pb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-            {todoInfo.desc && (
-              <>
-                <span className="text-sol-base01">Desc</span>
-                <div className="min-w-0 break-words text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{todoInfo.desc}</ReactMarkdown>
-                </div>
-              </>
-            )}
-            {todoInfo.priority && (
-              <>
-                <span className="text-sol-base01">Priority</span>
-                <span className={priorityColorClass(todoInfo.priority)}>{todoInfo.priority}</span>
-              </>
-            )}
-            {todoInfo.due_date && (
-              <>
-                <span className="text-sol-base01">Due</span>
-                <span className="text-sol-base0">{todoInfo.due_date}</span>
-              </>
-            )}
-            {todoInfo.tags && todoInfo.tags.length > 0 && (
-              <>
-                <span className="text-sol-base01">Tags</span>
-                <div className="flex flex-wrap gap-1">
-                  {todoInfo.tags.map((tag) => (
-                    <span key={tag} className="bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded text-[0.6rem]">{tag}</span>
-                  ))}
-                </div>
-              </>
-            )}
             {editable ? (
               <>
-                <span className="text-sol-base01 pt-1">Progress</span>
-                <div className="min-w-0 flex flex-col gap-1">
-                  <textarea
-                    value={effectiveValue}
-                    onChange={(e) => setDraft(e.target.value)}
-                    rows={2}
-                    placeholder="Add progress note..."
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
-                    style={{ fieldSizing: "content" } as React.CSSProperties}
+                <span className="text-sol-base01 pt-1">Name</span>
+                <input
+                  value={nameValue}
+                  onChange={(e) => handleName(e.target.value)}
+                  className={inputClass}
+                />
+
+                <span className="text-sol-base01 pt-1">Status</span>
+                <select
+                  value={statusValue}
+                  onChange={(e) => handleStatus(e.target.value)}
+                  className={inputClass}
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+
+                <span className="text-sol-base01 pt-1">Desc</span>
+                <textarea
+                  value={descValue}
+                  onChange={(e) => handleDesc(e.target.value)}
+                  rows={3}
+                  placeholder="Add description..."
+                  className={`${inputClass} resize-none max-h-64 overflow-y-auto`}
+                />
+
+                <span className="text-sol-base01 pt-1">Priority</span>
+                <select
+                  value={priorityValue || "none"}
+                  onChange={(e) => handlePriority(e.target.value)}
+                  className={inputClass}
+                >
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+
+                <span className="text-sol-base01 pt-1">Due</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    value={dueValue}
+                    onChange={(e) => handleDue(e.target.value)}
+                    className={`${inputClass} flex-1`}
                   />
-                  {dirty && (
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="px-2 py-0.5 rounded text-[0.65rem] bg-sol-blue text-sol-base03 hover:opacity-90 cursor-pointer disabled:opacity-50"
-                      >
-                        {saving ? "Saving..." : "Save"}
-                      </button>
-                    </div>
+                  {dueValue && (
+                    <button
+                      onClick={() => handleDue("")}
+                      className="px-1.5 py-0.5 rounded text-[0.6rem] text-sol-base01 hover:text-sol-base0 cursor-pointer"
+                      title="Clear"
+                    >
+                      ×
+                    </button>
                   )}
                 </div>
+
+                <span className="text-sol-base01 pt-1">Tags</span>
+                <div className="flex flex-wrap gap-1 items-center bg-sol-base03 border border-sol-base01/30 rounded px-1.5 py-1 focus-within:border-sol-blue">
+                  {tagsValue.map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-0.5 bg-sol-base02 text-sol-base0 pl-1.5 pr-1 py-0.5 rounded text-[0.65rem]">
+                      {tag}
+                      <button
+                        onClick={() => removeTag(tag)}
+                        className="text-sol-base01 hover:text-sol-red cursor-pointer leading-none"
+                        title="Remove tag"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={onTagKeyDown}
+                    onBlur={() => { if (tagInput.trim()) addTag(); }}
+                    placeholder={tagsValue.length === 0 ? "Add tags..." : ""}
+                    className="flex-1 min-w-[4rem] bg-transparent text-sol-base1 text-xs outline-none"
+                  />
+                </div>
+
+                <span className="text-sol-base01 pt-1">Progress</span>
+                <textarea
+                  value={progressValue}
+                  onChange={(e) => handleProgress(e.target.value)}
+                  rows={2}
+                  placeholder="Add progress note..."
+                  className={`${inputClass} resize-none max-h-64 overflow-y-auto`}
+                />
               </>
-            ) : todoInfo.progress ? (
+            ) : (
               <>
-                <span className="text-sol-base01">Progress</span>
-                <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
+                {todoInfo.desc && (
+                  <>
+                    <span className="text-sol-base01">Desc</span>
+                    <div className="min-w-0 break-words text-sol-base0 prose prose-sm prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{todoInfo.desc}</ReactMarkdown>
+                    </div>
+                  </>
+                )}
+                {todoInfo.priority && (
+                  <>
+                    <span className="text-sol-base01">Priority</span>
+                    <span className={priorityColorClass(todoInfo.priority)}>{todoInfo.priority}</span>
+                  </>
+                )}
+                {todoInfo.due_date && (
+                  <>
+                    <span className="text-sol-base01">Due</span>
+                    <span className="text-sol-base0">{todoInfo.due_date}</span>
+                  </>
+                )}
+                {todoInfo.tags && todoInfo.tags.length > 0 && (
+                  <>
+                    <span className="text-sol-base01">Tags</span>
+                    <div className="flex flex-wrap gap-1">
+                      {todoInfo.tags.map((tag) => (
+                        <span key={tag} className="bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded text-[0.6rem]">{tag}</span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {todoInfo.progress && (
+                  <>
+                    <span className="text-sol-base01">Progress</span>
+                    <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
+                  </>
+                )}
               </>
-            ) : null}
+            )}
             {todoInfo.created_at && (
               <>
                 <span className="text-sol-base01">Created</span>
@@ -158,6 +321,17 @@ export default function TraceTodoDetail({
               </>
             )}
           </div>
+          {editable && dirty && (
+            <div className="px-2 pb-2 flex justify-end">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-3 py-0.5 rounded text-[0.65rem] bg-sol-blue text-sol-base03 hover:opacity-90 cursor-pointer disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          )}
           {todoInfo.history && todoInfo.history.length > 0 && (
             <div className="px-2 pb-2">
               <button
@@ -188,3 +362,4 @@ export default function TraceTodoDetail({
     </div>
   );
 }
+
