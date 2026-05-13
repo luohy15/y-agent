@@ -249,8 +249,13 @@ function SortableHeader({ label, sortKey, currentKey, dir, onSort, align }: {
 
 const NON_RISKY_TICKERS = new Set(["CASH", "BOXX"]);
 
-function isRiskyTicker(ticker: string): boolean {
-  return !NON_RISKY_TICKERS.has(ticker);
+function isRiskyHolding(row: HoldingRow): boolean {
+  if (!isValidAmount(row.units)) return false;
+  const ticker = row.units.currency;
+  if (NON_RISKY_TICKERS.has(ticker)) return false;
+  // Cash positions: ticker matches the market_value currency (e.g. USD, CNY, HKD).
+  if (isValidAmount(row.market_value) && row.market_value.currency === ticker) return false;
+  return true;
 }
 
 function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]): HoldingTotalRow[] {
@@ -313,7 +318,7 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
   // Filter out rows with empty/invalid units (e.g. units is [] or null)
   const valid = holdings.filter((h) => isValidAmount(h.units));
   const filtered = useMemo(
-    () => (riskyOnly ? valid.filter((h) => isRiskyTicker((h.units as HoldingAmount).currency)) : valid),
+    () => (riskyOnly ? valid.filter((h) => isRiskyHolding(h)) : valid),
     [valid, riskyOnly],
   );
 
@@ -344,7 +349,7 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
       const cur = r.market_value.currency;
       const mv = r.market_value.number;
       allByCur.set(cur, (allByCur.get(cur) || 0) + mv);
-      if (isRiskyTicker((r.units as HoldingAmount).currency)) {
+      if (isRiskyHolding(r)) {
         riskyByCur.set(cur, (riskyByCur.get(cur) || 0) + mv);
       }
     }
