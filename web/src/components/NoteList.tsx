@@ -27,11 +27,17 @@ interface NoteListProps {
   hideFilters?: boolean;
 }
 
-type NoteTab = "finance" | "journals" | "pages" | "blog";
+type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
 type FinanceSubTab = "notes" | "weekly" | "tickers" | "topics";
 
 const FINANCE_DIR = "/Users/roy/luohy15/finance";
+
+interface SkillEntry {
+  name: string;
+  description: string;
+  path: string;
+}
 
 interface BlogEntry {
   title: string;
@@ -73,7 +79,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
 export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
-    return saved === "finance" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
+    return saved === "finance" || saved === "skills" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
   });
   const [searchInput, setSearchInput] = useState("");
   const [journalYear, setJournalYear] = useState<string>(() => localStorage.getItem("noteListJournalYear") || "");
@@ -121,15 +127,20 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   if (financeSubTab === "notes") financeParams.set("sort", "atime");
   if (vmName) financeParams.set("vm_name", vmName);
 
+  const skillsParams = new URLSearchParams();
+  if (vmName) skillsParams.set("vm_name", vmName);
+
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
   const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
   const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/file/read?${blogParams.toString()}` : null;
   const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/file/list?${financeParams.toString()}` : null;
+  const skillsKey = isLoggedIn && tab === "skills" ? `${API}/api/file/skills?${skillsParams.toString()}` : null;
 
   const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
   const { data: blogData, isLoading: blogLoading, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
   const { data: financeData, isLoading: financeLoading, error: financeError, mutate: mutateFinance } = useSWR<{ path: string; entries: FileEntry[] }>(financeKey, fetcher, { revalidateOnFocus: false });
+  const { data: skillsData, isLoading: skillsLoading, error: skillsError, mutate: mutateSkills } = useSWR<{ skills: SkillEntry[] }>(skillsKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
   const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
@@ -316,11 +327,12 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
         <div className="flex gap-1 items-center">
           <button onClick={() => handleTabChange("finance")} className={tabClass(tab === "finance")}>Finance</button>
+          <button onClick={() => handleTabChange("skills")} className={tabClass(tab === "skills")}>Skills</button>
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
           <button onClick={() => handleTabChange("blog")} className={tabClass(tab === "blog")}>Blog</button>
           <button
-            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else if (tab === "blog") mutateBlog(); else mutateFinance(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else if (tab === "blog") mutateBlog(); else if (tab === "skills") mutateSkills(); else mutateFinance(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
             className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
@@ -419,6 +431,30 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                   </button>
                 );
               })}
+            </div>
+          )
+        ) : tab === "skills" ? (
+          skillsLoading ? (
+            <p className="text-sol-base01 italic p-2">Loading...</p>
+          ) : skillsError ? (
+            <p className="text-sol-base01 italic p-2">Error loading skills</p>
+          ) : !skillsData?.skills?.length ? (
+            <p className="text-sol-base01 italic p-2">No skills found</p>
+          ) : (
+            <div className="space-y-0">
+              {skillsData.skills.map((skill) => (
+                <button
+                  key={skill.name}
+                  onClick={() => onOpenFile(skill.path)}
+                  onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: skill.path }); }}
+                  className="w-full text-left flex flex-col gap-0.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                >
+                  <span className="truncate">{skill.name}</span>
+                  {skill.description && (
+                    <span className="text-sol-base01 text-[0.6rem] truncate">{skill.description}</span>
+                  )}
+                </button>
+              ))}
             </div>
           )
         ) : tab === "journals" ? (
