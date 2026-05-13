@@ -100,6 +100,40 @@ async def read_file(request: Request, path: str = Query(...), vm_name: str = Que
     return {"path": path, "content": content}
 
 
+_SKILLS_DIR = "/Users/roy/luohy15/.agents/skills"
+
+
+@router.get("/skills")
+async def list_skills(request: Request, vm_name: str = Query(None)):
+    user_id = _get_user_id(request)
+    # For each subdir with a SKILL.md, emit "name\tdescription" (description from YAML
+    # frontmatter; only the first line, no continuation parsing).
+    script = (
+        f'for d in {_SKILLS_DIR}/*/; do '
+        'name=$(basename "$d"); '
+        'f="$d/SKILL.md"; '
+        '[ -f "$f" ] || continue; '
+        'desc=$(awk \'/^description:/{sub(/^description: */, ""); print; exit}\' "$f"); '
+        'printf "%s\\t%s\\n" "$name" "$desc"; '
+        'done'
+    )
+    output = await _exec(user_id, ["bash", "-c", script], vm_name=vm_name, timeout=15)
+    skills = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        parts = line.split("\t", 1)
+        name = parts[0]
+        description = parts[1] if len(parts) == 2 else ""
+        skills.append({
+            "name": name,
+            "description": description,
+            "path": f"{_SKILLS_DIR}/{name}/SKILL.md",
+        })
+    skills.sort(key=lambda s: s["name"])
+    return {"skills": skills}
+
+
 async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None, work_dir: str = None) -> bytes:
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
