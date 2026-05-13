@@ -23,15 +23,23 @@ function linkTime(link: Link): number | undefined {
 
 type DateRange = "today" | "7d" | "30d" | "all";
 
-function getRange(range: DateRange): { start?: number; end?: number } {
+function toLocalDate(ts: number): string {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getRange(range: DateRange): { from?: string; to?: string } {
   if (range === "all") return {};
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const dayEnd = dayStart + 86400000;
+  const today = toLocalDate(dayStart);
   switch (range) {
-    case "today": return { start: dayStart, end: dayEnd };
-    case "7d": return { start: dayStart - 6 * 86400000, end: dayEnd };
-    case "30d": return { start: dayStart - 29 * 86400000, end: dayEnd };
+    case "today": return { from: today, to: today };
+    case "7d": return { from: toLocalDate(dayStart - 6 * 86400000), to: today };
+    case "30d": return { from: toLocalDate(dayStart - 29 * 86400000), to: today };
   }
 }
 
@@ -164,10 +172,10 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   useEffect(() => { localStorage.setItem("linkListDownloaded", String(downloadedOnly)); }, [downloadedOnly]);
   useEffect(() => { setOffset(0); setAllLinks([]); setLoadedOnce(false); }, [todoId, feedId, downloadedOnly]);
 
-  const { start, end } = getRange(range);
+  const { from, to } = getRange(range);
   const params = new URLSearchParams();
-  if (start !== undefined) params.set("start", String(start));
-  if (end !== undefined) params.set("end", String(end));
+  if (from !== undefined) params.set("from", from);
+  if (to !== undefined) params.set("to", to);
   if (query) params.set("query", query);
   if (todoId) params.set("todo_id", todoId);
   if (feedId === ALL_RSS_FEEDS_ID) {
