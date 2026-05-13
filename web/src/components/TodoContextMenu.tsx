@@ -4,7 +4,7 @@ import { API, authFetch } from "../api";
 import { priorityColorClass } from "./badges";
 
 interface TodoContextMenuProps {
-  todo: { todo_id: string; status: string; priority?: string };
+  todo: { todo_id: string; status: string; priority?: string; pinned?: boolean };
   x: number;
   y: number;
   onClose: () => void;
@@ -26,6 +26,15 @@ async function updateTodoPriority(todoId: string, priority: string): Promise<boo
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ todo_id: todoId, priority }),
+  });
+  return res.ok;
+}
+
+async function setTodoPinned(todoId: string, pinned: boolean): Promise<boolean> {
+  const res = await authFetch(`${API}/api/todo/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ todo_id: todoId, pinned }),
   });
   return res.ok;
 }
@@ -176,6 +185,17 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
         onClose();
       },
     })),
+  });
+  items.push({ type: "separator" });
+
+  items.push({
+    type: "item",
+    label: todo.pinned ? "Unpin" : "Pin",
+    action: async () => {
+      await setTodoPinned(todo.todo_id, !todo.pinned);
+      onAction();
+      onClose();
+    },
   });
 
   return createPortal(
