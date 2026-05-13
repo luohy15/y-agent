@@ -1,17 +1,25 @@
 import click
 from tabulate import tabulate
 from yagent.api_client import api_request
+from yagent.time_filter import collect_time_params, time_filter_options
 from yagent.time_util import utc_to_local
 
 
 @click.command('list')
 @click.option('--status', '-s', default=None, help='Filter by status (pending/sent/cancelled)')
+@time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def reminder_list(status, limit):
-    """List reminders."""
+def reminder_list(status, on, from_, to, created_on, created_from, created_to,
+                  updated_on, updated_from, updated_to, limit):
+    """List reminders. Canonical time field: remind_at."""
     params = {"limit": limit}
     if status is not None:
         params["status"] = status
+    params.update(collect_time_params(
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    ))
 
     resp = api_request("GET", "/api/reminder/list", params=params)
     reminders = resp.json()

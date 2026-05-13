@@ -125,31 +125,26 @@ def get_event(user_id: int, event_id: str) -> Optional[CalendarEvent]:
 
 def list_events(
     user_id: int,
-    date: Optional[str] = None,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
     source: Optional[str] = None,
     todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
 ) -> List[CalendarEvent]:
-    from datetime import timedelta
-    utc_start = None
-    utc_end = None
-    if date:
-        # Convert local date to UTC range covering the full local day
-        tz = _get_configured_tz()
-        day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
-        day_end = day_start + timedelta(days=1)
-        utc_start = day_start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        utc_end = day_end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    else:
-        utc_start = _local_to_utc(start) if start else None
-        utc_end = _local_to_utc(end) if end else None
     return event_repo.list_events(
-        user_id, date=None, start=utc_start, end=utc_end,
-        source=source, todo_id=todo_id,
+        user_id, source=source, todo_id=todo_id,
         include_deleted=include_deleted, limit=limit,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
 
 

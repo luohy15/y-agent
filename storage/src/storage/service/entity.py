@@ -64,8 +64,27 @@ def get_entity(user_id: int, entity_id: str) -> Optional[Entity]:
     return entity_repo.get_entity(user_id, entity_id)
 
 
-def list_entities(user_id: int, limit: int = 50, offset: int = 0, type: Optional[str] = None) -> List[Entity]:
-    return entity_repo.list_entities(user_id, limit=limit, offset=offset, type=type)
+def list_entities(
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    type: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[Entity]:
+    return entity_repo.list_entities(
+        user_id, limit=limit, offset=offset, type=type,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 def get_entities_by_ids(user_id: int, entity_ids: List[str]) -> List[Entity]:

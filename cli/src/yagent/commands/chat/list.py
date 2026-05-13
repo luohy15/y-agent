@@ -3,6 +3,7 @@ import shutil
 from tabulate import tabulate
 
 from yagent.api_client import api_request
+from yagent.time_filter import collect_time_params, time_filter_options
 from yagent.time_util import utc_to_local
 
 
@@ -18,13 +19,24 @@ def get_column_widths(weights: dict):
 @click.option('--limit', '-l', default=10, help='Maximum number of chats to show (default: 10)')
 @click.option('--trace-id', default=None, help='Filter chats by trace_id (sorted oldest-first)')
 @click.option('--routine', 'routine_id', default=None, help='Filter chats by routine_id')
-def list_chats(limit: int, trace_id: str, routine_id: str):
-    """List chat conversations sorted by update time (newest first)."""
+@time_filter_options
+def list_chats(limit: int, trace_id: str, routine_id: str,
+               on, from_, to, created_on, created_from, created_to,
+               updated_on, updated_from, updated_to):
+    """List chat conversations sorted by update time (newest first).
+
+    Canonical time field: updated_at.
+    """
     params = {"limit": limit}
     if trace_id:
         params["trace_id"] = trace_id
     if routine_id:
         params["routine_id"] = routine_id
+    params.update(collect_time_params(
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    ))
     resp = api_request("GET", "/api/chat/list", params=params)
     chats = resp.json()
 

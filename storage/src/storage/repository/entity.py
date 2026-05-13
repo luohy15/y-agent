@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.entity import EntityEntity
 from storage.dto.entity import Entity
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 
 def _entity_to_dto(row: EntityEntity) -> Entity:
@@ -19,11 +20,28 @@ def _entity_to_dto(row: EntityEntity) -> Entity:
     )
 
 
-def list_entities(user_id: int, limit: int = 50, offset: int = 0, type: Optional[str] = None) -> List[Entity]:
+def list_entities(
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    type: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[Entity]:
     with get_db() as session:
         q = session.query(EntityEntity).filter_by(user_id=user_id)
         if type:
             q = q.filter_by(type=type)
+        q = apply_time_filter(q, EntityEntity.updated_at, on=on, from_=from_, to=to)
+        q = apply_time_filter(q, EntityEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        q = apply_time_filter(q, EntityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         rows = (
             q.order_by(EntityEntity.updated_at_unix.desc())
             .offset(offset)

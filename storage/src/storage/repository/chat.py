@@ -12,6 +12,7 @@ from storage.entity.chat import ChatEntity
 from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity FK resolution
 from storage.entity.dto import Chat
 from storage.database.base import get_db
+from storage.util import apply_time_filter
 
 
 @dataclass
@@ -44,7 +45,25 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     return chat
 
 
-async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None, offset: int = 0, trace_id: Optional[str] = None, topic: Optional[str] = None, status: Optional[str] = None, routine_id: Optional[str] = None) -> List[ChatSummary]:
+async def list_chats(
+    user_id: int,
+    limit: int = 10,
+    query: Optional[str] = None,
+    offset: int = 0,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    status: Optional[str] = None,
+    routine_id: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[ChatSummary]:
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -62,6 +81,9 @@ async def list_chats(user_id: int, limit: int = 10, query: Optional[str] = None,
             q = q.filter(ChatEntity.routine_id == routine_id)
         if status:
             q = q.filter(ChatEntity.status == status)
+        q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)
+        q = apply_time_filter(q, ChatEntity.created_at, on=created_on, from_=created_from, to=created_to)
+        q = apply_time_filter(q, ChatEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
         rows = (q.order_by(ChatEntity.updated_at.desc())
                  .offset(offset)
                  .limit(limit)

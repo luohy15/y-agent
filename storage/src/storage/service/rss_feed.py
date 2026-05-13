@@ -6,8 +6,25 @@ from storage.dto.rss_feed import RssFeed
 from storage.repository import rss_feed as rss_feed_repo
 
 
-def list_feeds(user_id: int, include_deleted: bool = False) -> List[RssFeed]:
-    return rss_feed_repo.list_feeds(user_id, include_deleted=include_deleted)
+def list_feeds(
+    user_id: int,
+    include_deleted: bool = False,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> List[RssFeed]:
+    return rss_feed_repo.list_feeds(
+        user_id, include_deleted=include_deleted,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
 
 
 def list_all_feeds(include_deleted: bool = False) -> List[tuple]:

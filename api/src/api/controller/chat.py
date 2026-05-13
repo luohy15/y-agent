@@ -46,9 +46,33 @@ def _get_user_id(request: Request) -> int:
 
 
 @router.get("/list")
-async def get_chats(request: Request, query: Optional[str] = Query(None), trace_id: Optional[str] = Query(None), topic: Optional[str] = Query(None), status: Optional[str] = Query(None), routine_id: Optional[str] = Query(None), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+async def get_chats(
+    request: Request,
+    query: Optional[str] = Query(None),
+    trace_id: Optional[str] = Query(None),
+    topic: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    routine_id: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    on: Optional[str] = Query(None),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    created_on: Optional[str] = Query(None),
+    created_from: Optional[str] = Query(None),
+    created_to: Optional[str] = Query(None),
+    updated_on: Optional[str] = Query(None),
+    updated_from: Optional[str] = Query(None),
+    updated_to: Optional[str] = Query(None),
+):
     user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(user_id, query=query, limit=limit, offset=offset, trace_id=trace_id, topic=topic, status=status, routine_id=routine_id)
+    chats = await chat_service.list_chats(
+        user_id, query=query, limit=limit, offset=offset,
+        trace_id=trace_id, topic=topic, status=status, routine_id=routine_id,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
     return [
         {
             "chat_id": c.chat_id,

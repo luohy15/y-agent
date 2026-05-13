@@ -46,8 +46,6 @@ class ActivityIdRequest(BaseModel):
 @router.get("/list")
 async def list_links(
     request: Request,
-    start: Optional[int] = Query(None),
-    end: Optional[int] = Query(None),
     query: Optional[str] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
@@ -56,6 +54,15 @@ async def list_links(
     downloaded: Optional[bool] = Query(None),
     source_feed_id: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
+    on: Optional[str] = Query(None),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    created_on: Optional[str] = Query(None),
+    created_from: Optional[str] = Query(None),
+    created_to: Optional[str] = Query(None),
+    updated_on: Optional[str] = Query(None),
+    updated_from: Optional[str] = Query(None),
+    updated_to: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
     activity_ids = None
@@ -70,11 +77,14 @@ async def list_links(
         if not activity_ids:
             return []
     links = link_service.list_links(
-        user_id, start=start, end=end, query=query,
+        user_id, query=query,
         limit=limit, offset=offset, activity_ids=activity_ids,
         downloaded_only=bool(downloaded),
         source_feed_id=source_feed_id,
         source=source,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
     return [l.to_dict() for l in links]
 
