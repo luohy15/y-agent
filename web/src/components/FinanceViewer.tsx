@@ -247,9 +247,49 @@ function SortableHeader({ label, sortKey, currentKey, dir, onSort, align }: {
   );
 }
 
+const NON_RISKY_TICKERS = new Set(["CASH", "BOXX"]);
+
+function isRiskyTicker(ticker: string): boolean {
+  return !NON_RISKY_TICKERS.has(ticker);
+}
+
+function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]): HoldingTotalRow[] {
+  // Group by market_value currency, mirroring how the API groups totals.
+  const byCurrency = new Map<string, { book: number; market: number }>();
+  for (const r of rows) {
+    if (!isValidAmount(r.market_value)) continue;
+    const cur = r.market_value.currency;
+    const entry = byCurrency.get(cur) || { book: 0, market: 0 };
+    entry.market += r.market_value.number;
+    if (isValidAmount(r.book_value) && r.book_value.currency === cur) {
+      entry.book += r.book_value.number;
+    }
+    byCurrency.set(cur, entry);
+  }
+  // Preserve currency order from the API's totals list when possible.
+  const ordered: string[] = [];
+  for (const t of originalTotals) {
+    const cur = isValidAmount(t.market_value) ? t.market_value.currency : (isValidAmount(t.book_value) ? t.book_value.currency : null);
+    if (cur && byCurrency.has(cur) && !ordered.includes(cur)) ordered.push(cur);
+  }
+  for (const cur of byCurrency.keys()) {
+    if (!ordered.includes(cur)) ordered.push(cur);
+  }
+  return ordered.map((cur) => {
+    const e = byCurrency.get(cur)!;
+    const pct = e.book !== 0 ? ((e.market - e.book) / e.book) * 100 : null;
+    return {
+      book_value: { number: e.book, currency: cur } as HoldingAmount,
+      market_value: { number: e.market, currency: cur } as HoldingAmount,
+      unrealized_profit_pct: pct,
+    };
+  });
+}
+
 function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: HoldingTotalRow[] }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
+  const [riskyOnly, setRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
 
   const handleSort = (key: HoldingSortKey) => {
     if (key === sortKey) {
@@ -264,11 +304,21 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
     }
   };
 
+  const toggleRiskyOnly = () => {
+    const next = !riskyOnly;
+    setRiskyOnly(next);
+    localStorage.setItem("holdings-risky-only", next ? "1" : "0");
+  };
+
   // Filter out rows with empty/invalid units (e.g. units is [] or null)
   const valid = holdings.filter((h) => isValidAmount(h.units));
+  const filtered = useMemo(
+    () => (riskyOnly ? valid.filter((h) => isRiskyTicker((h.units as HoldingAmount).currency)) : valid),
+    [valid, riskyOnly],
+  );
 
   const sorted = useMemo(() => {
-    const copy = [...valid];
+    const copy = [...filtered];
     copy.sort((a, b) => {
       const av = holdingSortValue(a, sortKey);
       const bv = holdingSortValue(b, sortKey);
@@ -278,14 +328,65 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [valid, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir]);
+
+  const displayTotals = useMemo(
+    () => (riskyOnly ? recomputeTotals(filtered, totals) : totals),
+    [riskyOnly, filtered, totals],
+  );
+
+  // % of portfolio that's risky, by market_value, grouped per currency.
+  const riskySharePct = useMemo(() => {
+    const allByCur = new Map<string, number>();
+    const riskyByCur = new Map<string, number>();
+    for (const r of valid) {
+      if (!isValidAmount(r.market_value)) continue;
+      const cur = r.market_value.currency;
+      const mv = r.market_value.number;
+      allByCur.set(cur, (allByCur.get(cur) || 0) + mv);
+      if (isRiskyTicker((r.units as HoldingAmount).currency)) {
+        riskyByCur.set(cur, (riskyByCur.get(cur) || 0) + mv);
+      }
+    }
+    const parts: { cur: string; pct: number }[] = [];
+    for (const [cur, total] of allByCur) {
+      if (total === 0) continue;
+      parts.push({ cur, pct: ((riskyByCur.get(cur) || 0) / total) * 100 });
+    }
+    return parts;
+  }, [valid]);
 
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
 
   return (
     <div className="mb-4">
-      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02">
+      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
         <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings</span>
+        <div className="flex items-center gap-2">
+          {riskyOnly && riskySharePct.length > 0 && (
+            <span className="text-sol-base01 text-[10px] tabular-nums">
+              Risky:{" "}
+              {riskySharePct.map((p, i) => (
+                <span key={p.cur}>
+                  {i > 0 && ", "}
+                  {p.pct.toFixed(1)}%
+                  <span className="ml-1">{p.cur}</span>
+                </span>
+              ))}
+            </span>
+          )}
+          <button
+            onClick={toggleRiskyOnly}
+            className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+              riskyOnly
+                ? "bg-sol-blue text-sol-base03"
+                : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+            }`}
+            title="Hide cash and BOXX"
+          >
+            Risky only
+          </button>
+        </div>
       </div>
       <table className="w-full text-sm">
         <thead>
@@ -321,13 +422,13 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
               </td>
             </tr>
           ))}
-          {totals.map((t, i) => {
+          {displayTotals.map((t, i) => {
             const bv = isValidAmount(t.book_value) ? t.book_value : null;
             const mv = isValidAmount(t.market_value) ? t.market_value : null;
             const pct = t.unrealized_profit_pct ?? 0;
             return (
               <tr key={i} className="border-t border-sol-base02 font-medium">
-                <td className="py-1 px-3 text-sol-base1" colSpan={4}>Total Stock{totals.length > 1 && bv ? ` (${bv.currency})` : ""}</td>
+                <td className="py-1 px-3 text-sol-base1" colSpan={4}>Total Stock{displayTotals.length > 1 && bv ? ` (${bv.currency})` : ""}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{bv ? formatAmount(bv.number) : "—"}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{mv ? formatAmount(mv.number) : "—"}</td>
                 <td className={`py-1 px-3 text-right tabular-nums ${pct > 0 ? "text-sol-green" : pct < 0 ? "text-sol-red" : "text-sol-base0"}`}>
