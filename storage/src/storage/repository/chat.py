@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 
 from loguru import logger
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.orm import defer
 
 from storage.entity.chat import ChatEntity
@@ -466,22 +466,33 @@ def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
 
 
 def set_chat_unread(chat_id: str, unread: bool) -> None:
-    """Directly set the unread column on a chat by chat_id."""
+    """Set the unread column on a chat without touching updated_at.
+
+    Uses raw SQL so SQLAlchemy's column-level onupdate=get_utc_iso8601_timestamp
+    on BaseEntity.updated_at / updated_at_unix is bypassed; otherwise marking a
+    chat read/unread would bump it to the top of the chat list.
+    """
     with get_db() as session:
-        session.query(ChatEntity).filter_by(chat_id=chat_id).filter(ChatEntity.unread != unread).update({"unread": unread})
+        session.execute(
+            text("UPDATE chat SET unread = :unread WHERE chat_id = :chat_id AND unread IS DISTINCT FROM :unread"),
+            {"unread": unread, "chat_id": chat_id},
+        )
 
 
 def mark_chats_read_by_trace(user_id: int, trace_id: str) -> int:
-    """Mark all chats with the given trace_id as read. Returns affected row count."""
+    """Mark all chats with the given trace_id as read without touching updated_at."""
     with get_db() as session:
-        return (session.query(ChatEntity)
-                .filter_by(user_id=user_id, trace_id=trace_id)
-                .filter(ChatEntity.unread == True)
-                .update({"unread": False}))
+        result = session.execute(
+            text("UPDATE chat SET unread = false WHERE user_id = :user_id AND trace_id = :trace_id AND unread = true"),
+            {"user_id": user_id, "trace_id": trace_id},
+        )
+        return result.rowcount or 0
 
 
 def mark_latest_chat_unread_by_trace(user_id: int, trace_id: str) -> Optional[str]:
-    """Mark the most recently updated chat in the trace as unread. Returns its chat_id, or None if no chats."""
+    """Mark the most recently updated chat in the trace as unread without touching updated_at.
+
+    Returns its chat_id, or None if no chats."""
     with get_db() as session:
         row = (session.query(ChatEntity.chat_id)
                .filter_by(user_id=user_id, trace_id=trace_id)
@@ -490,10 +501,10 @@ def mark_latest_chat_unread_by_trace(user_id: int, trace_id: str) -> Optional[st
         if not row:
             return None
         chat_id = row.chat_id
-        (session.query(ChatEntity)
-         .filter_by(user_id=user_id, chat_id=chat_id)
-         .filter(ChatEntity.unread == False)
-         .update({"unread": True}))
+        session.execute(
+            text("UPDATE chat SET unread = true WHERE user_id = :user_id AND chat_id = :chat_id AND unread = false"),
+            {"user_id": user_id, "chat_id": chat_id},
+        )
         return chat_id
 
 
