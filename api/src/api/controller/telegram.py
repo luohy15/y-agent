@@ -6,11 +6,13 @@ from typing import List, Optional
 import jwt
 import httpx
 from loguru import logger
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
+from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
 
@@ -40,6 +42,41 @@ async def _send_message(chat_id, text: str, message_thread_id=None):
     import asyncio
     await asyncio.to_thread(send_telegram_message, TELEGRAM_BOT_TOKEN, chat_id, text, message_thread_id)
 
+
+
+class SendMessageRequest(BaseModel):
+    text: str
+    topic: Optional[str] = None
+
+
+@router.post("/send")
+async def telegram_send(req: SendMessageRequest, request: Request):
+    """Send a Telegram message to the authenticated user's DM or a bound forum topic.
+
+    Body:
+      text: message body (markdown ok; server converts to Telegram HTML)
+      topic: optional topic name. None / 'manager' → DM; otherwise requires a tg_topic binding.
+    """
+    user_id = request.state.user_id
+    if not req.text or not req.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+
+    target = resolve_target(user_id, topic=req.topic)
+    if not target:
+        if req.topic and req.topic != 'manager':
+            raise HTTPException(
+                status_code=404,
+                detail=f"No Telegram binding for topic '{req.topic}'. Bind it first or omit --topic to DM.",
+            )
+        raise HTTPException(
+            status_code=404,
+            detail="No Telegram DM target. /bind your account in Telegram first.",
+        )
+
+    bot_token, tg_chat_id, thread_id = target
+    import asyncio
+    await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, req.text, thread_id)
+    return {"ok": True}
 
 
 @router.post("/webhook")
