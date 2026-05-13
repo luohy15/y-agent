@@ -13,6 +13,7 @@ interface TraceViewProps {
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
   onOpenFile?: (path: string) => void;
+  onTraceTodoDirtyChange?: (dirty: boolean) => void;
 }
 
 interface TraceLink {
@@ -47,7 +48,7 @@ function getDomain(url: string): string {
   }
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile }: TraceViewProps) {
+export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange }: TraceViewProps) {
   // Fetch chats for selected trace
   const traceChatsKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
   const { data: traceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher);
@@ -163,6 +164,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 setOpen={setTodoDetailOpen}
                 historyOpen={historyOpen}
                 setHistoryOpen={setHistoryOpen}
+                onDirtyChange={onTraceTodoDirtyChange}
                 onSave={async (patch: TodoPatch) => {
                   const res = await authFetch(`${API}/api/todo/update`, {
                     method: "POST",
