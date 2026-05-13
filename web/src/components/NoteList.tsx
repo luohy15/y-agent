@@ -29,7 +29,7 @@ interface NoteListProps {
 
 type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
-type FinanceSubTab = "notes" | "weekly" | "tickers" | "topics";
+type FinanceSubTab = "notes" | "tickers" | "topics";
 
 const FINANCE_DIR = "/Users/roy/luohy15/finance";
 
@@ -90,7 +90,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   });
   const [financeSubTab, setFinanceSubTab] = useState<FinanceSubTab>(() => {
     const saved = localStorage.getItem("noteListFinanceSubTab");
-    if (saved === "notes" || saved === "weekly" || saved === "tickers" || saved === "topics") return saved;
+    if (saved === "notes" || saved === "tickers" || saved === "topics") return saved;
     return "notes";
   });
 
@@ -248,9 +248,6 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     if (financeSubTab === "notes") {
       return files;
     }
-    if (financeSubTab === "weekly") {
-      return files.sort((a, b) => b.localeCompare(a));
-    }
     return files.sort((a, b) => a.localeCompare(b));
   }, [financeData, financeSubTab]);
 
@@ -376,7 +373,6 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         {tab === "finance" && (
           <div className="flex gap-1 flex-wrap">
             <button onClick={() => handleFinanceSubTabChange("notes")} className={pillClass(financeSubTab === "notes")}>notes</button>
-            <button onClick={() => handleFinanceSubTabChange("weekly")} className={pillClass(financeSubTab === "weekly")}>weekly</button>
             <button onClick={() => handleFinanceSubTabChange("tickers")} className={pillClass(financeSubTab === "tickers")}>tickers</button>
             <button onClick={() => handleFinanceSubTabChange("topics")} className={pillClass(financeSubTab === "topics")}>topics</button>
           </div>
