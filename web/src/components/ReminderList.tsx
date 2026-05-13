@@ -47,7 +47,7 @@ function groupByDay(reminders: Reminder[]): [string, Reminder[]][] {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(r);
   }
-  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 }
 
 function formatLocalInput(d: Date): string {
@@ -237,7 +237,7 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
   const [spinning, setSpinning] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const saved = localStorage.getItem("reminderListStatusFilter");
-    return saved === "pending" || saved === "sent" || saved === "cancelled" || saved === "all" ? saved : "pending";
+    return saved === "pending" || saved === "sent" || saved === "cancelled" || saved === "all" ? saved : "all";
   });
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -253,7 +253,7 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
 
   const sortedReminders = useMemo(() => {
     if (!data) return [];
-    return [...data].sort((a, b) => a.remind_at.localeCompare(b.remind_at));
+    return [...data].sort((a, b) => b.remind_at.localeCompare(a.remind_at));
   }, [data]);
 
   const groups = useMemo(() => groupByDay(sortedReminders), [sortedReminders]);
