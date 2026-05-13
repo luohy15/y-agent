@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
-import { API, jsonFetcher as fetcher } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 import TodoContextMenu from "./TodoContextMenu";
@@ -33,6 +33,7 @@ interface TodoListProps {
 export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onChatListRefresh }: TodoListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
+  const [readAllBusy, setReadAllBusy] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string; pinned?: boolean }; x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -77,6 +78,29 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
     setSize(1);
   }, [statusFilter, search, unreadFilter, setSize]);
 
+  const handleReadAll = async () => {
+    if (readAllBusy) return;
+    setReadAllBusy(true);
+    try {
+      const body: { status?: string; query?: string; unread?: boolean } = {};
+      if (statusFilter !== "all") body.status = statusFilter;
+      const q = search.trim();
+      if (q) body.query = q;
+      if (unreadFilter) body.unread = true;
+      const res = await authFetch(`${API}/api/chat/trace/read_all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        await mutate();
+        onChatListRefresh?.();
+      }
+    } finally {
+      setReadAllBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
@@ -111,8 +135,16 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
             </button>
           ))}
           <button
+            onClick={handleReadAll}
+            disabled={readAllBusy}
+            title="Mark all matching todos as read"
+            className={`ml-auto px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${readAllBusy ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+          >
+            read all
+          </button>
+          <button
             onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("todoListUnreadFilter", String(v)); }}
-            className={`ml-auto px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+            className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
           >
             unread
           </button>

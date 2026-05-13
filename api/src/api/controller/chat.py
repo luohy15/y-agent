@@ -202,6 +202,20 @@ async def post_mark_trace_unread(req: TraceReadRequest, request: Request):
     return {"ok": True, "chat_id": chat_id}
 
 
+class TraceReadAllRequest(BaseModel):
+    status: Optional[str] = None
+    query: Optional[str] = None
+    unread: Optional[bool] = None
+
+
+@router.post("/trace/read_all")
+async def post_mark_trace_read_all(req: TraceReadAllRequest, request: Request):
+    user_id = _get_user_id(request)
+    status = None if req.status in (None, "", "all") else req.status
+    count = chat_service.mark_all_traces_read(user_id, status=status, query=req.query, unread=req.unread)
+    return {"ok": True, "count": count}
+
+
 class ShareChatRequest(BaseModel):
     chat_id: str
     message_id: Optional[str] = None

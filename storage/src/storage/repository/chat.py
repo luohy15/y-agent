@@ -511,6 +511,20 @@ def mark_chats_read_by_trace(user_id: int, trace_id: str) -> int:
         return result.rowcount or 0
 
 
+def mark_chats_read_by_trace_ids(user_id: int, trace_ids: list) -> int:
+    """Bulk-mark chats as read for the given trace_ids without touching updated_at."""
+    if not trace_ids:
+        return 0
+    from sqlalchemy import bindparam
+    with get_db() as session:
+        stmt = text(
+            "UPDATE chat SET unread = false "
+            "WHERE user_id = :user_id AND unread = true AND trace_id IN :trace_ids"
+        ).bindparams(bindparam("trace_ids", expanding=True))
+        result = session.execute(stmt, {"user_id": user_id, "trace_ids": list(trace_ids)})
+        return result.rowcount or 0
+
+
 def mark_latest_chat_unread_by_trace(user_id: int, trace_id: str) -> Optional[str]:
     """Mark the most recently updated chat in the trace as unread without touching updated_at.
 
