@@ -12,6 +12,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         base_url=entity.base_url,
         api_key=entity.api_key,
         api_type=entity.api_type,
+        backend=entity.backend,
         model=entity.model,
         description=entity.description,
         openrouter_config=entity.openrouter_config,
@@ -25,7 +26,8 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
     return dict(
         base_url=config.base_url,
         api_key=config.api_key,
-        api_type=config.api_type,
+        api_type=None,
+        backend=config.backend,
         model=config.model,
         description=config.description,
         openrouter_config=config.openrouter_config,

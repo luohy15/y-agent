@@ -188,13 +188,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         logger.exception("telegram user message failed: {}", e)
 
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
-    # Override api_type if backend is explicitly specified
     if backend:
-        bot_config.api_type = backend
-    logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
+        bot_config.backend = backend
+    logger.info("Resolved bot config: name={} backend={} model={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model)
 
     # Persist backend and bot_name on chat
-    chat.backend = bot_config.api_type
+    chat.backend = bot_config.backend or bot_config.api_type
     chat.bot_name = bot_config.name
     await chat_repo.save_chat_by_id(chat)
 
@@ -342,7 +341,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from worker.process_manager import register_process
 
     # Build params based on backend type
-    if bot_config.api_type == "codex":
+    effective_backend = bot_config.backend or bot_config.api_type
+    if effective_backend == "codex":
         params = _build_codex_params(chat, chat_id, user_id, bot_config,
                                       vm_name=vm_name, work_dir=work_dir,
                                       trace_id=trace_id, topic=topic)
@@ -366,7 +366,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     ensure_and_touch_vm(params["vm_config"])
 
     # Start detached tmux session (backend-specific launcher)
-    if bot_config.api_type == "codex":
+    if effective_backend == "codex":
         from agent.codex import start_detached_codex_ssh
         session_id = await start_detached_codex_ssh(
             cmd=params["cmd"],
@@ -394,7 +394,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
         bot_name=bot_config.name, trace_id=trace_id, topic=topic,
         post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
-        backend_type=bot_config.api_type,
+        backend_type=effective_backend,
         initial_msg_count=len(chat.messages),
     )
 

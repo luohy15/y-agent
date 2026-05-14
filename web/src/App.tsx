@@ -29,7 +29,7 @@ interface VmConfigItem {
 
 interface BotConfigItem {
   name: string;
-  api_type: string | null;
+  backend: string | null;
   model: string;
 }
 
