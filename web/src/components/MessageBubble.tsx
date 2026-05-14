@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
+import { localFilePathFromMarkdownHref } from "../utils/localFileLinks";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -387,6 +388,24 @@ export default function MessageBubble({ role, content, toolName, arguments: args
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            a({ href, children, ...props }) {
+              const filePath = localFilePathFromMarkdownHref(href);
+              if (filePath && onOpenFile) {
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenFile(filePath);
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              }
+              return <a href={href} {...props}>{children}</a>;
+            },
             code({ children, className, ...props }) {
               const text = String(children).replace(/\n$/, "");
               const isInline = !className;
