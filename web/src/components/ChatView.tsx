@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
-import MessageList, { type Message, extractContent } from "./MessageList";
+import MessageList, { type Message } from "./MessageList";
 import ChatInput, { type ChatInputHandle } from "./ChatInput";
 import ChatToc from "./ChatToc";
 import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
+import { mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -119,39 +120,6 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  const parseRawMessage = useCallback((evt: any): Message[] => {
-    const msg = evt.data || evt;
-    const role = msg.role || "assistant";
-    const content = extractContent(msg.content);
-    const timestamp = msg.timestamp;
-    const result: Message[] = [];
-
-    if (role === "user") {
-      result.push({ role: "user", content, timestamp });
-    } else if (role === "assistant" && msg.tool_calls) {
-      if (content.trim()) {
-        result.push({ role: "assistant", content, timestamp });
-      }
-      for (const tc of msg.tool_calls) {
-        const func = tc.function || {};
-        let toolArgs: Record<string, unknown> = {};
-        try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-        result.push({ role: "tool_pending", content: "", toolName: func.name, arguments: toolArgs, toolCallId: tc.id, timestamp });
-      }
-    } else if (role === "tool") {
-      const tcId = msg.tool_call_id;
-      const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
-      if (tcId) {
-        result.push({ role: denied ? "tool_denied" : "tool_result", content, toolCallId: tcId, timestamp });
-      } else {
-        result.push({ role: denied ? "tool_denied" : "tool_result", content, toolName: msg.tool, arguments: msg.arguments, timestamp });
-      }
-    } else {
-      result.push({ role: "assistant", content, timestamp });
-    }
-    return result;
-  }, []);
-
   const connectSSE = useCallback((chatId: string, fromIndex: number) => {
     if (esRef.current) esRef.current.close();
     setCompleted(false);
@@ -166,10 +134,15 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         const evt = JSON.parse(raw);
         idxRef.current = (evt.index ?? idxRef.current) + 1;
 
-        const parsed = parseRawMessage(evt);
+        const parsed = parseRawChatMessage(evt);
         for (const m of parsed) {
           if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
-            updateToolMessage(m.toolCallId, { role: m.role, content: m.content });
+            updateToolMessage(m.toolCallId, {
+              role: m.role,
+              content: m.content,
+              ...(m.toolName ? { toolName: m.toolName } : {}),
+              ...(m.arguments ? { arguments: m.arguments } : {}),
+            });
           } else {
             addMessage(m);
           }
@@ -188,7 +161,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       onCompleteRef.current?.();
     });
     es.addEventListener("error", () => {});
-  }, [addMessage, updateToolMessage, parseRawMessage, mutate]);
+  }, [addMessage, updateToolMessage, mutate]);
 
   useEffect(() => {
     if (!chatId) return;
@@ -206,14 +179,14 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         // Parse all messages at once
         const allMessages: Message[] = [];
         for (const evt of data.messages) {
-          const parsed = parseRawMessage(evt);
+          const parsed = parseRawChatMessage(evt);
           for (const m of parsed) {
             if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
               const pendingIdx = allMessages.findIndex(
                 (x) => x.toolCallId === m.toolCallId && x.role === "tool_pending"
               );
               if (pendingIdx !== -1) {
-                allMessages[pendingIdx] = { ...allMessages[pendingIdx], role: m.role, content: m.content };
+                allMessages[pendingIdx] = mergeToolResult(allMessages[pendingIdx], m);
                 continue;
               }
             }

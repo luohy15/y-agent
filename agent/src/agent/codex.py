@@ -25,6 +25,8 @@ from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_uni
 from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
 from agent.poll_loop import PollLoop
 
+JSONValue = Optional[object]
+
 _SHELL_WRAPPER_RE = re.compile(
     r'^(/\S+/(?:bash|zsh|sh|fish|dash))\s+-\w*c\s+(.+)$',
     re.DOTALL,
@@ -41,6 +43,77 @@ def _strip_shell_wrapper(command: str) -> str:
             inner = inner[1:-1]
         return inner
     return command
+
+
+def _json_string(value: JSONValue) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def _command_output(item: Dict) -> str:
+    output = item.get("aggregated_output")
+    if output is None:
+        output = item.get("output", "")
+    text = _json_string(output)
+    exit_code = item.get("exit_code")
+    status = item.get("status")
+    if exit_code not in (None, 0) or (status and status != "completed"):
+        parts = []
+        if exit_code is not None:
+            parts.append(f"exit_code={exit_code}")
+        if status:
+            parts.append(f"status={status}")
+        suffix = f"[codex command {' '.join(parts)}]"
+        return f"{text.rstrip()}\n{suffix}" if text else suffix
+    return text
+
+
+def _file_change_arguments(item: Dict) -> Dict:
+    raw_changes = item.get("changes")
+    changes = raw_changes if isinstance(raw_changes, list) else []
+    normalized_changes = []
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        path = change.get("path") or change.get("file_path") or ""
+        kind = change.get("kind") or change.get("type") or "change"
+        normalized = {"path": path, "kind": kind}
+        for key, value in change.items():
+            if key not in normalized and key not in ("file_path", "type"):
+                normalized[key] = value
+        normalized_changes.append(normalized)
+
+    first_path = ""
+    if normalized_changes:
+        first_path = str(normalized_changes[0].get("path") or "")
+    else:
+        first_path = str(item.get("file_path") or item.get("path") or "")
+
+    args: Dict = {"file_path": first_path}
+    if first_path:
+        args["path"] = first_path
+    if normalized_changes:
+        args["changes"] = normalized_changes
+    return args
+
+
+def _file_change_summary(item: Dict) -> str:
+    args = _file_change_arguments(item)
+    changes = args.get("changes")
+    if isinstance(changes, list) and changes:
+        lines = []
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            kind = str(change.get("kind") or "change")
+            path = str(change.get("path") or "")
+            lines.append(f"{kind} {path}".strip())
+        return "\n".join(lines)
+    path = str(args.get("file_path") or "")
+    return f"changed {path}".strip() if path else "file changed"
 
 
 class CodexStreamConverter:
@@ -98,7 +171,7 @@ class CodexStreamConverter:
                 messages.append(self._emit(msg))
 
             elif item_type == "file_change":
-                file_path = item.get("file_path", "")
+                arguments = _file_change_arguments(item)
                 self._pending_items[item_id] = item_id
                 msg = Message.from_dict({
                     "role": "assistant",
@@ -112,7 +185,7 @@ class CodexStreamConverter:
                         "type": "function",
                         "function": {
                             "name": "Edit",
-                            "arguments": json.dumps({"file_path": file_path}),
+                            "arguments": json.dumps(arguments),
                         },
                         "status": "approved",
                     }],
@@ -141,11 +214,11 @@ class CodexStreamConverter:
                     messages.append(self._emit(msg))
 
             elif item_type == "command_execution":
-                output = item.get("output", "")
+                output = _command_output(item)
                 command = _strip_shell_wrapper(item.get("command", ""))
                 msg = Message.from_dict({
                     "role": "tool",
-                    "content": output if isinstance(output, str) else json.dumps(output),
+                    "content": output,
                     "timestamp": get_utc_iso8601_timestamp(),
                     "unix_timestamp": get_unix_timestamp(),
                     "id": generate_message_id(),
@@ -156,16 +229,16 @@ class CodexStreamConverter:
                 messages.append(self._emit(msg))
 
             elif item_type == "file_change":
-                diff = item.get("diff", "") or item.get("content", "") or "file changed"
-                file_path = item.get("file_path", "")
+                content = item.get("diff", "") or item.get("content", "") or _file_change_summary(item)
+                arguments = _file_change_arguments(item)
                 msg = Message.from_dict({
                     "role": "tool",
-                    "content": diff if isinstance(diff, str) else json.dumps(diff),
+                    "content": content if isinstance(content, str) else json.dumps(content),
                     "timestamp": get_utc_iso8601_timestamp(),
                     "unix_timestamp": get_unix_timestamp(),
                     "id": generate_message_id(),
                     "tool": "Edit",
-                    "arguments": {"file_path": file_path},
+                    "arguments": arguments,
                     "tool_call_id": tool_call_id,
                 })
                 messages.append(self._emit(msg))
