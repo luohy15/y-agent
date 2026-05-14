@@ -44,7 +44,7 @@ If a task is going to run longer than 15 minutes, the worker hands off to the ne
 
 Defaults work for most cases, but you can override per chat:
 
-- **Backend**: Claude Code (default) or Codex. Codex is cheaper but doesn't have the same tool ecosystem.
+- **Backend**: Claude Code (default), Codex, or Gemini CLI. Codex and Gemini CLI run as one-shot resumed CLI sessions, so mid-run steer restarts the backend with the latest session id instead of writing to a live stdin pipe.
 - **Skill**: pick a specialized skill (e.g. `dev`, `plan`, `impl`) instead of the default `manager`. The skill defines what tools and prompts the agent loads.
 - **VM** / **work_dir**: which EC2 instance and project directory to run in. Most users have one VM and a default work_dir, so this is set-and-forget.
 

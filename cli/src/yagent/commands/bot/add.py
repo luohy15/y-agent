@@ -8,7 +8,7 @@ from storage.service.user import get_cli_user_id
 @click.option('--model', '-m', required=True, help='Model name')
 @click.option('--api-key', '-k', default='', help='API key')
 @click.option('--base-url', '-u', default=None, help='Base URL')
-@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex)')
+@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli)')
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
 def bot_add(name, model, api_key, base_url, backend, yes):
     """Add a new bot configuration."""

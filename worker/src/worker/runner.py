@@ -139,7 +139,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex').
+    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -315,6 +315,31 @@ def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
     return env
 
 
+def build_gemini_resume_cmd(session_id: str, model: str = None) -> list:
+    """Gemini CLI resume command for a known session."""
+    cmd = ["gemini", "--resume", session_id, "--output-format", "stream-json", "--yolo"]
+    if model:
+        cmd.extend(["-m", model])
+    return cmd
+
+
+def build_gemini_env(bot_config, chat_id: str = None, trace_id: str = None,
+                     topic: str = None, last_message_id: str = None) -> dict:
+    """Gemini CLI subprocess env: Gemini auth + trace/topic vars."""
+    env = {}
+    if bot_config.api_key:
+        env["GEMINI_API_KEY"] = bot_config.api_key
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
     messages = list(chat.messages)
@@ -371,12 +396,61 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     }
 
 
+def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for Gemini CLI."""
+    messages = list(chat.messages)
+
+    user_prompt = ""
+    for msg in reversed(messages):
+        if msg.role == "user":
+            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
+            break
+
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    last_message_id = messages[-1].id if messages else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+
+    session_id = chat.external_id
+    resume = bool(session_id) and chat.work_dir == cwd
+
+    if resume and session_id:
+        cmd = build_gemini_resume_cmd(session_id, model)
+    else:
+        cmd = ["gemini", "--output-format", "stream-json", "--yolo"]
+        session_id = None
+        if model:
+            cmd.extend(["-m", model])
+
+    if chat.skill and not resume:
+        user_prompt = (
+            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
+            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
+        )
+
+    env = build_gemini_env(bot_config, chat_id, trace_id, topic, last_message_id)
+
+    return {
+        "prompt": user_prompt,
+        "cmd": cmd,
+        "env": env if env else None,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "session_id": session_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
 
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
                            topic: str = None) -> None:
-    """Start claude-code or codex as a detached tmux process on EC2.
+    """Start claude-code, codex, or Gemini CLI as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -389,6 +463,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     effective_backend = bot_config.backend or bot_config.api_type
     if effective_backend == "codex":
         params = _build_codex_params(chat, chat_id, user_id, bot_config,
+                                      vm_name=vm_name, work_dir=work_dir,
+                                      trace_id=trace_id, topic=topic)
+    elif effective_backend == "gemini_cli":
+        params = _build_gemini_params(chat, chat_id, user_id, bot_config,
                                       vm_name=vm_name, work_dir=work_dir,
                                       trace_id=trace_id, topic=topic)
     else:
@@ -414,6 +492,16 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     if effective_backend == "codex":
         from agent.codex import start_detached_codex_ssh
         session_id = await start_detached_codex_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+        )
+    elif effective_backend == "gemini_cli":
+        from agent.gemini_cli import start_detached_gemini_ssh
+        session_id = await start_detached_gemini_ssh(
             cmd=params["cmd"],
             prompt=params["prompt"],
             cwd=cwd,
