@@ -56,12 +56,8 @@ const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01
 // Cap auto-grow so a huge field still scrolls instead of taking over the panel.
 const MAX_EXPANDED_HEIGHT = 600;
 
-const autoResize = (el: HTMLTextAreaElement | null, expanded: boolean) => {
+const autoResize = (el: HTMLTextAreaElement | null) => {
   if (!el) return;
-  if (!expanded) {
-    el.style.height = "";
-    return;
-  }
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, MAX_EXPANDED_HEIGHT)}px`;
 };
@@ -79,8 +75,6 @@ export default function TraceTodoDetail({
   const [patch, setPatch] = useState<TodoPatch>({});
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [descExpanded, setDescExpanded] = useState(false);
-  const [progressExpanded, setProgressExpanded] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
 
@@ -113,14 +107,14 @@ export default function TraceTodoDetail({
   const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
 
-  // Auto-grow the expanded textareas to fit their content. Recompute on expand/collapse
-  // toggle, content change, todo switch, and panel open (the textarea only mounts when open).
+  // Auto-grow the textareas to fit their content. Recompute on content change, todo
+  // switch, and panel open (the textarea only mounts when open).
   useEffect(() => {
-    autoResize(descRef.current, descExpanded);
-  }, [descExpanded, descValue, todoInfo.todo_id, open, editable]);
+    autoResize(descRef.current);
+  }, [descValue, todoInfo.todo_id, open, editable]);
   useEffect(() => {
-    autoResize(progressRef.current, progressExpanded);
-  }, [progressExpanded, progressValue, todoInfo.todo_id, open, editable]);
+    autoResize(progressRef.current);
+  }, [progressValue, todoInfo.todo_id, open, editable]);
 
   // Set a field on the patch, or drop it if it matches the original server value.
   const setNullableField = (key: "desc" | "priority" | "due_date" | "progress", value: string | null) => {
@@ -239,23 +233,15 @@ export default function TraceTodoDetail({
                 </select>
 
                 <span className="text-sol-base01 pt-1">Desc</span>
-                <div className="relative">
-                  <textarea
-                    ref={descRef}
-                    value={descValue}
-                    onChange={(e) => handleDesc(e.target.value)}
-                    rows={3}
-                    placeholder="Add description..."
-                    className={`${inputClass} resize-none w-full ${descExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
-                  />
-                  <button
-                    onClick={() => setDescExpanded(!descExpanded)}
-                    className="absolute top-1 right-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 cursor-pointer bg-sol-base03 px-0.5 leading-none"
-                    title={descExpanded ? "Collapse" : "Expand"}
-                  >
-                    {descExpanded ? "▲" : "▼"}
-                  </button>
-                </div>
+                <textarea
+                  ref={descRef}
+                  value={descValue}
+                  onChange={(e) => handleDesc(e.target.value)}
+                  rows={3}
+                  placeholder="Add description..."
+                  className={`${inputClass} resize-none w-full overflow-y-auto`}
+                />
+
 
                 <span className="text-sol-base01 pt-1">Priority</span>
                 <select
@@ -312,23 +298,15 @@ export default function TraceTodoDetail({
                 </div>
 
                 <span className="text-sol-base01 pt-1">Progress</span>
-                <div className="relative">
-                  <textarea
-                    ref={progressRef}
-                    value={progressValue}
-                    onChange={(e) => handleProgress(e.target.value)}
-                    rows={2}
-                    placeholder="Add progress note..."
-                    className={`${inputClass} resize-none w-full ${progressExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
-                  />
-                  <button
-                    onClick={() => setProgressExpanded(!progressExpanded)}
-                    className="absolute top-1 right-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 cursor-pointer bg-sol-base03 px-0.5 leading-none"
-                    title={progressExpanded ? "Collapse" : "Expand"}
-                  >
-                    {progressExpanded ? "▲" : "▼"}
-                  </button>
-                </div>
+                <textarea
+                  ref={progressRef}
+                  value={progressValue}
+                  onChange={(e) => handleProgress(e.target.value)}
+                  rows={2}
+                  placeholder="Add progress note..."
+                  className={`${inputClass} resize-none w-full overflow-y-auto`}
+                />
+
               </>
             ) : (
               <>
