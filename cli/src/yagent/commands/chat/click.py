@@ -45,7 +45,7 @@ def _fire_and_forget(
     force_new: bool,
     from_topic: str,
     from_chat_id: Optional[str],
-    backend: Optional[str],
+    bot: Optional[str],
 ):
     """POST a message to /api/chat/notify and print the resulting chat_id."""
     if not from_chat_id:
@@ -68,8 +68,8 @@ def _fire_and_forget(
         payload["work_dir"] = work_dir
     if from_chat_id:
         payload["from_chat_id"] = from_chat_id
-    if backend:
-        payload["backend"] = backend
+    if bot:
+        payload["bot_name"] = bot
     try:
         resp = api_request("POST", "/api/chat/notify", json=payload)
         data = resp.json()
@@ -158,11 +158,10 @@ def _interactive(
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--from-topic', default='manager', help='Caller topic name (default: manager)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
-@click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex'], case_sensitive=False), help='Backend to use (default: claude_code)')
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
-@click.option('--bot', '-b', default=None, help='[interactive] Use specific bot name')
+@click.option('--bot', '-b', default=None, help='Bot name to use (e.g. codex, claude_code)')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
 @click.pass_context
 def chat_group(
@@ -176,7 +175,6 @@ def chat_group(
     force_new: bool,
     from_topic: str,
     from_chat_id: Optional[str],
-    backend: Optional[str],
     interactive: bool,
     latest: bool,
     bot: Optional[str],
@@ -222,7 +220,7 @@ def chat_group(
             force_new=force_new,
             from_topic=from_topic,
             from_chat_id=from_chat_id,
-            backend=backend,
+            bot=bot,
         )
         return
 

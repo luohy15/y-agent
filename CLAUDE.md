@@ -85,7 +85,7 @@ entity + controller + service + CLI slices, and most have a web panel.
 The repo no longer contains an in-process agent loop — the worker shells out.
 
 - **Backends** — `agent/src/agent/claude_code.py` (Claude Code) and
-  `agent/src/agent/codex.py` (Codex CLI). `y chat --backend codex|claude_code -m "..."`
+  `agent/src/agent/codex.py` (Codex CLI). `y chat --bot codex|claude_code -m "..."`
   picks one; default is `claude_code`. The chat's `backend` field is persisted and
   displayed.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
@@ -239,7 +239,7 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 cd web && npm run build
 
 # Cross-skill notify (--topic / --skill / --chat-id are all independently optional)
-y chat -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--backend claude_code|codex] [--trace-id ...] [--from-topic ...]
+y chat -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--bot <name>] [--trace-id ...] [--from-topic ...]
 # Interactive REPL — same `y chat` command with -i
 y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 
