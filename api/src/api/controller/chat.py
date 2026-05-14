@@ -387,7 +387,7 @@ class NotifyRequest(BaseModel):
     from_topic: Optional[str] = None
     force_new: Optional[bool] = False
     from_chat_id: Optional[str] = None
-    backend: Optional[str] = None
+    bot_name: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):
@@ -515,6 +515,6 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
 
     # Enqueue worker only if not already running
     if not already_running:
-        send_chat_message(chat_id, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill, backend=req.backend)
+        send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)
