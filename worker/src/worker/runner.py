@@ -317,7 +317,7 @@ def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
 
 def build_gemini_resume_cmd(session_id: str, model: str = None) -> list:
     """Gemini CLI resume command for a known session."""
-    cmd = ["gemini", "--resume", session_id, "--output-format", "stream-json", "--yolo"]
+    cmd = ["gemini", "--resume", session_id, "--output-format", "stream-json", "--yolo", "--skip-trust"]
     if model:
         cmd.extend(["-m", model])
     return cmd
@@ -418,7 +418,7 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
     if resume and session_id:
         cmd = build_gemini_resume_cmd(session_id, model)
     else:
-        cmd = ["gemini", "--output-format", "stream-json", "--yolo"]
+        cmd = ["gemini", "--output-format", "stream-json", "--yolo", "--skip-trust"]
         session_id = None
         if model:
             cmd.extend(["-m", model])

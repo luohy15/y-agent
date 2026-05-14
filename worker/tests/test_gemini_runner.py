@@ -36,7 +36,7 @@ class GeminiRunnerTest(unittest.TestCase):
     def test_resume_cmd_uses_session_and_model(self):
         self.assertEqual(
             build_gemini_resume_cmd("session-1", "gemini-2.5-pro"),
-            ["gemini", "--resume", "session-1", "--output-format", "stream-json", "--yolo", "-m", "gemini-2.5-pro"],
+            ["gemini", "--resume", "session-1", "--output-format", "stream-json", "--yolo", "--skip-trust", "-m", "gemini-2.5-pro"],
         )
 
     def test_env_maps_api_key_and_trace(self):
@@ -66,7 +66,7 @@ class GeminiRunnerTest(unittest.TestCase):
                 topic="dev",
             )
 
-        self.assertEqual(params["cmd"], ["gemini", "--output-format", "stream-json", "--yolo", "-m", "gemini-2.5-pro"])
+        self.assertEqual(params["cmd"], ["gemini", "--output-format", "stream-json", "--yolo", "--skip-trust", "-m", "gemini-2.5-pro"])
         self.assertIn("load the 'impl' skill", params["prompt"])
         self.assertTrue(params["prompt"].endswith("hello"))
         self.assertFalse(params["resume"])
@@ -84,7 +84,7 @@ class GeminiRunnerTest(unittest.TestCase):
 
         self.assertEqual(
             params["cmd"],
-            ["gemini", "--resume", "session-1", "--output-format", "stream-json", "--yolo", "-m", "gemini-2.5-flash"],
+            ["gemini", "--resume", "session-1", "--output-format", "stream-json", "--yolo", "--skip-trust", "-m", "gemini-2.5-flash"],
         )
         self.assertTrue(params["resume"])
         self.assertEqual(params["session_id"], "session-1")

@@ -88,4 +88,4 @@ Worker chats run through a configured bot backend. Existing deployments keep the
 y bot add gemini_cli --backend gemini_cli --model gemini-2.5-pro --api-key "$GEMINI_API_KEY" --yes
 ```
 
-The worker expects `gemini` to be installed on the target VM. It starts headless runs with `gemini --output-format stream-json --yolo -p <prompt>`, resumes with `gemini --resume <session_id> ...`, and passes `GEMINI_API_KEY` plus y-agent trace env vars into the subprocess. You can choose the backend for recurring jobs with `y routine add --backend gemini_cli ...` or `y routine update --backend gemini_cli ...`.
+The worker expects `gemini` to be installed on the target VM. It starts headless runs with `gemini --output-format stream-json --yolo --skip-trust -p <prompt>`, resumes with `gemini --resume <session_id> ...`, and passes `GEMINI_API_KEY` plus y-agent trace env vars into the subprocess. You can choose the backend for recurring jobs with `y routine add --backend gemini_cli ...` or `y routine update --backend gemini_cli ...`.
