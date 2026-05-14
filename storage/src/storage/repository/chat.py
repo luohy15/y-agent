@@ -216,8 +216,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.search_text = search_text
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
-            entity.backend = chat.backend
-            entity.bot_name = chat.bot_name
+            entity.backend = _resolve_immutable_field(entity, chat, "backend")
+            entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -284,8 +284,8 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.search_text = search_text
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
-            entity.backend = chat.backend
-            entity.bot_name = chat.bot_name
+            entity.backend = _resolve_immutable_field(entity, chat, "backend")
+            entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -565,5 +565,4 @@ def set_share_password_hash(user_id: int, chat_id: str, password_hash: Optional[
         session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update(
             {"share_password_hash": password_hash}
         )
-
 
