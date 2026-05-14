@@ -13,10 +13,23 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **`y note delete` (2009)** — new CLI command + `POST /api/note/delete` endpoint with safe-delete guards: refuses when an entity backs the note (delete the entity first) and requires `--force` to unlink live `note_todo` relations before soft-deleting.
+- **`y note delete` + `y note update --front-matter` (2009)** — new `y note delete` CLI command + `POST /api/note/delete` endpoint with safe-delete guards (refuses when an entity backs the note; requires `--force` to unlink live `note_todo` relations before soft-deleting). `y note update` now accepts `--front-matter` to re-parse and replace the stored YAML front-matter from the file at `content_key`.
 - **Finance `topics` sub-tab** — NoteList's finance tab gains a fourth `topics` sub-tab alongside `notes` / `weekly` / `tickers`, persisted via `noteListFinanceSubTab`.
+- **Skills tab in NoteList (2045)** — new top-level Skills tab with search, backed by a new `GET /api/file/skills` endpoint that lists `~/.claude/skills/`.
+- **Front-matter preview card in FileViewer (2046)** — markdown files with YAML front-matter render a collapsible card above the body, with the raw front-matter still toggleable.
+- **Risky positions toggle in FinanceViewer (2028)** — FinanceViewer adds a switch to hide/show high-risk holdings in the balance sheet view.
+- **ReminderList sidebar (2048 / 2049 / 2057)** — full-featured reminder panel in the sidebar with create/edit/cancel, sort by trigger time, and filtering.
+- **`y telegram` CLI (2047)** — new `y telegram send` / `click` subcommands + matching `POST /api/telegram/{send,click}` endpoints; worker telegram code refactored into `storage/service/telegram.py` and shared with the CLI.
+- **Todo mark-all-as-read (2060)** — bulk "mark all read" action in TodoList with a new repo/service/controller path; complements the existing per-todo toggle.
+- **Editable trace todo detail (2058)** — TraceTodoDetail rewritten with full inline edit for status / priority / due / tags / description / progress; shared between TraceView (editable) and ShareTraceView (read-only). Extends the 0.5.12 inline-progress edit (1995).
+- **LinkList sidebar time filter (2053)** — time-range filter chips on the link sidebar, matching the unified `--on/--from/--to` semantics.
+- **Unified `y ... list` time filter flags** — canonical `--on / --from / --to` plus prefixed `--created-* / --updated-*` overrides on every list CLI (todo, note, chat, link, calendar, reminder, email, rss, entity, routine) and the matching API controllers, with a shared `apply_time_filter` helper. Date `--to` is closed-day; datetime `--to` is half-open. Hard cut on old `--completed-*` / `--start` / `--end` / `--date` flags and link list's `today/yesterday/Nd` relative tokens. Web list views (LinkList, CalendarViewer) re-aligned to the new params (2061).
 
 ### Changed
+- **TodoContextMenu status options inlined (1994)** — status choices moved out of the "Status" submenu into an inline radio row at the top of the context menu, refining the 0.5.12 submenu version.
+- **TodoContextMenu pin/unpin (2054)** — pin/unpin moved into the right-click menu; TodoList and TodoViewer route through the menu action.
+- **Note sidebar drops the "Weekly" tab (2064)** — NoteList top-level Weekly tab removed; weekly notes still reachable through Finance → weekly.
+- **Chat read/unread no longer bumps `updated_at` (2051)** — `set_chat_unread` / `mark_chats_read_by_trace` / `mark_latest_chat_unread_by_trace` switched to raw SQL so SQLAlchemy's `onupdate` doesn't bump the chat row, keeping the chat list order stable when toggling read state.
 
 ### Fixed
 - **Telegram resume preserves `work_dir` (2011)** — `_handle_message` and `_handle_routed_message` now forward the chat's `work_dir` when re-queuing, so the worker resumes the existing claude-code session under the same cwd instead of falling back to the VM default.
