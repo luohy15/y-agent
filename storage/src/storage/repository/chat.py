@@ -26,6 +26,7 @@ class ChatSummary:
     trace_id: str = ""
     routine_id: str = ""
     backend: str = ""
+    bot_name: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
     status: str = "idle"
@@ -38,6 +39,8 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
         chat.trace_id = entity.trace_id
     if entity.backend is not None:
         chat.backend = entity.backend
+    if entity.bot_name is not None:
+        chat.bot_name = entity.bot_name
     if entity.skill is not None:
         chat.skill = entity.skill
     if entity.routine_id is not None:
@@ -99,6 +102,7 @@ async def list_chats(
                 trace_id=row.trace_id or "",
                 routine_id=row.routine_id or "",
                 backend=row.backend or "",
+                bot_name=row.bot_name or "",
                 status=row.status or "idle",
                 unread=bool(row.unread),
             )
@@ -213,6 +217,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
+            entity.bot_name = chat.bot_name
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -225,6 +230,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 title=title,
                 external_id=chat.external_id,
                 backend=chat.backend,
+                bot_name=chat.bot_name,
                 origin_chat_id=chat.origin_chat_id,
                 topic=chat.topic,
                 skill=chat.skill,
@@ -279,6 +285,7 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = chat.backend
+            entity.bot_name = chat.bot_name
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -423,6 +430,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 skill=row.skill or "",
                 routine_id=row.routine_id or "",
                 backend=row.backend or "",
+                bot_name=row.bot_name or "",
                 created_at_unix=row.created_at_unix or 0,
                 updated_at_unix=row.updated_at_unix or 0,
                 status=row.status or "idle",

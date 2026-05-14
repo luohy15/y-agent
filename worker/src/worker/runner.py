@@ -193,8 +193,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         bot_config.api_type = backend
     logger.info("Resolved bot config: name={} api_type={} model={}", bot_config.name, bot_config.api_type, bot_config.model)
 
-    # Persist backend on chat
+    # Persist backend and bot_name on chat
     chat.backend = bot_config.api_type
+    chat.bot_name = bot_config.name
     await chat_repo.save_chat_by_id(chat)
 
     # Always run in detached tmux mode
