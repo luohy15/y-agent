@@ -66,6 +66,8 @@ export default function TraceTodoDetail({
   const [patch, setPatch] = useState<TodoPatch>({});
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [progressExpanded, setProgressExpanded] = useState(false);
 
   const dirty = Object.keys(patch).length > 0;
 
@@ -213,13 +215,22 @@ export default function TraceTodoDetail({
                 </select>
 
                 <span className="text-sol-base01 pt-1">Desc</span>
-                <textarea
-                  value={descValue}
-                  onChange={(e) => handleDesc(e.target.value)}
-                  rows={3}
-                  placeholder="Add description..."
-                  className={`${inputClass} resize-none max-h-96 overflow-y-auto`}
-                />
+                <div className="relative">
+                  <textarea
+                    value={descValue}
+                    onChange={(e) => handleDesc(e.target.value)}
+                    rows={3}
+                    placeholder="Add description..."
+                    className={`${inputClass} resize-none w-full ${descExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                  />
+                  <button
+                    onClick={() => setDescExpanded(!descExpanded)}
+                    className="absolute top-1 right-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 cursor-pointer bg-sol-base03 px-0.5 leading-none"
+                    title={descExpanded ? "Collapse" : "Expand"}
+                  >
+                    {descExpanded ? "▲" : "▼"}
+                  </button>
+                </div>
 
                 <span className="text-sol-base01 pt-1">Priority</span>
                 <select
@@ -276,13 +287,22 @@ export default function TraceTodoDetail({
                 </div>
 
                 <span className="text-sol-base01 pt-1">Progress</span>
-                <textarea
-                  value={progressValue}
-                  onChange={(e) => handleProgress(e.target.value)}
-                  rows={2}
-                  placeholder="Add progress note..."
-                  className={`${inputClass} resize-none max-h-96 overflow-y-auto`}
-                />
+                <div className="relative">
+                  <textarea
+                    value={progressValue}
+                    onChange={(e) => handleProgress(e.target.value)}
+                    rows={2}
+                    placeholder="Add progress note..."
+                    className={`${inputClass} resize-none w-full ${progressExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                  />
+                  <button
+                    onClick={() => setProgressExpanded(!progressExpanded)}
+                    className="absolute top-1 right-1 text-[0.6rem] text-sol-base01 hover:text-sol-base0 cursor-pointer bg-sol-base03 px-0.5 leading-none"
+                    title={progressExpanded ? "Collapse" : "Expand"}
+                  >
+                    {progressExpanded ? "▲" : "▼"}
+                  </button>
+                </div>
               </>
             ) : (
               <>
