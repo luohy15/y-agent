@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
+import { mergeToolArguments } from "./chatMessageParser";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, getTopicColor, stripTracePrefix, statusBadgeClass } from "./badges";
 import TraceTodoDetail, { type TodoInfo } from "./TraceTodoDetail";
@@ -41,7 +42,7 @@ function parseMessages(rawMessages: any[]): Message[] {
     } else if (role === "tool") {
       const info = toolCallInfo[msg.tool_call_id];
       const toolName = info?.name || msg.tool;
-      const toolArgs = info?.args || msg.arguments;
+      const toolArgs = mergeToolArguments(info?.args, msg.arguments);
       const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
       result.push({ role: denied ? "tool_denied" : "tool_result", content, toolName, arguments: toolArgs, timestamp: msg.timestamp });
     } else {
