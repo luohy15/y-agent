@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { actionBadgeClass, priorityColorClass } from "./badges";
@@ -56,10 +56,29 @@ const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01
 // Cap auto-grow so a huge field still scrolls instead of taking over the panel.
 const MAX_EXPANDED_HEIGHT = 600;
 
+const getTextareaRowsHeight = (el: HTMLTextAreaElement) => {
+  const styles = window.getComputedStyle(el);
+  const rows = el.rows || 1;
+  const fontSize = Number.parseFloat(styles.fontSize) || 12;
+  const lineHeight = Number.parseFloat(styles.lineHeight) || fontSize * 1.2;
+  const padding =
+    (Number.parseFloat(styles.paddingTop) || 0) +
+    (Number.parseFloat(styles.paddingBottom) || 0);
+  const border =
+    styles.boxSizing === "border-box"
+      ? (Number.parseFloat(styles.borderTopWidth) || 0) +
+        (Number.parseFloat(styles.borderBottomWidth) || 0)
+      : 0;
+
+  return Math.ceil(lineHeight * rows + padding + border);
+};
+
 const autoResize = (el: HTMLTextAreaElement | null) => {
   if (!el) return;
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, MAX_EXPANDED_HEIGHT)}px`;
+  const minHeight = getTextareaRowsHeight(el);
+  const nextHeight = Math.min(Math.max(el.scrollHeight, minHeight), MAX_EXPANDED_HEIGHT);
+  el.style.height = `${nextHeight}px`;
 };
 
 export default function TraceTodoDetail({
@@ -109,11 +128,15 @@ export default function TraceTodoDetail({
 
   // Auto-grow the textareas to fit their content. Recompute on content change, todo
   // switch, and panel open (the textarea only mounts when open).
-  useEffect(() => {
+  useLayoutEffect(() => {
     autoResize(descRef.current);
+    const frame = requestAnimationFrame(() => autoResize(descRef.current));
+    return () => cancelAnimationFrame(frame);
   }, [descValue, todoInfo.todo_id, open, editable]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     autoResize(progressRef.current);
+    const frame = requestAnimationFrame(() => autoResize(progressRef.current));
+    return () => cancelAnimationFrame(frame);
   }, [progressValue, todoInfo.todo_id, open, editable]);
 
   // Set a field on the patch, or drop it if it matches the original server value.
@@ -415,4 +438,3 @@ export default function TraceTodoDetail({
     </div>
   );
 }
-
