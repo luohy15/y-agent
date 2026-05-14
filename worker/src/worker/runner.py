@@ -139,7 +139,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.api_type for routing (e.g. 'claude_code', 'codex').
+    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
