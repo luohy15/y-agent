@@ -375,7 +375,7 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
     user_id = proc["user_id"]
     work_dir = proc.get("work_dir")
     vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
-    bot_config = resolve_bot_config(user_id, proc.get("bot_name"))
+    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
 
     model = bot_config.model.strip('"').strip() if bot_config.model else None
     cmd = build_codex_resume_cmd(thread_id, model or None)
