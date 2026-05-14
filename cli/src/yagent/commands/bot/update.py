@@ -7,7 +7,7 @@ from storage.service.user import get_cli_user_id
 @click.option('--model', '-m', default=None, help='Model name')
 @click.option('--api-key', '-k', default=None, help='API key')
 @click.option('--base-url', '-u', default=None, help='Base URL')
-@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex)')
+@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli)')
 @click.option('--clear-openrouter', is_flag=True, help='Clear the OpenRouter config')
 def bot_update(name, model, api_key, base_url, backend, clear_openrouter):
     """Update an existing bot configuration."""

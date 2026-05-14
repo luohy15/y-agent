@@ -79,3 +79,13 @@ The full set the API + worker consume. CLI-only keys (e.g. `Y_AGENT_WEB_URL`) li
 | `Y_AGENT_CLOUDFRONT_DISTRIBUTION_ID` | CDN invalidation after asset upload |
 | `Y_AGENT_TIMEZONE` | IANA tz for calendar / journal / display |
 | `FETCHER_URL` | Optional upstream fetcher for link downloads |
+
+## Agent backends
+
+Worker chats run through a configured bot backend. Existing deployments keep their default bot unchanged; add a separate bot config when you want Gemini CLI:
+
+```bash
+y bot add gemini_cli --backend gemini_cli --model gemini-2.5-pro --api-key "$GEMINI_API_KEY" --yes
+```
+
+The worker expects `gemini` to be installed on the target VM. It starts headless runs with `gemini --output-format stream-json --yolo -p <prompt>`, resumes with `gemini --resume <session_id> ...`, and passes `GEMINI_API_KEY` plus y-agent trace env vars into the subprocess. You can choose the backend for recurring jobs with `y routine add --backend gemini_cli ...` or `y routine update --backend gemini_cli ...`.

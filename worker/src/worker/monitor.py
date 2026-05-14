@@ -175,8 +175,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         message_callback(chat_id, msg)
 
     # Build steer checker. claude_code injects steer into the live stdin pipe;
-    # codex can't take a live steer, so its tail returns status="steer" and the
-    # run is restarted via `codex exec resume` below.
+    # codex/gemini_cli can't take a live steer, so their tailers return
+    # status="steer" and the run is restarted via the backend resume command.
     chat = await chat_service.get_chat_by_id(chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
     initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
@@ -207,6 +207,19 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_steer_fn=steer_fn,
             ssh_client=client,
         )
+    elif backend_type == "gemini_cli":
+        from agent.gemini_cli import tail_gemini_output
+        result = await tail_gemini_output(
+            chat_id=chat_id,
+            vm_config=vm_config,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
+            ssh_client=client,
+        )
     else:
         from agent.claude_code import tail_ssh_output
         result = await tail_ssh_output(
@@ -221,10 +234,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_steer_fn=steer_fn,
         )
 
-    # Codex steer: the run was killed mid-flight; restart it via
-    # `codex exec resume <thread_id>` with the steer text as the new prompt.
+    # Non-live steer: the run was killed mid-flight; restart with the steer
+    # text as the new prompt.
     if result.get("status") == "steer":
-        await _restart_codex_with_steer(chat_id, proc, result)
+        if backend_type == "gemini_cli":
+            await _restart_gemini_with_steer(chat_id, proc, result)
+        else:
+            await _restart_codex_with_steer(chat_id, proc, result)
         return
 
     # Save offset to DynamoDB
@@ -273,6 +289,37 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
                 if result["status"] == "error":
                     error_text = (result_data.get("result") if result_data else None) or "Codex exited with an error."
+                    error_msg = Message(
+                        id=generate_message_id(),
+                        role="assistant",
+                        content=error_text,
+                        timestamp=get_utc_iso8601_timestamp(),
+                        unix_timestamp=get_unix_timestamp(),
+                    )
+                    _msg_callback(error_msg)
+            elif backend_type == "gemini_cli":
+                if result.get("session_id"):
+                    if cwd_matches:
+                        fresh.external_id = result["session_id"]
+                    else:
+                        logger.warning(
+                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (gemini session_id={})",
+                            chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                        )
+                if result_data and not result_data.get("is_error"):
+                    usage = result_data.get("usage") or {}
+                    if not usage:
+                        stats = result_data.get("stats") or {}
+                        usage = {
+                            "input_tokens": stats.get("input_tokens") or stats.get("inputTokens"),
+                            "output_tokens": stats.get("output_tokens") or stats.get("outputTokens"),
+                        }
+                    if usage:
+                        fresh.input_tokens = usage.get("input_tokens")
+                        fresh.output_tokens = usage.get("output_tokens")
+
+                if result["status"] == "error":
+                    error_text = (result_data.get("result") if result_data else None) or "Gemini CLI exited with an error."
                     error_msg = Message(
                         id=generate_message_id(),
                         role="assistant",
@@ -412,6 +459,74 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
     )
     release_lease(chat_id)
     logger.info("codex steer: restarted chat_id={} thread_id={}", chat_id, thread_id)
+
+
+async def _restart_gemini_with_steer(chat_id: str, proc: dict, result: dict):
+    """Restart a steered Gemini CLI run via `gemini --resume <session_id>`."""
+    from agent.config import resolve_vm_config, resolve_bot_config
+    from agent.gemini_cli import start_detached_gemini_ssh
+    from worker.runner import build_gemini_resume_cmd, build_gemini_env
+
+    session_id = result.get("session_id")
+    if not session_id:
+        logger.warning("gemini steer: no session_id for chat_id={}, cannot resume", chat_id)
+        from storage.entity.dto import Message
+        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+        error_msg = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=(
+                "Gemini CLI could not resume the steer message because the current run "
+                "did not emit a session id before it was interrupted. Please send the "
+                "message again after starting a new run."
+            ),
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        )
+        message_callback(chat_id, error_msg)
+        complete_process(chat_id, status="error")
+        await _mark_chat_stopped(chat_id)
+        return
+
+    user_id = proc["user_id"]
+    work_dir = proc.get("work_dir")
+    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
+    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
+
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    cmd = build_gemini_resume_cmd(session_id, model or None)
+
+    last_message_id = result.get("last_message_id")
+    env = build_gemini_env(bot_config, chat_id, proc.get("trace_id"),
+                           proc.get("topic"), last_message_id)
+
+    await start_detached_gemini_ssh(
+        cmd=cmd,
+        prompt=result.get("steer_text", ""),
+        cwd=work_dir,
+        chat_id=chat_id,
+        vm_config=vm_config,
+        env=env or None,
+    )
+
+    prev_consumed = proc.get("consumed_steer_ids")
+    if isinstance(prev_consumed, str):
+        try:
+            prev_consumed = json.loads(prev_consumed)
+        except (json.JSONDecodeError, TypeError):
+            prev_consumed = []
+    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
+
+    update_process_offset(
+        chat_id=chat_id,
+        offset=0,
+        last_message_id=last_message_id,
+        session_id=session_id,
+        consumed_steer_ids=all_consumed,
+    )
+    release_lease(chat_id)
+    logger.info("gemini steer: restarted chat_id={} session_id={}", chat_id, session_id)
 
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
