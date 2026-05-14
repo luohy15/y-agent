@@ -196,12 +196,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
-    bot_config = agent_config.resolve_bot_config(user_id, bot_name)
+    bot_config = agent_config.resolve_bot_config(user_id, bot_name, backend=chat.backend or backend)
     if chat.backend:
-        bot_config.backend = chat.backend
         logger.info("Using backend from chat: {}", chat.backend)
     elif backend:
-        bot_config.backend = backend
+        logger.info("Using backend from queue: {}", backend)
     logger.info("Resolved bot config: name={} backend={} model={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model)
 
     # Persist routing identity on first run only. A chat's backend is fixed for
