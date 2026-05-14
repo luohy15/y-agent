@@ -8,9 +8,9 @@ from storage.service.user import get_cli_user_id
 @click.option('--model', '-m', required=True, help='Model name')
 @click.option('--api-key', '-k', default='', help='API key')
 @click.option('--base-url', '-u', default=None, help='Base URL')
-@click.option('--api-type', '-t', default=None, help='API type (e.g. anthropic)')
+@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex)')
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
-def bot_add(name, model, api_key, base_url, api_type, yes):
+def bot_add(name, model, api_key, base_url, backend, yes):
     """Add a new bot configuration."""
     user_id = get_cli_user_id()
     existing_configs = bot_service.list_configs(user_id)
@@ -23,6 +23,6 @@ def bot_add(name, model, api_key, base_url, api_type, yes):
     if base_url is None:
         base_url = default_config.base_url
 
-    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, api_type=api_type)
+    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend)
     bot_service.add_config(user_id, bot_config)
     click.echo(f"Bot '{name}' added successfully")

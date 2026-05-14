@@ -13,7 +13,7 @@ def _get_user_id(request: Request) -> int:
 async def list_bot_configs(request: Request):
     user_id = _get_user_id(request)
     configs = bot_service.list_configs(user_id)
-    return [{"name": c.name, "api_type": c.api_type, "model": c.model} for c in configs]
+    return [{"name": c.name, "backend": c.backend or c.api_type, "model": c.model} for c in configs]
 
 
 @router.get("/config")
@@ -24,6 +24,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         return {"name": name}
     return {
         "name": config.name,
+        "backend": config.backend or config.api_type,
         "model": config.model,
         "description": config.description,
     }

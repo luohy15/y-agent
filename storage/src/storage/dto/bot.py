@@ -13,6 +13,7 @@ class BotConfig:
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = ""
     api_type: Optional[str] = None
+    backend: Optional[str] = None
     model: str = ""
     description: Optional[str] = None
     openrouter_config: Optional[Dict] = None
