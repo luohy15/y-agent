@@ -46,15 +46,15 @@ def bot_list(verbose: bool = False):
     table_data = []
     headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description", "OpenRouter Config"]
 
-    for config in configs:
+    for bot_cfg in configs:
         table_data.append([
-            truncate_text(config.name, col_widths["Name"]),
-            truncate_text(config.api_key[:8] + "..." if config.api_key else "N/A", col_widths["API Key"]),
-            truncate_text(config.backend or config.api_type or "N/A", col_widths["Backend"]),
-            truncate_text(config.base_url, col_widths["Base URL"]),
-            truncate_text(config.model, col_widths["Model"]),
-            truncate_text(config.description or "N/A", col_widths["Description"]),
-            "Yes" if config.openrouter_config else "No"
+            truncate_text(bot_cfg.name, col_widths["Name"]),
+            truncate_text(bot_cfg.api_key[:8] + "..." if bot_cfg.api_key else "N/A", col_widths["API Key"]),
+            truncate_text(bot_cfg.backend or bot_cfg.api_type or "N/A", col_widths["Backend"]),
+            truncate_text(bot_cfg.base_url, col_widths["Base URL"]),
+            truncate_text(bot_cfg.model, col_widths["Model"]),
+            truncate_text(bot_cfg.description or "N/A", col_widths["Description"]),
+            "Yes" if bot_cfg.openrouter_config else "No"
         ])
     click.echo(tabulate(
         table_data,
