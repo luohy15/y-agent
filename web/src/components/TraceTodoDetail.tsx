@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { actionBadgeClass, priorityColorClass } from "./badges";
@@ -53,6 +53,19 @@ const PRIORITY_OPTIONS = ["none", "high", "medium", "low"] as const;
 
 const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
 
+// Cap auto-grow so a huge field still scrolls instead of taking over the panel.
+const MAX_EXPANDED_HEIGHT = 600;
+
+const autoResize = (el: HTMLTextAreaElement | null, expanded: boolean) => {
+  if (!el) return;
+  if (!expanded) {
+    el.style.height = "";
+    return;
+  }
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, MAX_EXPANDED_HEIGHT)}px`;
+};
+
 export default function TraceTodoDetail({
   todoInfo,
   open,
@@ -68,6 +81,8 @@ export default function TraceTodoDetail({
   const [saving, setSaving] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
   const [progressExpanded, setProgressExpanded] = useState(false);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const progressRef = useRef<HTMLTextAreaElement>(null);
 
   const dirty = Object.keys(patch).length > 0;
 
@@ -97,6 +112,15 @@ export default function TraceTodoDetail({
   const dueValue = patch.due_date !== undefined ? (patch.due_date ?? "") : (todoInfo.due_date ?? "");
   const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
+
+  // Auto-grow the expanded textareas to fit their content. Recompute on expand/collapse
+  // toggle, content change, todo switch, and panel open (the textarea only mounts when open).
+  useEffect(() => {
+    autoResize(descRef.current, descExpanded);
+  }, [descExpanded, descValue, todoInfo.todo_id, open, editable]);
+  useEffect(() => {
+    autoResize(progressRef.current, progressExpanded);
+  }, [progressExpanded, progressValue, todoInfo.todo_id, open, editable]);
 
   // Set a field on the patch, or drop it if it matches the original server value.
   const setNullableField = (key: "desc" | "priority" | "due_date" | "progress", value: string | null) => {
@@ -217,11 +241,12 @@ export default function TraceTodoDetail({
                 <span className="text-sol-base01 pt-1">Desc</span>
                 <div className="relative">
                   <textarea
+                    ref={descRef}
                     value={descValue}
                     onChange={(e) => handleDesc(e.target.value)}
                     rows={3}
                     placeholder="Add description..."
-                    className={`${inputClass} resize-none w-full ${descExpanded ? "h-80 overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                    className={`${inputClass} resize-none w-full ${descExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
                   />
                   <button
                     onClick={() => setDescExpanded(!descExpanded)}
@@ -289,11 +314,12 @@ export default function TraceTodoDetail({
                 <span className="text-sol-base01 pt-1">Progress</span>
                 <div className="relative">
                   <textarea
+                    ref={progressRef}
                     value={progressValue}
                     onChange={(e) => handleProgress(e.target.value)}
                     rows={2}
                     placeholder="Add progress note..."
-                    className={`${inputClass} resize-none w-full ${progressExpanded ? "h-80 overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                    className={`${inputClass} resize-none w-full ${progressExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
                   />
                   <button
                     onClick={() => setProgressExpanded(!progressExpanded)}
