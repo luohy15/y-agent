@@ -221,7 +221,7 @@ export default function TraceTodoDetail({
                     onChange={(e) => handleDesc(e.target.value)}
                     rows={3}
                     placeholder="Add description..."
-                    className={`${inputClass} resize-none w-full ${descExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                    className={`${inputClass} resize-none w-full ${descExpanded ? "h-80 overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
                   />
                   <button
                     onClick={() => setDescExpanded(!descExpanded)}
@@ -293,7 +293,7 @@ export default function TraceTodoDetail({
                     onChange={(e) => handleProgress(e.target.value)}
                     rows={2}
                     placeholder="Add progress note..."
-                    className={`${inputClass} resize-none w-full ${progressExpanded ? "overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
+                    className={`${inputClass} resize-none w-full ${progressExpanded ? "h-80 overflow-y-auto" : "max-h-32 overflow-y-hidden"}`}
                   />
                   <button
                     onClick={() => setProgressExpanded(!progressExpanded)}
