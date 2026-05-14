@@ -275,6 +275,31 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
 
 
+def build_codex_resume_cmd(thread_id: str, model: str = None) -> list:
+    """`codex exec resume` command for a known thread (used on fresh resume + steer restart)."""
+    cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
+    if model:
+        cmd.extend(["-m", model])
+    return cmd
+
+
+def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
+                    topic: str = None, last_message_id: str = None) -> dict:
+    """Codex subprocess env: OpenAI auth + trace/topic vars (mirrors claude_code env)."""
+    env = {}
+    if bot_config.api_key:
+        env["OPENAI_API_KEY"] = bot_config.api_key
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
     messages = list(chat.messages)
@@ -298,19 +323,24 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 
     # Build cmd (resume subcommand doesn't support -C)
     if resume and thread_id:
-        cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
+        cmd = build_codex_resume_cmd(thread_id, model)
     else:
         cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
         thread_id = None
         if cwd:
             cmd.extend(["-C", cwd])
-    if model:
-        cmd.extend(["-m", model])
+        if model:
+            cmd.extend(["-m", model])
 
-    # Build env
-    env = {}
-    if bot_config.api_key:
-        env["OPENAI_API_KEY"] = bot_config.api_key
+    # Skill loading: codex exec has no --append-system-prompt equivalent, so
+    # prepend the skill-load instruction to the prompt (only on a fresh run).
+    if chat.skill and not resume:
+        user_prompt = (
+            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
+            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
+        )
+
+    env = build_codex_env(bot_config, chat_id, trace_id, topic, last_message_id)
 
     return {
         "prompt": user_prompt,

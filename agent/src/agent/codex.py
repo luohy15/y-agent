@@ -267,6 +267,7 @@ async def tail_codex_output(
     message_callback: Optional[Callable[[Message], None]] = None,
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
     check_deadline_fn: Optional[Callable[[], bool]] = None,
+    check_steer_fn: Optional[Callable[[], List[tuple]]] = None,
     ssh_client=None,
 ) -> dict:
     """Tail a detached codex process's stdout file via SSH.
@@ -274,13 +275,21 @@ async def tail_codex_output(
     Structurally identical to tail_ssh_output() in claude_code.py but uses
     CodexStreamConverter and extracts usage from turn.completed events.
 
+    Steer handling differs from claude-code: `codex exec` takes the prompt as a
+    positional arg and does not read a stream-json stdin pipe, so a mid-run
+    steer can't be injected into the live process. Instead, when a steer
+    message arrives we kill the tmux session and return status="steer" with
+    the steer text + thread id; the monitor restarts the run via
+    `codex exec resume <thread_id>` using the steer text as the new prompt.
+
     Returns dict with:
       - offset: new line offset
       - last_message_id: last processed message id
       - thread_id: codex thread id (if found)
       - is_done: True if process exited
       - result_data: turn.completed usage data (if available)
-      - status: "completed" | "error" | "interrupted" | "monitoring"
+      - status: "completed" | "error" | "interrupted" | "monitoring" | "steer"
+      - steer_text / consumed_steer_ids: present when status == "steer"
     """
     owns_client = ssh_client is None
     if owns_client:
@@ -302,6 +311,8 @@ async def tail_codex_output(
     result_data = None
     last_error_data = None
     current_offset = offset
+    steer_msgs = []  # list of (text, msg_id) collected mid-run
+    steer_requested = False
 
     try:
         tail_cmd = (
@@ -327,9 +338,32 @@ async def tail_codex_output(
             except Exception:
                 pass
 
+        def _on_steer_detached(text, msg_id):
+            # codex can't take a live steer; record it, kill the session, and
+            # let _read_lines fall through so the monitor can resume.
+            nonlocal steer_requested
+            steer_msgs.append((text, msg_id))
+            if steer_requested:
+                return
+            steer_requested = True
+            logger.info("steer (codex detached): killing tmux session cc-{} to resume", chat_id)
+            try:
+                client.exec_command(
+                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                )
+                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
+            except Exception:
+                pass
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
             on_interrupt=_kill_detached,
+            check_steer_fn=check_steer_fn,
+            on_steer=_on_steer_detached,
         )
         poll.start()
 
@@ -337,6 +371,9 @@ async def tail_codex_output(
             nonlocal result_data, last_error_data, current_offset
             try:
                 for raw_line in stdout_ch:
+                    if steer_requested:
+                        return "steer"
+
                     line = raw_line.strip()
                     if not line:
                         continue
@@ -391,11 +428,15 @@ async def tail_codex_output(
             except (OSError, EOFError, Exception) as e:
                 if check_interrupted_fn and check_interrupted_fn():
                     return "interrupted"
+                if steer_requested:
+                    return "steer"
                 if not isinstance(e, (OSError, EOFError)):
                     raise
 
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
+            if steer_requested:
+                return "steer"
 
             return None
 
@@ -404,8 +445,29 @@ async def tail_codex_output(
 
         poll.stop()
 
+        # Drain any steer messages that arrived after the kill but before stop().
+        if check_steer_fn and not steer_requested:
+            try:
+                for text, msg_id in check_steer_fn():
+                    steer_msgs.append((text, msg_id))
+                    steer_requested = True
+            except Exception:
+                pass
+
         if owns_client:
             client.close()
+
+        if steer_requested and exit_reason != "interrupted":
+            return {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "thread_id": converter.thread_id,
+                "is_done": False,
+                "result_data": None,
+                "status": "steer",
+                "steer_text": "\n\n".join(t for t, _ in steer_msgs),
+                "consumed_steer_ids": [mid for _, mid in steer_msgs],
+            }
 
         if exit_reason == "interrupted":
             return {

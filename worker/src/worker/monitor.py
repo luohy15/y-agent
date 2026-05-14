@@ -174,22 +174,22 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg)
 
-    # Build steer checker for detached claude_code processes
-    steer_fn = None
-    if backend_type != "codex":
-        chat = await chat_service.get_chat_by_id(chat_id)
-        initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
-        initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
-        # Load previously consumed steer IDs from prior Lambda
-        prev_consumed = set()
-        raw_consumed = proc.get("consumed_steer_ids")
-        if raw_consumed:
-            try:
-                prev_consumed = set(json.loads(raw_consumed) if isinstance(raw_consumed, str) else raw_consumed)
-            except (json.JSONDecodeError, TypeError):
-                pass
-        from worker.runner import make_steer_checker
-        steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=prev_consumed)
+    # Build steer checker. claude_code injects steer into the live stdin pipe;
+    # codex can't take a live steer, so its tail returns status="steer" and the
+    # run is restarted via `codex exec resume` below.
+    chat = await chat_service.get_chat_by_id(chat_id)
+    initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
+    initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
+    # Load previously consumed steer IDs from prior Lambda
+    prev_consumed = set()
+    raw_consumed = proc.get("consumed_steer_ids")
+    if raw_consumed:
+        try:
+            prev_consumed = set(json.loads(raw_consumed) if isinstance(raw_consumed, str) else raw_consumed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    from worker.runner import make_steer_checker
+    steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=prev_consumed)
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
@@ -204,6 +204,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             message_callback=_msg_callback,
             check_interrupted_fn=_check_interrupted,
             check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
             ssh_client=client,
         )
     else:
@@ -219,6 +220,12 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             ssh_client=client,
             check_steer_fn=steer_fn,
         )
+
+    # Codex steer: the run was killed mid-flight; restart it via
+    # `codex exec resume <thread_id>` with the steer text as the new prompt.
+    if result.get("status") == "steer":
+        await _restart_codex_with_steer(chat_id, proc, result)
+        return
 
     # Save offset to DynamoDB
     update_process_offset(
@@ -341,6 +348,70 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
+    """Restart a steered codex run via `codex exec resume <thread_id>`.
+
+    `codex exec` has no live-steer channel, so `tail_codex_output` kills the
+    session and returns status="steer". Here we resume the codex thread with
+    the steer text as the new prompt, reset the stdout offset (the file is
+    truncated on restart), and release the lease so the next monitor pass
+    tails the fresh process. The process row stays status=running.
+    """
+    from agent.config import resolve_vm_config, resolve_bot_config
+    from agent.codex import start_detached_codex_ssh
+    from worker.runner import build_codex_resume_cmd, build_codex_env
+
+    thread_id = result.get("thread_id")
+    if not thread_id:
+        # No thread id means codex never reached thread.started — nothing to
+        # resume. Treat it as a normal completion so the chat doesn't hang.
+        logger.warning("codex steer: no thread_id for chat_id={}, cannot resume", chat_id)
+        complete_process(chat_id, status="completed")
+        await _mark_chat_stopped(chat_id)
+        return
+
+    user_id = proc["user_id"]
+    work_dir = proc.get("work_dir")
+    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
+    bot_config = resolve_bot_config(user_id, proc.get("bot_name"))
+
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    cmd = build_codex_resume_cmd(thread_id, model or None)
+
+    last_message_id = result.get("last_message_id")
+    env = build_codex_env(bot_config, chat_id, proc.get("trace_id"),
+                          proc.get("topic"), last_message_id)
+
+    await start_detached_codex_ssh(
+        cmd=cmd,
+        prompt=result.get("steer_text", ""),
+        cwd=work_dir,
+        chat_id=chat_id,
+        vm_config=vm_config,
+        env=env or None,
+    )
+
+    # Accumulate consumed steer ids across restarts so they aren't re-detected.
+    prev_consumed = proc.get("consumed_steer_ids")
+    if isinstance(prev_consumed, str):
+        try:
+            prev_consumed = json.loads(prev_consumed)
+        except (json.JSONDecodeError, TypeError):
+            prev_consumed = []
+    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
+
+    # stdout file is truncated by the resumed run → reset offset to 0.
+    update_process_offset(
+        chat_id=chat_id,
+        offset=0,
+        last_message_id=last_message_id,
+        session_id=thread_id,
+        consumed_steer_ids=all_consumed,
+    )
+    release_lease(chat_id)
+    logger.info("codex steer: restarted chat_id={} thread_id={}", chat_id, thread_id)
 
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
