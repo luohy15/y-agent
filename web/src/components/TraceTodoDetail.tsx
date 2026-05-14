@@ -218,7 +218,7 @@ export default function TraceTodoDetail({
                   onChange={(e) => handleDesc(e.target.value)}
                   rows={3}
                   placeholder="Add description..."
-                  className={`${inputClass} resize-none max-h-64 overflow-y-auto`}
+                  className={`${inputClass} resize-none max-h-96 overflow-y-auto`}
                 />
 
                 <span className="text-sol-base01 pt-1">Priority</span>
@@ -281,7 +281,7 @@ export default function TraceTodoDetail({
                   onChange={(e) => handleProgress(e.target.value)}
                   rows={2}
                   placeholder="Add progress note..."
-                  className={`${inputClass} resize-none max-h-64 overflow-y-auto`}
+                  className={`${inputClass} resize-none max-h-96 overflow-y-auto`}
                 />
               </>
             ) : (
