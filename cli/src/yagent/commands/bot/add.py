@@ -19,9 +19,9 @@ def bot_add(name, model, api_key, base_url, backend, yes):
             click.echo("Operation cancelled")
             return
 
-    default_config = bot_service.default_config
+    default_config = bot_service.get_config(user_id)
     if base_url is None:
-        base_url = default_config.base_url
+        base_url = default_config.base_url if default_config else None
 
     bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend)
     bot_service.add_config(user_id, bot_config)

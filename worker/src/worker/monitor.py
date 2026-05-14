@@ -296,7 +296,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         timestamp=get_utc_iso8601_timestamp(),
                         unix_timestamp=get_unix_timestamp(),
                     )
-                    _msg_callback(error_msg)
+                    fresh.messages.append(error_msg)
             elif backend_type == "gemini_cli":
                 if result.get("session_id"):
                     if cwd_matches:
@@ -327,7 +327,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         timestamp=get_utc_iso8601_timestamp(),
                         unix_timestamp=get_unix_timestamp(),
                     )
-                    _msg_callback(error_msg)
+                    fresh.messages.append(error_msg)
             else:
                 # Claude Code: existing logic
                 if result.get("session_id"):
@@ -358,7 +358,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                             timestamp=get_utc_iso8601_timestamp(),
                             unix_timestamp=get_unix_timestamp(),
                         )
-                        _msg_callback(error_msg)
+                        fresh.messages.append(error_msg)
 
             await chat_repo.save_chat_by_id(fresh)
 
