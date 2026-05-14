@@ -84,6 +84,7 @@ async def get_chats(
             "trace_id": c.trace_id,
             "routine_id": c.routine_id,
             "backend": c.backend,
+            "bot_name": c.bot_name,
             "status": c.status,
             "unread": c.unread,
         }
@@ -307,6 +308,8 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["trace_id"] = chat.trace_id
     if chat.backend:
         result["backend"] = chat.backend
+    if chat.bot_name:
+        result["bot_name"] = chat.bot_name
     if chat.context_window is not None:
         result["input_tokens"] = chat.input_tokens
         result["output_tokens"] = chat.output_tokens

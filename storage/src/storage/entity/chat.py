@@ -11,6 +11,7 @@ class ChatEntity(Base, BaseEntity):
     title = Column(String, nullable=True)
     external_id = Column(String, nullable=True, index=True)
     backend = Column(String, nullable=True)
+    bot_name = Column(String, nullable=True)
     origin_chat_id = Column(String, nullable=True, index=True)
     topic = Column(String, nullable=True, index=True)
     skill = Column(String, nullable=True, index=True)
