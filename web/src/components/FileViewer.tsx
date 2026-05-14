@@ -14,6 +14,7 @@ import LinkList from "./LinkList";
 import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { localFilePathFromMarkdownHref } from "../utils/localFileLinks";
 
 
 interface FileViewerProps {
@@ -300,6 +301,21 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
               return <h2 id={id} {...props}>{children}</h2>;
             },
             a: ({ href, children, ...props }) => {
+              const filePath = localFilePathFromMarkdownHref(href, { allowRelative: false });
+              if (filePath && onOpenFile) {
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpenFile(filePath);
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              }
               if (href && currentFilePath && onOpenFile && isRelativeLink(href)) {
                 return (
                   <a
