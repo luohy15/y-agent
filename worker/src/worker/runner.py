@@ -187,14 +187,30 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     except Exception as e:
         logger.exception("telegram user message failed: {}", e)
 
+    if chat.bot_name:
+        if bot_name and bot_name != chat.bot_name:
+            logger.warning(
+                "Ignoring bot_name change for chat {}: existing={} requested={}",
+                chat_id, chat.bot_name, bot_name,
+            )
+        bot_name = chat.bot_name
+        logger.info("Using bot_name from chat: {}", bot_name)
+
     bot_config = agent_config.resolve_bot_config(user_id, bot_name)
-    if backend:
+    if chat.backend:
+        bot_config.backend = chat.backend
+        logger.info("Using backend from chat: {}", chat.backend)
+    elif backend:
         bot_config.backend = backend
     logger.info("Resolved bot config: name={} backend={} model={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model)
 
-    # Persist backend and bot_name on chat
-    chat.backend = bot_config.backend or bot_config.api_type
-    chat.bot_name = bot_config.name
+    # Persist routing identity on first run only. A chat's backend is fixed for
+    # the lifetime of the chat so changing the user's default bot does not move
+    # existing conversations between agent backends.
+    if not chat.backend:
+        chat.backend = bot_config.backend or bot_config.api_type
+    if not chat.bot_name:
+        chat.bot_name = bot_config.name
     await chat_repo.save_chat_by_id(chat)
 
     # Always run in detached tmux mode
@@ -427,4 +443,3 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         backend_type=effective_backend,
         initial_msg_count=len(chat.messages),
     )
-

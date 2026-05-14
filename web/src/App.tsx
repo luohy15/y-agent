@@ -118,7 +118,7 @@ export default function App() {
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
   const [botList, setBotList] = useState<BotConfigItem[]>([]);
-  const [selectedBot, setSelectedBot] = useState<string | null>(() => localStorage.getItem("selectedBot") || null);
+  const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const botDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -225,7 +225,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { localStorage.setItem("rightPanel", rightPanel); }, [rightPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
-  useEffect(() => { if (selectedBot) localStorage.setItem("selectedBot", selectedBot); else localStorage.removeItem("selectedBot"); }, [selectedBot]);
+  useEffect(() => { localStorage.removeItem("selectedBot"); }, []);
   useEffect(() => {
     if (!vmDropdownOpen) return;
     const handler = (e: MouseEvent) => {
@@ -747,7 +747,7 @@ export default function App() {
                   {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={(b) => { setChatBackend(b); if (b) setSelectedBot(b); }} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}
