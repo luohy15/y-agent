@@ -8,6 +8,7 @@ from yagent.api_client import api_request
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
+from yagent.util.images import image_upload_payload
 
 
 def _stop_chat(chat_id: str):
@@ -37,6 +38,7 @@ def _stream_and_handle(chat_id: str, display_manager: DisplayManager, last_index
 
 def _fire_and_forget(
     message: str,
+    images: tuple[str, ...],
     topic: Optional[str],
     skill: Optional[str],
     chat_id: Optional[str],
@@ -56,6 +58,8 @@ def _fire_and_forget(
         "force_new": force_new,
         "from_topic": from_topic,
     }
+    if images:
+        payload["image_uploads"] = [image_upload_payload(image) for image in images]
     if topic:
         payload["topic"] = topic
     if skill:
@@ -151,6 +155,7 @@ def _interactive(
 @click.option('--chat-id', '-c', default=None, help='Target an existing chat')
 # Fire-and-forget (default top-level mode)
 @click.option('--message', '-m', default=None, help='Message to send (fire-and-forget)')
+@click.option('--image', 'images', multiple=True, type=click.Path(exists=True, dir_okay=False, resolve_path=True), help='Image path to attach. Repeat for multiple images.')
 @click.option('--topic', default=None, help='Target topic (named persistent address)')
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to topic for non-manager topics)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
@@ -168,6 +173,7 @@ def chat_group(
     ctx,
     chat_id: Optional[str],
     message: Optional[str],
+    images: tuple[str, ...],
     topic: Optional[str],
     skill: Optional[str],
     work_dir: Optional[str],
@@ -212,6 +218,7 @@ def chat_group(
     if message is not None:
         _fire_and_forget(
             message=message,
+            images=images,
             topic=topic,
             skill=skill,
             chat_id=chat_id,
