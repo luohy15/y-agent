@@ -27,8 +27,10 @@ class TelegramSendCliTest(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 0)
             api_request.assert_called_once()
-            self.assertEqual(api_request.call_args.kwargs["json"]["text"], "")
-            upload = api_request.call_args.kwargs["json"]["image_uploads"][0]
+            payload = api_request.call_args.kwargs["json"]
+            self.assertEqual(payload["text"], "")
+            self.assertNotIn("images", payload)
+            upload = payload["image_uploads"][0]
             self.assertEqual(upload["filename"], "photo.jpg")
             self.assertEqual(base64.b64decode(upload["content_base64"]), b"jpg")
 

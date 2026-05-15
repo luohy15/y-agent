@@ -20,7 +20,7 @@ class ImageUploadLike(Protocol):
     content_base64: str
 
 
-def resolve_send_image_path(image_path: str) -> Path:
+def resolve_send_image_path(image_path: str, *, require_exists: bool = True) -> Path:
     if not image_path or not image_path.strip():
         raise HTTPException(status_code=400, detail="image path cannot be empty")
     path = Path(image_path).expanduser().resolve()
@@ -29,7 +29,7 @@ def resolve_send_image_path(image_path: str) -> Path:
         raise HTTPException(status_code=400, detail="unsupported image extension")
     if path != assets_dir and assets_dir not in path.parents:
         raise HTTPException(status_code=400, detail="image path must be under assets image dir")
-    if not path.exists() or not path.is_file():
+    if require_exists and (not path.exists() or not path.is_file()):
         raise HTTPException(status_code=400, detail="image path does not exist")
     return path
 
@@ -68,6 +68,6 @@ def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload") -
 
 
 def resolve_message_image_paths(images: list[str] | None, image_uploads: list[ImageUploadLike] | None, *, prefix: str = "upload") -> list[str] | None:
-    safe_paths = [str(resolve_send_image_path(image_path)) for image_path in (images or [])]
+    safe_paths = [str(resolve_send_image_path(image_path, require_exists=False)) for image_path in (images or [])]
     safe_paths.extend(str(save_send_image_upload(upload, prefix=prefix)) for upload in (image_uploads or []))
     return safe_paths or None
