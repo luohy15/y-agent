@@ -1,13 +1,56 @@
 {
   "name": "y-agent-desktop",
+  "productName": "Yovy",
   "version": "0.1.0",
   "private": true,
-  "description": "y-agent Mac desktop shell (Electron) — loads https://yovy.app",
-  "main": "main.js",
+  "description": "Yovy Mac desktop shell (Electron) — loads https://yovy.app",
+  "main": "dist/main/index.js",
   "scripts": {
-    "start": "electron ."
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "typecheck:renderer": "tsc -p tsconfig.renderer.json",
+    "dist": "npm run build && electron-builder --mac --dir"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "electron": "^32.0.0"
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0"
+  },
+  "build": {
+    "appId": "app.yovy.desktop",
+    "productName": "Yovy",
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "icon.png",
+      "icon.icns"
+    ],
+    "mac": {
+      "icon": "icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dir",
+          "arch": "arm64"
+        }
+      ],
+      "identity": null,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Yovy uses AppleScript to copy your selection and paste responses back into the focused app.",
+        "NSAccessibilityUsageDescription": "Yovy synthesizes ⌘C and ⌘V keystrokes via System Events to capture selections and paste-back."
+      }
+    }
   }
 }

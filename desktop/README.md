@@ -1,6 +1,6 @@
 # y-agent desktop (Mac)
 
-Electron shell for [yovy.app](https://yovy.app) plus a global `Alt+Space`
+Electron shell for [yovy.app](https://yovy.app) plus a global `⌘⇧Y`
 selection-to-prompt flow. macOS-only.
 
 ## Run
@@ -11,12 +11,38 @@ npm install
 npm start
 ```
 
-`npm install` will pull `electron`. `npm start` runs `electron .`, which opens
-the main window (loads `https://yovy.app`) and registers the `Alt+Space`
-shortcut.
+`npm install` pulls `electron`, `react`/`react-dom`, `vite`, and `typescript`.
+`npm start` builds `src/main/**` via `tsc` (→ `dist/main/`, `dist/preload.js`)
+and the renderer via `vite build` (→ `dist/renderer/`), then runs `electron .`,
+which opens the main window (loads `https://yovy.app`) and registers the `⌘⇧Y`
+shortcut (fallbacks: `⌘⌥Y`, `⌘⇧J`).
 
-The web app's `localStorage` is reused for sign-in — log in once via Google
-OAuth in the main window and the JWT persists across restarts.
+Scripts:
+
+| Script | What it does |
+|---|---|
+| `npm run build:main` | `tsc -p tsconfig.main.json` — compiles main + preload |
+| `npm run build:renderer` | `vite build` — bundles the React prompt window |
+| `npm run build` | Both of the above |
+| `npm start` | `build` then `electron .` |
+| `npm run dist` | `build` then `electron-builder --mac --dir` |
+
+## Sign-in
+
+Google's OAuth blocks embedded browsers (Electron, etc.) via the
+"disallowed_useragent" policy, so sign-in happens in your real browser via a
+loopback redirect:
+
+1. On first launch (or any time the main window has no JWT), the app opens
+   your default browser at `https://yovy.app/?auth_redirect=http://127.0.0.1:<port>/cb`.
+2. You complete Google Sign-In there normally.
+3. yovy.app redirects back to the loopback URL with the JWT in the query
+   string. The Electron main process catches that request, injects the token
+   into the main window's `localStorage`, and reloads.
+
+The JWT persists across restarts in `localStorage`. If you ever click the
+"Sign in with Google" button inside the main window, it routes through the
+same loopback flow.
 
 ## macOS permissions
 
@@ -27,7 +53,7 @@ re-enable manually in **System Settings → Privacy & Security**.
 
 | When you'll see the prompt | Category | What to grant |
 |---|---|---|
-| First `Alt+Space` after a fresh launch — when we run `osascript ... keystroke "c" using command down` to copy the current selection | **Automation** → "y-agent" wants to control "System Events" | Allow |
+| First `⌘⇧Y` after a fresh launch — when we run `osascript ... keystroke "c" using command down` to copy the current selection | **Automation** → "y-agent" wants to control "System Events" | Allow |
 | When the result is pasted back via `keystroke "v" using command down` | **Accessibility** (only required if macOS escalates from Automation; some macOS versions ask once, others ask both) | Add y-agent (or your terminal/Electron during dev) and toggle on |
 
 If a permission-related error occurs at runtime, the app pops a sheet over the
@@ -56,7 +82,7 @@ reset y-agent without affecting other apps.
 ## Usage
 
 1. Select text in any app.
-2. Press `Alt+Space` (i.e. `⌥Space`).
+2. Press `⌘⇧Y` (Command+Shift+Y).
 3. Type an instruction in the small floating input.
 4. `Enter` — paste the result back, replacing the selection in the original
    app.
@@ -69,27 +95,46 @@ can use it as a quick prompt that copies the result to the clipboard.
 
 ## Troubleshooting
 
-- **Google OAuth fails with "browser not supported"**: the shell already strips
-  `Electron/...` from the User-Agent. If you still hit it, try a full restart;
-  Google sometimes caches the rejected UA per session.
+- **Stuck on sign-in**: if the browser tab didn't open automatically, click
+  the "Sign in with Google" button in the main window — it will retrigger the
+  loopback flow. If port `127.0.0.1:<random>` can't bind, check whether a
+  local firewall/VPN is blocking loopback.
 - **Selection comes back empty**: the source app may have a slow Cmd+C
   pipeline (Word, certain web editors). The capture window is 300ms; raise
   `CLIPBOARD_POLL_TIMEOUT_MS` in `main.js` if your app is slower.
 - **Paste-back lands in the wrong app**: macOS sometimes refuses to refocus a
   background app within 80ms. Increase the `sleep(80)` in `handleSelectionShortcut`'s
   paste branch, or use `Shift+Enter` and paste manually.
-- **`Alt+Space` doesn't fire**: another app (Spotlight on some setups,
-  third-party launchers) may have grabbed the shortcut first. Rebind by
-  changing `SELECTION_SHORTCUT` in `main.js`.
+- **`⌘⇧Y` doesn't fire**: another app may have grabbed the shortcut first;
+  the shell will try the fallbacks (`⌘⌥Y`, `⌘⇧J`) in order. Check the launch
+  log for which one was registered, or rebind via `SELECTION_SHORTCUTS` in
+  `main.js`.
 
 ## Files
 
-- `main.js` — Electron main process. Window creation, UA spoof, global
-  shortcut, AppleScript invocation, IPC handlers, permission-error detection.
-- `preload.js` — `contextBridge` surface used by the prompt + result windows.
-- `prompt-window.html` — frameless 480×100 input popover.
-- `result-popup.html` — non-focusable confirmation popup for `Shift+Enter`.
-- `package.json` — single dep: `electron`.
+```
+src/
+├── main/
+│   ├── index.ts        app lifecycle, global shortcut wiring, UA spoof
+│   ├── constants.ts    APP_URL, shortcut accelerators, polling timings
+│   ├── paths.ts        runtime paths for preload / renderer / icon
+│   ├── state.ts        shared mainWindow / promptWindow / lastSelection
+│   ├── windows.ts      createMainWindow / createPromptWindow / showPromptWindow
+│   ├── selection.ts    AppleScript ⌘C capture + TCC permission notice
+│   ├── oauth.ts        loopback OAuth server + ensureLoggedInViaBrowser
+│   ├── inline-api.ts   JWT read + POST /api/inline
+│   └── ipc.ts          ipcMain handlers (submit / copy / resize / close)
+├── preload.ts          contextBridge `window.api` surface
+└── renderer/
+    ├── index.html      Vite entry
+    ├── main.tsx        React root
+    ├── App.tsx         prompt window (input + result phases)
+    ├── styles.css      ported from prompt-window.html
+    └── global.d.ts     `window.api` type
+```
+
+Build outputs land in `dist/` (gitignored). `electron-builder` ships
+`dist/**`, `icon.png`, and `icon.icns`.
 
 This is the MVP scope from `pages/plan-1981-mac-desktop.md` §9. Tray, screenshot,
 local notifications, Keychain JWT, deep links, and DMG packaging are all
