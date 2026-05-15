@@ -1,6 +1,6 @@
-import base64
 import os
 import re
+from pathlib import Path
 from typing import List, Optional
 
 import jwt
@@ -14,7 +14,7 @@ from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_
 from storage.service.tg_topic import auto_discover_topic
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
 
 router = APIRouter(prefix="/telegram")
 
@@ -31,6 +31,7 @@ TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
+IMAGE_ASSETS_DIR = Path(os.environ.get("Y_AGENT_IMAGE_DIR", "/Users/roy/luohy15/assets/images"))
 
 
 def _bot_api_url(method: str) -> str:
@@ -45,8 +46,9 @@ async def _send_message(chat_id, text: str, message_thread_id=None):
 
 
 class SendMessageRequest(BaseModel):
-    text: str
+    text: str = ""
     topic: Optional[str] = None
+    images: Optional[List[str]] = None
 
 
 @router.post("/send")
@@ -58,8 +60,10 @@ async def telegram_send(req: SendMessageRequest, request: Request):
       topic: optional topic name. None / 'manager' → DM; otherwise requires a tg_topic binding.
     """
     user_id = request.state.user_id
-    if not req.text or not req.text.strip():
-        raise HTTPException(status_code=400, detail="text is required")
+    text = req.text.strip() if req.text else ""
+    images = req.images or []
+    if not text and not images:
+        raise HTTPException(status_code=400, detail="text or images is required")
 
     target = resolve_target(user_id, topic=req.topic)
     if not target:
@@ -75,7 +79,13 @@ async def telegram_send(req: SendMessageRequest, request: Request):
 
     bot_token, tg_chat_id, thread_id = target
     import asyncio
-    await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, req.text, thread_id)
+    if images:
+        safe_image_paths = [_resolve_send_image_path(image_path) for image_path in images]
+        for index, image_path in enumerate(safe_image_paths):
+            caption = text if index == 0 else None
+            await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption, thread_id)
+    elif text:
+        await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, text, thread_id)
     return {"ok": True}
 
 
@@ -178,7 +188,7 @@ async def telegram_webhook(request: Request):
 
 
 async def _download_telegram_photos(photo_sizes: list) -> List[str]:
-    """Download the largest photo from Telegram and return as base64 data URL list."""
+    """Download the largest photo from Telegram and return stored image paths."""
     if not photo_sizes or not TELEGRAM_BOT_TOKEN:
         return []
 
@@ -201,13 +211,33 @@ async def _download_telegram_photos(photo_sizes: list) -> List[str]:
                 logger.error("telegram file download failed: {}", resp.status_code)
                 return []
 
-            b64 = base64.b64encode(resp.content).decode("ascii")
             ext = file_path.rsplit(".", 1)[-1] if "." in file_path else "jpg"
-            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
-            return [f"data:{mime};base64,{b64}"]
+            saved_path = _save_telegram_image(resp.content, ext, file_id)
+            return [str(saved_path)]
     except Exception as e:
         logger.exception("telegram photo download error: {}", e)
         return []
+
+
+def _save_telegram_image(content: bytes, ext: str, file_id: str) -> Path:
+    safe_ext = re.sub(r"[^a-zA-Z0-9]", "", ext.lower()) or "jpg"
+    timestamp = get_utc_iso8601_timestamp().replace(":", "").replace("+", "Z")
+    safe_file_id = re.sub(r"[^a-zA-Z0-9_-]", "", file_id)[-12:] or generate_id()
+    IMAGE_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    image_path = IMAGE_ASSETS_DIR / f"telegram-{timestamp}-{safe_file_id}.{safe_ext}"
+    image_path.write_bytes(content)
+    return image_path
+
+
+def _resolve_send_image_path(image_path: str) -> Path:
+    path = Path(image_path).expanduser().resolve()
+    assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
+    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail=f"invalid image path: {image_path}")
+    if path != assets_dir and assets_dir not in path.parents:
+        raise HTTPException(status_code=400, detail="image must be under assets/images")
+    return path
 
 
 async def _handle_bind(telegram_chat_id, telegram_user_id, text: str, message_thread_id=None):

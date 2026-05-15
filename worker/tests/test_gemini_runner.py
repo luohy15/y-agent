@@ -20,6 +20,12 @@ def _message(role: str, content: str, msg_id: str) -> Message:
     )
 
 
+def _image_message(role: str, content: str, msg_id: str, images: list) -> Message:
+    msg = _message(role, content, msg_id)
+    msg.images = images
+    return msg
+
+
 def _chat(external_id=None, work_dir="/repo", skill=None) -> Chat:
     return Chat(
         id="chat-1",
@@ -71,6 +77,21 @@ class GeminiRunnerTest(unittest.TestCase):
         self.assertTrue(params["prompt"].endswith("hello"))
         self.assertFalse(params["resume"])
         self.assertIsNone(params["session_id"])
+
+    def test_build_params_carries_image_paths(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        chat = _chat()
+        chat.messages = [_image_message("user", "what is this?", "m1", ["/Users/roy/luohy15/assets/images/a.jpg"])]
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_gemini_params(
+                chat,
+                "chat-1",
+                1,
+                BotConfig(name="gemini", backend="gemini_cli"),
+            )
+
+        self.assertEqual(params["images"], ["/Users/roy/luohy15/assets/images/a.jpg"])
+        self.assertEqual(params["prompt"], "what is this?")
 
     def test_build_params_resume_only_when_work_dir_matches(self):
         vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")

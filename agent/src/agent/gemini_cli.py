@@ -202,8 +202,12 @@ class GeminiStreamConverter:
         return messages
 
 
-def _gemini_build_exec(cmd: List[str], chat_id: str, prompt: str) -> str:
+def _gemini_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `<gemini cmd...> -p <prompt>`."""
+    if images:
+        image_lines = "\n".join(f"- {image_path}" for image_path in images)
+        suffix = f"Attached image file path(s):\n{image_lines}"
+        prompt = f"{prompt.rstrip()}\n\n{suffix}" if prompt.strip() else suffix
     full_cmd = list(cmd) + ["-p", prompt]
     return " ".join(_shell_quote(c) for c in full_cmd)
 
@@ -229,6 +233,7 @@ async def start_detached_gemini_ssh(
     chat_id: str,
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
+    images: Optional[List[str]] = None,
     ssh_client=None,
 ) -> Optional[str]:
     """Start Gemini CLI in a detached tmux session on the remote host."""
@@ -241,6 +246,7 @@ async def start_detached_gemini_ssh(
         vm_config=vm_config,
         spec=_gemini_spec(),
         env=env,
+        images=images,
         ssh_client=ssh_client,
     )
 

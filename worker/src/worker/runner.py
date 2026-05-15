@@ -11,6 +11,15 @@ from storage.service import chat as chat_service
 import agent.config as agent_config
 
 
+def _latest_user_text_and_images(messages) -> tuple[str, list]:
+    """Return the latest user message text plus image paths, preserving text-only behavior."""
+    for msg in reversed(messages):
+        if msg.role == "user":
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            return content, list(msg.images or [])
+    return "", []
+
+
 def message_callback(chat_id: str, message: Message):
     logger.info("Event: role={} tool={} content_length={}", message.role, message.tool, len(message.content) if message.content else 0)
     chat_service.append_message_sync(chat_id, message)
@@ -225,13 +234,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     messages = list(chat.messages)
 
     # Extract the latest user message as the prompt
-    user_prompt = ""
-    user_images = None
-    for msg in reversed(messages):
-        if msg.role == "user":
-            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
-            user_images = msg.images
-            break
+    user_prompt, user_images = _latest_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -345,11 +348,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     messages = list(chat.messages)
 
     # Extract the latest user message as the prompt
-    user_prompt = ""
-    for msg in reversed(messages):
-        if msg.role == "user":
-            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
-            break
+    user_prompt, user_images = _latest_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -384,6 +383,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 
     return {
         "prompt": user_prompt,
+        "images": user_images,
         "cmd": cmd,
         "env": env if env else None,
         "cwd": cwd,
@@ -400,11 +400,7 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
     """Extract prompt, build cmd/env/cwd for Gemini CLI."""
     messages = list(chat.messages)
 
-    user_prompt = ""
-    for msg in reversed(messages):
-        if msg.role == "user":
-            user_prompt = msg.content if isinstance(msg.content, str) else str(msg.content)
-            break
+    user_prompt, user_images = _latest_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -433,6 +429,7 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
 
     return {
         "prompt": user_prompt,
+        "images": user_images,
         "cmd": cmd,
         "env": env if env else None,
         "cwd": cwd,
@@ -498,6 +495,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             chat_id=chat_id,
             vm_config=params["vm_config"],
             env=params["env"],
+            images=params.get("images"),
         )
     elif effective_backend == "gemini_cli":
         from agent.gemini_cli import start_detached_gemini_ssh
@@ -508,6 +506,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             chat_id=chat_id,
             vm_config=params["vm_config"],
             env=params["env"],
+            images=params.get("images"),
         )
     else:
         from agent.claude_code import start_detached_ssh
@@ -518,6 +517,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             chat_id=chat_id,
             vm_config=params["vm_config"],
             env=params["env"],
+            images=params.get("images"),
         )
 
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
