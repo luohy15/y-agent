@@ -2,6 +2,7 @@ import os
 import re
 import base64
 import binascii
+import errno
 from pathlib import Path
 from typing import List, Optional
 
@@ -264,7 +265,13 @@ def _save_send_image_upload(upload: TelegramImageUpload) -> Path:
         raise HTTPException(status_code=400, detail="empty image upload")
 
     assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
-    assets_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        assets_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        if exc.errno != errno.EROFS:
+            raise
+        assets_dir = Path("/tmp/y-agent-assets/images")
+        assets_dir.mkdir(parents=True, exist_ok=True)
     timestamp = get_utc_iso8601_timestamp().replace(":", "").replace("+", "Z")
     stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(original_name).stem).strip("-") or "image"
     image_path = assets_dir / f"telegram-upload-{timestamp}-{stem}{suffix}"
