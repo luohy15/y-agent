@@ -396,15 +396,21 @@ def _ssh_exec(client, cmd: str) -> str:
 # Detached SSH runner (tmux-based, for Lambda timeout resilience)
 # ---------------------------------------------------------------------------
 
-def _claude_image_block(image_path: str) -> Dict:
+def _claude_image_block(image_path: str, client=None) -> Dict:
     path = Path(image_path).expanduser()
     media_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+    if path.exists():
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+    elif client is not None:
+        data = _ssh_exec(client, f"base64 -w0 {_shell_quote(str(path))}").strip()
+    else:
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
     return {
         "type": "image",
         "source": {
             "type": "base64",
             "media_type": media_type,
-            "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+            "data": data,
         },
     }
 
@@ -413,7 +419,7 @@ def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List
     """Write the prompt to /tmp/cc-<chat_id>.stdin as stream-json via SFTP."""
     content = [{"type": "text", "text": prompt}]
     for image_path in images or []:
-        content.append(_claude_image_block(image_path))
+        content.append(_claude_image_block(image_path, client))
 
     payload = json.dumps({
         "type": "user",
