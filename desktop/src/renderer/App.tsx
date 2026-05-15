@@ -1,40 +1,35 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-type Phase = 'input' | 'result';
-
 export function App() {
-  const [phase, setPhase] = useState<Phase>('input');
   const [selection, setSelection] = useState('');
   const [instruction, setInstruction] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState('');
+  const [hasResult, setHasResult] = useState(false);
   const [edited, setEdited] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLTextAreaElement>(null);
 
-  // Measure the total content height (grip + active phase + bottom padding)
-  // and ask main to resize the window. Main caps at half the screen height.
+  // Measure the total content height and ask main to resize the window.
+  // Main caps at half the screen height.
   const fitWindow = useCallback(() => {
-    // Force layout flush so scrollHeight is accurate after recent DOM edits.
     void document.body.offsetHeight;
     const h = document.documentElement.scrollHeight || document.body.scrollHeight;
     window.api.resize(h);
   }, []);
 
-  // Resize the textarea to fit its content (the window-half cap is enforced
-  // by the main process when we call api.resize). overflow:auto kicks in if
-  // we're already at the cap and the text is still longer.
-  const autosizeTextarea = useCallback(() => {
+  // Resize the result textarea to fit its content; overflow:auto kicks in
+  // once the window-half cap is reached.
+  const autosizeResult = useCallback(() => {
     const el = resultRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   }, []);
 
-  // Subscribe to prompt:init from main on mount. Resets everything to a fresh
-  // input phase whenever the popup is shown again.
+  // Reset everything whenever the popup is re-shown.
   useEffect(() => {
     window.api.onInit(({ selection: sel }) => {
       setSelection(sel || '');
@@ -42,8 +37,8 @@ export function App() {
       setBusy(false);
       setError(null);
       setResult('');
+      setHasResult(false);
       setEdited(false);
-      setPhase('input');
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         fitWindow();
@@ -51,7 +46,7 @@ export function App() {
     });
   }, [fitWindow]);
 
-  // Global Esc — works in both phases.
+  // Global Esc dismiss.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -63,42 +58,37 @@ export function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  // Re-fit any time the visible phase or error changes so the window stays snug.
+  // Re-fit on any visible state change.
   useLayoutEffect(() => {
     requestAnimationFrame(fitWindow);
-  }, [phase, error, fitWindow]);
+  }, [hasResult, error, busy, fitWindow]);
 
-  // After switching to result phase, autosize the textarea once it's in the DOM,
-  // then fit the window and focus/select for ⌘C convenience.
+  // Autosize the result textarea once it appears and after content updates.
   useLayoutEffect(() => {
-    if (phase !== 'result') return;
-    autosizeTextarea();
+    if (!hasResult) return;
+    autosizeResult();
     requestAnimationFrame(() => {
-      autosizeTextarea();
+      autosizeResult();
       fitWindow();
-      resultRef.current?.focus();
-      resultRef.current?.select();
     });
-  }, [phase, autosizeTextarea, fitWindow]);
+  }, [hasResult, result, autosizeResult, fitWindow]);
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    if (!trimmed) return;
+    if (!trimmed || busy) return;
     setBusy(true);
     setError(null);
     const res = await window.api.submit(trimmed);
+    setBusy(false);
     if (res && res.ok) {
       const text = res.result || '';
       setResult(text);
       window.api.copy(text);
       setEdited(false);
-      setPhase('result');
+      setHasResult(true);
     } else {
       setError((res && res.error) || 'request failed');
-      setBusy(false);
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
@@ -106,7 +96,7 @@ export function App() {
     setResult(e.target.value);
     setEdited(true);
     requestAnimationFrame(() => {
-      autosizeTextarea();
+      autosizeResult();
       fitWindow();
     });
   };
@@ -115,29 +105,35 @@ export function App() {
     <>
       <div className="grip" title="Drag to move">• • •</div>
       <div className="wrap">
-        {phase === 'input' ? (
-          <div>
-            <Preview selection={selection} />
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Instruction · Enter to run · Esc to dismiss"
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleSubmit();
-                }
-              }}
-              disabled={busy}
-              autoFocus
-            />
-            {error && <div className="err">{error}</div>}
-          </div>
-        ) : (
-          <div>
-            <Preview selection={selection} />
+        <Section label="Selection">
+          {selection ? (
+            <div className="preview">{selection}</div>
+          ) : (
+            <div className="preview empty">(no selection — instruction only)</div>
+          )}
+        </Section>
+
+        <Section label={hasResult ? 'Prompt · Enter to re-run' : 'Prompt · Enter to run'}>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Instruction · Enter to run · Esc to dismiss"
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleSubmit();
+              }
+            }}
+            disabled={busy}
+            autoFocus
+          />
+          {error && <div className="err">{error}</div>}
+        </Section>
+
+        {hasResult && (
+          <Section label="Response">
             <textarea
               ref={resultRef}
               spellCheck={false}
@@ -150,16 +146,18 @@ export function App() {
               </span>
               <span className="hint">⌘C copy · Esc close</span>
             </div>
-          </div>
+          </Section>
         )}
       </div>
     </>
   );
 }
 
-function Preview({ selection }: { selection: string }) {
-  if (!selection) {
-    return <div className="preview empty">(no selection — instruction only)</div>;
-  }
-  return <div className="preview">{selection}</div>;
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="section">
+      <div className="section-label">{label}</div>
+      {children}
+    </div>
+  );
 }

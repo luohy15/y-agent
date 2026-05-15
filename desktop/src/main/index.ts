@@ -4,6 +4,7 @@ import { ICON_PATH } from './paths';
 import { captureSelection } from './selection';
 import { createMainWindow, createPromptWindow, showPromptWindow } from './windows';
 import { registerIpcHandlers } from './ipc';
+import { state } from './state';
 
 // Strip "Electron/x.y.z" and app-name fragments from the default UA so Google
 // OAuth doesn't reject the embedded webview. Chromium's "Chrome/..." token
@@ -54,8 +55,22 @@ app.whenReady().then(() => {
     );
   }
 
+  // Fires when the user re-activates Yovy via Dock click, ⌘Tab, or a launcher
+  // like Manico. If we previously hid the app (app.hide() after the inline
+  // popup, or Manico's toggle-hide), Electron does not auto-restore the
+  // windows — call app.show() and force the main window forward so the
+  // toggle works on every press, not just the first one.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow();
+      return;
+    }
+    if (process.platform === 'darwin') app.show();
+    const { mainWindow } = state;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
   });
 });
 

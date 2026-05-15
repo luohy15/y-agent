@@ -1,4 +1,4 @@
-import { clipboard, ipcMain, screen } from 'electron';
+import { app, clipboard, ipcMain, screen } from 'electron';
 import { state } from './state';
 import { callInlineApi } from './inline-api';
 
@@ -39,5 +39,10 @@ export function registerIpcHandlers(): void {
   ipcMain.on('prompt:close', () => {
     const { promptWindow } = state;
     if (promptWindow && !promptWindow.isDestroyed()) promptWindow.hide();
+    // Submitting reads the JWT from the main window's webContents, which
+    // promotes Yovy to the active app on macOS. If Yovy wasn't already in
+    // front when the popup was triggered, hand focus back to the previous
+    // app so dismissing the panel doesn't surface the main window.
+    if (process.platform === 'darwin' && !state.yovyWasFront) app.hide();
   });
 }
