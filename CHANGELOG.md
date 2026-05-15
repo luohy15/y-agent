@@ -21,18 +21,27 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **ReminderList sidebar (2048 / 2049 / 2057)** — full-featured reminder panel in the sidebar with create/edit/cancel, sort by trigger time, and filtering.
 - **`y telegram` CLI (2047)** — new `y telegram send` / `click` subcommands + matching `POST /api/telegram/{send,click}` endpoints; worker telegram code refactored into `storage/service/telegram.py` and shared with the CLI.
 - **Todo mark-all-as-read (2060)** — bulk "mark all read" action in TodoList with a new repo/service/controller path; complements the existing per-todo toggle.
-- **Editable trace todo detail (2058)** — TraceTodoDetail rewritten with full inline edit for status / priority / due / tags / description / progress; shared between TraceView (editable) and ShareTraceView (read-only). Extends the 0.5.12 inline-progress edit (1995).
+- **Editable trace todo detail (2058)** — TraceTodoDetail rewritten with full inline edit for status / priority / due / tags / description / progress; shared between TraceView (editable) and ShareTraceView (read-only). Textareas now expand and autosize robustly for longer description / progress edits. Extends the 0.5.12 inline-progress edit (1995).
 - **LinkList sidebar time filter (2053)** — time-range filter chips on the link sidebar, matching the unified `--on/--from/--to` semantics.
 - **Unified `y ... list` time filter flags** — canonical `--on / --from / --to` plus prefixed `--created-* / --updated-*` overrides on every list CLI (todo, note, chat, link, calendar, reminder, email, rss, entity, routine) and the matching API controllers, with a shared `apply_time_filter` helper. Date `--to` is closed-day; datetime `--to` is half-open. Hard cut on old `--completed-*` / `--start` / `--end` / `--date` flags and link list's `today/yesterday/Nd` relative tokens. Web list views (LinkList, CalendarViewer) re-aligned to the new params (2061).
+- **Gemini CLI backend** — new Gemini CLI agent backend with stream conversion, monitor/runner integration, bot and routine CLI wiring, docs, and headless-run handling.
+- **Bot backend identity (2072 / 2074)** — chats now persist/display the selected bot name, bot configs carry an explicit backend field, and runner paths resolve resumed chats through the stored backend.
+- **Codex tool detail rendering (2081)** — Codex stream conversion and chat/share message parsing now expose richer tool details in the UI.
+- **Local file links in chat and FileViewer (2083)** — local file path references are parsed into clickable links across FileViewer and chat messages.
+- **Bot config OpenRouter clearing** — `y bot update --clear-openrouter` clears OpenRouter settings from an existing bot config.
 
 ### Changed
 - **TodoContextMenu status options inlined (1994)** — status choices moved out of the "Status" submenu into an inline radio row at the top of the context menu, refining the 0.5.12 submenu version.
 - **TodoContextMenu pin/unpin (2054)** — pin/unpin moved into the right-click menu; TodoList and TodoViewer route through the menu action.
 - **Note sidebar drops the "Weekly" tab (2064)** — NoteList top-level Weekly tab removed; weekly notes still reachable through Finance → weekly.
 - **Chat read/unread no longer bumps `updated_at` (2051)** — `set_chat_unread` / `mark_chats_read_by_trace` / `mark_latest_chat_unread_by_trace` switched to raw SQL so SQLAlchemy's `onupdate` doesn't bump the chat row, keeping the chat list order stable when toggling read state.
+- **`y chat --bot` replaces `--backend`** — both interactive and one-shot chat CLI modes now select named bot configs instead of raw backend flags.
 
 ### Fixed
 - **Telegram resume preserves `work_dir` (2011)** — `_handle_message` and `_handle_routed_message` now forward the chat's `work_dir` when re-queuing, so the worker resumes the existing claude-code session under the same cwd instead of falling back to the VM default.
+- **Backend launch and resume reliability** — backend launch errors are persisted, resumed chats prefer their stored backend, flexible backend defaults are preserved, and Gemini headless runs are treated as trusted.
+- **Codex blocker detection (2077)** — Codex monitor/runner handling better surfaces blocked sessions and tool events.
+- **`y bot list -v` OpenRouter crash** — verbose bot listing no longer raises `UnboundLocalError` when OpenRouter config is absent.
 
 ### Removed
 
