@@ -1,6 +1,6 @@
 # y-agent desktop (Mac)
 
-Electron shell for [yovy.app](https://yovy.app) plus a global `⌘⇧Y`
+Electron shell for [yovy.app](https://yovy.app) plus a global `⌘⌃Y`
 selection-to-prompt flow. macOS-only.
 
 ## Run
@@ -14,8 +14,8 @@ npm start
 `npm install` pulls `electron`, `react`/`react-dom`, `vite`, and `typescript`.
 `npm start` builds `src/main/**` via `tsc` (→ `dist/main/`, `dist/preload.js`)
 and the renderer via `vite build` (→ `dist/renderer/`), then runs `electron .`,
-which opens the main window (loads `https://yovy.app`) and registers the `⌘⇧Y`
-shortcut (fallbacks: `⌘⌥Y`, `⌘⇧J`).
+which opens the main window (loads `https://yovy.app`) and registers the `⌘⌃Y`
+shortcut.
 
 Scripts:
 
@@ -53,7 +53,7 @@ re-enable manually in **System Settings → Privacy & Security**.
 
 | When you'll see the prompt | Category | What to grant |
 |---|---|---|
-| First `⌘⇧Y` after a fresh launch — when we run `osascript ... keystroke "c" using command down` to copy the current selection | **Automation** → "y-agent" wants to control "System Events" | Allow |
+| First `⌘⌃Y` after a fresh launch — when we run `osascript ... keystroke "c" using command down` to copy the current selection | **Automation** → "y-agent" wants to control "System Events" | Allow |
 | When the result is pasted back via `keystroke "v" using command down` | **Accessibility** (only required if macOS escalates from Automation; some macOS versions ask once, others ask both) | Add y-agent (or your terminal/Electron during dev) and toggle on |
 
 If a permission-related error occurs at runtime, the app pops a sheet over the
@@ -82,7 +82,7 @@ reset y-agent without affecting other apps.
 ## Usage
 
 1. Select text in any app.
-2. Press `⌘⇧Y` (Command+Shift+Y).
+2. Press `⌘⌃Y` (Command+Control+Y).
 3. Type an instruction in the small floating input.
 4. `Enter` — paste the result back, replacing the selection in the original
    app.
@@ -100,15 +100,19 @@ can use it as a quick prompt that copies the result to the clipboard.
   loopback flow. If port `127.0.0.1:<random>` can't bind, check whether a
   local firewall/VPN is blocking loopback.
 - **Selection comes back empty**: the source app may have a slow Cmd+C
-  pipeline (Word, certain web editors). The capture window is 300ms; raise
-  `CLIPBOARD_POLL_TIMEOUT_MS` in `main.js` if your app is slower.
+  pipeline (Word, certain web editors, Terminal, VSCode diff). The capture
+  window is 1000ms; raise `CLIPBOARD_POLL_TIMEOUT_MS` in `constants.ts` if
+  your app is slower. We also wait `PRE_KEYSTROKE_DELAY_MS` (~120ms) before
+  firing Cmd+C so chord modifiers can release, and retry once after
+  `RETRY_DELAY_MS` (~200ms) if the first pass is empty — bump these if your
+  hand-release is unusually slow.
 - **Paste-back lands in the wrong app**: macOS sometimes refuses to refocus a
   background app within 80ms. Increase the `sleep(80)` in `handleSelectionShortcut`'s
   paste branch, or use `Shift+Enter` and paste manually.
-- **`⌘⇧Y` doesn't fire**: another app may have grabbed the shortcut first;
-  the shell will try the fallbacks (`⌘⌥Y`, `⌘⇧J`) in order. Check the launch
-  log for which one was registered, or rebind via `SELECTION_SHORTCUTS` in
-  `main.js`.
+- **`⌘⌃Y` doesn't fire**: another app may have grabbed the shortcut first.
+  Rebind via `SELECTION_SHORTCUTS` in `constants.ts`. Avoid bare Option-letter
+  combos like `⌥N` — they're macOS dead-keys and our synthesized `⌘C` lands
+  while the source app is in compose-state, breaking selection capture.
 
 ## Files
 

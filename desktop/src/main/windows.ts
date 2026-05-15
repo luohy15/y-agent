@@ -25,7 +25,7 @@ export function createPromptWindow(): BrowserWindow {
     },
   });
   promptWindow.loadFile(RENDERER_INDEX);
-  // Float above full-screen apps too — otherwise ⌘⇧Y is useless while the
+  // Float above full-screen apps too — otherwise ⌘⌃Y is useless while the
   // user has VSCode / a browser in macOS full-screen mode.
   promptWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   // Don't auto-hide on blur — once the result is showing the user often

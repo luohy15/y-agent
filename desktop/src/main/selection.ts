@@ -2,7 +2,12 @@ import { clipboard, dialog, shell } from 'electron';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { state } from './state';
-import { CLIPBOARD_POLL_INTERVAL_MS, CLIPBOARD_POLL_TIMEOUT_MS } from './constants';
+import {
+  CLIPBOARD_POLL_INTERVAL_MS,
+  CLIPBOARD_POLL_TIMEOUT_MS,
+  PRE_KEYSTROKE_DELAY_MS,
+  RETRY_DELAY_MS,
+} from './constants';
 
 const execAsync = promisify(exec);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -32,35 +37,57 @@ function classifyPermissionError(err: unknown): PermissionKind | null {
   return null;
 }
 
+// One pass: clear clipboard → AppleScript Cmd+C → poll for non-empty text.
+// Returns the captured text, or '' if Cmd+C didn't produce text within the
+// poll window. Throws on AppleScript / TCC failure so the caller can surface
+// the permission notice.
+async function captureOnce(): Promise<string> {
+  clipboard.clear();
+  await execAsync(
+    'osascript -e \'tell application "System Events" to keystroke "c" using command down\'',
+  );
+  const start = Date.now();
+  while (Date.now() - start < CLIPBOARD_POLL_TIMEOUT_MS) {
+    await sleep(CLIPBOARD_POLL_INTERVAL_MS);
+    const current = clipboard.readText();
+    if (current) return current;
+  }
+  return '';
+}
+
 // Trigger ⌘C in the frontmost app, read whatever lands on the clipboard, then
 // restore the user's previous clipboard contents. Returns the captured text
 // (empty string if nothing was selected / Cmd+C didn't produce text).
+//
+// Two reliability hacks layered on top:
+//   - Pre-keystroke delay so the user's physical chord modifiers (e.g. the
+//     Cmd+Ctrl of ⌘⌃Y) have time to release before we synthesize Cmd+C.
+//     Without it, those modifiers OR with our synthesized Cmd flag and the
+//     source app receives Cmd+Ctrl+C — not a copy shortcut, so the pasteboard
+//     stays empty and we return ''.
+//   - Single retry on empty result: covers the long-tail case where the user
+//     holds modifiers longer than the pre-delay. Only paid on the failing
+//     path, so happy-path latency is unchanged.
 export async function captureSelection(): Promise<string> {
   const previousText = clipboard.readText();
-  // Clear so we can unambiguously detect Cmd+C landing, even if the selection
-  // happens to equal the previous clipboard text.
-  clipboard.clear();
+  await sleep(PRE_KEYSTROKE_DELAY_MS);
 
+  let captured = '';
   try {
-    await execAsync(
-      'osascript -e \'tell application "System Events" to keystroke "c" using command down\'',
-    );
+    captured = await captureOnce();
+    if (!captured) {
+      await sleep(RETRY_DELAY_MS);
+      const retry = await captureOnce();
+      if (retry) {
+        console.log('[selection] captured on retry pass');
+        captured = retry;
+      }
+    }
   } catch (err) {
     console.error('[selection] AppleScript Cmd+C failed:', (err as Error).message);
     if (previousText) clipboard.writeText(previousText);
     showPermissionNotice(classifyPermissionError(err));
     return '';
-  }
-
-  let captured = '';
-  const start = Date.now();
-  while (Date.now() - start < CLIPBOARD_POLL_TIMEOUT_MS) {
-    await sleep(CLIPBOARD_POLL_INTERVAL_MS);
-    const current = clipboard.readText();
-    if (current) {
-      captured = current;
-      break;
-    }
   }
 
   if (previousText) clipboard.writeText(previousText);
