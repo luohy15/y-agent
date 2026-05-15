@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,14 @@ def _stage_image_for_telegram(image_path: str) -> str:
     return str(dest)
 
 
+def _image_upload_payload(image_path: str) -> dict:
+    source = Path(image_path).expanduser().resolve()
+    return {
+        "filename": source.name,
+        "content_base64": base64.b64encode(source.read_bytes()).decode("ascii"),
+    }
+
+
 @click.command('send')
 @click.option('-m', '--message', 'text', default='', help='Message body (markdown ok)')
 @click.option('--topic', default=None, help="Forum topic name (omit for DM). 'manager' is an alias for DM.")
@@ -37,6 +46,6 @@ def telegram_send(text, topic, images):
     if topic is not None:
         body["topic"] = topic
     if images:
-        body["images"] = [_stage_image_for_telegram(image) for image in images]
+        body["image_uploads"] = [_image_upload_payload(image) for image in images]
     api_request("POST", "/api/telegram/send", json=body)
     click.echo("sent")

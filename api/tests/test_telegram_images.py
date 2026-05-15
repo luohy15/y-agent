@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import base64
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,6 +34,20 @@ class TelegramImageStorageTest(unittest.TestCase):
             with patch.object(telegram, "IMAGE_ASSETS_DIR", Path(tmp_dir) / "assets" / "images"):
                 with self.assertRaises(Exception):
                     telegram._resolve_send_image_path(str(image_path))
+
+    def test_save_send_image_upload_uses_assets_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            upload = telegram.TelegramImageUpload(
+                filename="../photo.png",
+                content_base64=base64.b64encode(b"png").decode("ascii"),
+            )
+            with patch.object(telegram, "IMAGE_ASSETS_DIR", Path(tmp_dir)):
+                with patch.object(telegram, "get_utc_iso8601_timestamp", return_value="2026-05-15T08:43:00.123Z"):
+                    image_path = telegram._save_send_image_upload(upload)
+
+            self.assertEqual(image_path.parent, Path(tmp_dir).resolve())
+            self.assertEqual(image_path.name, "telegram-upload-2026-05-15T084300.123Z-photo.png")
+            self.assertEqual(image_path.read_bytes(), b"png")
 
 
 if __name__ == "__main__":
