@@ -329,6 +329,18 @@ async def save_chat_by_id(chat: Chat) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
+def find_running_chat_ids_older_than(cutoff_unix: int, limit: int = 100) -> List[str]:
+    """Return running chat IDs with updated_at_unix older than cutoff_unix."""
+    with get_db() as session:
+        rows = (session.query(ChatEntity.chat_id)
+                .filter(ChatEntity.status == "running")
+                .filter(ChatEntity.updated_at_unix < cutoff_unix)
+                .order_by(ChatEntity.updated_at_unix.asc())
+                .limit(limit)
+                .all())
+        return [row.chat_id for row in rows]
+
+
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:
     """List distinct trace_ids, ordered by most recently updated."""
     from sqlalchemy import func
@@ -565,4 +577,3 @@ def set_share_password_hash(user_id: int, chat_id: str, password_hash: Optional[
         session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).update(
             {"share_password_hash": password_hash}
         )
-
