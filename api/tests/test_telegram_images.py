@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import base64
+import errno
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,6 +48,32 @@ class TelegramImageStorageTest(unittest.TestCase):
 
             self.assertEqual(image_path.parent, Path(tmp_dir).resolve())
             self.assertEqual(image_path.name, "telegram-upload-2026-05-15T084300.123Z-photo.png")
+            self.assertEqual(image_path.read_bytes(), b"png")
+
+    def test_save_send_image_upload_falls_back_to_tmp_on_readonly_assets_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            upload = telegram.TelegramImageUpload(
+                filename="photo.png",
+                content_base64=base64.b64encode(b"png").decode("ascii"),
+            )
+            readonly_dir = Path(tmp_dir) / "readonly" / "images"
+            tmp_assets_dir = Path(tmp_dir) / "tmp" / "images"
+
+            original_mkdir = Path.mkdir
+
+            def fake_mkdir(self, *args, **kwargs):
+                if self == readonly_dir.resolve():
+                    raise OSError(errno.EROFS, "Read-only file system")
+                return original_mkdir(self, *args, **kwargs)
+
+            with patch.object(telegram, "IMAGE_ASSETS_DIR", readonly_dir):
+                with patch.object(telegram, "get_utc_iso8601_timestamp", return_value="2026-05-15T08:43:00.123Z"):
+                    with patch.object(telegram, "Path", wraps=Path) as path_cls:
+                        path_cls.side_effect = lambda *args, **kwargs: tmp_assets_dir if args == ("/tmp/y-agent-assets/images",) else Path(*args, **kwargs)
+                        with patch.object(Path, "mkdir", fake_mkdir):
+                            image_path = telegram._save_send_image_upload(upload)
+
+            self.assertEqual(image_path.parent, tmp_assets_dir)
             self.assertEqual(image_path.read_bytes(), b"png")
 
 
