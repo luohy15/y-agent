@@ -4,7 +4,7 @@ import { API, authFetch } from "../api";
 import { priorityColorClass } from "./badges";
 
 interface TodoContextMenuProps {
-  todo: { todo_id: string; status: string; priority?: string; pinned?: boolean };
+  todo: { todo_id: string; status: string; priority?: string; pinned?: boolean; has_unread?: boolean };
   x: number;
   y: number;
   onClose: () => void;
@@ -151,19 +151,13 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
 
   items.push({
     type: "item",
-    label: "Mark read",
+    label: todo.has_unread ? "Mark read" : "Mark unread",
     action: async () => {
-      await markTraceRead(todo.todo_id);
-      onChatListRefresh?.();
-      onAction();
-      onClose();
-    },
-  });
-  items.push({
-    type: "item",
-    label: "Mark unread",
-    action: async () => {
-      await markTraceUnread(todo.todo_id);
+      if (todo.has_unread) {
+        await markTraceRead(todo.todo_id);
+      } else {
+        await markTraceUnread(todo.todo_id);
+      }
       onChatListRefresh?.();
       onAction();
       onClose();
