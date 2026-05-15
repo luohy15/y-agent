@@ -2,6 +2,63 @@ import { describe, expect, it } from "vitest";
 import { mergeToolArguments, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
 
 describe("chat message parser", () => {
+  it("forwards user images", () => {
+    expect(parseRawChatMessage({
+      role: "user",
+      content: "look at this",
+      images: ["/Users/roy/luohy15/assets/images/user.jpg"],
+    })).toEqual([{
+      role: "user",
+      content: "look at this",
+      timestamp: undefined,
+      images: ["/Users/roy/luohy15/assets/images/user.jpg"],
+    }]);
+  });
+
+  it("forwards assistant images without tool calls", () => {
+    expect(parseRawChatMessage({
+      role: "assistant",
+      content: "rendered image",
+      images: ["/Users/roy/luohy15/assets/images/assistant.jpg"],
+    })).toEqual([{
+      role: "assistant",
+      content: "rendered image",
+      timestamp: undefined,
+      images: ["/Users/roy/luohy15/assets/images/assistant.jpg"],
+    }]);
+  });
+
+  it("forwards assistant images only on text bubble when tool calls exist", () => {
+    expect(parseRawChatMessage({
+      role: "assistant",
+      content: "using a tool",
+      images: ["/Users/roy/luohy15/assets/images/tool-text.jpg"],
+      tool_calls: [{
+        id: "item_12",
+        type: "function",
+        function: {
+          name: "Read",
+          arguments: JSON.stringify({ file_path: "/tmp/App.tsx" }),
+        },
+      }],
+    })).toEqual([
+      {
+        role: "assistant",
+        content: "using a tool",
+        timestamp: undefined,
+        images: ["/Users/roy/luohy15/assets/images/tool-text.jpg"],
+      },
+      {
+        role: "tool_pending",
+        content: "",
+        toolName: "Read",
+        arguments: { file_path: "/tmp/App.tsx" },
+        toolCallId: "item_12",
+        timestamp: undefined,
+      },
+    ]);
+  });
+
   it("merges Codex provider-less tool result while preserving tool details", () => {
     const pending = parseRawChatMessage({
       role: "assistant",
