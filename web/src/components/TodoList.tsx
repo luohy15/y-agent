@@ -34,6 +34,9 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [readAllBusy, setReadAllBusy] = useState(false);
+  const [bulkReadBusy, setBulkReadBusy] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string; pinned?: boolean; has_unread?: boolean }; x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -58,6 +61,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
 
   const todos = data ? data.flat() : [];
   const isReachingEnd = data && data[data.length - 1]?.length < PAGE_SIZE;
+  const selectedCount = selectedTodoIds.size;
 
   const observer = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useCallback(
@@ -76,7 +80,22 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
 
   useEffect(() => {
     setSize(1);
+    setSelectedTodoIds(new Set());
   }, [statusFilter, search, unreadFilter, setSize]);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedTodoIds(new Set());
+  }, []);
+
+  const toggleTodoSelection = useCallback((todoId: string) => {
+    setSelectedTodoIds((current) => {
+      const next = new Set(current);
+      if (next.has(todoId)) next.delete(todoId);
+      else next.add(todoId);
+      return next;
+    });
+  }, []);
 
   const handleReadAll = async () => {
     if (readAllBusy) return;
@@ -98,6 +117,25 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
       }
     } finally {
       setReadAllBusy(false);
+    }
+  };
+
+  const handleBulkMarkRead = async () => {
+    if (bulkReadBusy || selectedTodoIds.size === 0) return;
+    setBulkReadBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/chat/trace/read_bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trace_ids: Array.from(selectedTodoIds) }),
+      });
+      if (res.ok) {
+        await mutate();
+        onChatListRefresh?.();
+        exitSelectMode();
+      }
+    } finally {
+      setBulkReadBusy(false);
     }
   };
 
@@ -134,20 +172,56 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
               {f}
             </button>
           ))}
-          <button
-            onClick={handleReadAll}
-            disabled={readAllBusy}
-            title="Mark all matching todos as read"
-            className={`ml-auto px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${readAllBusy ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
-          >
-            read all
-          </button>
-          <button
-            onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("todoListUnreadFilter", String(v)); }}
-            className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
-          >
-            unread
-          </button>
+          {selectMode ? (
+            <>
+              <span className="ml-auto px-1.5 py-0.5 text-[0.6rem] text-sol-base01">
+                {selectedCount} selected
+              </span>
+              <button
+                onClick={handleBulkMarkRead}
+                disabled={bulkReadBusy || selectedCount === 0}
+                className={`px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${bulkReadBusy || selectedCount === 0 ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-blue text-sol-base03 cursor-pointer"}`}
+              >
+                mark read
+              </button>
+              <button
+                onClick={() => setSelectedTodoIds(new Set())}
+                disabled={selectedCount === 0}
+                className={`px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${selectedCount === 0 ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+              >
+                clear
+              </button>
+              <button
+                onClick={exitSelectMode}
+                className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer transition-colors"
+              >
+                cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleReadAll}
+                disabled={readAllBusy}
+                title="Mark all matching todos as read"
+                className={`ml-auto px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${readAllBusy ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+              >
+                read all
+              </button>
+              <button
+                onClick={() => { const v = !unreadFilter; setUnreadFilter(v); localStorage.setItem("todoListUnreadFilter", String(v)); }}
+                className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${unreadFilter ? "bg-sol-blue/30 text-sol-blue" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+              >
+                unread
+              </button>
+              <button
+                onClick={() => setSelectMode(true)}
+                className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer transition-colors"
+              >
+                select
+              </button>
+            </>
+          )}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
@@ -162,6 +236,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
         ) : (
           <>
             {todos.map((t) => {
+              const isSelected = selectedTodoIds.has(t.todo_id);
               const cancelLongPress = () => {
                 if (longPressTimerRef.current !== null) {
                   window.clearTimeout(longPressTimerRef.current);
@@ -174,6 +249,10 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                 onClick={() => {
                   if (longPressTriggeredRef.current) {
                     longPressTriggeredRef.current = false;
+                    return;
+                  }
+                  if (selectMode) {
+                    toggleTodoSelection(t.todo_id);
                     return;
                   }
                   onSelectTodo(t.todo_id);
@@ -193,9 +272,19 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                 onPointerMove={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
                 onPointerUp={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
                 onPointerCancel={cancelLongPress}
-                className="px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors select-none [-webkit-touch-callout:none]"
+                className={`px-2 py-2 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors select-none [-webkit-touch-callout:none] ${isSelected ? "bg-sol-base02 ring-1 ring-sol-blue/40" : ""}`}
               >
                 <div className="flex items-center gap-1.5 mb-0.5">
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleTodoSelection(t.todo_id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-3 h-3 accent-sol-blue cursor-pointer shrink-0"
+                      aria-label={`Select todo ${t.todo_id}`}
+                    />
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(t.todo_id); else navigator.clipboard.writeText(t.todo_id); }}
                     className={`text-[0.6rem] cursor-pointer ${TRACE_BADGE}`}
