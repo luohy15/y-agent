@@ -202,10 +202,23 @@ class TraceReadRequest(BaseModel):
     trace_id: str
 
 
+class TraceReadBulkRequest(BaseModel):
+    trace_ids: List[str]
+
+
 @router.post("/trace/read")
 async def post_mark_trace_read(req: TraceReadRequest, request: Request):
     user_id = _get_user_id(request)
     count = chat_service.mark_trace_read(user_id, req.trace_id)
+    return {"ok": True, "count": count}
+
+
+@router.post("/trace/read_bulk")
+async def post_mark_trace_read_bulk(req: TraceReadBulkRequest, request: Request):
+    user_id = _get_user_id(request)
+    count = 0
+    for trace_id in req.trace_ids:
+        count += chat_service.mark_trace_read(user_id, trace_id)
     return {"ok": True, "count": count}
 
 
