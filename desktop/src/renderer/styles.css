@@ -1,0 +1,147 @@
+/* Solarized dark — match web/src/style.css palette so the popup feels like
+   the same product as the main app. Colors:
+   base03  #002b36   window / textarea bg
+   base02  #073642   borders, scrollbar thumb, input bg
+   base01  #586e75   muted text, grip
+   base00  #657b83
+   base0   #839496   secondary text
+   base1   #93a1a1   primary text
+   blue    #268bd2   focus / accent
+   green   #859900   success
+   red     #dc322f   error
+*/
+
+html, body {
+  margin: 0;
+  font: 13px -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #93a1a1;
+  background: #002b36;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Whole window is a drag handle by default; interactive controls below
+   opt out via -webkit-app-region: no-drag. */
+body {
+  -webkit-app-region: drag;
+}
+
+/* Scrollbars — solarized dark, copied from the web app. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #073642 #002b36;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #002b36;
+}
+::-webkit-scrollbar-thumb {
+  background: #073642;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #586e75;
+}
+
+.grip {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #586e75;
+  font-size: 10px;
+  letter-spacing: 4px;
+}
+
+.wrap {
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview {
+  color: #839496;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 90px;
+  overflow-y: auto;
+  -webkit-app-region: no-drag;
+  user-select: text;
+}
+
+.preview.empty {
+  font-style: italic;
+  color: #586e75;
+}
+
+input, textarea {
+  -webkit-app-region: no-drag;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #073642;
+  border-radius: 4px;
+  background: #002b36;
+  color: #93a1a1;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 120ms ease;
+}
+
+input:focus, textarea:focus {
+  border-color: #268bd2;
+}
+
+input:disabled {
+  opacity: 0.6;
+}
+
+input::placeholder {
+  color: #586e75;
+}
+
+textarea {
+  resize: none;
+  line-height: 1.45;
+  user-select: text;
+  /* height set by JS to fit content (capped by JS for window-half limit) */
+  overflow-y: auto;
+  min-height: 60px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #586e75;
+}
+
+.footer .hint {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footer .status {
+  color: #859900;
+}
+
+.footer .status.faded {
+  color: #586e75;
+}
+
+.err {
+  color: #dc322f;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 6px;
+}
