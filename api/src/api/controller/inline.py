@@ -2,11 +2,16 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.config import resolve_bot_config
+from storage.service import bot_config as bot_service
 
 router = APIRouter(prefix="/inline")
 
-INLINE_MODEL = "anthropic/claude-haiku-4-5"
+# Inline rewrites use a dedicated bot config (by convention named "inline"),
+# so the user can pin a fast model — typically Gemini Flash via OpenRouter —
+# independent of whatever the main agent backend is set to. The endpoint
+# speaks OpenAI's /chat/completions shape; pick a bot whose base_url is
+# compatible (OpenRouter, OpenAI itself, Google's OpenAI-compat endpoint…).
+INLINE_BOT_NAME = "inline"
 INLINE_MAX_TOKENS = 2000
 INLINE_TIMEOUT = 30.0
 
@@ -31,7 +36,12 @@ class InlineResponse(BaseModel):
 @router.post("", response_model=InlineResponse)
 async def inline(req: InlineRequest, request: Request) -> InlineResponse:
     user_id = request.state.user_id
-    bot_config = resolve_bot_config(user_id)
+    bot_config = bot_service.get_config(user_id, INLINE_BOT_NAME)
+    if not bot_config or not bot_config.api_key or not bot_config.model:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Bot {INLINE_BOT_NAME!r} is not configured for this user (api_key and model required)",
+        )
 
     user_content = (
         f"<selection>\n{req.selection}\n</selection>\n\n"
@@ -39,7 +49,7 @@ async def inline(req: InlineRequest, request: Request) -> InlineResponse:
     )
 
     payload = {
-        "model": INLINE_MODEL,
+        "model": bot_config.model,
         "max_tokens": INLINE_MAX_TOKENS,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
