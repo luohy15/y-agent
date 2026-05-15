@@ -22,6 +22,7 @@ IDLE_EXIT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 10
 MAX_TAIL_RETRIES = 3
 HARD_TIMEOUT_SECONDS = 3600  # 1 hour
+ORPHAN_RUNNING_CHAT_GRACE_SECONDS = 15 * 60
 
 
 class TailRetryableError(Exception):
@@ -40,6 +41,8 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     idle_since = None
 
     try:
+        await _sweep_orphan_running_chats()
+
         while True:
             # 2a. Poll DynamoDB for running processes, acquire new ones
             if len(tail_tasks) < MAX_PROCESSES_PER_LAMBDA:
@@ -253,114 +256,27 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     )
 
     if result["is_done"]:
-        complete_process(chat_id, status=result["status"])
-
         # Mark chat as no longer running
         from storage.repository import chat as chat_repo
         fresh = await chat_service.get_chat_by_id(chat_id)
         if fresh:
             fresh.running = False
-
-            result_data = result.get("result_data")
-
-            # Only persist the run's session/thread id back to chat.external_id
-            # when the run's cwd matched chat.work_dir. Claude Code / Codex
-            # session files are scoped per cwd, so a session created in a
-            # mismatched cwd is unresumable from the chat's recorded work_dir
-            # and would permanently break future resumes if written back.
-            run_work_dir = proc.get("work_dir")
-            cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
-
-            if backend_type == "codex":
-                # Codex: usage from turn.completed event
-                if result.get("thread_id"):
-                    if cwd_matches:
-                        fresh.external_id = result["thread_id"]
-                    else:
-                        logger.warning(
-                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
-                            chat_id, run_work_dir, fresh.work_dir, result["thread_id"],
-                        )
-                if result_data and not result_data.get("is_error"):
-                    usage = result_data.get("usage", {})
-                    if usage:
-                        fresh.input_tokens = usage.get("input_tokens")
-                        fresh.output_tokens = usage.get("output_tokens")
-
-                if result["status"] == "error":
-                    error_text = (result_data.get("result") if result_data else None) or "Codex exited with an error."
-                    error_msg = Message(
-                        id=generate_message_id(),
-                        role="assistant",
-                        content=error_text,
-                        timestamp=get_utc_iso8601_timestamp(),
-                        unix_timestamp=get_unix_timestamp(),
-                    )
-                    fresh.messages.append(error_msg)
-            elif backend_type == "gemini_cli":
-                if result.get("session_id"):
-                    if cwd_matches:
-                        fresh.external_id = result["session_id"]
-                    else:
-                        logger.warning(
-                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (gemini session_id={})",
-                            chat_id, run_work_dir, fresh.work_dir, result["session_id"],
-                        )
-                if result_data and not result_data.get("is_error"):
-                    usage = result_data.get("usage") or {}
-                    if not usage:
-                        stats = result_data.get("stats") or {}
-                        usage = {
-                            "input_tokens": stats.get("input_tokens") or stats.get("inputTokens"),
-                            "output_tokens": stats.get("output_tokens") or stats.get("outputTokens"),
-                        }
-                    if usage:
-                        fresh.input_tokens = usage.get("input_tokens")
-                        fresh.output_tokens = usage.get("output_tokens")
-
-                if result["status"] == "error":
-                    error_text = (result_data.get("result") if result_data else None) or "Gemini CLI exited with an error."
-                    error_msg = Message(
-                        id=generate_message_id(),
-                        role="assistant",
-                        content=error_text,
-                        timestamp=get_utc_iso8601_timestamp(),
-                        unix_timestamp=get_unix_timestamp(),
-                    )
-                    fresh.messages.append(error_msg)
-            else:
-                # Claude Code: existing logic
-                if result.get("session_id"):
-                    if cwd_matches:
-                        fresh.external_id = result["session_id"]
-                    else:
-                        logger.warning(
-                            "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
-                            chat_id, run_work_dir, fresh.work_dir, result["session_id"],
-                        )
-
-                if result_data:
-                    model_usage = result_data.get("modelUsage", {})
-                    num_turns = result_data.get("num_turns") or 1
-                    if model_usage:
-                        fresh.input_tokens = sum(v.get("inputTokens", 0) for v in model_usage.values()) // num_turns
-                        fresh.output_tokens = sum(v.get("outputTokens", 0) for v in model_usage.values()) // num_turns
-                        fresh.cache_read_input_tokens = sum(v.get("cacheReadInputTokens", 0) for v in model_usage.values()) // num_turns
-                        fresh.cache_creation_input_tokens = sum(v.get("cacheCreationInputTokens", 0) for v in model_usage.values()) // num_turns
-                        fresh.context_window = max((v.get("contextWindow", 0) for v in model_usage.values()), default=None)
-
-                    if result["status"] == "error":
-                        error_text = result_data.get("result") or "Claude Code exited with an error."
-                        error_msg = Message(
-                            id=generate_message_id(),
-                            role="assistant",
-                            content=error_text,
-                            timestamp=get_utc_iso8601_timestamp(),
-                            unix_timestamp=get_unix_timestamp(),
-                        )
-                        fresh.messages.append(error_msg)
-
             await chat_repo.save_chat_by_id(fresh)
+
+            try:
+                await _apply_completion_metadata(
+                    fresh=fresh,
+                    result=result,
+                    result_data=result.get("result_data"),
+                    proc=proc,
+                    backend_type=backend_type,
+                    chat_id=chat_id,
+                )
+                await chat_repo.save_chat_by_id(fresh)
+            except Exception as e:
+                logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
+
+            complete_process(chat_id, status=result["status"])
 
             # Mark as unread on successful completion
             if not fresh.interrupted and result["status"] != "error":
@@ -381,6 +297,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         post_hooks = json.loads(post_hooks)
                     from worker.runner import _run_post_hooks
                     _run_post_hooks(fresh, user_id, post_hooks, trace_id=proc.get("trace_id"))
+        else:
+            complete_process(chat_id, status=result["status"])
 
         logger.info("tail_and_process done chat_id={} status={}", chat_id, result["status"])
     else:
@@ -395,6 +313,157 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, backend_type: str, chat_id: str):
+    """Persist backend completion metadata after running=False is durable."""
+    from storage.entity.dto import Message
+    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+    # Only persist the run's session/thread id back to chat.external_id
+    # when the run's cwd matched chat.work_dir. Claude Code / Codex
+    # session files are scoped per cwd, so a session created in a
+    # mismatched cwd is unresumable from the chat's recorded work_dir
+    # and would permanently break future resumes if written back.
+    run_work_dir = proc.get("work_dir")
+    cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
+
+    if backend_type == "codex":
+        # Codex: usage from turn.completed event
+        if result.get("thread_id"):
+            if cwd_matches:
+                fresh.external_id = result["thread_id"]
+            else:
+                logger.warning(
+                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
+                    chat_id, run_work_dir, fresh.work_dir, result["thread_id"],
+                )
+        if result_data and not result_data.get("is_error"):
+            usage = result_data.get("usage", {})
+            if usage:
+                fresh.input_tokens = usage.get("input_tokens")
+                fresh.output_tokens = usage.get("output_tokens")
+
+        if result["status"] == "error":
+            error_text = (result_data.get("result") if result_data else None) or "Codex exited with an error."
+            error_msg = Message(
+                id=generate_message_id(),
+                role="assistant",
+                content=error_text,
+                timestamp=get_utc_iso8601_timestamp(),
+                unix_timestamp=get_unix_timestamp(),
+            )
+            fresh.messages.append(error_msg)
+    elif backend_type == "gemini_cli":
+        if result.get("session_id"):
+            if cwd_matches:
+                fresh.external_id = result["session_id"]
+            else:
+                logger.warning(
+                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (gemini session_id={})",
+                    chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                )
+        if result_data and not result_data.get("is_error"):
+            usage = result_data.get("usage") or {}
+            if not usage:
+                stats = result_data.get("stats") or {}
+                usage = {
+                    "input_tokens": stats.get("input_tokens") or stats.get("inputTokens"),
+                    "output_tokens": stats.get("output_tokens") or stats.get("outputTokens"),
+                }
+            if usage:
+                fresh.input_tokens = usage.get("input_tokens")
+                fresh.output_tokens = usage.get("output_tokens")
+
+        if result["status"] == "error":
+            error_text = (result_data.get("result") if result_data else None) or "Gemini CLI exited with an error."
+            error_msg = Message(
+                id=generate_message_id(),
+                role="assistant",
+                content=error_text,
+                timestamp=get_utc_iso8601_timestamp(),
+                unix_timestamp=get_unix_timestamp(),
+            )
+            fresh.messages.append(error_msg)
+    else:
+        # Claude Code: existing logic
+        if result.get("session_id"):
+            if cwd_matches:
+                fresh.external_id = result["session_id"]
+            else:
+                logger.warning(
+                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
+                    chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                )
+
+        if result_data:
+            _apply_claude_usage(fresh, result_data)
+
+            if result["status"] == "error":
+                error_text = result_data.get("result") or "Claude Code exited with an error."
+                error_msg = Message(
+                    id=generate_message_id(),
+                    role="assistant",
+                    content=error_text,
+                    timestamp=get_utc_iso8601_timestamp(),
+                    unix_timestamp=get_unix_timestamp(),
+                )
+                fresh.messages.append(error_msg)
+
+
+def _iter_model_usage_entries(model_usage):
+    if isinstance(model_usage, dict):
+        values = model_usage.values()
+    elif isinstance(model_usage, list):
+        values = model_usage
+    else:
+        return []
+    return [entry for entry in values if isinstance(entry, dict)]
+
+
+def _apply_claude_usage(fresh, result_data: dict):
+    if not isinstance(result_data, dict):
+        return
+
+    model_usage = result_data.get("modelUsage", {})
+    usage_entries = _iter_model_usage_entries(model_usage)
+    if not usage_entries:
+        return
+
+    num_turns = result_data.get("num_turns") or 1
+    if not isinstance(num_turns, int) or num_turns <= 0:
+        num_turns = 1
+
+    fresh.input_tokens = sum(_int_value(entry.get("inputTokens")) for entry in usage_entries) // num_turns
+    fresh.output_tokens = sum(_int_value(entry.get("outputTokens")) for entry in usage_entries) // num_turns
+    fresh.cache_read_input_tokens = sum(_int_value(entry.get("cacheReadInputTokens")) for entry in usage_entries) // num_turns
+    fresh.cache_creation_input_tokens = sum(_int_value(entry.get("cacheCreationInputTokens")) for entry in usage_entries) // num_turns
+    fresh.context_window = max((_int_value(entry.get("contextWindow")) for entry in usage_entries), default=None)
+
+
+def _int_value(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _sweep_orphan_running_chats():
+    from storage.repository import chat as chat_repo
+
+    try:
+        running_process_ids = {proc["chat_id"] for proc in get_running_processes() if proc.get("chat_id")}
+        cutoff_unix = int(time.time()) - ORPHAN_RUNNING_CHAT_GRACE_SECONDS
+        orphan_chat_ids = chat_repo.find_running_chat_ids_older_than(cutoff_unix)
+        for orphan_chat_id in orphan_chat_ids:
+            if orphan_chat_id in running_process_ids:
+                continue
+            await _mark_chat_stopped(orphan_chat_id)
+            logger.warning("swept orphan running chat: chat_id={}", orphan_chat_id)
+    except Exception as e:
+        logger.exception("orphan running chat sweep failed: {}", e)
+
+    return
 
 
 async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
