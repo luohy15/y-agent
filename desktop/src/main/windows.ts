@@ -41,6 +41,9 @@ export function createPromptWindow(): BrowserWindow {
 export function showPromptWindow(selection: string): void {
   if (!state.promptWindow) createPromptWindow();
   state.lastSelection = selection;
+  // Snapshot whether Yovy was already in front so dismissal can decide between
+  // returning focus to the previous app (app.hide) vs. leaving the main window up.
+  state.yovyWasFront = !!(state.mainWindow && state.mainWindow.isFocused());
   const promptWindow = state.promptWindow!;
   const send = () => {
     promptWindow.webContents.send('prompt:init', { selection });

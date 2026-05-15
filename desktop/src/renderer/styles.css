@@ -60,7 +60,22 @@ body {
   padding: 0 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.section-label {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #586e75;
+  -webkit-app-region: no-drag;
+  user-select: none;
 }
 
 .preview {
