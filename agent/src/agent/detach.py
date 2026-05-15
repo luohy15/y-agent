@@ -81,6 +81,9 @@ def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optiona
         remote_paths = []
         for index, image_path in enumerate(images):
             source = Path(image_path).expanduser()
+            if not source.exists():
+                remote_paths.append(image_path)
+                continue
             remote_path = f"{remote_dir}/{index}-{source.name}"
             sftp.put(str(source), remote_path)
             remote_paths.append(remote_path)

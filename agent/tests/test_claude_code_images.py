@@ -30,11 +30,31 @@ class _FakeSftp:
 
 
 class _FakeClient:
-    def __init__(self):
+    def __init__(self, exec_output=""):
         self.sftp = _FakeSftp()
+        self.exec_commands = []
+        self.exec_output = exec_output
 
     def open_sftp(self):
         return self.sftp
+
+    def exec_command(self, command):
+        self.exec_commands.append(command)
+
+        class _Channel:
+            def recv_exit_status(self):
+                return 0
+
+        class _Stream:
+            channel = _Channel()
+
+            def __init__(self, data=""):
+                self.data = data
+
+            def read(self):
+                return self.data.encode("utf-8")
+
+        return None, _Stream(self.exec_output), _Stream("")
 
 
 class ClaudeCodeImageStdinTest(unittest.TestCase):
@@ -52,6 +72,25 @@ class ClaudeCodeImageStdinTest(unittest.TestCase):
         self.assertEqual(content[1]["type"], "image")
         self.assertEqual(content[1]["source"]["media_type"], "image/png")
         self.assertEqual(content[1]["source"]["data"], "cG5nLWJ5dGVz")
+
+    def test_claude_stdin_base64_encodes_remote_only_image_over_ssh(self):
+        client = _FakeClient(exec_output="cmVtb3RlLWJ5dGVz")
+
+        _claude_write_stdin(
+            client,
+            "chat-1",
+            "describe",
+            ["/Users/roy/luohy15/assets/images/photo.jpg"],
+        )
+
+        payload = json.loads(client.sftp.files["/tmp/cc-chat-1.stdin"])
+        content = payload["message"]["content"]
+        self.assertEqual(content[1]["source"]["media_type"], "image/jpeg")
+        self.assertEqual(content[1]["source"]["data"], "cmVtb3RlLWJ5dGVz")
+        self.assertEqual(
+            client.exec_commands,
+            ["base64 -w0 '/Users/roy/luohy15/assets/images/photo.jpg'"],
+        )
 
 
 if __name__ == "__main__":
