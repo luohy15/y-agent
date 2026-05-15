@@ -1,8 +1,5 @@
 import os
 import re
-import base64
-import binascii
-import errno
 from pathlib import Path
 from typing import List, Optional
 
@@ -18,6 +15,7 @@ from storage.service.tg_topic import auto_discover_topic
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
+from api.util.images import IMAGE_ASSETS_DIR, resolve_send_image_path, save_send_image_upload
 
 router = APIRouter(prefix="/telegram")
 
@@ -34,7 +32,6 @@ TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
-IMAGE_ASSETS_DIR = Path(os.environ.get("Y_AGENT_IMAGE_DIR", "/Users/roy/luohy15/assets/images"))
 
 
 def _bot_api_url(method: str) -> str:
@@ -90,8 +87,8 @@ async def telegram_send(req: SendMessageRequest, request: Request):
     bot_token, tg_chat_id, thread_id = target
     import asyncio
     if images or image_uploads:
-        safe_image_paths = [_resolve_send_image_path(image_path) for image_path in images]
-        safe_image_paths.extend(_save_send_image_upload(upload) for upload in image_uploads)
+        safe_image_paths = [resolve_send_image_path(image_path) for image_path in images]
+        safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload") for upload in image_uploads)
         for index, image_path in enumerate(safe_image_paths):
             caption = text if index == 0 else None
             await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption, thread_id)
@@ -239,44 +236,6 @@ def _save_telegram_image(content: bytes, ext: str, file_id: str) -> Path:
     image_path.write_bytes(content)
     return image_path
 
-
-def _resolve_send_image_path(image_path: str) -> Path:
-    path = Path(image_path).expanduser().resolve()
-    assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
-    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
-        raise HTTPException(status_code=400, detail=f"invalid image path: {image_path}")
-    if path != assets_dir and assets_dir not in path.parents:
-        raise HTTPException(status_code=400, detail="image must be under assets/images")
-    return path
-
-
-def _save_send_image_upload(upload: TelegramImageUpload) -> Path:
-    original_name = Path(upload.filename).name
-    suffix = Path(original_name).suffix.lower()
-    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    if suffix not in allowed_suffixes:
-        raise HTTPException(status_code=400, detail=f"invalid image filename: {upload.filename}")
-    try:
-        content = base64.b64decode(upload.content_base64, validate=True)
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="invalid image upload")
-    if not content:
-        raise HTTPException(status_code=400, detail="empty image upload")
-
-    assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
-    try:
-        assets_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        if exc.errno != errno.EROFS:
-            raise
-        assets_dir = Path("/tmp/y-agent-assets/images")
-        assets_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = get_utc_iso8601_timestamp().replace(":", "").replace("+", "Z")
-    stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(original_name).stem).strip("-") or "image"
-    image_path = assets_dir / f"telegram-upload-{timestamp}-{stem}{suffix}"
-    image_path.write_bytes(content)
-    return image_path
 
 
 async def _handle_bind(telegram_chat_id, telegram_user_id, text: str, message_thread_id=None):

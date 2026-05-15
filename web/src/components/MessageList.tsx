@@ -8,6 +8,7 @@ export interface Message {
   arguments?: Record<string, unknown>;
   toolCallId?: string;
   timestamp?: string;
+  images?: string[];
 }
 
 interface ContentPart {
@@ -164,7 +165,7 @@ function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: strin
       {expanded && (
         <div className="flex flex-col gap-1.5 mt-1 ml-6.5">
           {messages.map((m, j) => (
-            <MessageBubble key={startIndex + j} role={m.role} content={m.content} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} />
+            <MessageBubble key={startIndex + j} role={m.role} content={m.content} images={m.images} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} />
           ))}
         </div>
       )}
@@ -272,7 +273,7 @@ function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExp
             }
             return (
               <div key={ei.idx}>
-                <MessageBubble role={ei.message.role} content={ei.message.content} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} />
+                <MessageBubble role={ei.message.role} content={ei.message.content} images={ei.message.images} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} />
               </div>
             );
           })}
@@ -319,7 +320,7 @@ export default function MessageList({ messages, running, centered, showProgress,
         const isUser = item.message.role === "user";
         return (
           <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
-            <MessageBubble role={item.message.role} content={item.message.content} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
+            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
           </div>
         );
       })}

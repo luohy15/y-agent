@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
@@ -11,12 +11,20 @@ from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from storage.entity.dto import Message
+from api.util.images import resolve_message_image_paths
 
 router = APIRouter(prefix="/chat")
 
 
+class ImageUpload(BaseModel):
+    filename: str
+    content_base64: str
+
+
 class CreateChatRequest(BaseModel):
     prompt: str
+    images: Optional[List[str]] = None
+    image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
     chat_id: Optional[str] = None
     vm_name: Optional[str] = None
@@ -31,6 +39,8 @@ class CreateChatResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     chat_id: str
     prompt: str
+    images: Optional[List[str]] = None
+    image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
@@ -43,6 +53,19 @@ class StopChatRequest(BaseModel):
 
 def _get_user_id(request: Request) -> int:
     return request.state.user_id
+
+
+def _message_dict(role: str, content: str, images: Optional[List[str]] = None) -> dict:
+    data = {
+        "role": role,
+        "content": content,
+        "timestamp": get_utc_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+    }
+    if images:
+        data["images"] = images
+    return data
 
 
 @router.get("/list")
@@ -96,15 +119,10 @@ async def get_chats(
 async def post_create_chat(req: CreateChatRequest, request: Request):
     chat_id = req.chat_id or generate_id()
     user_id = _get_user_id(request)
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload")
 
     # Build user message
-    user_msg = Message.from_dict({
-        "role": "user",
-        "content": req.prompt,
-        "timestamp": get_utc_iso8601_timestamp(),
-        "unix_timestamp": get_unix_timestamp(),
-        "id": generate_message_id(),
-    })
+    user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
 
     chat = await chat_service.create_chat(
         user_id,
@@ -136,13 +154,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         if not work_dir:
             work_dir = chat.work_dir
 
-    user_msg = Message.from_dict({
-        "role": "user",
-        "content": req.prompt,
-        "timestamp": get_utc_iso8601_timestamp(),
-        "unix_timestamp": get_unix_timestamp(),
-        "id": generate_message_id(),
-    })
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload")
+    user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
     chat.messages.append(user_msg)
     chat.interrupted = False
 
@@ -382,6 +395,8 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
 
 class NotifyRequest(BaseModel):
     message: str
+    images: Optional[List[str]] = None
+    image_uploads: Optional[List[ImageUpload]] = None
     topic: Optional[str] = None
     skill: Optional[str] = None
     chat_id: Optional[str] = None
@@ -470,13 +485,8 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
         parts.append(f'from_chat:{req.from_chat_id}')
     parts.append(f'to_chat:{chat_id}')
     msg_content = f"[{' '.join(parts)}]\n{req.message}"
-    user_msg = Message.from_dict({
-        "role": "user",
-        "content": msg_content,
-        "timestamp": get_utc_iso8601_timestamp(),
-        "unix_timestamp": get_unix_timestamp(),
-        "id": generate_message_id(),
-    })
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload")
+    user_msg = Message.from_dict(_message_dict("user", msg_content, images))
 
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir

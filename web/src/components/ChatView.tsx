@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import MessageList, { type Message } from "./MessageList";
-import ChatInput, { type ChatInputHandle } from "./ChatInput";
+import ChatInput, { type ChatInputHandle, type ImageUploadPayload } from "./ChatInput";
 import ChatToc from "./ChatToc";
 import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
@@ -258,15 +258,15 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     return () => window.removeEventListener("keydown", handler);
   }, [completed, stopChat]);
 
-  const sendFollowUp = useCallback(async () => {
+  const sendFollowUp = useCallback(async (imageUploads?: ImageUploadPayload[]) => {
     const text = followUp.trim();
-    if (!text || sending || !chatId) return;
+    if ((!text && !imageUploads?.length) || sending || !chatId) return;
     setSending(true);
     try {
       await authFetch(`${API}/api/chat/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}), ...(chatWorkDir ? { work_dir: chatWorkDir } : {}) }),
+        body: JSON.stringify({ chat_id: chatId, prompt: text, ...(imageUploads?.length ? { image_uploads: imageUploads } : {}), ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}), ...(chatWorkDir ? { work_dir: chatWorkDir } : {}) }),
       });
       setFollowUp("");
       connectSSE(chatId, idxRef.current);
@@ -275,9 +275,9 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     }
   }, [followUp, sending, chatId, vmName, botName, chatWorkDir, connectSSE]);
 
-  const sendSteer = useCallback(async () => {
+  const sendSteer = useCallback(async (imageUploads?: ImageUploadPayload[]) => {
     const text = followUp.trim();
-    if (!text || sending || !chatId) return;
+    if ((!text && !imageUploads?.length) || sending || !chatId) return;
     setSending(true);
     try {
       await authFetch(`${API}/api/chat/message`, {
@@ -286,6 +286,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         body: JSON.stringify({
           chat_id: chatId,
           prompt: text,
+          ...(imageUploads?.length ? { image_uploads: imageUploads } : {}),
           ...(vmName ? { vm_name: vmName } : {}),
           ...(botName ? { bot_name: botName } : {}),
           ...(chatWorkDir ? { work_dir: chatWorkDir } : {}),
@@ -315,15 +316,15 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     onOpenFile?.(normalized);
   }, [chatWorkDir, defaultWorkDir, onOpenFile]);
 
-  const createChat = useCallback(async () => {
+  const createChat = useCallback(async (imageUploads?: ImageUploadPayload[]) => {
     const text = newPrompt.trim();
-    if (!text || sending || !onChatCreated) return;
+    if ((!text && !imageUploads?.length) || sending || !onChatCreated) return;
     setSending(true);
     try {
       const res = await authFetch(`${API}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}) }),
+        body: JSON.stringify({ prompt: text, ...(imageUploads?.length ? { image_uploads: imageUploads } : {}), ...(vmName ? { vm_name: vmName } : {}), ...(botName ? { bot_name: botName } : {}) }),
       });
       const data = await res.json();
       const now = new Date().toISOString();

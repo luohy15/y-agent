@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { API, authFetch } from "../api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
@@ -13,10 +14,56 @@ interface MessageBubbleProps {
   toolName?: string;
   arguments?: Record<string, unknown>;
   timestamp?: string;
+  images?: string[];
   dimmed?: boolean;
   onOpenFile?: (path: string) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+}
+
+function MessageImages({ images }: { images?: string[] }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!images?.length) return;
+    let cancelled = false;
+    const created: string[] = [];
+    Promise.all(images.map(async (imagePath) => {
+      const res = await authFetch(`${API}/api/file/raw?path=${encodeURIComponent(imagePath)}`);
+      if (!res.ok) throw new Error(`failed to load image: ${imagePath}`);
+      const url = URL.createObjectURL(await res.blob());
+      created.push(url);
+      return [imagePath, url] as const;
+    })).then((entries) => {
+      if (cancelled) {
+        entries.forEach(([, url]) => URL.revokeObjectURL(url));
+        return;
+      }
+      setUrls(Object.fromEntries(entries));
+    }).catch(() => {
+      created.forEach((url) => URL.revokeObjectURL(url));
+    });
+    return () => {
+      cancelled = true;
+      created.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [images]);
+
+  if (!images?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {images.map((imagePath) => {
+        const url = urls[imagePath];
+        return url ? (
+          <button key={imagePath} type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")} className="block cursor-zoom-in">
+            <img src={url} alt={imagePath.split("/").pop() || "attached image"} className="max-h-64 max-w-full rounded border border-sol-base02 object-contain" />
+          </button>
+        ) : (
+          <div key={imagePath} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02 animate-pulse" />
+        );
+      })}
+    </div>
+  );
 }
 
 function truncate(s: string, n: number): string {
@@ -306,7 +353,7 @@ function ToolCallCompact({
 
 const USER_MSG_MAX_LINES = 3;
 
-function UserMessage({ content, timestamp, onSelectChat, onSelectTrace }: { content: string; timestamp?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
+function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }: { content: string; images?: string[]; timestamp?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -352,6 +399,7 @@ function UserMessage({ content, timestamp, onSelectChat, onSelectTrace }: { cont
                 {expanded ? "Show less" : "Show more"}
               </button>
             )}
+            <MessageImages images={images} />
           </div>
         </div>
       </div>
@@ -359,7 +407,7 @@ function UserMessage({ content, timestamp, onSelectChat, onSelectTrace }: { cont
   );
 }
 
-export default function MessageBubble({ role, content, toolName, arguments: args, timestamp, dimmed, onOpenFile, onSelectChat, onSelectTrace }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, images, toolName, arguments: args, timestamp, dimmed, onOpenFile, onSelectChat, onSelectTrace }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
@@ -377,7 +425,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
 
   // User message: terminal input style with > prompt and grey background
   if (role === "user") {
-    return <UserMessage content={content} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
+    return <UserMessage content={content} images={images} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
   }
 
   // Assistant message: rendered markdown like CLI
@@ -424,6 +472,7 @@ export default function MessageBubble({ role, content, toolName, arguments: args
             },
           }}
         >{content}</ReactMarkdown>
+        <MessageImages images={images} />
       </div>
     </div>
   );
