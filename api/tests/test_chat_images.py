@@ -58,6 +58,21 @@ class ChatImagesApiTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(existing.messages[-1].images, [str(image_path.resolve())])
 
+    async def test_send_message_accepts_missing_ec2_asset_image_path(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            assets_dir = Path(tmp_dir).resolve()
+            image_path = assets_dir / "missing-on-lambda.jpg"
+            existing = self._chat()
+            req = chat_controller.SendMessageRequest(chat_id="abc123", prompt="existing", images=[str(image_path)])
+
+            with patch("api.util.images.IMAGE_ASSETS_DIR", assets_dir), \
+                 patch.object(chat_controller.chat_service, "get_chat", new=AsyncMock(return_value=existing)), \
+                 patch("storage.repository.chat.save_chat_by_id", new=AsyncMock()), \
+                 patch.object(chat_controller, "send_chat_message"):
+                await chat_controller.post_send_message(req, self._request())
+
+            self.assertEqual(existing.messages[-1].images, [str(image_path.resolve())])
+
     async def test_notify_accepts_image_uploads(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             assets_dir = Path(tmp_dir).resolve()

@@ -8,7 +8,7 @@ from yagent.api_client import api_request
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
-from yagent.util.images import image_upload_payload
+from yagent.util.images import stage_image_path
 
 
 def _stop_chat(chat_id: str):
@@ -59,7 +59,7 @@ def _fire_and_forget(
         "from_topic": from_topic,
     }
     if images:
-        payload["image_uploads"] = [image_upload_payload(image) for image in images]
+        payload["images"] = [stage_image_path(image) for image in images]
     if topic:
         payload["topic"] = topic
     if skill:

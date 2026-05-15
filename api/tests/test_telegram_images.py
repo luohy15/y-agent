@@ -37,6 +37,13 @@ class TelegramImageStorageTest(unittest.TestCase):
                 with self.assertRaises(Exception):
                     images.resolve_send_image_path(str(image_path))
 
+    def test_resolve_message_image_paths_allows_missing_assets_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            assets_dir = Path(tmp_dir) / "assets" / "images"
+            image_path = assets_dir / "missing.jpg"
+            with patch("api.util.images.IMAGE_ASSETS_DIR", assets_dir):
+                self.assertEqual(images.resolve_message_image_paths([str(image_path)], None), [str(image_path.resolve())])
+
     def test_save_send_image_upload_uses_assets_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             upload = telegram.TelegramImageUpload(
