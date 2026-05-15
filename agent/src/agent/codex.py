@@ -279,9 +279,12 @@ class CodexStreamConverter:
 # Detach mode: start + tail SSH output
 # ---------------------------------------------------------------------------
 
-def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str) -> str:
+def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `<codex cmd...> <prompt>` — codex takes prompt as last positional."""
-    full_cmd = list(cmd) + [prompt]
+    full_cmd = list(cmd)
+    for image_path in images or []:
+        full_cmd.extend(["--image", image_path])
+    full_cmd.append(prompt)
     return " ".join(_shell_quote(c) for c in full_cmd)
 
 
@@ -306,6 +309,7 @@ async def start_detached_codex_ssh(
     chat_id: str,
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
+    images: Optional[List[str]] = None,
     ssh_client=None,
 ) -> Optional[str]:
     """Start `codex exec` in a detached tmux session on remote host.
@@ -328,6 +332,7 @@ async def start_detached_codex_ssh(
         vm_config=vm_config,
         spec=_codex_spec(),
         env=env,
+        images=images,
         ssh_client=ssh_client,
     )
 

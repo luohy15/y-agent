@@ -14,6 +14,7 @@ refactor is scoped to the start_* path.
 import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from agent.claude_code import (
@@ -54,19 +55,38 @@ def _with_ssh_client(vm_config, ssh_client=None):
 class DetachBackendSpec:
     """Per-backend hooks for `_start_detached_tmux`.
 
-    - `setup(client, chat_id, prompt)` — optional, runs after stale cleanup
+    - `setup(client, chat_id, prompt, images)` — optional, runs after stale cleanup
       and before the tmux command is assembled (e.g. write a stream-json
       stdin file via SFTP).
-    - `build_exec(cmd, chat_id, prompt) -> str` — the exec command string that
+    - `build_exec(cmd, chat_id, prompt, images) -> str` — the exec command string that
       goes between the `cd` clause and the stdout/stderr redirect.
     - `parse_initial(obj) -> Optional[str]` — inspect a parsed stream-json
       event from the first few stdout lines and return the session/thread id
       if this event carries it; return None to keep scanning.
     """
 
-    build_exec: Callable[[List[str], str, str], str]
+    build_exec: Callable[[List[str], str, str, Optional[List[str]]], str]
     parse_initial: Callable[[Dict], Optional[str]]
-    setup: Optional[Callable[[object, str, str], None]] = None
+    setup: Optional[Callable[[object, str, str, Optional[List[str]]], None]] = None
+    upload_images: bool = True
+
+
+def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optional[List[str]]:
+    if not images:
+        return None
+    remote_dir = f"/tmp/cc-{chat_id}-images"
+    _ssh_exec(client, f"mkdir -p {_shell_quote(remote_dir)}")
+    sftp = client.open_sftp()
+    try:
+        remote_paths = []
+        for index, image_path in enumerate(images):
+            source = Path(image_path).expanduser()
+            remote_path = f"{remote_dir}/{index}-{source.name}"
+            sftp.put(str(source), remote_path)
+            remote_paths.append(remote_path)
+        return remote_paths
+    finally:
+        sftp.close()
 
 
 async def _start_detached_tmux(
@@ -77,6 +97,7 @@ async def _start_detached_tmux(
     vm_config,
     spec: DetachBackendSpec,
     env: Optional[Dict[str, str]] = None,
+    images: Optional[List[str]] = None,
     ssh_client=None,
 ) -> Optional[str]:
     """Shared skeleton for starting a detached tmux session over SSH.
@@ -102,12 +123,15 @@ async def _start_detached_tmux(
         _ssh_exec(
             client,
             f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
-            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null",
+            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
+            f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null",
         )
+
+        exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
 
         # 2. Per-backend setup (e.g. write SFTP stdin file for claude)
         if spec.setup:
-            spec.setup(client, chat_id, prompt)
+            spec.setup(client, chat_id, prompt, exec_images)
 
         # 3. Assemble tmux inner command
         inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
@@ -117,7 +141,7 @@ async def _start_detached_tmux(
         if cwd:
             inner_parts.append(f"cd {_shell_quote(cwd)} &&")
 
-        exec_cmd = spec.build_exec(cmd, chat_id, prompt)
+        exec_cmd = spec.build_exec(cmd, chat_id, prompt, exec_images)
         inner_parts.append(
             f"{exec_cmd} "
             f"> {_shell_quote(stdout_file)} "

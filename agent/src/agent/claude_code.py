@@ -14,8 +14,11 @@ y-agent stores messages as:
 """
 
 import asyncio
+import base64
 import json
+import mimetypes
 import re
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -393,13 +396,30 @@ def _ssh_exec(client, cmd: str) -> str:
 # Detached SSH runner (tmux-based, for Lambda timeout resilience)
 # ---------------------------------------------------------------------------
 
-def _claude_write_stdin(client, chat_id: str, prompt: str) -> None:
+def _claude_image_block(image_path: str) -> Dict:
+    path = Path(image_path).expanduser()
+    media_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+        },
+    }
+
+
+def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None) -> None:
     """Write the prompt to /tmp/cc-<chat_id>.stdin as stream-json via SFTP."""
+    content = [{"type": "text", "text": prompt}]
+    for image_path in images or []:
+        content.append(_claude_image_block(image_path))
+
     payload = json.dumps({
         "type": "user",
         "message": {
             "role": "user",
-            "content": [{"type": "text", "text": prompt}],
+            "content": content,
         },
     }) + "\n"
     sftp = client.open_sftp()
@@ -410,7 +430,7 @@ def _claude_write_stdin(client, chat_id: str, prompt: str) -> None:
         sftp.close()
 
 
-def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str) -> str:
+def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `tail -f <stdin> | claude -p --input-format stream-json ...`."""
     full_cmd = cmd + ["--input-format", "stream-json"]
     claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
@@ -430,6 +450,7 @@ def _claude_spec() -> "DetachBackendSpec":
         setup=_claude_write_stdin,
         build_exec=_claude_build_exec,
         parse_initial=_claude_parse_initial,
+        upload_images=False,
     )
 
 
@@ -440,6 +461,7 @@ async def start_detached_ssh(
     chat_id: str,
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
+    images: Optional[List[str]] = None,
     ssh_client=None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
@@ -460,6 +482,7 @@ async def start_detached_ssh(
         vm_config=vm_config,
         spec=_claude_spec(),
         env=env,
+        images=images,
         ssh_client=ssh_client,
     )
 

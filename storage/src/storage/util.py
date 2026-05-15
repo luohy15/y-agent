@@ -253,6 +253,34 @@ def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=
                 client.post(url, json=fallback_payload)
 
 
+def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str = None, message_thread_id=None) -> None:
+    """Send a local image file to Telegram with an optional caption."""
+    import os
+
+    import httpx
+
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"image not found: {image_path}")
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = markdown_to_telegram_html(caption)[:1024]
+        data["parse_mode"] = "HTML"
+    if message_thread_id:
+        data["message_thread_id"] = message_thread_id
+
+    with httpx.Client() as client:
+        with open(image_path, "rb") as image_file:
+            resp = client.post(url, data=data, files={"photo": image_file})
+        if not resp.is_success and caption:
+            data["caption"] = caption[:1024]
+            data.pop("parse_mode", None)
+            with open(image_path, "rb") as image_file:
+                resp = client.post(url, data=data, files={"photo": image_file})
+        resp.raise_for_status()
+
+
 def build_message_path(messages: List, message_id: str) -> List:
     """Traverse parent_id from a given message back to root, returning messages forming the conversation path."""
     msg_map = {}
