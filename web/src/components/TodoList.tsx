@@ -34,7 +34,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [readAllBusy, setReadAllBusy] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string; pinned?: boolean }; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string; pinned?: boolean; has_unread?: boolean }; x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
@@ -178,7 +178,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                   }
                   onSelectTodo(t.todo_id);
                 }}
-                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority, pinned: t.pinned }, x: e.clientX, y: e.clientY }); }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority, pinned: t.pinned, has_unread: t.has_unread }, x: e.clientX, y: e.clientY }); }}
                 onPointerDown={(e) => {
                   if (e.pointerType !== "touch") return;
                   longPressTriggeredRef.current = false;
@@ -187,7 +187,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                   const y = e.clientY;
                   longPressTimerRef.current = window.setTimeout(() => {
                     longPressTriggeredRef.current = true;
-                    setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority, pinned: t.pinned }, x, y });
+                    setContextMenu({ todo: { todo_id: t.todo_id, status: t.status, priority: t.priority, pinned: t.pinned, has_unread: t.has_unread }, x, y });
                   }, 500);
                 }}
                 onPointerMove={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
