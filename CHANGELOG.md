@@ -29,6 +29,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Codex tool detail rendering (2081)** — Codex stream conversion and chat/share message parsing now expose richer tool details in the UI.
 - **Local file links in chat and FileViewer (2083)** — local file path references are parsed into clickable links across FileViewer and chat messages.
 - **Bot config OpenRouter clearing** — `y bot update --clear-openrouter` clears OpenRouter settings from an existing bot config.
+- **Inline bot routing + desktop popup refinement** — `/api/inline` now routes through each user's named `inline` bot, while the macOS desktop app has been converted to TS/React with a three-section popup, more reliable selection capture, and the new `⌘⌃Y` shortcut.
+- **Image attachments for chat + telegram** — chat input, `y chat click`, `y telegram send`, and telegram/API controllers now accept uploaded images; backend launchers pass staged image paths through Claude/Codex/Gemini runners, pasted/attached images render in chat, and completed image chats clear the running state durably (2104).
+- **OpenAI image provider** — `y image generate` can use an OpenAI-backed image provider in addition to the existing generation path.
 
 ### Changed
 - **TodoContextMenu status options inlined (1994)** — status choices moved out of the "Status" submenu into an inline radio row at the top of the context menu, refining the 0.5.12 submenu version.
@@ -36,12 +39,14 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Note sidebar drops the "Weekly" tab (2064)** — NoteList top-level Weekly tab removed; weekly notes still reachable through Finance → weekly.
 - **Chat read/unread no longer bumps `updated_at` (2051)** — `set_chat_unread` / `mark_chats_read_by_trace` / `mark_latest_chat_unread_by_trace` switched to raw SQL so SQLAlchemy's `onupdate` doesn't bump the chat row, keeping the chat list order stable when toggling read state.
 - **`y chat --bot` replaces `--backend`** — both interactive and one-shot chat CLI modes now select named bot configs instead of raw backend flags.
+- **Todo read controls (2095 / 2101)** — Todo context menu now toggles read/unread based on current unread state, and TodoList adds select mode plus bulk mark-read via `POST /api/chat/trace/read_bulk`.
 
 ### Fixed
 - **Telegram resume preserves `work_dir` (2011)** — `_handle_message` and `_handle_routed_message` now forward the chat's `work_dir` when re-queuing, so the worker resumes the existing claude-code session under the same cwd instead of falling back to the VM default.
 - **Backend launch and resume reliability** — backend launch errors are persisted, resumed chats prefer their stored backend, flexible backend defaults are preserved, and Gemini headless runs are treated as trusted.
 - **Codex blocker detection (2077)** — Codex monitor/runner handling better surfaces blocked sessions and tool events.
 - **`y bot list -v` OpenRouter crash** — verbose bot listing no longer raises `UnboundLocalError` when OpenRouter config is absent.
+- **Telegram image staging** — telegram image uploads are staged under Lambda `/tmp` and passed through the API send path reliably.
 
 ### Removed
 
