@@ -12,9 +12,11 @@ refactor is scoped to the start_* path.
 """
 
 import asyncio
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Callable, Dict, List, Optional
 
 from agent.claude_code import (
@@ -77,10 +79,13 @@ def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optiona
     remote_dir = f"/tmp/cc-{chat_id}-images"
     _ssh_exec(client, f"mkdir -p {_shell_quote(remote_dir)}")
     sftp = client.open_sftp()
+    staged_files: List[Path] = []
     try:
         remote_paths = []
         for index, image_path in enumerate(images):
-            source = Path(image_path).expanduser()
+            source = _download_s3_to_tmp(image_path, chat_id) if _is_s3_uri(image_path) else Path(image_path).expanduser()
+            if _is_s3_uri(image_path):
+                staged_files.append(source)
             if not source.exists():
                 remote_paths.append(image_path)
                 continue
@@ -90,6 +95,32 @@ def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optiona
         return remote_paths
     finally:
         sftp.close()
+        for staged_file in staged_files:
+            try:
+                staged_file.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _is_s3_uri(uri: str) -> bool:
+    return isinstance(uri, str) and uri.startswith("s3://")
+
+
+def _download_s3_to_tmp(uri: str, chat_id: str = "image") -> Path:
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError(f"invalid s3 image uri: {uri}")
+
+    key = parsed.path.lstrip("/")
+    filename = Path(key).name or "image"
+    tmp_dir = Path(os.environ.get("Y_AGENT_IMAGE_TMP_DIR", "/tmp")) / f"cc-{chat_id}-images"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    target = tmp_dir / filename
+
+    import boto3
+
+    boto3.client("s3").download_file(parsed.netloc, key, str(target))
+    return target
 
 
 async def _start_detached_tmux(

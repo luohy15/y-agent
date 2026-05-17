@@ -16,7 +16,7 @@ class PollLoop:
             check_interrupted_fn=lambda: check_interrupted(chat_id),
             on_interrupt=lambda: kill_and_close(),
             check_steer_fn=lambda: get_new_messages(),
-            on_steer=lambda text, msg_id: write_to_stdin(text, msg_id),
+            on_steer=lambda text, msg_id, images: write_to_stdin(text, msg_id, images),
         )
         loop.start()
         # ... do work ...
@@ -27,8 +27,8 @@ class PollLoop:
         self,
         check_interrupted_fn: Optional[Callable[[], bool]] = None,
         on_interrupt: Optional[Callable[[], None]] = None,
-        check_steer_fn: Optional[Callable[[], List[Tuple[str, str]]]] = None,
-        on_steer: Optional[Callable[[str, str], None]] = None,
+        check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
+        on_steer: Optional[Callable[[str, str, list], None]] = None,
     ):
         self._check_interrupted_fn = check_interrupted_fn
         self._on_interrupt = on_interrupt
@@ -71,10 +71,19 @@ class PollLoop:
             if self._check_steer_fn and self._on_steer:
                 try:
                     msgs = self._check_steer_fn()
-                    for text, msg_id in msgs:
-                        self._on_steer(text, msg_id)
+                    for msg in msgs:
+                        text, msg_id, images = _normalize_steer_msg(msg)
+                        self._on_steer(text, msg_id, images)
                 except Exception as e:
                     logger.warning("poll_loop steer failed: {}", e)
                     break
 
             self._done.wait(1)
+
+
+def _normalize_steer_msg(msg):
+    if len(msg) == 2:
+        text, msg_id = msg
+        return text, msg_id, []
+    text, msg_id, images = msg
+    return text, msg_id, list(images or [])

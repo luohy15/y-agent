@@ -1,7 +1,9 @@
 import json
+from io import BytesIO
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from agent.claude_code import _claude_write_stdin
 
@@ -91,6 +93,23 @@ class ClaudeCodeImageStdinTest(unittest.TestCase):
             client.exec_commands,
             ["base64 -w0 '/Users/roy/luohy15/assets/images/photo.jpg'"],
         )
+
+    def test_claude_stdin_base64_encodes_s3_image_locally(self):
+        client = _FakeClient()
+        s3 = Mock()
+        s3.get_object.return_value = {
+            "Body": BytesIO(b"s3-bytes"),
+            "ContentType": "image/png",
+        }
+
+        with patch("boto3.client", return_value=s3):
+            _claude_write_stdin(client, "chat-1", "describe", ["s3://bucket/images/photo.png"])
+
+        payload = json.loads(client.sftp.files["/tmp/cc-chat-1.stdin"])
+        content = payload["message"]["content"]
+        self.assertEqual(content[1]["source"]["media_type"], "image/png")
+        self.assertEqual(content[1]["source"]["data"], "czMtYnl0ZXM=")
+        s3.get_object.assert_called_once_with(Bucket="bucket", Key="images/photo.png")
 
 
 if __name__ == "__main__":
