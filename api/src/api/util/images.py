@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -13,6 +14,11 @@ from fastapi import HTTPException
 IMAGE_ASSETS_DIR = Path(os.environ.get("Y_AGENT_IMAGE_DIR", "/Users/roy/luohy15/assets/images"))
 _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
+_REMOTE_IMAGE_SCHEMES = {"http", "https", "s3"}
+
+
+def is_remote_image_reference(image_path: str) -> bool:
+    return urlparse(image_path).scheme.lower() in _REMOTE_IMAGE_SCHEMES
 
 
 def _s3_bucket() -> str:
@@ -24,9 +30,11 @@ class ImageUploadLike(Protocol):
     content_base64: str
 
 
-def resolve_send_image_path(image_path: str, *, require_exists: bool = True) -> Path:
+def resolve_send_image_path(image_path: str, *, require_exists: bool = True) -> Path | str:
     if not image_path or not image_path.strip():
         raise HTTPException(status_code=400, detail="image path cannot be empty")
+    if is_remote_image_reference(image_path):
+        return image_path
     path = Path(image_path).expanduser().resolve()
     assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
     if path.suffix.lower() not in _ALLOWED_IMAGE_EXTENSIONS:

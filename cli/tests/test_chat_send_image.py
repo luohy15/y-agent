@@ -47,6 +47,15 @@ class ChatSendImageCliTest(unittest.TestCase):
             payload = api_request.call_args.kwargs["json"]
             self.assertEqual(payload["images"], [str(image_path.resolve())])
 
+    def test_chat_message_passes_remote_image_url_through(self):
+        with patch("yagent.commands.chat.click.api_request") as api_request:
+            api_request.return_value.json.return_value = {"chat_id": "abc123"}
+            result = CliRunner().invoke(chat_group, ["-m", "hello", "--image", "https://example.com/photo.jpg", "--image", "s3://bucket/images/photo.png"])
+
+        self.assertEqual(result.exit_code, 0)
+        payload = api_request.call_args.kwargs["json"]
+        self.assertEqual(payload["images"], ["https://example.com/photo.jpg", "s3://bucket/images/photo.png"])
+
 
 if __name__ == "__main__":
     unittest.main()
