@@ -1,6 +1,16 @@
+import base64
+from pathlib import Path
+
 import click
 from yagent.api_client import api_request
-from yagent.util.images import image_upload_payload
+
+
+def _image_upload_payload(image_path: str) -> dict:
+    source = Path(image_path).expanduser().resolve()
+    return {
+        "filename": source.name,
+        "content_base64": base64.b64encode(source.read_bytes()).decode("ascii"),
+    }
 
 
 @click.command('send')
@@ -15,6 +25,6 @@ def telegram_send(text, topic, images):
     if topic is not None:
         body["topic"] = topic
     if images:
-        body["image_uploads"] = [image_upload_payload(image) for image in images]
+        body["image_uploads"] = [_image_upload_payload(image) for image in images]
     api_request("POST", "/api/telegram/send", json=body)
     click.echo("sent")

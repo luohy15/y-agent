@@ -3,7 +3,7 @@
 import os
 import re
 import tempfile
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -11,6 +11,7 @@ from storage.entity.dto import Message
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
+from agent.ec2_wake import ensure_and_touch_vm
 
 
 def _latest_user_text_and_images(messages) -> tuple[str, list]:
@@ -103,31 +104,43 @@ def _resolve_telegram_target(chat, user_id: int):
     return resolve_target(user_id, topic=chat.topic)
 
 
-def _telegram_photo_reference(image_path: str) -> str:
-    parsed = urlparse(image_path)
-    scheme = parsed.scheme.lower()
-    if scheme in {"http", "https"}:
-        return image_path
-    if scheme == "s3" and parsed.netloc == "luohy15":
-        return f"https://cdn.luohy15.com/{quote(parsed.path.lstrip('/'))}"
-    return image_path
-
-
-def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, caption: str | None, topic_id=None) -> None:
+def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, caption: str | None, topic_id=None, vm_config=None, ssh_client=None) -> bool:
     from storage.util import send_telegram_photo
 
     parsed = urlparse(image_path)
-    if parsed.scheme.lower() == "s3" and parsed.netloc != "luohy15":
-        import boto3
+    scheme = parsed.scheme.lower()
+    if scheme in {"http", "https"}:
+        send_telegram_photo(bot_token, tg_chat_id, image_path, caption=caption, message_thread_id=topic_id)
+        return True
+    if scheme == "s3":
+        logger.warning("telegram photo: skipping legacy s3 image ref {}", image_path)
+        return False
 
-        suffix = os.path.splitext(parsed.path)[1] or ".jpg"
+    suffix = os.path.splitext(image_path)[1] or ".jpg"
+    if ssh_client is not None:
         with tempfile.NamedTemporaryFile(suffix=suffix) as image_file:
-            boto3.client("s3").download_fileobj(parsed.netloc, parsed.path.lstrip("/"), image_file)
+            sftp = ssh_client.open_sftp()
+            try:
+                sftp.get(image_path, image_file.name)
+            finally:
+                sftp.close()
             image_file.flush()
             send_telegram_photo(bot_token, tg_chat_id, image_file.name, caption=caption, message_thread_id=topic_id)
-        return
+        return True
 
-    send_telegram_photo(bot_token, tg_chat_id, _telegram_photo_reference(image_path), caption=caption, message_thread_id=topic_id)
+    if vm_config is None:
+        logger.warning("telegram photo: cannot fetch local image without vm_config: {}", image_path)
+        return False
+
+    ensure_and_touch_vm(vm_config)
+    from agent.ssh_pool import SSHPool
+
+    pool = SSHPool()
+    try:
+        client = pool.get_or_create(vm_config)
+        return _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption, topic_id=topic_id, vm_config=vm_config, ssh_client=client)
+    finally:
+        pool.close_all()
 
 
 def _consolidate_turn_images(chat) -> bool:
@@ -179,7 +192,7 @@ def _consolidate_turn_images(chat) -> bool:
     return mutated
 
 
-def _send_telegram_user_message(chat, user_id: int) -> None:
+def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=None) -> None:
     """Send the last user message to Telegram immediately (before agent runs)."""
     from storage.util import send_telegram_message
     from storage.repository.user import get_user_by_id
@@ -208,13 +221,13 @@ def _send_telegram_user_message(chat, user_id: int) -> None:
 
         if images:
             for index, image_path in enumerate(images):
-                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, topic_id=topic_id)
+                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client)
         elif text:
             send_telegram_message(bot_token, tg_chat_id, text, topic_id)
         break
 
 
-def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
+def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=None, ssh_client=None) -> None:
     """Send assistant reply to Telegram, routing by topic."""
     from storage.util import send_telegram_message
 
@@ -245,9 +258,11 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
                     break
 
     if images:
+        sent_count = 0
         for index, image_path in enumerate(images):
-            _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 and reply_text else None, topic_id=topic_id)
-        logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", len(images), chat.topic, tg_chat_id)
+            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 and reply_text else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client):
+                sent_count += 1
+        logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", sent_count, chat.topic, tg_chat_id)
     elif reply_text:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
@@ -301,7 +316,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
 
     # Send user message to Telegram immediately (before agent runs)
     try:
-        _send_telegram_user_message(chat, user_id)
+        vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+        _send_telegram_user_message(chat, user_id, vm_config=vm_config)
     except Exception as e:
         logger.exception("telegram user message failed: {}", e)
 

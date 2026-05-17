@@ -74,10 +74,11 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
   markdown → HTML conversion, per-topic routing, root-topic callbacks short-circuited
   at the API layer.
-- **Image transport** — API image ingestion writes to `Y_AGENT_IMAGE_DIR` locally, then
-  falls back to `s3://$Y_AGENT_S3_BUCKET/images/...` when the Lambda filesystem is
-  read-only. Workers and agent backends accept both local paths and `s3://` image URIs;
-  steer messages must preserve `Message.images` through restart/live-steer paths.
+- **Image transport** — API image ingestion stores bytes only under
+  `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
+  to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
+  may contain EC2 asset paths or deliberate `http(s)://` pass-through URLs, never new
+  `s3://` / CDN refs; legacy `s3://` entries from before 2026-05-17 are warning-skipped.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.

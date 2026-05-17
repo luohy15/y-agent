@@ -109,9 +109,9 @@ class TelegramAssistantImagesTest(unittest.TestCase):
         send_message.assert_not_called()
         self.assertEqual(send_photo.call_count, 2)
         self.assertEqual(send_photo.call_args_list[0].args, ("token", "tg-chat", "/tmp/a.jpg"))
-        self.assertEqual(send_photo.call_args_list[0].kwargs, {"caption": "done", "topic_id": 42})
+        self.assertEqual(send_photo.call_args_list[0].kwargs, {"caption": "done", "topic_id": 42, "vm_config": None, "ssh_client": None})
         self.assertEqual(send_photo.call_args_list[1].args, ("token", "tg-chat", "https://example.com/b.jpg"))
-        self.assertEqual(send_photo.call_args_list[1].kwargs, {"caption": None, "topic_id": 42})
+        self.assertEqual(send_photo.call_args_list[1].kwargs, {"caption": None, "topic_id": 42, "vm_config": None, "ssh_client": None})
 
     def test_text_only_keeps_existing_message_send(self):
         chat = _chat(_message("assistant", "hello"))
@@ -145,9 +145,9 @@ class TelegramAssistantImagesTest(unittest.TestCase):
         send_message.assert_not_called()
         self.assertEqual(send_photo.call_count, 2)
         self.assertEqual(send_photo.call_args_list[0].args, ("token", "tg-chat", "/tmp/attached-on-tool-turn.png"))
-        self.assertEqual(send_photo.call_args_list[0].kwargs, {"caption": "done", "topic_id": 7})
+        self.assertEqual(send_photo.call_args_list[0].kwargs, {"caption": "done", "topic_id": 7, "vm_config": None, "ssh_client": None})
         self.assertEqual(send_photo.call_args_list[1].args, ("token", "tg-chat", "https://example.com/final.jpg"))
-        self.assertEqual(send_photo.call_args_list[1].kwargs, {"caption": None, "topic_id": 7})
+        self.assertEqual(send_photo.call_args_list[1].kwargs, {"caption": None, "topic_id": 7, "vm_config": None, "ssh_client": None})
 
     def test_image_only_turn_sends_photo_without_caption(self):
         chat = _chat(
@@ -165,7 +165,7 @@ class TelegramAssistantImagesTest(unittest.TestCase):
             _send_telegram_reply(chat, 1)
 
         send_message.assert_not_called()
-        send_photo.assert_called_once_with("token", "tg-chat", "/tmp/image-only.png", caption=None, topic_id=9)
+        send_photo.assert_called_once_with("token", "tg-chat", "/tmp/image-only.png", caption=None, topic_id=9, vm_config=None, ssh_client=None)
 
     def test_ignores_images_from_previous_turns(self):
         chat = _chat(

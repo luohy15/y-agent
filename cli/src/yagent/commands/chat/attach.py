@@ -5,28 +5,11 @@ import click
 import httpx
 
 from yagent.api_client import api_request
-from yagent.util.images import image_upload_payload, is_remote_image_reference
+from yagent.util.images import stage_image_path
 
 
 def _attach_image_payload(images: tuple[str, ...]) -> dict:
-    remote_images: list[str] = []
-    image_uploads: list[dict] = []
-    for image in images:
-        if is_remote_image_reference(image):
-            remote_images.append(image)
-            continue
-
-        source = Path(image).expanduser().resolve()
-        if not source.is_file():
-            raise FileNotFoundError(f"image not found: {image}")
-        image_uploads.append(image_upload_payload(str(source)))
-
-    payload: dict = {}
-    if remote_images:
-        payload["images"] = remote_images
-    if image_uploads:
-        payload["image_uploads"] = image_uploads
-    return payload
+    return {"images": [stage_image_path(image) for image in images]}
 
 
 @click.command("attach")

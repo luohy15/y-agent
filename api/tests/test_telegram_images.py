@@ -2,9 +2,8 @@ import tempfile
 import unittest
 import base64
 import errno
-import os
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from api.controller import telegram
 from api.util import images
@@ -48,8 +47,12 @@ class TelegramImageStorageTest(unittest.TestCase):
                 self.assertEqual(images.resolve_message_image_paths([str(image_path)], None), [str(image_path.resolve())])
 
     def test_resolve_message_image_paths_passes_remote_urls_through(self):
-        image_refs = ["https://example.com/photo.jpg", "s3://bucket/images/photo.png"]
+        image_refs = ["https://example.com/photo.jpg"]
         self.assertEqual(images.resolve_message_image_paths(image_refs, None), image_refs)
+
+    def test_resolve_message_image_paths_rejects_s3_refs(self):
+        with self.assertRaises(Exception):
+            images.resolve_message_image_paths(["s3://bucket/images/photo.png"], None)
 
     def test_save_send_image_upload_uses_assets_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -65,14 +68,14 @@ class TelegramImageStorageTest(unittest.TestCase):
             self.assertRegex(image_path.name, r"telegram-upload-photo-\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{8}\.png")
             self.assertEqual(image_path.read_bytes(), b"png")
 
-    def test_save_send_image_upload_falls_back_to_s3_on_readonly_assets_dir(self):
+    def test_save_send_image_upload_ssh_pushes_on_readonly_assets_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             upload = telegram.TelegramImageUpload(
                 filename="photo.png",
                 content_base64=base64.b64encode(b"png").decode("ascii"),
             )
             readonly_dir = Path(tmp_dir) / "readonly" / "images"
-            s3 = Mock()
+            vm_config = Mock(vm_name="ssh:ec2", api_token="key")
 
             original_mkdir = Path.mkdir
 
@@ -82,16 +85,16 @@ class TelegramImageStorageTest(unittest.TestCase):
                 return original_mkdir(self, *args, **kwargs)
 
             with patch("api.util.images.IMAGE_ASSETS_DIR", readonly_dir):
-                with patch.dict(os.environ, {"Y_AGENT_S3_BUCKET": "bucket"}):
-                    with patch("boto3.client", return_value=s3):
-                        with patch.object(Path, "mkdir", fake_mkdir):
-                            image_path = images.save_send_image_upload(upload, prefix="telegram-upload")
+                with patch.object(Path, "mkdir", fake_mkdir):
+                    with patch("api.util.images.ssh_put_image_bytes", return_value=str(readonly_dir / "photo.png")) as ssh_put:
+                        image_path = images.save_send_image_upload(upload, prefix="telegram-upload", vm_config=vm_config)
 
-            self.assertRegex(image_path, r"^s3://bucket/images/telegram-upload-photo-.*\.png$")
-            s3.put_object.assert_called_once()
-            self.assertEqual(s3.put_object.call_args.kwargs["Body"], b"png")
+            self.assertEqual(image_path, str(readonly_dir / "photo.png"))
+            ssh_put.assert_called_once()
+            self.assertEqual(ssh_put.call_args.args[0], b"png")
+            self.assertEqual(ssh_put.call_args.kwargs["vm_config"], vm_config)
 
-    def test_save_image_bytes_readonly_without_bucket_raises(self):
+    def test_save_image_bytes_readonly_without_vm_config_raises_service_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             readonly_dir = Path(tmp_dir) / "readonly" / "images"
 
@@ -101,10 +104,32 @@ class TelegramImageStorageTest(unittest.TestCase):
                 return None
 
             with patch("api.util.images.IMAGE_ASSETS_DIR", readonly_dir):
-                with patch.dict(os.environ, {}, clear=True):
-                    with patch.object(Path, "mkdir", fake_mkdir):
-                        with self.assertRaises(RuntimeError):
-                            images.save_image_bytes(b"png", prefix="telegram", suffix=".png")
+                with patch.object(Path, "mkdir", fake_mkdir):
+                    with self.assertRaises(Exception) as ctx:
+                        images.save_image_bytes(b"png", prefix="telegram", suffix=".png")
+
+            self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_ssh_put_image_bytes_writes_remote_file(self):
+        vm_config = Mock(vm_name="ssh:ec2", api_token="key")
+        client = Mock()
+        sftp = Mock()
+        remote_file = Mock()
+        open_handle = MagicMock()
+        open_handle.__enter__.return_value = remote_file
+        sftp.open.return_value = open_handle
+        client.open_sftp.return_value = sftp
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch("api.util.images.IMAGE_ASSETS_DIR", Path(tmp_dir)):
+                with patch("api.util.images.ensure_and_touch_vm") as ensure_vm:
+                    with patch("api.util.images._SSH_POOL.get_or_create", return_value=client):
+                        image_path = images.ssh_put_image_bytes(b"png", prefix="telegram", suffix=".png", vm_config=vm_config)
+
+        ensure_vm.assert_called_once_with(vm_config)
+        sftp.open.assert_called_once()
+        remote_file.write.assert_called_once_with(b"png")
+        self.assertTrue(image_path.endswith(".png"))
 
 
 if __name__ == "__main__":
