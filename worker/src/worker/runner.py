@@ -130,6 +130,55 @@ def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, 
     send_telegram_photo(bot_token, tg_chat_id, _telegram_photo_reference(image_path), caption=caption, message_thread_id=topic_id)
 
 
+def _consolidate_turn_images(chat) -> bool:
+    """Move current-turn assistant images onto the turn result message."""
+    turn_messages = []
+    for msg in reversed(chat.messages):
+        if msg.role == "user":
+            break
+        if msg.role == "assistant":
+            turn_messages.append(msg)
+    if not turn_messages:
+        return False
+
+    turn_messages.reverse()
+    aggregated = []
+    seen = set()
+    has_images = False
+    for msg in turn_messages:
+        for image_path in list(msg.images or []):
+            has_images = True
+            if image_path in seen:
+                continue
+            seen.add(image_path)
+            aggregated.append(image_path)
+
+    if not has_images:
+        return False
+
+    result_msg = None
+    for msg in reversed(turn_messages):
+        if isinstance(msg.content, str) and msg.content.strip():
+            result_msg = msg
+            break
+    if result_msg is None:
+        result_msg = turn_messages[-1]
+
+    mutated = False
+    for msg in turn_messages:
+        if msg is result_msg:
+            continue
+        if msg.images:
+            msg.images = []
+            mutated = True
+
+    if list(result_msg.images or []) != aggregated:
+        result_msg.images = aggregated
+        mutated = True
+
+    return mutated
+
+
 def _send_telegram_user_message(chat, user_id: int) -> None:
     """Send the last user message to Telegram immediately (before agent runs)."""
     from storage.util import send_telegram_message
@@ -176,23 +225,28 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
 
     reply_text = None
     images = []
-    seen_images = set()
     for msg in reversed(chat.messages):
         if msg.role == "user":
             break
         if msg.role != "assistant":
             continue
-        for image_path in reversed(list(msg.images or [])):
-            if image_path in seen_images:
-                continue
-            images.insert(0, image_path)
-            seen_images.add(image_path)
-        if reply_text is None and isinstance(msg.content, str) and msg.content.strip():
+        if isinstance(msg.content, str) and msg.content.strip():
             reply_text = msg.content.strip()
+            images = list(msg.images or [])
+            break
 
-    if reply_text and images:
+    if not reply_text:
+        for msg in reversed(chat.messages):
+            if msg.role == "user":
+                break
+            if msg.role == "assistant":
+                images = list(msg.images or [])
+                if images:
+                    break
+
+    if images:
         for index, image_path in enumerate(images):
-            _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 else None, topic_id=topic_id)
+            _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 and reply_text else None, topic_id=topic_id)
         logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", len(images), chat.topic, tg_chat_id)
     elif reply_text:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)

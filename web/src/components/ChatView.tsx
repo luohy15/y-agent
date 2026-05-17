@@ -28,6 +28,26 @@ interface ChatViewProps {
   onSelectTrace?: (traceId: string) => void;
 }
 
+function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
+  const allMessages: Message[] = [];
+  for (const evt of rawMessages) {
+    const parsed = parseRawChatMessage(evt);
+    for (const m of parsed) {
+      if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
+        const pendingIdx = allMessages.findIndex(
+          (x) => x.toolCallId === m.toolCallId && x.role === "tool_pending"
+        );
+        if (pendingIdx !== -1) {
+          allMessages[pendingIdx] = mergeToolResult(allMessages[pendingIdx], m);
+          continue;
+        }
+      }
+      allMessages.push(m);
+    }
+  }
+  return allMessages;
+}
+
 export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -158,7 +178,17 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       setCompleted(true);
       es.close();
       esRef.current = null;
-      onCompleteRef.current?.();
+      authFetch(`${API}/api/chat/messages/snapshot?chat_id=${encodeURIComponent(chatId)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const rawMessages = data.messages || [];
+          setMessages(parseSnapshotMessages(rawMessages));
+          idxRef.current = rawMessages.length;
+        })
+        .catch(() => {})
+        .finally(() => {
+          onCompleteRef.current?.();
+        });
     });
     es.addEventListener("error", () => {});
   }, [addMessage, updateToolMessage, mutate]);
@@ -176,25 +206,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       .then((data) => {
         if (cancelled) return;
 
-        // Parse all messages at once
-        const allMessages: Message[] = [];
-        for (const evt of data.messages) {
-          const parsed = parseRawChatMessage(evt);
-          for (const m of parsed) {
-            if ((m.role === "tool_result" || m.role === "tool_denied") && m.toolCallId) {
-              const pendingIdx = allMessages.findIndex(
-                (x) => x.toolCallId === m.toolCallId && x.role === "tool_pending"
-              );
-              if (pendingIdx !== -1) {
-                allMessages[pendingIdx] = mergeToolResult(allMessages[pendingIdx], m);
-                continue;
-              }
-            }
-            allMessages.push(m);
-          }
-        }
-
-        setMessages(allMessages);
+        setMessages(parseSnapshotMessages(data.messages || []));
         idxRef.current = data.messages.length;
 
         if (data.interrupted) {
