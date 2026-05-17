@@ -15,6 +15,7 @@ import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
+import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import GitPanel from "./components/GitPanel";
@@ -60,7 +61,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "files", "reminder", "routine", "calendar", "finance", "email", "dev"];
+    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "calendar", "finance", "email", "dev"];
     return valid.includes(saved) ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -242,11 +243,24 @@ export default function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [botDropdownOpen]);
+  const refreshBotList = useCallback(() => {
+    if (!auth.isLoggedIn) { setBotList([]); return; }
+    authFetch(`${API}/api/bot/list`)
+      .then(r => r.json())
+      .then(data => {
+        const bots = data || [];
+        setBotList(bots);
+        if (selectedBot && !bots.some((b: BotConfigItem) => b.name === selectedBot)) {
+          setSelectedBot(null);
+        }
+      })
+      .catch(() => setBotList([]));
+  }, [auth.isLoggedIn, selectedBot]);
   useEffect(() => {
     if (!auth.isLoggedIn) { setVmList([]); setBotList([]); return; }
     authFetch(`${API}/api/vm-config/list`).then(r => r.json()).then(data => setVmList(data || [])).catch(() => setVmList([]));
-    authFetch(`${API}/api/bot/list`).then(r => r.json()).then(data => setBotList(data || [])).catch(() => setBotList([]));
-  }, [auth.isLoggedIn]);
+    refreshBotList();
+  }, [auth.isLoggedIn, refreshBotList]);
 
   // URL /trace/:traceId → open trace as file
   useEffect(() => {
@@ -647,6 +661,8 @@ export default function App() {
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
               ) : sidebarPanel === "entity" ? (
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
+              ) : sidebarPanel === "bots" ? (
+                <BotList isLoggedIn={auth.isLoggedIn} onChange={refreshBotList} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "routine" ? (

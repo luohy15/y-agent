@@ -10,6 +10,7 @@ export type SidebarPanel =
   | "links"
   | "rss"
   | "entity"
+  | "bots"
   | "files"
   | "reminder"
   | "routine"
@@ -65,6 +66,11 @@ const PANEL_ITEMS: PanelItem[] = [
   { key: "entity", label: "Entities", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 7h-9" /><path d="M14 17H5" /><circle cx="17" cy="17" r="3" /><circle cx="7" cy="7" r="3" />
+    </svg>
+  )},
+  { key: "bots", label: "Bots", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="7" width="14" height="10" rx="2" /><path d="M12 7V3" /><circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" /><path d="M9 17v2" /><path d="M15 17v2" />
     </svg>
   )},
   { key: "reminder", label: "Reminders", icon: (
@@ -131,10 +137,24 @@ function mergeWithDefaults(parsed: unknown, defaults: SidebarPanel[]): SidebarPa
       seen.add(key);
     }
   }
+
+  const insertMissingByDefaultPosition = (key: SidebarPanel) => {
+    const defaultIdx = defaults.indexOf(key);
+    let insertAt = result.length;
+    for (let i = defaultIdx + 1; i < defaults.length; i += 1) {
+      const nextIdx = result.indexOf(defaults[i]);
+      if (nextIdx !== -1) {
+        insertAt = nextIdx;
+        break;
+      }
+    }
+    result.splice(insertAt, 0, key);
+    seen.add(key);
+  };
+
   for (const d of defaults) {
     if (!seen.has(d)) {
-      result.push(d);
-      seen.add(d);
+      insertMissingByDefaultPosition(d);
     }
   }
   return result;
@@ -476,36 +496,40 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     );
   };
 
+  const panelButtons = order.map((key) => {
+    const p = panelByKey.get(key);
+    if (!p) return null;
+    const isDragged = !!(drag && drag.key === p.key);
+    const active = sidebarOpen && activePanel === p.key;
+    return (
+      <div
+        key={`panel:${p.key}`}
+        className={wrapperClass()}
+        draggable={dragEnabled}
+        onDragStart={onItemDragStart(p.key)}
+        onDragOver={onItemDragOver(p.key)}
+        onDrop={onItemDrop(p.key)}
+        onDragEnd={onItemDragEnd}
+      >
+        {indicator(p.key, "before")}
+        <button
+          onClick={() => handlePanelClick(p.key)}
+          className={btnClass(active, isDragged)}
+          title={p.label}
+        >
+          {p.icon}
+          {mobile && <span>{p.label}</span>}
+        </button>
+        {indicator(p.key, "after")}
+      </div>
+    );
+  });
+
   return (
-    <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
-      {order.map((key) => {
-        const p = panelByKey.get(key);
-        if (!p) return null;
-        const isDragged = !!(drag && drag.key === p.key);
-        const active = sidebarOpen && activePanel === p.key;
-        return (
-          <div
-            key={`panel:${p.key}`}
-            className={wrapperClass()}
-            draggable={dragEnabled}
-            onDragStart={onItemDragStart(p.key)}
-            onDragOver={onItemDragOver(p.key)}
-            onDrop={onItemDrop(p.key)}
-            onDragEnd={onItemDragEnd}
-          >
-            {indicator(p.key, "before")}
-            <button
-              onClick={() => handlePanelClick(p.key)}
-              className={btnClass(active, isDragged)}
-              title={p.label}
-            >
-              {p.icon}
-              {mobile && <span>{p.label}</span>}
-            </button>
-            {indicator(p.key, "after")}
-          </div>
-        );
-      })}
+    <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2"}>
+      <div className={mobile ? "flex-1 flex flex-col items-start gap-1 w-full min-h-0 overflow-y-auto" : "flex-1 flex flex-col items-center gap-1 w-full min-h-0 overflow-y-auto pb-1"}>
+        {panelButtons}
+      </div>
       {/* Bottom: GitHub + Auth */}
       <a
         href="https://github.com/luohy15/y-agent"
@@ -513,7 +537,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         rel="noopener noreferrer"
         className={mobile
           ? "mt-auto w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
-          : "mt-auto w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
+          : "mt-auto w-8 h-8 flex items-center justify-center rounded text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 shrink-0"
         }
         title="GitHub"
       >

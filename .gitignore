@@ -32,3 +32,6 @@ web/public/docs-content/
 # Local-only directory shared across worktrees via symlink (see worktree/post-create.sh)
 # Pattern with no trailing slash matches both the real dir (main repo) and symlink (worktrees)
 /migration
+
+# One-off backfill scripts (run manually, not part of app)
+backfill_*.py
