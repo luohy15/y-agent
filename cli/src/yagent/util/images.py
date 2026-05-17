@@ -1,4 +1,3 @@
-import base64
 import re
 import shutil
 from datetime import datetime, timezone
@@ -9,19 +8,11 @@ from uuid import uuid4
 
 IMAGE_ASSETS_DIR = Path("/Users/roy/luohy15/assets/images")
 _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-_REMOTE_IMAGE_SCHEMES = {"http", "https", "s3"}
+_REMOTE_IMAGE_SCHEMES = {"http", "https"}
 
 
 def is_remote_image_reference(image_path: str) -> bool:
     return urlparse(image_path).scheme.lower() in _REMOTE_IMAGE_SCHEMES
-
-
-def image_upload_payload(image_path: str) -> dict:
-    source = Path(image_path).expanduser().resolve()
-    return {
-        "filename": source.name,
-        "content_base64": base64.b64encode(source.read_bytes()).decode("ascii"),
-    }
 
 
 def _asset_name(source: Path) -> str:

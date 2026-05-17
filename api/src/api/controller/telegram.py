@@ -8,6 +8,7 @@ from loguru import logger
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from agent.config import resolve_vm_config
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
@@ -86,8 +87,9 @@ async def telegram_send(req: SendMessageRequest, request: Request):
     bot_token, tg_chat_id, thread_id = target
     import asyncio
     if images or image_uploads:
+        vm_config = resolve_vm_config(user_id)
         safe_image_paths = [resolve_send_image_path(image_path) for image_path in images]
-        safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload") for upload in image_uploads)
+        safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload", vm_config=vm_config) for upload in image_uploads)
         for index, image_path in enumerate(safe_image_paths):
             caption = text if index == 0 else None
             await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption, thread_id)
@@ -123,8 +125,13 @@ async def telegram_webhook(request: Request):
     # Handle photo messages
     images = []
     if message.get("photo"):
+        user = get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+            return {"ok": True}
         text = message.get("caption", "").strip() or "请看这张图片"
-        images = await _download_telegram_photos(message["photo"])
+        vm_config = resolve_vm_config(user.id)
+        images = await _download_telegram_photos(message["photo"], vm_config=vm_config)
 
     if not text:
         logger.info("telegram webhook: empty text")
@@ -194,7 +201,7 @@ async def telegram_webhook(request: Request):
     return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images, message_thread_id=message_thread_id)
 
 
-async def _download_telegram_photos(photo_sizes: list) -> List[str]:
+async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> List[str]:
     """Download the largest photo from Telegram and return stored image paths."""
     if not photo_sizes or not TELEGRAM_BOT_TOKEN:
         return []
@@ -219,17 +226,17 @@ async def _download_telegram_photos(photo_sizes: list) -> List[str]:
                 return []
 
             ext = file_path.rsplit(".", 1)[-1] if "." in file_path else "jpg"
-            saved_path = _save_telegram_image(resp.content, ext, file_id)
+            saved_path = _save_telegram_image(resp.content, ext, file_id, vm_config=vm_config)
             return [str(saved_path)]
     except Exception as e:
         logger.exception("telegram photo download error: {}", e)
         return []
 
 
-def _save_telegram_image(content: bytes, ext: str, file_id: str) -> str:
+def _save_telegram_image(content: bytes, ext: str, file_id: str, *, vm_config=None) -> str:
     safe_ext = re.sub(r"[^a-zA-Z0-9]", "", ext.lower()) or "jpg"
     safe_file_id = re.sub(r"[^a-zA-Z0-9_-]", "", file_id)[-12:] or generate_id()
-    return save_image_bytes(content, prefix=f"telegram-{safe_file_id}", suffix=safe_ext)
+    return save_image_bytes(content, prefix=f"telegram-{safe_file_id}", suffix=safe_ext, vm_config=vm_config)
 
 
 

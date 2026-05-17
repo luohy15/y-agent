@@ -127,28 +127,6 @@ class ChatImagesApiTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(existing.messages[-1].images, [str(image_path.resolve())])
             save_chat.assert_awaited_once_with(existing)
 
-    async def test_attach_image_accepts_image_uploads(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            assets_dir = Path(tmp_dir).resolve()
-            existing = self._chat()
-            existing.messages = [self._message("assistant", "new")]
-            req = chat_controller.AttachImageRequest(
-                chat_id="abc123",
-                image_uploads=[chat_controller.ImageUpload(filename="attached.png", content_base64=base64.b64encode(b"png").decode("ascii"))],
-            )
-
-            with patch("api.util.images.IMAGE_ASSETS_DIR", assets_dir), \
-                 patch.object(chat_controller.chat_service, "get_chat", new=AsyncMock(return_value=existing)), \
-                 patch("storage.repository.chat.save_chat_by_id", new=AsyncMock()) as save_chat:
-                resp = await chat_controller.post_attach_image(req, self._request())
-
-            self.assertEqual(resp["count"], 1)
-            images = existing.messages[-1].images
-            self.assertEqual(len(images), 1)
-            self.assertTrue(images[0].startswith(str(assets_dir)))
-            self.assertEqual(Path(images[0]).read_bytes(), b"png")
-            save_chat.assert_awaited_once_with(existing)
-
     async def test_attach_image_requires_assistant_message(self):
         existing = self._chat()
         existing.messages = [self._message("user", "hello")]

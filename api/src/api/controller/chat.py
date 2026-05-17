@@ -7,6 +7,7 @@ from loguru import logger
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from agent.config import resolve_vm_config
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -54,7 +55,6 @@ class StopChatRequest(BaseModel):
 class AttachImageRequest(BaseModel):
     chat_id: str
     images: Optional[List[str]] = None
-    image_uploads: Optional[List[ImageUpload]] = None
 
 
 def _latest_assistant_message(chat):
@@ -132,7 +132,8 @@ async def get_chats(
 async def post_create_chat(req: CreateChatRequest, request: Request):
     chat_id = req.chat_id or generate_id()
     user_id = _get_user_id(request)
-    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload")
+    vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=req.work_dir)
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
     # Build user message
     user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
@@ -167,7 +168,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         if not work_dir:
             work_dir = chat.work_dir
 
-    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload")
+    vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
     user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
     chat.messages.append(user_msg)
     chat.interrupted = False
@@ -195,7 +197,7 @@ async def post_attach_image(req: AttachImageRequest, request: Request):
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
 
-    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="attach")
+    images = resolve_message_image_paths(req.images, None, prefix="attach")
     if not images:
         raise HTTPException(status_code=400, detail="at least one image is required")
 
@@ -542,7 +544,9 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
         parts.append(f'from_chat:{req.from_chat_id}')
     parts.append(f'to_chat:{chat_id}')
     msg_content = f"[{' '.join(parts)}]\n{req.message}"
-    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload")
+    vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
+    vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload", vm_config=vm_config)
     user_msg = Message.from_dict(_message_dict("user", msg_content, images))
 
     # Resolve work_dir and append/create chat

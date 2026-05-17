@@ -294,7 +294,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
                 try:
                     from worker.runner import _send_telegram_reply
-                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"))
+                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=vm_config, ssh_client=client)
                 except Exception as e:
                     logger.exception("telegram reply failed: {}", e)
 
