@@ -24,15 +24,6 @@ def _latest_user_text_and_images(messages) -> tuple[str, list]:
 
 def message_callback(chat_id: str, message: Message):
     logger.info("Event: role={} tool={} content_length={}", message.role, message.tool, len(message.content) if message.content else 0)
-    if message.role == "assistant" and isinstance(message.content, str):
-        images = list(message.images or [])
-        seen = set(images)
-        for image_path in _extract_assistant_images(message.content):
-            if image_path not in seen:
-                images.append(image_path)
-                seen.add(image_path)
-        if images:
-            message.images = images
     chat_service.append_message_sync(chat_id, message)
 
 
@@ -122,30 +113,6 @@ def _telegram_photo_reference(image_path: str) -> str:
     return image_path
 
 
-_ASSISTANT_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
-_ASSISTANT_IMAGE_TRAILING_CHARS = "`'\"),.;:!?]}>"
-_ASSISTANT_IMAGE_REFERENCE_RE = re.compile(r"(?:https?://[^\s`\"'<>]+|s3://[^\s`\"'<>]+|/Users/roy/luohy15/assets/images/[^\s`\"'<>]+)")
-
-
-def _extract_assistant_images(content: str) -> list[str]:
-    """Extract supported assistant-generated image references from text."""
-    images = []
-    seen = set()
-    for match in _ASSISTANT_IMAGE_REFERENCE_RE.finditer(content or ""):
-        image_path = match.group(0).rstrip(_ASSISTANT_IMAGE_TRAILING_CHARS)
-        parsed = urlparse(image_path)
-        extension = os.path.splitext(parsed.path)[1].lower()
-        if extension not in _ASSISTANT_IMAGE_EXTENSIONS:
-            continue
-        if parsed.scheme.lower() not in {"http", "https", "s3"} and not image_path.startswith("/Users/roy/luohy15/assets/images/"):
-            continue
-        if image_path in seen:
-            continue
-        images.append(image_path)
-        seen.add(image_path)
-    return images
-
-
 def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, caption: str | None, topic_id=None) -> None:
     from storage.util import send_telegram_photo
 
@@ -207,14 +174,22 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
         return
     bot_token, tg_chat_id, topic_id = target
 
-    # Send assistant reply
     reply_text = None
     images = []
+    seen_images = set()
     for msg in reversed(chat.messages):
-        if msg.role == "assistant" and isinstance(msg.content, str) and msg.content.strip():
-            reply_text = msg.content.strip()
-            images = list(msg.images or [])
+        if msg.role == "user":
             break
+        if msg.role != "assistant":
+            continue
+        for image_path in reversed(list(msg.images or [])):
+            if image_path in seen_images:
+                continue
+            images.insert(0, image_path)
+            seen_images.add(image_path)
+        if reply_text is None and isinstance(msg.content, str) and msg.content.strip():
+            reply_text = msg.content.strip()
+
     if reply_text and images:
         for index, image_path in enumerate(images):
             _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 else None, topic_id=topic_id)
