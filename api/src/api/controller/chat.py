@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from agent.config import resolve_vm_config
+from agent.telegram_delivery import send_telegram_photo_reference
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -55,6 +56,7 @@ class StopChatRequest(BaseModel):
 class AttachImageRequest(BaseModel):
     chat_id: str
     images: Optional[List[str]] = None
+    vm_name: Optional[str] = None
 
 
 def _latest_assistant_message(chat):
@@ -66,6 +68,63 @@ def _latest_assistant_message(chat):
 
 def _get_user_id(request: Request) -> int:
     return request.state.user_id
+
+
+def _append_delivered_images(msg, image_paths: List[str]) -> bool:
+    existing = list(msg.telegram_delivered_images or [])
+    seen = set(existing)
+    changed = False
+    for image_path in image_paths:
+        if image_path in seen:
+            continue
+        existing.append(image_path)
+        seen.add(image_path)
+        changed = True
+    if changed:
+        msg.telegram_delivered_images = existing
+    return changed
+
+
+def _resolve_attach_vm_config(user_id: int, chat, vm_name: Optional[str]):
+    return resolve_vm_config(user_id, vm_name, work_dir=getattr(chat, "work_dir", None))
+
+
+def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths: List[str], vm_name: Optional[str] = None) -> List[str]:
+    if not image_paths or not chat.topic:
+        return []
+
+    from storage.service.telegram import resolve_target
+
+    telegram_target = resolve_target(user_id, topic=chat.topic)
+    if not telegram_target:
+        return []
+
+    bot_token, tg_chat_id, topic_id = telegram_target
+    try:
+        vm_config = _resolve_attach_vm_config(user_id, chat, vm_name)
+    except Exception as exc:
+        logger.warning("attach-image telegram delivery: vm_config resolution failed chat_id={}: {}", chat.id, exc)
+        vm_config = None
+
+    caption = target.content.strip() if isinstance(target.content, str) and target.content.strip() else None
+    delivered = []
+    for index, image_path in enumerate(image_paths):
+        try:
+            sent = send_telegram_photo_reference(
+                bot_token,
+                tg_chat_id,
+                image_path,
+                caption=caption if index == 0 and caption else None,
+                topic_id=topic_id,
+                vm_config=vm_config,
+            )
+        except Exception as exc:
+            logger.exception("attach-image telegram delivery failed chat_id={} image={}: {}", chat.id, image_path, exc)
+            continue
+        if sent:
+            delivered.append(image_path)
+
+    return delivered
 
 
 def _message_dict(role: str, content: str, images: Optional[List[str]] = None) -> dict:
@@ -216,9 +275,12 @@ async def post_attach_image(req: AttachImageRequest, request: Request):
         seen.add(image_path)
     target.images = existing
 
+    delivered = _deliver_attached_images_to_telegram(user_id, chat, target, added, vm_name=req.vm_name)
+    _append_delivered_images(target, delivered)
+
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
-    return {"ok": True, "chat_id": req.chat_id, "count": len(added), "images": existing}
+    return {"ok": True, "chat_id": req.chat_id, "count": len(added), "images": existing, "telegram_delivered_images": delivered}
 
 
 @router.post("/stop")
