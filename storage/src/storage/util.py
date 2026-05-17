@@ -3,6 +3,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from urllib.parse import urlparse
 from loguru import logger
 
 def get_unix_timestamp() -> int:
@@ -253,13 +254,18 @@ def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=
                 client.post(url, json=fallback_payload)
 
 
+def _is_http_url(value: str) -> bool:
+    return urlparse(value).scheme.lower() in {"http", "https"}
+
+
 def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str = None, message_thread_id=None) -> None:
-    """Send a local image file to Telegram with an optional caption."""
+    """Send a local image file or HTTP(S) image URL to Telegram with an optional caption."""
     import os
 
     import httpx
 
-    if not os.path.isfile(image_path):
+    is_url = _is_http_url(image_path)
+    if not is_url and not os.path.isfile(image_path):
         raise FileNotFoundError(f"image not found: {image_path}")
 
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -271,13 +277,19 @@ def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str =
         data["message_thread_id"] = message_thread_id
 
     with httpx.Client() as client:
-        with open(image_path, "rb") as image_file:
-            resp = client.post(url, data=data, files={"photo": image_file})
+        if is_url:
+            resp = client.post(url, data={**data, "photo": image_path})
+        else:
+            with open(image_path, "rb") as image_file:
+                resp = client.post(url, data=data, files={"photo": image_file})
         if not resp.is_success and caption:
             data["caption"] = caption[:1024]
             data.pop("parse_mode", None)
-            with open(image_path, "rb") as image_file:
-                resp = client.post(url, data=data, files={"photo": image_file})
+            if is_url:
+                resp = client.post(url, data={**data, "photo": image_path})
+            else:
+                with open(image_path, "rb") as image_file:
+                    resp = client.post(url, data=data, files={"photo": image_file})
         resp.raise_for_status()
 
 

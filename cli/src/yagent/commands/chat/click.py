@@ -155,7 +155,7 @@ def _interactive(
 @click.option('--chat-id', '-c', default=None, help='Target an existing chat')
 # Fire-and-forget (default top-level mode)
 @click.option('--message', '-m', default=None, help='Message to send (fire-and-forget)')
-@click.option('--image', 'images', multiple=True, type=click.Path(exists=True, dir_okay=False, resolve_path=True), help='Image path to attach. Repeat for multiple images.')
+@click.option('--image', 'images', multiple=True, type=str, help='Image path or URL to attach. Repeat for multiple images.')
 @click.option('--topic', default=None, help='Target topic (named persistent address)')
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to topic for non-manager topics)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')

@@ -47,6 +47,10 @@ class TelegramImageStorageTest(unittest.TestCase):
             with patch("api.util.images.IMAGE_ASSETS_DIR", assets_dir):
                 self.assertEqual(images.resolve_message_image_paths([str(image_path)], None), [str(image_path.resolve())])
 
+    def test_resolve_message_image_paths_passes_remote_urls_through(self):
+        image_refs = ["https://example.com/photo.jpg", "s3://bucket/images/photo.png"]
+        self.assertEqual(images.resolve_message_image_paths(image_refs, None), image_refs)
+
     def test_save_send_image_upload_uses_assets_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             upload = telegram.TelegramImageUpload(

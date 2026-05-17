@@ -2,6 +2,8 @@
 
 import os
 import re
+import tempfile
+from urllib.parse import quote, urlparse
 
 from loguru import logger
 
@@ -101,6 +103,33 @@ def _resolve_telegram_target(chat, user_id: int):
     return resolve_target(user_id, topic=chat.topic)
 
 
+def _telegram_photo_reference(image_path: str) -> str:
+    parsed = urlparse(image_path)
+    scheme = parsed.scheme.lower()
+    if scheme in {"http", "https"}:
+        return image_path
+    if scheme == "s3" and parsed.netloc == "luohy15":
+        return f"https://cdn.luohy15.com/{quote(parsed.path.lstrip('/'))}"
+    return image_path
+
+
+def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, caption: str | None, topic_id=None) -> None:
+    from storage.util import send_telegram_photo
+
+    parsed = urlparse(image_path)
+    if parsed.scheme.lower() == "s3" and parsed.netloc != "luohy15":
+        import boto3
+
+        suffix = os.path.splitext(parsed.path)[1] or ".jpg"
+        with tempfile.NamedTemporaryFile(suffix=suffix) as image_file:
+            boto3.client("s3").download_fileobj(parsed.netloc, parsed.path.lstrip("/"), image_file)
+            image_file.flush()
+            send_telegram_photo(bot_token, tg_chat_id, image_file.name, caption=caption, message_thread_id=topic_id)
+        return
+
+    send_telegram_photo(bot_token, tg_chat_id, _telegram_photo_reference(image_path), caption=caption, message_thread_id=topic_id)
+
+
 def _send_telegram_user_message(chat, user_id: int) -> None:
     """Send the last user message to Telegram immediately (before agent runs)."""
     from storage.util import send_telegram_message
@@ -112,16 +141,28 @@ def _send_telegram_user_message(chat, user_id: int) -> None:
     bot_token, tg_chat_id, topic_id = target
 
     for msg in reversed(chat.messages):
-        if msg.role == "user" and isinstance(msg.content, str) and msg.content.strip():
-            if msg.source != 'telegram':
-                text = msg.content.strip()
-                # Prefix with display name for non-notify messages (web-originated)
-                if not text.startswith('[trace:'):
-                    user = get_user_by_id(user_id)
-                    display_name = (user.username or user.email.split('@')[0]) if user else 'unknown'
-                    text = f"{display_name}: {text}"
-                send_telegram_message(bot_token, tg_chat_id, text, topic_id)
+        if msg.role != "user":
+            continue
+        if msg.source == 'telegram':
             break
+
+        content = msg.content if isinstance(msg.content, str) else ""
+        text = content.strip()
+        images = list(msg.images or [])
+        if not text and not images:
+            break
+
+        if text and not text.startswith('[trace:'):
+            user = get_user_by_id(user_id)
+            display_name = (user.username or user.email.split('@')[0]) if user else 'unknown'
+            text = f"{display_name}: {text}"
+
+        if images:
+            for index, image_path in enumerate(images):
+                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, topic_id=topic_id)
+        elif text:
+            send_telegram_message(bot_token, tg_chat_id, text, topic_id)
+        break
 
 
 def _send_telegram_reply(chat, user_id: int, trace_id: str = None) -> None:
