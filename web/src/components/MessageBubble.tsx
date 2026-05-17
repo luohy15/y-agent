@@ -21,31 +21,63 @@ interface MessageBubbleProps {
   onSelectTrace?: (traceId: string) => void;
 }
 
+function pickImageSrc(imagePath: string): string | null {
+  if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) return imagePath;
+  if (!imagePath.startsWith("s3://")) return null;
+
+  const match = imagePath.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (!match) return null;
+  const [, bucket, key] = match;
+  if (bucket !== "luohy15") return null;
+  return `https://cdn.luohy15.com/${key}`;
+}
+
+function isS3ImagePath(imagePath: string): boolean {
+  return imagePath.startsWith("s3://");
+}
+
 function MessageImages({ images }: { images?: string[] }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!images?.length) return;
+    if (!images?.length) {
+      setUrls({});
+      return;
+    }
     let cancelled = false;
-    const created: string[] = [];
-    Promise.all(images.map(async (imagePath) => {
+    const createdBlobUrls: string[] = [];
+    const directEntries: [string, string][] = [];
+    const localImages: string[] = [];
+
+    images.forEach((imagePath) => {
+      const src = pickImageSrc(imagePath);
+      if (src) {
+        directEntries.push([imagePath, src]);
+      } else if (isS3ImagePath(imagePath)) {
+        console.warn(`Skipping unsupported image source: ${imagePath}`);
+      } else {
+        localImages.push(imagePath);
+      }
+    });
+
+    Promise.all(localImages.map(async (imagePath) => {
       const res = await authFetch(`${API}/api/file/raw?path=${encodeURIComponent(imagePath)}`);
       if (!res.ok) throw new Error(`failed to load image: ${imagePath}`);
       const url = URL.createObjectURL(await res.blob());
-      created.push(url);
+      createdBlobUrls.push(url);
       return [imagePath, url] as const;
     })).then((entries) => {
       if (cancelled) {
         entries.forEach(([, url]) => URL.revokeObjectURL(url));
         return;
       }
-      setUrls(Object.fromEntries(entries));
+      setUrls(Object.fromEntries([...directEntries, ...entries]));
     }).catch(() => {
-      created.forEach((url) => URL.revokeObjectURL(url));
+      createdBlobUrls.forEach((url) => URL.revokeObjectURL(url));
     });
     return () => {
       cancelled = true;
-      created.forEach((url) => URL.revokeObjectURL(url));
+      createdBlobUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [images]);
 
@@ -53,6 +85,7 @@ function MessageImages({ images }: { images?: string[] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {images.map((imagePath) => {
+        if (isS3ImagePath(imagePath) && !pickImageSrc(imagePath)) return null;
         const url = urls[imagePath];
         return url ? (
           <button key={imagePath} type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")} className="block cursor-zoom-in">
@@ -478,4 +511,5 @@ export default function MessageBubble({ role, content, images, toolName, argumen
   );
 }
 
+export { pickImageSrc };
 export type { BubbleRole };
