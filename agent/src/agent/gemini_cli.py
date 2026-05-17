@@ -309,9 +309,9 @@ async def tail_gemini_output(
             except Exception:
                 pass
 
-        def _on_steer_detached(text, msg_id):
+        def _on_steer_detached(text, msg_id, images=None):
             nonlocal steer_requested
-            steer_msgs.append((text, msg_id))
+            steer_msgs.append((text, msg_id, list(images or [])))
             if steer_requested:
                 return
             steer_requested = True
@@ -403,8 +403,9 @@ async def tail_gemini_output(
 
         if check_steer_fn and not steer_requested:
             try:
-                for text, msg_id in check_steer_fn():
-                    steer_msgs.append((text, msg_id))
+                for msg in check_steer_fn():
+                    text, msg_id, images = msg if len(msg) == 3 else (msg[0], msg[1], [])
+                    steer_msgs.append((text, msg_id, list(images or [])))
                     steer_requested = True
             except Exception:
                 pass
@@ -420,8 +421,9 @@ async def tail_gemini_output(
                 "is_done": False,
                 "result_data": None,
                 "status": "steer",
-                "steer_text": "\n\n".join(t for t, _ in steer_msgs),
-                "consumed_steer_ids": [mid for _, mid in steer_msgs],
+                "steer_text": "\n\n".join(t for t, _, _ in steer_msgs),
+                "steer_images": [image for _, _, images in steer_msgs for image in images],
+                "consumed_steer_ids": [mid for _, mid, _ in steer_msgs],
             }
 
         if exit_reason == "interrupted":

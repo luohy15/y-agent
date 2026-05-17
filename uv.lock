@@ -2765,6 +2765,7 @@ name = "y-agent-agent"
 version = "0.4.0"
 source = { editable = "agent" }
 dependencies = [
+    { name = "boto3" },
     { name = "httpx" },
     { name = "paramiko" },
     { name = "pyyaml" },
@@ -2773,6 +2774,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.34.0" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "paramiko", specifier = ">=4.0.0" },
     { name = "pyyaml" },
@@ -2784,6 +2786,7 @@ name = "y-agent-api"
 version = "0.4.0"
 source = { editable = "api" }
 dependencies = [
+    { name = "boto3" },
     { name = "celery" },
     { name = "fastapi" },
     { name = "google-auth" },
@@ -2800,6 +2803,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.34.0" },
     { name = "celery", specifier = ">=5.3.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-auth", specifier = ">=2.29.0" },

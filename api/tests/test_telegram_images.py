@@ -2,8 +2,9 @@ import tempfile
 import unittest
 import base64
 import errno
+import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from api.controller import telegram
 from api.util import images
@@ -12,12 +13,14 @@ from api.util import images
 class TelegramImageStorageTest(unittest.TestCase):
     def test_save_telegram_image_uses_assets_dir_and_timestamp(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            with patch.object(telegram, "IMAGE_ASSETS_DIR", Path(tmp_dir)):
-                with patch.object(telegram, "get_utc_iso8601_timestamp", return_value="2026-05-15T08:17:09.123Z"):
+            with patch("api.util.images.IMAGE_ASSETS_DIR", Path(tmp_dir)):
+                with patch("api.util.images.datetime") as dt:
+                    dt.now.return_value.strftime.return_value = "20260515T081709.123456"
                     image_path = telegram._save_telegram_image(b"image-bytes", "j.pg", "bad/file:id_123456789")
 
-            self.assertEqual(image_path.parent, Path(tmp_dir))
-            self.assertEqual(image_path.name, "telegram-2026-05-15T081709.123Z-id_123456789.jpg")
+            image_path = Path(image_path)
+            self.assertEqual(image_path.parent, Path(tmp_dir).resolve())
+            self.assertRegex(image_path.name, r"telegram-id_123456789-.*\.jpg")
             self.assertEqual(image_path.read_bytes(), b"image-bytes")
 
     def test_resolve_send_image_requires_assets_dir(self):
@@ -53,18 +56,19 @@ class TelegramImageStorageTest(unittest.TestCase):
             with patch("api.util.images.IMAGE_ASSETS_DIR", Path(tmp_dir)):
                 image_path = images.save_send_image_upload(upload, prefix="telegram-upload")
 
+            image_path = Path(image_path)
             self.assertEqual(image_path.parent, Path(tmp_dir).resolve())
-            self.assertRegex(image_path.name, r"telegram-upload-\d{8}T\d{6}\.\d{3}Z-photo-[0-9a-f]{8}\.png")
+            self.assertRegex(image_path.name, r"telegram-upload-photo-\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{8}\.png")
             self.assertEqual(image_path.read_bytes(), b"png")
 
-    def test_save_send_image_upload_falls_back_to_tmp_on_readonly_assets_dir(self):
+    def test_save_send_image_upload_falls_back_to_s3_on_readonly_assets_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             upload = telegram.TelegramImageUpload(
                 filename="photo.png",
                 content_base64=base64.b64encode(b"png").decode("ascii"),
             )
             readonly_dir = Path(tmp_dir) / "readonly" / "images"
-            tmp_assets_dir = Path(tmp_dir) / "tmp" / "images"
+            s3 = Mock()
 
             original_mkdir = Path.mkdir
 
@@ -74,13 +78,29 @@ class TelegramImageStorageTest(unittest.TestCase):
                 return original_mkdir(self, *args, **kwargs)
 
             with patch("api.util.images.IMAGE_ASSETS_DIR", readonly_dir):
-                with patch("api.util.images.Path", wraps=Path) as path_cls:
-                    path_cls.side_effect = lambda *args, **kwargs: tmp_assets_dir if args == ("/tmp/y-agent-images",) else Path(*args, **kwargs)
-                    with patch.object(Path, "mkdir", fake_mkdir):
-                        image_path = images.save_send_image_upload(upload, prefix="telegram-upload")
+                with patch.dict(os.environ, {"Y_AGENT_S3_BUCKET": "bucket"}):
+                    with patch("boto3.client", return_value=s3):
+                        with patch.object(Path, "mkdir", fake_mkdir):
+                            image_path = images.save_send_image_upload(upload, prefix="telegram-upload")
 
-            self.assertEqual(image_path.parent, tmp_assets_dir)
-            self.assertEqual(image_path.read_bytes(), b"png")
+            self.assertRegex(image_path, r"^s3://bucket/images/telegram-upload-photo-.*\.png$")
+            s3.put_object.assert_called_once()
+            self.assertEqual(s3.put_object.call_args.kwargs["Body"], b"png")
+
+    def test_save_image_bytes_readonly_without_bucket_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readonly_dir = Path(tmp_dir) / "readonly" / "images"
+
+            def fake_mkdir(self, *args, **kwargs):
+                if self == readonly_dir.resolve():
+                    raise OSError(errno.EROFS, "Read-only file system")
+                return None
+
+            with patch("api.util.images.IMAGE_ASSETS_DIR", readonly_dir):
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.object(Path, "mkdir", fake_mkdir):
+                        with self.assertRaises(RuntimeError):
+                            images.save_image_bytes(b"png", prefix="telegram", suffix=".png")
 
 
 if __name__ == "__main__":

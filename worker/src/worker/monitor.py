@@ -507,6 +507,7 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
         chat_id=chat_id,
         vm_config=vm_config,
         env=env or None,
+        images=result.get("steer_images") or None,
     )
 
     # Accumulate consumed steer ids across restarts so they aren't re-detected.
@@ -577,6 +578,7 @@ async def _restart_gemini_with_steer(chat_id: str, proc: dict, result: dict):
         chat_id=chat_id,
         vm_config=vm_config,
         env=env or None,
+        images=result.get("steer_images") or None,
     )
 
     prev_consumed = proc.get("consumed_steer_ids")

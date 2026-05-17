@@ -1,8 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from agent.detach import _upload_images
+from agent.detach import _download_s3_to_tmp, _upload_images
 
 
 class _FakeSftp:
@@ -58,6 +59,24 @@ class DetachImageUploadTest(unittest.TestCase):
             client.sftp.puts,
             [(str(local_image), "/tmp/cc-chat-1-images/0-local.png")],
         )
+
+    def test_upload_images_downloads_s3_before_sftp(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            s3 = Mock()
+
+            def download_file(bucket, key, target):
+                Path(target).write_bytes(b"s3-bytes")
+
+            s3.download_file.side_effect = download_file
+            client = _FakeClient()
+            with patch.dict("os.environ", {"Y_AGENT_IMAGE_TMP_DIR": tmp_dir}):
+                with patch("boto3.client", return_value=s3):
+                    result = _upload_images(client, "chat-1", ["s3://bucket/images/photo.png"])
+
+        self.assertEqual(result, ["/tmp/cc-chat-1-images/0-photo.png"])
+        s3.download_file.assert_called_once_with("bucket", "images/photo.png", str(Path(tmp_dir) / "cc-chat-1-images" / "photo.png"))
+        self.assertEqual(client.sftp.puts[0][1], "/tmp/cc-chat-1-images/0-photo.png")
+        self.assertFalse(Path(client.sftp.puts[0][0]).exists())
 
 
 if __name__ == "__main__":

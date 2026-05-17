@@ -15,6 +15,10 @@ _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
+def _s3_bucket() -> str:
+    return os.environ.get("Y_AGENT_S3_BUCKET", "")
+
+
 class ImageUploadLike(Protocol):
     filename: str
     content_base64: str
@@ -34,7 +38,7 @@ def resolve_send_image_path(image_path: str, *, require_exists: bool = True) -> 
     return path
 
 
-def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload") -> Path:
+def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload") -> str:
     filename = Path(upload.filename or "").name
     if not filename:
         raise HTTPException(status_code=400, detail="image filename is required")
@@ -48,23 +52,44 @@ def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload") -
     if len(data) > _MAX_IMAGE_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="image upload exceeds 10 MB")
 
-    assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
     safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(filename).stem).strip("-") or "image"
+    return save_image_bytes(data, prefix=f"{prefix}-{safe_stem}", suffix=suffix)
+
+
+def save_image_bytes(content: bytes, *, prefix: str, suffix: str) -> str:
+    suffix = suffix.lower()
+    if not suffix.startswith("."):
+        suffix = f".{suffix}"
+    if suffix not in _ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="unsupported image extension")
+
+    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]", "-", prefix).strip("-") or "image"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%f")[:-3] + "Z"
-    image_name = f"{prefix}-{timestamp}-{safe_stem}-{uuid4().hex[:8]}{suffix}"
+    image_name = f"{safe_prefix}-{timestamp}-{uuid4().hex[:8]}{suffix}"
+    assets_dir = IMAGE_ASSETS_DIR.expanduser().resolve()
     try:
         assets_dir.mkdir(parents=True, exist_ok=True)
         image_path = assets_dir / image_name
-        image_path.write_bytes(data)
-        return image_path
+        image_path.write_bytes(content)
+        return str(image_path)
     except OSError as exc:
         if exc.errno not in (errno.EROFS, errno.EACCES, errno.EPERM):
             raise
-        tmp_dir = Path("/tmp/y-agent-images").resolve()
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        image_path = tmp_dir / image_name
-        image_path.write_bytes(data)
-        return image_path
+
+    bucket = _s3_bucket()
+    if not bucket:
+        raise RuntimeError("Y_AGENT_S3_BUCKET is required when image assets dir is not writable")
+
+    key = f"images/{image_name}"
+    import boto3
+
+    boto3.client("s3").put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=content,
+        ContentType=f"image/{'jpeg' if suffix in {'.jpg', '.jpeg'} else suffix.lstrip('.')}",
+    )
+    return f"s3://{bucket}/{key}"
 
 
 def resolve_message_image_paths(images: list[str] | None, image_uploads: list[ImageUploadLike] | None, *, prefix: str = "upload") -> list[str] | None:

@@ -19,6 +19,7 @@ import json
 import mimetypes
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -397,6 +398,17 @@ def _ssh_exec(client, cmd: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _claude_image_block(image_path: str, client=None) -> Dict:
+    if isinstance(image_path, str) and image_path.startswith("s3://"):
+        data, media_type = _read_s3_image_for_claude(image_path)
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": data,
+            },
+        }
+
     path = Path(image_path).expanduser()
     media_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
     if path.exists():
@@ -413,6 +425,20 @@ def _claude_image_block(image_path: str, client=None) -> Dict:
             "data": data,
         },
     }
+
+
+def _read_s3_image_for_claude(uri: str) -> tuple[str, str]:
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+        raise ValueError(f"invalid s3 image uri: {uri}")
+    key = parsed.path.lstrip("/")
+
+    import boto3
+
+    obj = boto3.client("s3").get_object(Bucket=parsed.netloc, Key=key)
+    body = obj["Body"].read()
+    media_type = obj.get("ContentType") or mimetypes.guess_type(Path(key).name)[0] or "image/jpeg"
+    return base64.b64encode(body).decode("ascii"), media_type
 
 
 def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None) -> None:
@@ -502,7 +528,7 @@ async def tail_ssh_output(
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
     check_deadline_fn: Optional[Callable[[], bool]] = None,
     ssh_client=None,
-    check_steer_fn: Optional[Callable[[], List[Tuple[str, str]]]] = None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
@@ -565,12 +591,15 @@ async def tail_ssh_output(
             except Exception:
                 pass
 
-        def _on_steer_detached(text, msg_id):
+        def _on_steer_detached(text, msg_id, images=None):
+            content = [{"type": "text", "text": text}]
+            for image_path in images or []:
+                content.append(_claude_image_block(image_path, client))
             payload = json.dumps({
                 "type": "user",
                 "message": {
                     "role": "user",
-                    "content": [{"type": "text", "text": text}],
+                    "content": content,
                 },
             })
             client.exec_command(

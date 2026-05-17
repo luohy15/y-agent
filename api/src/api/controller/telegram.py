@@ -1,6 +1,5 @@
 import os
 import re
-from pathlib import Path
 from typing import List, Optional
 
 import jwt
@@ -15,7 +14,7 @@ from storage.service.tg_topic import auto_discover_topic
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
-from api.util.images import IMAGE_ASSETS_DIR, resolve_send_image_path, save_send_image_upload
+from api.util.images import resolve_send_image_path, save_image_bytes, save_send_image_upload
 
 router = APIRouter(prefix="/telegram")
 
@@ -227,14 +226,10 @@ async def _download_telegram_photos(photo_sizes: list) -> List[str]:
         return []
 
 
-def _save_telegram_image(content: bytes, ext: str, file_id: str) -> Path:
+def _save_telegram_image(content: bytes, ext: str, file_id: str) -> str:
     safe_ext = re.sub(r"[^a-zA-Z0-9]", "", ext.lower()) or "jpg"
-    timestamp = get_utc_iso8601_timestamp().replace(":", "").replace("+", "Z")
     safe_file_id = re.sub(r"[^a-zA-Z0-9_-]", "", file_id)[-12:] or generate_id()
-    IMAGE_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    image_path = IMAGE_ASSETS_DIR / f"telegram-{timestamp}-{safe_file_id}.{safe_ext}"
-    image_path.write_bytes(content)
-    return image_path
+    return save_image_bytes(content, prefix=f"telegram-{safe_file_id}", suffix=safe_ext)
 
 
 
