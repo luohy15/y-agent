@@ -27,6 +27,7 @@ class Message:
     reasoning_effort: Optional[str] = None
     links: Optional[List[str]] = None
     images: Optional[List[str]] = None
+    telegram_delivered_images: Optional[List[str]] = None
     model: Optional[str] = None
     provider: Optional[str] = None
     id: Optional[str] = None
@@ -66,6 +67,7 @@ class Message:
             provider=data.get('provider'),
             links=data.get('links'),
             images=data.get('images'),
+            telegram_delivered_images=data.get('telegram_delivered_images') or [],
             model=data.get('model'),
             id=data.get('id'),
             parent_id=data.get('parent_id'),
@@ -101,6 +103,8 @@ class Message:
             result['links'] = self.links
         if self.images is not None:
             result['images'] = self.images
+        if self.telegram_delivered_images is not None:
+            result['telegram_delivered_images'] = self.telegram_delivered_images
         if self.model is not None:
             result['model'] = self.model
         if self.provider is not None:

@@ -2,11 +2,10 @@
 
 import os
 import re
-import tempfile
-from urllib.parse import urlparse
 
 from loguru import logger
 
+from agent.telegram_delivery import send_telegram_photo_reference
 from storage.entity.dto import Message
 from storage.service import chat as chat_service
 
@@ -104,43 +103,22 @@ def _resolve_telegram_target(chat, user_id: int):
     return resolve_target(user_id, topic=chat.topic)
 
 
-def _send_telegram_photo_reference(bot_token: str, tg_chat_id, image_path: str, caption: str | None, topic_id=None, vm_config=None, ssh_client=None) -> bool:
-    from storage.util import send_telegram_photo
+_send_telegram_photo_reference = send_telegram_photo_reference
 
-    parsed = urlparse(image_path)
-    scheme = parsed.scheme.lower()
-    if scheme in {"http", "https"}:
-        send_telegram_photo(bot_token, tg_chat_id, image_path, caption=caption, message_thread_id=topic_id)
-        return True
-    if scheme == "s3":
-        logger.warning("telegram photo: skipping legacy s3 image ref {}", image_path)
-        return False
 
-    suffix = os.path.splitext(image_path)[1] or ".jpg"
-    if ssh_client is not None:
-        with tempfile.NamedTemporaryFile(suffix=suffix) as image_file:
-            sftp = ssh_client.open_sftp()
-            try:
-                sftp.get(image_path, image_file.name)
-            finally:
-                sftp.close()
-            image_file.flush()
-            send_telegram_photo(bot_token, tg_chat_id, image_file.name, caption=caption, message_thread_id=topic_id)
-        return True
-
-    if vm_config is None:
-        logger.warning("telegram photo: cannot fetch local image without vm_config: {}", image_path)
-        return False
-
-    ensure_and_touch_vm(vm_config)
-    from agent.ssh_pool import SSHPool
-
-    pool = SSHPool()
-    try:
-        client = pool.get_or_create(vm_config)
-        return _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption, topic_id=topic_id, vm_config=vm_config, ssh_client=client)
-    finally:
-        pool.close_all()
+def _append_delivered_images(msg, image_paths: list[str]) -> bool:
+    existing = list(msg.telegram_delivered_images or [])
+    seen = set(existing)
+    changed = False
+    for image_path in image_paths:
+        if image_path in seen:
+            continue
+        existing.append(image_path)
+        seen.add(image_path)
+        changed = True
+    if changed:
+        msg.telegram_delivered_images = existing
+    return changed
 
 
 def _consolidate_turn_images(chat) -> bool:
@@ -227,17 +205,18 @@ def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=N
         break
 
 
-def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=None, ssh_client=None) -> None:
+def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=None, ssh_client=None) -> bool:
     """Send assistant reply to Telegram, routing by topic."""
     from storage.util import send_telegram_message
 
     target = _resolve_telegram_target(chat, user_id)
     if not target:
-        return
+        return False
     bot_token, tg_chat_id, topic_id = target
 
     reply_text = None
     images = []
+    target_message = None
     for msg in reversed(chat.messages):
         if msg.role == "user":
             break
@@ -246,6 +225,7 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
         if isinstance(msg.content, str) and msg.content.strip():
             reply_text = msg.content.strip()
             images = list(msg.images or [])
+            target_message = msg
             break
 
     if not reply_text:
@@ -255,17 +235,30 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
             if msg.role == "assistant":
                 images = list(msg.images or [])
                 if images:
+                    target_message = msg
                     break
+
+    if target_message is not None and images:
+        delivered = set(target_message.telegram_delivered_images or [])
+        had_images_before_filter = bool(images)
+        images = [image_path for image_path in images if image_path not in delivered]
+    else:
+        had_images_before_filter = False
 
     if images:
         sent_count = 0
+        delivered_now = []
         for index, image_path in enumerate(images):
             if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 and reply_text else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client):
                 sent_count += 1
+                delivered_now.append(image_path)
+        changed = _append_delivered_images(target_message, delivered_now) if target_message is not None else False
         logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", sent_count, chat.topic, tg_chat_id)
-    elif reply_text:
+        return changed
+    elif reply_text and not had_images_before_filter:
         send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
+    return False
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:

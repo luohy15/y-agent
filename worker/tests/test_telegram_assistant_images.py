@@ -6,7 +6,7 @@ from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 from worker.runner import _consolidate_turn_images, _send_telegram_reply, message_callback
 
 
-def _message(role="assistant", content="hello", images=None, message_id="m1"):
+def _message(role="assistant", content="hello", images=None, message_id="m1", telegram_delivered_images=None):
     return Message(
         id=message_id,
         role=role,
@@ -14,6 +14,7 @@ def _message(role="assistant", content="hello", images=None, message_id="m1"):
         timestamp=get_utc_iso8601_timestamp(),
         unix_timestamp=get_unix_timestamp(),
         images=images,
+        telegram_delivered_images=telegram_delivered_images,
     )
 
 
@@ -186,6 +187,36 @@ class TelegramAssistantImagesTest(unittest.TestCase):
 
         send_photo.assert_not_called()
         send_message.assert_called_once_with("token", "tg-chat", "new done", None)
+
+    def test_skips_already_delivered_image(self):
+        chat = _chat(_message("assistant", "done", ["/tmp/a.jpg"], telegram_delivered_images=["/tmp/a.jpg"]))
+
+        with (
+            patch("worker.runner._resolve_telegram_target", return_value=("token", "tg-chat", 42)),
+            patch("worker.runner._send_telegram_photo_reference") as send_photo,
+            patch("storage.util.send_telegram_message") as send_message,
+        ):
+            changed = _send_telegram_reply(chat, 1)
+
+        send_photo.assert_not_called()
+        send_message.assert_not_called()
+        self.assertFalse(changed)
+        self.assertEqual(chat.messages[0].telegram_delivered_images, ["/tmp/a.jpg"])
+
+    def test_sends_only_undelivered_images_and_marks_them(self):
+        chat = _chat(_message("assistant", "done", ["/tmp/a.jpg", "/tmp/b.jpg"], telegram_delivered_images=["/tmp/a.jpg"]))
+
+        with (
+            patch("worker.runner._resolve_telegram_target", return_value=("token", "tg-chat", 42)),
+            patch("worker.runner._send_telegram_photo_reference", return_value=True) as send_photo,
+            patch("storage.util.send_telegram_message") as send_message,
+        ):
+            changed = _send_telegram_reply(chat, 1)
+
+        send_message.assert_not_called()
+        send_photo.assert_called_once_with("token", "tg-chat", "/tmp/b.jpg", caption="done", topic_id=42, vm_config=None, ssh_client=None)
+        self.assertTrue(changed)
+        self.assertEqual(chat.messages[0].telegram_delivered_images, ["/tmp/a.jpg", "/tmp/b.jpg"])
 
 
 if __name__ == "__main__":
