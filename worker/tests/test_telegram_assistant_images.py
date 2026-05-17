@@ -3,12 +3,12 @@ from unittest.mock import patch
 
 from storage.entity.dto import Chat, Message
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
-from worker.runner import _extract_assistant_images, _send_telegram_reply, message_callback
+from worker.runner import _send_telegram_reply, message_callback
 
 
-def _message(role="assistant", content="hello", images=None):
+def _message(role="assistant", content="hello", images=None, message_id="m1"):
     return Message(
-        id="m1",
+        id=message_id,
         role=role,
         content=content,
         timestamp=get_utc_iso8601_timestamp(),
@@ -17,62 +17,24 @@ def _message(role="assistant", content="hello", images=None):
     )
 
 
-def _chat(message):
-    return Chat(id="chat-1", create_time="", update_time="", topic="dev", messages=[message])
+def _chat(messages):
+    if not isinstance(messages, list):
+        messages = [messages]
+    return Chat(id="chat-1", create_time="", update_time="", topic="dev", messages=messages)
 
 
-class AssistantImageExtractionTest(unittest.TestCase):
-    def test_extracts_supported_images_and_ignores_unsupported_references(self):
-        content = "\n".join(
-            [
-                "local /Users/roy/luohy15/assets/images/generated.png",
-                "url https://example.com/rendered.PNG",
-                "s3 s3://bucket/path/image.webp",
-                "ignore /tmp/not-owned.jpg",
-                "ignore /Users/roy/luohy15/assets/images/readme.txt",
-            ]
-        )
-
-        self.assertEqual(
-            _extract_assistant_images(content),
-            [
-                "/Users/roy/luohy15/assets/images/generated.png",
-                "https://example.com/rendered.PNG",
-                "s3://bucket/path/image.webp",
-            ],
-        )
-
-    def test_deduplicates_in_order_and_trims_trailing_punctuation(self):
-        content = (
-            "![a](/Users/roy/luohy15/assets/images/a.png). "
-            "again /Users/roy/luohy15/assets/images/a.png, "
-            "then `https://example.com/b.jpg` "
-            "and s3://bucket/c.gif)."
-        )
-
-        self.assertEqual(
-            _extract_assistant_images(content),
-            [
-                "/Users/roy/luohy15/assets/images/a.png",
-                "https://example.com/b.jpg",
-                "s3://bucket/c.gif",
-            ],
-        )
-
-    def test_message_callback_merges_extracted_images_before_persisting(self):
+class AssistantImageAttachTest(unittest.TestCase):
+    def test_message_callback_does_not_extract_images_from_text(self):
         message = _message(
-            content="created /Users/roy/luohy15/assets/images/new.png",
-            images=["https://example.com/existing.jpg"],
+            content="created /Users/roy/luohy15/assets/images/not-attached.png",
+            images=["https://example.com/explicit.jpg"],
         )
 
         with patch("worker.runner.chat_service.append_message_sync") as append_message:
             message_callback("chat-1", message)
 
         append_message.assert_called_once_with("chat-1", message)
-        self.assertEqual(
-            message.images,
-            ["https://example.com/existing.jpg", "/Users/roy/luohy15/assets/images/new.png"],
-        )
+        self.assertEqual(message.images, ["https://example.com/explicit.jpg"])
 
 
 class TelegramAssistantImagesTest(unittest.TestCase):
@@ -105,6 +67,49 @@ class TelegramAssistantImagesTest(unittest.TestCase):
 
         send_photo.assert_not_called()
         send_message.assert_called_once_with("token", "tg-chat", "hello", None)
+
+    def test_aggregates_images_across_assistant_messages_in_current_turn(self):
+        chat = _chat(
+            [
+                _message("user", "make image", message_id="u1"),
+                _message("assistant", "", ["/tmp/attached-on-tool-turn.png"], message_id="a1"),
+                _message("assistant", "done", ["https://example.com/final.jpg"], message_id="a2"),
+            ]
+        )
+
+        with (
+            patch("worker.runner._resolve_telegram_target", return_value=("token", "tg-chat", 7)),
+            patch("worker.runner._send_telegram_photo_reference") as send_photo,
+            patch("storage.util.send_telegram_message") as send_message,
+        ):
+            _send_telegram_reply(chat, 1)
+
+        send_message.assert_not_called()
+        self.assertEqual(send_photo.call_count, 2)
+        self.assertEqual(send_photo.call_args_list[0].args, ("token", "tg-chat", "/tmp/attached-on-tool-turn.png"))
+        self.assertEqual(send_photo.call_args_list[0].kwargs, {"caption": "done", "topic_id": 7})
+        self.assertEqual(send_photo.call_args_list[1].args, ("token", "tg-chat", "https://example.com/final.jpg"))
+        self.assertEqual(send_photo.call_args_list[1].kwargs, {"caption": None, "topic_id": 7})
+
+    def test_ignores_images_from_previous_turns(self):
+        chat = _chat(
+            [
+                _message("user", "old", message_id="u1"),
+                _message("assistant", "old done", ["/tmp/old.png"], message_id="a1"),
+                _message("user", "new", message_id="u2"),
+                _message("assistant", "new done", message_id="a2"),
+            ]
+        )
+
+        with (
+            patch("worker.runner._resolve_telegram_target", return_value=("token", "tg-chat", None)),
+            patch("worker.runner._send_telegram_photo_reference") as send_photo,
+            patch("storage.util.send_telegram_message") as send_message,
+        ):
+            _send_telegram_reply(chat, 1)
+
+        send_photo.assert_not_called()
+        send_message.assert_called_once_with("token", "tg-chat", "new done", None)
 
 
 if __name__ == "__main__":

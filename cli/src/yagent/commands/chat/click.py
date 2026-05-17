@@ -247,6 +247,7 @@ from .import_claude import import_claude
 from .search import search_chats
 from .get import get_chat
 from .stop import stop_chat
+from .attach import attach_images
 
 chat_group.add_command(list_chats)
 chat_group.add_command(share)
@@ -255,3 +256,4 @@ chat_group.add_command(import_claude)
 chat_group.add_command(search_chats)
 chat_group.add_command(get_chat)
 chat_group.add_command(stop_chat)
+chat_group.add_command(attach_images)

@@ -51,6 +51,19 @@ class StopChatRequest(BaseModel):
     chat_id: str
 
 
+class AttachImageRequest(BaseModel):
+    chat_id: str
+    images: Optional[List[str]] = None
+    image_uploads: Optional[List[ImageUpload]] = None
+
+
+def _latest_assistant_message(chat):
+    for msg in reversed(chat.messages):
+        if msg.role == "assistant":
+            return msg
+    return None
+
+
 def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
@@ -173,6 +186,37 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
 
     return {"ok": True}
+
+
+@router.post("/attach-image")
+async def post_attach_image(req: AttachImageRequest, request: Request):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, req.chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="attach")
+    if not images:
+        raise HTTPException(status_code=400, detail="at least one image is required")
+
+    target = _latest_assistant_message(chat)
+    if target is None:
+        raise HTTPException(status_code=409, detail="no assistant message yet to attach to")
+
+    existing = list(target.images or [])
+    seen = set(existing)
+    added = []
+    for image_path in images:
+        if image_path in seen:
+            continue
+        existing.append(image_path)
+        added.append(image_path)
+        seen.add(image_path)
+    target.images = existing
+
+    from storage.repository import chat as chat_repo
+    await chat_repo.save_chat_by_id(chat)
+    return {"ok": True, "chat_id": req.chat_id, "count": len(added), "images": existing}
 
 
 @router.post("/stop")
