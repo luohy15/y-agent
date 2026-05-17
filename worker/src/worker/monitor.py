@@ -286,6 +286,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             # Telegram reply + post hooks (same for both backends)
             if not fresh.interrupted and result["status"] != "error":
                 try:
+                    from worker.runner import _consolidate_turn_images
+                    if _consolidate_turn_images(fresh):
+                        await chat_repo.save_chat_by_id(fresh)
+                except Exception as e:
+                    logger.exception("turn image consolidation failed: {}", e)
+
+                try:
                     from worker.runner import _send_telegram_reply
                     _send_telegram_reply(fresh, user_id, proc.get("trace_id"))
                 except Exception as e:
