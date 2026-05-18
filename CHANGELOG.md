@@ -13,6 +13,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Telegram assistant image delivery metadata (2112)** — assistant image delivery now records durable Telegram delivery metadata for follow-up chat rendering and monitoring.
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.13] - 2026-05-17
+
+### Added
+- **Bot list sidebar (2085)** — ActivityBar gains a dedicated bot list sidebar backed by the bot-config API.
+- **Image attachment delivery hardening (2107 / 2108 / 2110)** — Codex, Claude, and Gemini launches accept staged image paths from Telegram/API/CLI chat flows; image handling now supports Telegram, EC2-only paths, S3 fallback, and chat rendering for attached/generated images.
 - **`y note delete` + `y note update --front-matter` (2009)** — new `y note delete` CLI command + `POST /api/note/delete` endpoint with safe-delete guards (refuses when an entity backs the note; requires `--force` to unlink live `note_todo` relations before soft-deleting). `y note update` now accepts `--front-matter` to re-parse and replace the stored YAML front-matter from the file at `content_key`.
 - **Finance `topics` sub-tab** — NoteList's finance tab gains a fourth `topics` sub-tab alongside `notes` / `weekly` / `tickers`, persisted via `noteListFinanceSubTab`.
 - **Skills tab in NoteList (2045)** — new top-level Skills tab with search, backed by a new `GET /api/file/skills` endpoint that lists `~/.claude/skills/`.
@@ -34,6 +47,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **OpenAI image provider** — `y image generate` can use an OpenAI-backed image provider in addition to the existing generation path.
 
 ### Changed
+- **Release publishing config (2111)** — CLI packaging metadata and the publish workflow were refreshed for the next release path.
 - **TodoContextMenu status options inlined (1994)** — status choices moved out of the "Status" submenu into an inline radio row at the top of the context menu, refining the 0.5.12 submenu version.
 - **TodoContextMenu pin/unpin (2054)** — pin/unpin moved into the right-click menu; TodoList and TodoViewer route through the menu action.
 - **Note sidebar drops the "Weekly" tab (2064)** — NoteList top-level Weekly tab removed; weekly notes still reachable through Finance → weekly.
