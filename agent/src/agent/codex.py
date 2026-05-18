@@ -519,9 +519,30 @@ async def tail_codex_output(
             return None
 
         loop = asyncio.get_event_loop()
-        exit_reason = await loop.run_in_executor(None, _read_lines)
+        cancelled_result = None
+        try:
+            exit_reason = await loop.run_in_executor(None, _read_lines)
+        except asyncio.CancelledError:
+            logger.info("tail_codex_output cancelled: chat_id={} offset={}", chat_id, current_offset)
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+            cancelled_result = {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "thread_id": converter.thread_id,
+                "is_done": False,
+                "result_data": None,
+                "status": "monitoring",
+            }
 
         poll.stop()
+
+        if cancelled_result:
+            if owns_client:
+                client.close()
+            return cancelled_result
 
         # Drain any steer messages that arrived after the kill but before stop().
         if check_steer_fn and not steer_requested:
