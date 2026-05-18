@@ -247,11 +247,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         return
 
     # Save offset to DynamoDB
+    # Defensive: keep prior session_id when this tail did not observe a fresh one.
+    updated_session_id = result.get("session_id") or result.get("thread_id") or session_id
     update_process_offset(
         chat_id=chat_id,
         offset=result["offset"],
         last_message_id=result.get("last_message_id"),
-        session_id=result.get("session_id") or result.get("thread_id"),
+        session_id=updated_session_id,
         consumed_steer_ids=result.get("consumed_steer_ids"),
     )
 
@@ -338,13 +340,14 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
 
     if backend_type == "codex":
         # Codex: usage from turn.completed event
-        if result.get("thread_id"):
+        effective_thread_id = result.get("thread_id") or proc.get("session_id")
+        if effective_thread_id:
             if cwd_matches:
-                fresh.external_id = result["thread_id"]
+                fresh.external_id = effective_thread_id
             else:
                 logger.warning(
                     "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, result["thread_id"],
+                    chat_id, run_work_dir, fresh.work_dir, effective_thread_id,
                 )
         if result_data and not result_data.get("is_error"):
             usage = result_data.get("usage", {})
@@ -363,13 +366,14 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
             )
             fresh.messages.append(error_msg)
     elif backend_type == "gemini_cli":
-        if result.get("session_id"):
+        effective_session_id = result.get("session_id") or proc.get("session_id")
+        if effective_session_id:
             if cwd_matches:
-                fresh.external_id = result["session_id"]
+                fresh.external_id = effective_session_id
             else:
                 logger.warning(
                     "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (gemini session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
                 )
         if result_data and not result_data.get("is_error"):
             usage = result_data.get("usage") or {}
@@ -395,13 +399,14 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
             fresh.messages.append(error_msg)
     else:
         # Claude Code: existing logic
-        if result.get("session_id"):
+        effective_session_id = result.get("session_id") or proc.get("session_id")
+        if effective_session_id:
             if cwd_matches:
-                fresh.external_id = result["session_id"]
+                fresh.external_id = effective_session_id
             else:
                 logger.warning(
                     "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, result["session_id"],
+                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
                 )
 
         if result_data:
