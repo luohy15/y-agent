@@ -275,8 +275,10 @@ async def post_attach_image(req: AttachImageRequest, request: Request):
         seen.add(image_path)
     target.images = existing
 
-    delivered = _deliver_attached_images_to_telegram(user_id, chat, target, added, vm_name=req.vm_name)
-    _append_delivered_images(target, delivered)
+    delivered = []
+    if not chat.running:
+        delivered = _deliver_attached_images_to_telegram(user_id, chat, target, added, vm_name=req.vm_name)
+        _append_delivered_images(target, delivered)
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
