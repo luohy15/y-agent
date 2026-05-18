@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -38,6 +39,77 @@ class GeminiMonitorTest(unittest.IsolatedAsyncioTestCase):
 
 
 class MonitorResumeTest(unittest.IsolatedAsyncioTestCase):
+    async def _assert_cancelled_tail_persists_offset(self, backend_type, patch_target, session_key, session_value):
+        result = {
+            "offset": 456,
+            "last_message_id": "msg-456",
+            session_key: session_value,
+            "is_done": False,
+            "result_data": None,
+            "status": "monitoring",
+            "consumed_steer_ids": ["steer-1"],
+        }
+
+        async def cancellable_tail(**kwargs):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return result
+
+        with (
+            patch("agent.config.resolve_vm_config", return_value=Mock()),
+            patch("storage.service.chat.get_chat_by_id", new_callable=AsyncMock) as get_chat,
+            patch("worker.runner.make_steer_checker", return_value=lambda: []),
+            patch(patch_target, side_effect=cancellable_tail),
+            patch("worker.monitor.update_process_offset") as update_offset,
+            patch("worker.monitor.release_lease") as release_lease,
+        ):
+            get_chat.return_value = Chat(id="chat-1", create_time="", update_time="", messages=[])
+            task = asyncio.create_task(_tail_and_process(
+                "chat-1",
+                {
+                    "user_id": 1,
+                    "vm_name": "vm",
+                    "backend_type": backend_type,
+                    "session_id": "session-existing",
+                },
+                "lambda-1",
+                deadline_at=0,
+            ))
+            await asyncio.sleep(0)
+            task.cancel()
+            await task
+
+        self.assertEqual(update_offset.call_args.kwargs["offset"], 456)
+        self.assertEqual(update_offset.call_args.kwargs["last_message_id"], "msg-456")
+        self.assertEqual(update_offset.call_args.kwargs["session_id"], session_value)
+        self.assertEqual(update_offset.call_args.kwargs["consumed_steer_ids"], ["steer-1"])
+        release_lease.assert_called_once_with("chat-1")
+
+    async def test_cancelled_claude_tail_persists_latest_offset(self):
+        await self._assert_cancelled_tail_persists_offset(
+            "claude_code",
+            "agent.claude_code.tail_ssh_output",
+            "session_id",
+            "session-456",
+        )
+
+    async def test_cancelled_codex_tail_persists_latest_offset(self):
+        await self._assert_cancelled_tail_persists_offset(
+            "codex",
+            "agent.codex.tail_codex_output",
+            "thread_id",
+            "thread-456",
+        )
+
+    async def test_cancelled_gemini_tail_persists_latest_offset(self):
+        await self._assert_cancelled_tail_persists_offset(
+            "gemini_cli",
+            "agent.gemini_cli.tail_gemini_output",
+            "session_id",
+            "gemini-456",
+        )
+
     async def test_deadline_pause_preserves_existing_session_id(self):
         result = {
             "offset": 123,
