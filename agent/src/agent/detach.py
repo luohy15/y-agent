@@ -168,7 +168,11 @@ async def _start_detached_tmux(
             spec.setup(client, chat_id, prompt, exec_images)
 
         # 3. Assemble tmux inner command
-        inner_parts = ["date +%s > /tmp/ec2-ssh-last-seen;"]
+        inner_parts = [
+            "date +%s > /tmp/ec2-ssh-last-seen;",
+            "( while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done ) &",
+            "HEARTBEAT_PID=$!;",
+        ]
         if env:
             for k, v in env.items():
                 inner_parts.append(f"export {k}={_shell_quote(v)};")
@@ -180,7 +184,9 @@ async def _start_detached_tmux(
             f"{exec_cmd} "
             f"> {_shell_quote(stdout_file)} "
             f"2> {_shell_quote(stderr_file)}; "
-            f"echo $? > {_shell_quote(exit_file)}"
+            "EC=$?; "
+            "kill $HEARTBEAT_PID 2>/dev/null; "
+            f"echo $EC > {_shell_quote(exit_file)}"
         )
 
         tmux_cmd = (

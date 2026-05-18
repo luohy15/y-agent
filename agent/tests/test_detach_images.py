@@ -1,9 +1,10 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from agent.detach import _download_s3_to_tmp, _upload_images
+from agent.detach import DetachBackendSpec, _download_s3_to_tmp, _start_detached_tmux, _upload_images
 
 
 class _FakeSftp:
@@ -77,6 +78,36 @@ class DetachImageUploadTest(unittest.TestCase):
         s3.download_file.assert_called_once_with("bucket", "images/photo.png", str(Path(tmp_dir) / "cc-chat-1-images" / "photo.png"))
         self.assertEqual(client.sftp.puts[0][1], "/tmp/cc-chat-1-images/0-photo.png")
         self.assertFalse(Path(client.sftp.puts[0][0]).exists())
+
+
+class DetachTmuxHeartbeatTest(unittest.TestCase):
+    def test_start_detached_tmux_wraps_exec_with_last_seen_heartbeat(self):
+        client = _FakeClient()
+        spec = DetachBackendSpec(
+            build_exec=lambda cmd, chat_id, prompt, images: " ".join(cmd),
+            parse_initial=lambda obj: None,
+            upload_images=False,
+        )
+
+        with patch("agent.detach.asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                _start_detached_tmux(
+                    ["echo", "ok"],
+                    "prompt",
+                    "/tmp/work dir",
+                    "chat-1",
+                    vm_config=None,
+                    spec=spec,
+                    ssh_client=client,
+                )
+            )
+
+        tmux_cmd = next(command for command in client.exec_commands if command.startswith("tmux new-session"))
+        self.assertIn("date +%s > /tmp/ec2-ssh-last-seen;", tmux_cmd)
+        self.assertIn("while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done", tmux_cmd)
+        self.assertIn("HEARTBEAT_PID=$!;", tmux_cmd)
+        self.assertIn("EC=$?; kill $HEARTBEAT_PID 2>/dev/null; echo $EC >", tmux_cmd)
+        self.assertIn("/tmp/cc-chat-1.exit", tmux_cmd)
 
 
 if __name__ == "__main__":
