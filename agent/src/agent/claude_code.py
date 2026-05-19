@@ -381,6 +381,17 @@ def _shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
+def _claude_resume_session_id(cmd: List[str]) -> Optional[str]:
+    """Return the Claude Code resume session id from `-r <id>`, if present."""
+    try:
+        resume_index = cmd.index("-r")
+    except ValueError:
+        return None
+    if resume_index + 1 >= len(cmd):
+        return None
+    return cmd[resume_index + 1]
+
+
 def _ssh_exec(client, cmd: str) -> str:
     """Execute a command via SSH and return stdout. Raises on non-zero exit."""
     stdin, stdout, stderr = client.exec_command(cmd)
@@ -467,7 +478,22 @@ def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Option
     full_cmd = cmd + ["--input-format", "stream-json"]
     claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
     stdin_file = f"/tmp/cc-{chat_id}.stdin"
-    return f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}"
+    exec_cmd = f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}"
+    resume_session_id = _claude_resume_session_id(cmd)
+    if not resume_session_id:
+        return exec_cmd
+
+    # Claude cleanupPeriodDays can prune old sessions; backup-projects.sh keeps copies.
+    restore_snippet = (
+        f"_y_sid={_shell_quote(resume_session_id)}; "
+        "_y_proj=$(pwd | sed 's|/|-|g'); "
+        "_y_dst=\"$HOME/.claude/projects/$_y_proj/$_y_sid.jsonl\"; "
+        "_y_src=\"/Users/roy/luohy15/assets/claude-code/projects/$_y_proj/$_y_sid.jsonl\"; "
+        "if [ ! -f \"$_y_dst\" ] && [ -f \"$_y_src\" ]; then "
+        "mkdir -p \"$(dirname \"$_y_dst\")\"; cp -p \"$_y_src\" \"$_y_dst\"; touch \"$_y_dst\"; "
+        "fi; "
+    )
+    return restore_snippet + exec_cmd
 
 
 def _claude_parse_initial(obj: Dict) -> Optional[str]:
