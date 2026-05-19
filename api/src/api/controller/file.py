@@ -96,6 +96,8 @@ async def list_files(request: Request, path: str = Query("."), vm_name: str = Qu
 @router.get("/read")
 async def read_file(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
+    if path.startswith("/") or path.startswith("~"):
+        work_dir = None
     content = await _exec(user_id, ["cat", path], vm_name=vm_name, work_dir=work_dir)
     return {"path": path, "content": content}
 
@@ -267,6 +269,8 @@ async def write_file(request: Request, body: WriteRequest, vm_name: str = Query(
 @router.get("/raw")
 async def raw_file(request: Request, path: str = Query(...), vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
+    if path.startswith("/") or path.startswith("~"):
+        work_dir = None
     data = await _exec_bytes(user_id, ["cat", path], timeout=30, vm_name=vm_name, work_dir=work_dir)
     mime, _ = mimetypes.guess_type(path)
     return Response(content=data, media_type=mime or "application/octet-stream")
