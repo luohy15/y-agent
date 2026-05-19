@@ -18,6 +18,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Changed
 
 ### Fixed
+- **EC2 detached-run heartbeat (2121)** — detached tmux runs now keep `/tmp/ec2-ssh-last-seen` fresh during long executions and stop the heartbeat after command exit, preventing premature hibernation while preserving exit status.
+- **Tail cancellation resume state (2120)** — Codex, Claude, and Gemini tailers now return resumable monitoring state on cancellation, preserving offsets, message ids, sessions, and consumed steer ids for the next monitor pass.
+- **Attached image duplicate delivery (2115)** — chat image attachments are now delivered once per request instead of being duplicated through the API handoff path.
+- **Worker timeout resume session ids** — worker monitor metadata now falls back to the stored process session/thread id when a timeout or error result omits it, keeping resumed Claude/Codex/Gemini chats linked to the correct session.
 
 ### Removed
 
