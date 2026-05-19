@@ -13,7 +13,7 @@ from storage.service import vm_config as vm_service
 
 
 # If last_up is older than this, assume the VM may be stopped/hibernated.
-IDLE_THRESHOLD_SECONDS = 900  # 15 minutes (matches server-side auto-hibernate)
+IDLE_THRESHOLD_SECONDS = 60
 
 
 def _is_stale(last_up: int | None) -> bool:
@@ -61,8 +61,8 @@ def _parse_ssh_target(vm_name: str) -> tuple:
     return user, host, port
 
 
-def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 12, interval: float = 5) -> None:
-    """Try connecting via SSH until successful, up to max_attempts * interval seconds."""
+def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 36, interval: float = 5) -> None:
+    """Try connecting via SSH until successful, up to roughly three minutes."""
     user, host, port = _parse_ssh_target(vm_config.vm_name)
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
@@ -79,20 +79,21 @@ def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 12, interval: float =
             if attempt < max_attempts:
                 time.sleep(interval)
 
-    logger.warning("ec2_wake: SSH did not become ready after {} attempts", max_attempts)
+    raise TimeoutError(f"ec2_wake: SSH did not become ready after {max_attempts} attempts")
 
 
-def ensure_vm_running(vm_config: VmConfig, user_id: int | None = None) -> None:
+def ensure_vm_running(vm_config: VmConfig, user_id: int | None = None) -> bool:
     """If the VM has EC2 config and last_up is stale, wake the instance."""
     if not vm_config.ec2_instance_id or not vm_config.ec2_region:
-        return
+        return False
 
     if not _is_stale(vm_config.last_up):
-        return
+        return False
 
     _start_and_wait(vm_config.ec2_instance_id, vm_config.ec2_region)
     if vm_config.vm_name and vm_config.api_token:
         _wait_for_ssh(vm_config)
+    return True
 
 
 def touch_last_up(vm_config: VmConfig) -> None:
@@ -107,5 +108,5 @@ def touch_last_up(vm_config: VmConfig) -> None:
 def ensure_and_touch_vm(vm_config: VmConfig) -> None:
     """Ensure the EC2 VM is running and update last_up timestamp."""
     if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
-        ensure_vm_running(vm_config)
-        touch_last_up(vm_config)
+        if ensure_vm_running(vm_config):
+            touch_last_up(vm_config)

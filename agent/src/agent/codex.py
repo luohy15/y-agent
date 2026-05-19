@@ -379,7 +379,7 @@ async def tail_codex_output(
 
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(host, port=port, username=user, pkey=key)
+        ssh_client.connect(host, port=port, username=user, pkey=key, timeout=30)
 
     client = ssh_client
     stdout_file = f"/tmp/cc-{chat_id}.stdout"
