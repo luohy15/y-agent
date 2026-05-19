@@ -25,6 +25,10 @@ from agent.claude_code import (
     _ssh_exec,
     parse_stream_line,
 )
+from agent.ec2_wake import ensure_and_touch_vm
+
+
+SSH_CONNECT_TIMEOUT_SECONDS = 30
 
 
 @contextmanager
@@ -39,12 +43,20 @@ def _with_ssh_client(vm_config, ssh_client=None):
         import io
         import paramiko
 
+        ensure_and_touch_vm(vm_config)
+
         user, host, port = _parse_ssh_target(vm_config.vm_name)
         key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(host, port=port, username=user, pkey=key)
+        ssh_client.connect(
+            host,
+            port=port,
+            username=user,
+            pkey=key,
+            timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+        )
 
     try:
         yield ssh_client

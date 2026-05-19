@@ -7,6 +7,10 @@ import paramiko
 from loguru import logger
 
 from agent.claude_code import _parse_ssh_target
+from agent.ec2_wake import ensure_and_touch_vm
+
+
+SSH_CONNECT_TIMEOUT_SECONDS = 30
 
 
 class SSHPool:
@@ -46,12 +50,20 @@ class SSHPool:
                 del self._clients[key]
 
         # Create new connection
+        ensure_and_touch_vm(vm_config)
+
         user, host, port = _parse_ssh_target(vm_config.vm_name)
         key_obj = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(host, port=port, username=user, pkey=key_obj)
+        client.connect(
+            host,
+            port=port,
+            username=user,
+            pkey=key_obj,
+            timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+        )
 
         self._clients[key] = client
         logger.info("ssh_pool: new connection to {}:{} (pool size={})", host, port, len(self._clients))
