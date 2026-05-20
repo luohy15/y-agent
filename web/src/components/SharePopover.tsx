@@ -19,15 +19,16 @@ interface SharePopoverProps {
   buttonLabel?: string;
   align?: "left" | "right";
   existingShare?: ExistingShare | null;
+  onRefresh?: () => Promise<unknown>;
   onDelete?: (shareId: string) => Promise<void>;
 }
 
-export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", existingShare, onDelete }: SharePopoverProps) {
+export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", existingShare, onRefresh, onDelete }: SharePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ShareMode>("public");
   const [customPassword, setCustomPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<"idle" | "copied" | "error" | "deleted">("idle");
+  const [status, setStatus] = useState<"idle" | "copied" | "error" | "deleted" | "refreshed">("idle");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -81,6 +82,22 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
     }
   };
 
+  const doRefresh = async () => {
+    if (!existingShare || !onRefresh || busy) return;
+    setBusy(true);
+    setStatus("idle");
+    try {
+      await onRefresh();
+      setStatus("refreshed");
+      setTimeout(() => setStatus("idle"), 1500);
+    } catch {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 1500);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doDelete = async () => {
     if (!existingShare || !onDelete || busy) return;
     setBusy(true);
@@ -98,11 +115,12 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
     }
   };
 
-  const label = status === "copied" ? "copied!" : status === "error" ? "error" : status === "deleted" ? "deleted" : existingShare ? "shared" : buttonLabel;
+  const label = status === "copied" ? "copied!" : status === "error" ? "error" : status === "deleted" ? "deleted" : status === "refreshed" ? "refreshed" : existingShare ? "shared" : buttonLabel;
   const stateCls =
     status === "copied" ? "bg-sol-green/20 text-sol-green" :
     status === "error" ? "bg-sol-red/20 text-sol-red" :
     status === "deleted" ? "bg-sol-base02 text-sol-base01" :
+    status === "refreshed" ? "bg-sol-green/20 text-sol-green" :
     existingShare ? "bg-sol-green/10 text-sol-green" :
     "";
 
@@ -131,6 +149,15 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
                 >
                   Copy link
                 </button>
+                {onRefresh && (
+                  <button
+                    onClick={doRefresh}
+                    disabled={busy}
+                    className="flex-1 px-2 py-1 bg-sol-base02 text-sol-cyan rounded text-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {busy ? "..." : "Refresh"}
+                  </button>
+                )}
                 {onDelete && (
                   confirmDelete ? (
                     <button
