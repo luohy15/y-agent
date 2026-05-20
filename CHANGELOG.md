@@ -14,10 +14,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **Telegram assistant image delivery metadata (2112)** — assistant image delivery now records durable Telegram delivery metadata for follow-up chat rendering and monitoring.
+- **Claude Code resume session restoration** — Claude Code resume launches now restore missing session JSONL files from the backup-projects archive before starting `claude -r`, recovering chats pruned by Claude's cleanup window.
 
 ### Changed
 
 ### Fixed
+- **EC2 wake before SSH connect (2149)** — detached runs and pooled SSH connections now wake stale EC2 VMs before connecting, wait longer for SSH readiness, and use explicit connect timeouts.
+- **Absolute file reads over SSH (2151)** — `read_file` and `raw_file` no longer prepend stale `work_dir` values for absolute or home-relative paths, preventing empty reads when the cwd is missing.
 - **EC2 detached-run heartbeat (2121)** — detached tmux runs now keep `/tmp/ec2-ssh-last-seen` fresh during long executions and stop the heartbeat after command exit, preventing premature hibernation while preserving exit status.
 - **Tail cancellation resume state (2120)** — Codex, Claude, and Gemini tailers now return resumable monitoring state on cancellation, preserving offsets, message ids, sessions, and consumed steer ids for the next monitor pass.
 - **Attached image duplicate delivery (2115)** — chat image attachments are now delivered once per request instead of being duplicated through the API handoff path.
