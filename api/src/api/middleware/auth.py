@@ -27,6 +27,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if path == "/api/trace/share" and request.method == "GET":
             return await call_next(request)
+        if path == "/api/note/share" and request.method == "GET":
+            return await call_next(request)
 
         # Protected routes require JWT (header or query param for SSE)
         auth_header = request.headers.get("Authorization", "")

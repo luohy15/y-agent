@@ -6,6 +6,7 @@ import Landing from "./components/Landing";
 import DocsView from "./components/DocsView";
 import ShareView from "./components/ShareView";
 import ShareTraceView from "./components/ShareTraceView";
+import ShareNoteView from "./components/ShareNoteView";
 import { useAuth } from "./hooks/useAuth";
 import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/s/:shareId" element={<ShareView />} />
         <Route path="/share/:shareId" element={<ShareView />} />
         <Route path="/t/:shareId" element={<ShareTraceView />} />
+        <Route path="/n/:shareId" element={<ShareNoteView />} />
         <Route path="/trace/:traceId" element={<App />} />
         <Route path="/*" element={<App />} />
       </Routes>

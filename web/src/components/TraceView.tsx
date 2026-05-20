@@ -48,6 +48,51 @@ function getDomain(url: string): string {
   }
 }
 
+function NoteShareButton({ noteId }: { noteId: string }) {
+  const myShareKey = `${API}/api/note/share/mine?note_id=${encodeURIComponent(noteId)}`;
+  const { data: myShare, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
+    myShareKey,
+    async (url: string) => {
+      const res = await authFetch(url);
+      if (res.status === 404) return null;
+      if (res.status === 401) { clearToken(); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("fetch failed");
+      return res.json();
+    },
+  );
+
+  const createNoteShare = async (opts: { password?: string; generate_password?: boolean }) => {
+    const res = await authFetch(`${API}/api/note/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note_id: noteId, ...opts }),
+    });
+    if (!res.ok) throw new Error("share failed");
+    const result = await res.json();
+    mutateMyShare();
+    return result;
+  };
+
+  const deleteNoteShare = async (shareId: string) => {
+    const res = await authFetch(`${API}/api/note/share?share_id=${encodeURIComponent(shareId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("delete failed");
+    mutateMyShare();
+  };
+
+  return (
+    <SharePopover
+      onCreate={createNoteShare}
+      buildUrl={(shareId) => `${window.location.origin}/n/${shareId}`}
+      buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+      align="right"
+      existingShare={myShare ?? null}
+      onDelete={deleteNoteShare}
+    />
+  );
+}
+
 export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange }: TraceViewProps) {
   // Fetch chats for selected trace
   const traceChatsKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
@@ -256,10 +301,13 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                         onClick={() => onOpenFile?.(defaultWorkDir ? `${defaultWorkDir}/${note.content_key}` : note.content_key)}
                       >
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[0.6rem] text-sol-base01">#{note.note_id}</span>
+                          <span className="text-[0.6rem] text-sol-base01 min-w-0 truncate">#{note.note_id}</span>
                           {note.front_matter?.tags?.map((tag) => (
-                            <span key={tag} className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded">{tag}</span>
+                            <span key={tag} className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded shrink-0">{tag}</span>
                           ))}
+                          <div className="ml-auto shrink-0" onClick={(event) => event.stopPropagation()}>
+                            <NoteShareButton noteId={note.note_id} />
+                          </div>
                         </div>
                         <p className="text-[0.7rem] text-sol-base1 whitespace-pre-wrap mt-0.5">{note.content_key}</p>
                       </div>
