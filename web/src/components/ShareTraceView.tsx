@@ -6,13 +6,14 @@ import MessageList, { type Message } from "./MessageList";
 import { mergeToolArguments } from "./chatMessageParser";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, getTopicColor, stripTracePrefix, statusBadgeClass } from "./badges";
-import TraceTodoDetail, { type TodoInfo } from "./TraceTodoDetail";
+import TraceTodoDetail, { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
 
 interface TraceShareResponse {
   chats: TraceChat[];
   todo_name: string | null;
   todo_status: string | null;
   todo: TodoInfo | null;
+  notes?: TodoNoteInfo[];
 }
 
 function parseMessages(rawMessages: any[]): Message[] {
@@ -201,7 +202,7 @@ export default function ShareTraceView() {
     );
   }
 
-  const todoInfo = data.todo;
+  const todoInfo = data.todo ? { ...data.todo, notes: data.notes ?? [] } : null;
   const selectedChat = data.chats.find((c) => c.chat_id === selectedChatId);
   const selectedMessages = selectedChat ? parseMessages((selectedChat.messages as any[]) || []) : [];
 

@@ -14,6 +14,19 @@ def get_by_note_id(user_id: int, note_id: str) -> Optional[NoteShareEntity]:
         return session.query(NoteShareEntity).filter_by(user_id=user_id, note_id=note_id).first()
 
 
+def get_by_note_ids(user_id: int, note_ids: List[str]) -> List[NoteShareEntity]:
+    if not note_ids:
+        return []
+    with get_db() as session:
+        entities = session.query(NoteShareEntity).filter(
+            NoteShareEntity.user_id == user_id,
+            NoteShareEntity.note_id.in_(note_ids),
+        ).all()
+        for entity in entities:
+            session.expunge(entity)
+        return entities
+
+
 def create(user_id: int, share_id: str, note_id: str, password_hash: Optional[str] = None) -> NoteShareEntity:
     with get_db() as session:
         entity = NoteShareEntity(

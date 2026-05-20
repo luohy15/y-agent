@@ -117,8 +117,20 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     # Fetch associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note import get_notes_by_ids
+    from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
     note_ids = list_note_relations(user_id, trace_id)
-    notes = [n.to_dict() for n in get_notes_by_ids(user_id, note_ids)] if note_ids else []
+    note_shares = {
+        share.note_id: share.share_id
+        for share in get_note_shares_by_note_ids(user_id, note_ids)
+    } if note_ids else {}
+    notes = []
+    if note_ids:
+        for note in get_notes_by_ids(user_id, note_ids):
+            note_data = note.to_dict()
+            share_id = note_shares.get(note.note_id)
+            if share_id:
+                note_data["share_id"] = share_id
+            notes.append(note_data)
 
     return {
         "chats": result_chats,
@@ -296,8 +308,20 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
     # Fetch associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note import get_notes_by_ids
+    from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
     note_ids = list_note_relations(user_id, trace_id)
-    notes = [n.to_dict() for n in get_notes_by_ids(user_id, note_ids)] if note_ids else []
+    note_shares = {
+        share.note_id: share.share_id
+        for share in get_note_shares_by_note_ids(user_id, note_ids)
+    } if note_ids else {}
+    notes = []
+    if note_ids:
+        for note in get_notes_by_ids(user_id, note_ids):
+            note_data = note.to_dict()
+            share_id = note_shares.get(note.note_id)
+            if share_id:
+                note_data["share_id"] = share_id
+            notes.append(note_data)
 
     return {
         "chats": result_chats,
