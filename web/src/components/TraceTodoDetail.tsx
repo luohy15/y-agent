@@ -9,6 +9,13 @@ export interface TodoHistoryEntry {
   note?: string;
 }
 
+export interface TodoNoteInfo {
+  note_id: string;
+  content_key: string;
+  front_matter?: Record<string, unknown> | null;
+  share_id?: string;
+}
+
 export interface TodoInfo {
   todo_id: string;
   name: string;
@@ -22,6 +29,7 @@ export interface TodoInfo {
   created_at?: string;
   updated_at?: string;
   history?: TodoHistoryEntry[];
+  notes?: TodoNoteInfo[];
 }
 
 export interface TodoPatch {
@@ -125,6 +133,7 @@ export default function TraceTodoDetail({
   const dueValue = patch.due_date !== undefined ? (patch.due_date ?? "") : (todoInfo.due_date ?? "");
   const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
+  const sharedNotes = (todoInfo.notes ?? []).filter((note) => note.share_id);
 
   // Auto-grow the textareas to fit their content. Recompute on content change, todo
   // switch, and panel open (the textarea only mounts when open).
@@ -367,6 +376,29 @@ export default function TraceTodoDetail({
                   <>
                     <span className="text-sol-base01">Progress</span>
                     <span className="text-sol-base0 whitespace-pre-wrap">{todoInfo.progress}</span>
+                  </>
+                )}
+                {sharedNotes.length > 0 && (
+                  <>
+                    <span className="text-sol-base01">Notes</span>
+                    <div className="flex flex-col gap-1 min-w-0">
+                      {sharedNotes.map((note) => {
+                        const title = typeof note.front_matter?.title === "string" && note.front_matter.title.trim()
+                          ? note.front_matter.title.trim()
+                          : note.content_key;
+                        return (
+                          <a
+                            key={note.note_id}
+                            href={`/n/${note.share_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all"
+                          >
+                            {title}
+                          </a>
+                        );
+                      })}
+                    </div>
                   </>
                 )}
               </>
