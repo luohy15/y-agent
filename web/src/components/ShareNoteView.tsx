@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
 import { API } from "../api";
+import DocsToc, { type TocItem } from "./DocsToc";
 
 interface NoteShareResponse {
   note_id: string;
@@ -34,6 +36,9 @@ export default function ShareNoteView() {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [shareLabel, setShareLabel] = useState("share");
+  const [tocItems, setTocItems] = useState<TocItem[]>([]);
+
+  const articleRef = useRef<HTMLElement | null>(null);
 
   const fetchShare = useCallback(async (password?: string) => {
     if (!shareId) return;
@@ -73,6 +78,28 @@ export default function ShareNoteView() {
   const title = useMemo(() => {
     if (!data) return "Shared Note";
     return data.front_matter?.title || titleFromContent(data.content) || data.content_key;
+  }, [data]);
+
+  useEffect(() => {
+    if (!data) {
+      setTocItems([]);
+      return;
+    }
+    const article = articleRef.current;
+    if (!article) return;
+    const id = window.requestAnimationFrame(() => {
+      const headings = Array.from(
+        article.querySelectorAll<HTMLElement>("h2[id], h3[id]"),
+      );
+      setTocItems(
+        headings.map((heading) => ({
+          id: heading.id,
+          text: heading.textContent || "",
+          level: heading.tagName === "H2" ? 2 : 3,
+        })),
+      );
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [data]);
 
   const submitPassword = async (event: React.FormEvent) => {
@@ -130,17 +157,23 @@ export default function ShareNoteView() {
           </button>
         </div>
       </header>
-      <main className="max-w-4xl mx-auto px-4 py-6">
-        {data.front_matter?.tags && data.front_matter.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-4">
-            {data.front_matter.tags.map((tag) => (
-              <span key={tag} className="text-[0.65rem] bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded">{tag}</span>
-            ))}
-          </div>
-        )}
-        <article className="prose prose-invert max-w-none prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripFrontMatter(data.content)}</ReactMarkdown>
-        </article>
+      <main className="max-w-6xl mx-auto px-4 py-6 lg:flex lg:gap-8">
+        <div className="min-w-0 max-w-4xl mx-auto lg:flex-1">
+          {data.front_matter?.tags && data.front_matter.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-4">
+              {data.front_matter.tags.map((tag) => (
+                <span key={tag} className="text-[0.65rem] bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded">{tag}</span>
+              ))}
+            </div>
+          )}
+          <article ref={articleRef} className="prose prose-invert max-w-none prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
+          </article>
+        </div>
+
+        <aside className="hidden lg:block w-56 shrink-0 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-auto">
+          <DocsToc items={tocItems} />
+        </aside>
       </main>
     </div>
   );
