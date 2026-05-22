@@ -13,7 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **Note sharing (2164 / 2165)** — notes can now be shared via S3-backed snapshots at `/n/:shareId`, with optional password protection, share management, refresh-to-resnapshot, and linked shared-note URLs in trace todo details.
+- **Note sharing (2164 / 2165 / 2171)** — notes can now be shared via S3-backed snapshots at `/n/:shareId`, with optional password protection, share management, refresh-to-resnapshot, linked shared-note URLs in trace todo details, and a generated table of contents on shared note pages.
 - **Telegram assistant image delivery metadata (2112)** — assistant image delivery now records durable Telegram delivery metadata for follow-up chat rendering and monitoring.
 - **Claude Code resume session restoration** — Claude Code resume launches now restore missing session JSONL files from the backup-projects archive before starting `claude -r`, recovering chats pruned by Claude's cleanup window.
 
