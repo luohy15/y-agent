@@ -7,7 +7,9 @@ from .fire_progress import fire_progress
 from .holdings import holdings
 from .income_statement import income_statement
 from .price_history import price_history
+from .prices import prices
 from .snapshot import snapshot
+from .transactions import transactions
 from .update_market_data import update_market_data
 
 
@@ -57,5 +59,7 @@ beancount_group.add_command(update_market_data)
 beancount_group.add_command(balance_sheet)
 beancount_group.add_command(holdings)
 beancount_group.add_command(price_history)
+beancount_group.add_command(prices)
 beancount_group.add_command(fire_progress)
 beancount_group.add_command(snapshot)
+beancount_group.add_command(transactions)

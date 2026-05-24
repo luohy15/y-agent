@@ -46,6 +46,7 @@ interface HoldingRow {
   book_value: HoldingAmount | [];
   market_value: HoldingAmount | [];
   unrealized_profit_pct: number | null;
+  is_cash?: boolean;
 }
 
 interface HoldingTotalRow {
@@ -54,12 +55,35 @@ interface HoldingTotalRow {
   unrealized_profit_pct: number | null;
 }
 
-interface HoldingsData {
-  rows: HoldingRow[];
-  totals: HoldingTotalRow[];
+interface HoldingPosition {
+  snapshot_date: string;
+  symbol: string;
+  quantity: number;
+  average_cost: number | null;
+  price: number | null;
+  book_value: number | null;
+  market_value: number | null;
+  unrealized_profit_pct: number | null;
+  cost_currency: string;
+  is_cash: boolean;
 }
 
-type Tab = "balance-sheet" | "income-statement" | "holdings" | "fire";
+interface TransactionRow {
+  transaction_date: string;
+  symbol: string;
+  side: string;
+  quantity: number | null;
+  price: number | null;
+  price_currency: string;
+  amount: number | null;
+  amount_currency: string;
+  commission: number | null;
+  commission_currency: string;
+  payee: string;
+  narration: string;
+}
+
+type Tab = "balance-sheet" | "income-statement" | "holdings" | "transactions" | "fire";
 
 interface FireProgressData {
   net_worth_usd: number;
@@ -79,7 +103,7 @@ interface FireProgressData {
 interface FinanceEnvelope<T> {
   data: T;
   synced_at: string;
-  source: "cache" | "live" | "sync" | "cli";
+  source: "cache" | "live" | "sync" | "cli" | "db";
 }
 
 function useFinanceData<T>(key: string | null) {
@@ -262,11 +286,28 @@ const NON_RISKY_TICKERS = new Set(["CASH", "BOXX"]);
 
 function isRiskyHolding(row: HoldingRow): boolean {
   if (!isValidAmount(row.units)) return false;
+  if (row.is_cash) return false;
   const ticker = row.units.currency;
   if (NON_RISKY_TICKERS.has(ticker)) return false;
   // Cash positions: ticker matches the market_value currency (e.g. USD, CNY, HKD).
   if (isValidAmount(row.market_value) && row.market_value.currency === ticker) return false;
   return true;
+}
+
+function toHoldingRows(positions: HoldingPosition[]): HoldingRow[] {
+  return positions.map((row) => ({
+    units: { number: row.quantity, currency: row.symbol },
+    average_cost: row.average_cost,
+    price: row.price,
+    book_value: row.book_value == null ? [] : { number: row.book_value, currency: row.cost_currency },
+    market_value: row.market_value == null ? [] : { number: row.market_value, currency: row.cost_currency },
+    unrealized_profit_pct: row.unrealized_profit_pct,
+    is_cash: row.is_cash,
+  }));
+}
+
+function holdingTotals(rows: HoldingRow[]): HoldingTotalRow[] {
+  return recomputeTotals(rows, []);
 }
 
 function formatRelativeTime(iso?: string): string {
@@ -350,26 +391,6 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
     () => valid.reduce((sum, row) => sum + getNumericVal(row.market_value), 0),
     [valid],
   );
-
-  const cashRow = useMemo(() => {
-    const cashRows = valid.filter((h) => !isRiskyHolding(h));
-    if (riskyOnly || cashRows.length === 0) return null;
-    const byCurrency = new Map<string, number>();
-    for (const row of cashRows) {
-      if (!isValidAmount(row.market_value)) continue;
-      byCurrency.set(row.market_value.currency, (byCurrency.get(row.market_value.currency) || 0) + row.market_value.number);
-    }
-    const first = [...byCurrency.entries()][0];
-    if (!first) return null;
-    return {
-      units: { number: first[1], currency: "$CASH" },
-      average_cost: null,
-      price: null,
-      book_value: { number: first[1], currency: first[0] },
-      market_value: { number: first[1], currency: first[0] },
-      unrealized_profit_pct: null,
-    } as HoldingRow;
-  }, [valid, riskyOnly]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -456,18 +477,6 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
           </tr>
         </thead>
         <tbody>
-          {cashRow && (
-            <tr className="border-b border-sol-base02 bg-sol-base02/20">
-              <td className="py-0.5 px-3 text-sol-base1">{cashRow.units.currency}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{isValidAmount(cashRow.book_value) ? <>{formatAmount(cashRow.book_value.number)} <span className="text-sol-base01 text-xs">{cashRow.book_value.currency}</span></> : "—"}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{isValidAmount(cashRow.market_value) ? <>{formatAmount(cashRow.market_value.number)} <span className="text-sol-base01 text-xs">{cashRow.market_value.currency}</span></> : "—"}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{totalMarketValue ? `${((getNumericVal(cashRow.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—"}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
-            </tr>
-          )}
           {sorted.map((h, i) => (
             <tr key={i} className="hover:bg-sol-base02/50">
               <td className="py-0.5 px-3 text-sol-base1">{h.units.currency}</td>
@@ -508,6 +517,89 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type TransactionSortKey = "date" | "symbol" | "side" | "quantity" | "amount";
+
+function transactionSortValue(row: TransactionRow, key: TransactionSortKey): string | number {
+  switch (key) {
+    case "date": return row.transaction_date;
+    case "symbol": return row.symbol;
+    case "side": return row.side;
+    case "quantity": return row.quantity ?? 0;
+    case "amount": return row.amount ?? 0;
+  }
+}
+
+function TransactionHeader({ label, sortKey, currentKey, dir, onSort, align }: {
+  label: string; sortKey: TransactionSortKey; currentKey: TransactionSortKey; dir: SortDir;
+  onSort: (key: TransactionSortKey) => void; align: "left" | "right";
+}) {
+  const active = currentKey === sortKey;
+  return (
+    <th className={`py-1 px-3 font-medium cursor-pointer select-none hover:text-sol-base1 ${align === "left" ? "text-left" : "text-right"}`} onClick={() => onSort(sortKey)}>
+      {label}{active && <span className="ml-1 text-sol-blue">{dir === "asc" ? "▲" : "▼"}</span>}
+    </th>
+  );
+}
+
+function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedAt?: string }) {
+  const [sortKey, setSortKey] = useState<TransactionSortKey>(() => (localStorage.getItem("transactions-sort-key") as TransactionSortKey) || "date");
+  const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("transactions-sort-dir") as SortDir) || "desc");
+  const handleSort = (key: TransactionSortKey) => {
+    if (key === sortKey) {
+      const next = sortDir === "asc" ? "desc" : "asc";
+      setSortDir(next); localStorage.setItem("transactions-sort-dir", next);
+    } else {
+      const next = key === "date" ? "desc" : "asc";
+      setSortKey(key); setSortDir(next);
+      localStorage.setItem("transactions-sort-key", key); localStorage.setItem("transactions-sort-dir", next);
+    }
+  };
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const av = transactionSortValue(a, sortKey);
+      const bv = transactionSortValue(b, sortKey);
+      const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [rows, sortKey, sortDir]);
+  const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
+  return (
+    <div className="mb-4">
+      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
+        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Transactions · synced {formatRelativeTime(syncedAt)}</span>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-sol-base01 text-xs border-b border-sol-base02">
+            <TransactionHeader label="Date" sortKey="date" align="left" {...hp} />
+            <TransactionHeader label="Symbol" sortKey="symbol" align="left" {...hp} />
+            <TransactionHeader label="Side" sortKey="side" align="left" {...hp} />
+            <TransactionHeader label="Quantity" sortKey="quantity" align="right" {...hp} />
+            <th className="py-1 px-3 font-medium text-right">Price</th>
+            <TransactionHeader label="Amount" sortKey="amount" align="right" {...hp} />
+            <th className="py-1 px-3 font-medium text-left">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row, i) => (
+            <tr key={i} className="hover:bg-sol-base02/50">
+              <td className="py-0.5 px-3 text-sol-base0 tabular-nums">{row.transaction_date}</td>
+              <td className="py-0.5 px-3 text-sol-base1">{row.symbol}</td>
+              <td className="py-0.5 px-3 text-sol-base0">{row.side}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.quantity == null ? "—" : formatAmount(row.quantity)}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.price == null ? "—" : <>{formatAmount(row.price)} <span className="text-sol-base01 text-xs">{row.price_currency}</span></>}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.amount == null ? "—" : <>{formatAmount(row.amount)} <span className="text-sol-base01 text-xs">{row.amount_currency}</span></>}</td>
+              <td className="py-0.5 px-3 text-sol-base0 truncate max-w-md">{row.payee || row.narration}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -830,7 +922,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     : null;
 
   const holdingsKey = tab === "holdings"
-    ? `${API}/api/finance/holdings${vmQueryOnly}`
+    ? `${API}/api/finance/positions${vmQueryOnly}`
+    : null;
+
+  const transactionsKey = tab === "transactions"
+    ? `${API}/api/finance/transactions${vmQueryOnly}`
     : null;
 
   const fireKey = tab === "fire"
@@ -848,7 +944,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const bs = useFinanceData<BalanceSheetData>(bsKey);
   const is = useFinanceData<IncomeStatementData>(isKey);
-  const holdings = useFinanceData<HoldingsData>(holdingsKey);
+  const holdings = useFinanceData<HoldingPosition[]>(holdingsKey);
+  const transactions = useFinanceData<TransactionRow[]>(transactionsKey);
   const fire = useFinanceData<FireProgressData>(fireKey);
   const bsHist = useFinanceData<BalanceSheetHistoryItem[]>(bsHistKey);
   const isHist = useFinanceData<IncomeStatementHistoryItem[]>(isHistKey);
@@ -856,14 +953,15 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const bsData = bs.data?.data;
   const isData = is.data?.data;
   const holdingsData = holdings.data?.data;
+  const transactionsData = transactions.data?.data;
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
   const isHistData = isHist.data?.data;
 
-  const activeEnvelope = tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : tab === "fire" ? fire.data : holdings.data;
+  const activeEnvelope = tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : tab === "fire" ? fire.data : tab === "transactions" ? transactions.data : holdings.data;
 
   const mutateActive = async () => {
-    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
+    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
   };
 
   const refreshSnapshots = async () => {
@@ -873,11 +971,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   };
 
   // Combined loading/error: table OR chart loading
-  const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : holdings.isLoading;
+  const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
   const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
-  const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : holdings.error;
+  const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
   const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error : null;
   const error = tableError && chartError;
 
@@ -908,7 +1006,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           />
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["fire", "FIRE"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
@@ -975,7 +1073,13 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           holdings.isLoading ? (
             <p className="text-sol-base01 italic px-3">Loading...</p>
           ) : holdingsData ? (
-            <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} syncedAt={holdings.data?.synced_at} />
+            <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} />
+          ) : null
+        ) : tab === "transactions" ? (
+          transactions.isLoading ? (
+            <p className="text-sol-base01 italic px-3">Loading...</p>
+          ) : transactionsData ? (
+            <TransactionsTable rows={transactionsData} syncedAt={transactions.data?.synced_at} />
           ) : null
         ) : tab === "fire" ? (
           <>
