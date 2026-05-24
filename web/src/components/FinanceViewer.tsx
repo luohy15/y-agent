@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import useSWR from "swr";
-import { API, jsonFetcher as fetcher } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -74,6 +74,16 @@ interface FireProgressData {
   projected_months_to_target: number | null;
   projected_date: string | null;
   config_source: "file" | "default";
+}
+
+interface FinanceEnvelope<T> {
+  data: T;
+  synced_at: string;
+  source: "cache" | "live" | "sync" | "cli";
+}
+
+function useFinanceData<T>(key: string | null) {
+  return useSWR<FinanceEnvelope<T>>(key, fetcher, { revalidateOnFocus: false });
 }
 
 // Solarized dark colors
@@ -212,7 +222,7 @@ function isValidAmount(v: unknown): v is HoldingAmount {
   return v != null && typeof v === "object" && !Array.isArray(v) && "number" in v;
 }
 
-type HoldingSortKey = "asset" | "units" | "avg_cost" | "price" | "book_value" | "market_value" | "pnl";
+type HoldingSortKey = "asset" | "units" | "avg_cost" | "price" | "book_value" | "market_value" | "allocation" | "pnl";
 type SortDir = "asc" | "desc";
 
 function getNumericVal(v: HoldingAmount | number | null | []): number {
@@ -220,7 +230,7 @@ function getNumericVal(v: HoldingAmount | number | null | []): number {
   return typeof v === "number" ? v : v.number;
 }
 
-function holdingSortValue(h: HoldingRow, key: HoldingSortKey): string | number {
+function holdingSortValue(h: HoldingRow, key: HoldingSortKey, totalMarketValue = 0): string | number {
   switch (key) {
     case "asset": return (h.units as HoldingAmount).currency;
     case "units": return (h.units as HoldingAmount).number;
@@ -228,6 +238,7 @@ function holdingSortValue(h: HoldingRow, key: HoldingSortKey): string | number {
     case "price": return getNumericVal(h.price);
     case "book_value": return getNumericVal(h.book_value);
     case "market_value": return getNumericVal(h.market_value);
+    case "allocation": return totalMarketValue ? getNumericVal(h.market_value) / totalMarketValue : 0;
     case "pnl": return h.unrealized_profit_pct ?? 0;
   }
 }
@@ -256,6 +267,19 @@ function isRiskyHolding(row: HoldingRow): boolean {
   // Cash positions: ticker matches the market_value currency (e.g. USD, CNY, HKD).
   if (isValidAmount(row.market_value) && row.market_value.currency === ticker) return false;
   return true;
+}
+
+function formatRelativeTime(iso?: string): string {
+  if (!iso) return "not synced";
+  const ts = new Date(iso).getTime();
+  if (!Number.isFinite(ts)) return iso;
+  const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]): HoldingTotalRow[] {
@@ -291,7 +315,7 @@ function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]):
   });
 }
 
-function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: HoldingTotalRow[] }) {
+function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
   const [riskyOnly, setRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
@@ -318,22 +342,47 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
   // Filter out rows with empty/invalid units (e.g. units is [] or null)
   const valid = holdings.filter((h) => isValidAmount(h.units));
   const filtered = useMemo(
-    () => (riskyOnly ? valid.filter((h) => isRiskyHolding(h)) : valid),
+    () => valid.filter((h) => riskyOnly || isRiskyHolding(h)),
     [valid, riskyOnly],
   );
+
+  const totalMarketValue = useMemo(
+    () => valid.reduce((sum, row) => sum + getNumericVal(row.market_value), 0),
+    [valid],
+  );
+
+  const cashRow = useMemo(() => {
+    const cashRows = valid.filter((h) => !isRiskyHolding(h));
+    if (riskyOnly || cashRows.length === 0) return null;
+    const byCurrency = new Map<string, number>();
+    for (const row of cashRows) {
+      if (!isValidAmount(row.market_value)) continue;
+      byCurrency.set(row.market_value.currency, (byCurrency.get(row.market_value.currency) || 0) + row.market_value.number);
+    }
+    const first = [...byCurrency.entries()][0];
+    if (!first) return null;
+    return {
+      units: { number: first[1], currency: "$CASH" },
+      average_cost: null,
+      price: null,
+      book_value: { number: first[1], currency: first[0] },
+      market_value: { number: first[1], currency: first[0] },
+      unrealized_profit_pct: null,
+    } as HoldingRow;
+  }, [valid, riskyOnly]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const av = holdingSortValue(a, sortKey);
-      const bv = holdingSortValue(b, sortKey);
+      const av = holdingSortValue(a, sortKey, totalMarketValue);
+      const bv = holdingSortValue(b, sortKey, totalMarketValue);
       let cmp: number;
       if (typeof av === "string" && typeof bv === "string") cmp = av.localeCompare(bv);
       else cmp = (av as number) - (bv as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, totalMarketValue]);
 
   const displayTotals = useMemo(
     () => (riskyOnly ? recomputeTotals(filtered, totals) : totals),
@@ -366,7 +415,7 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
   return (
     <div className="mb-4">
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
-        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings</span>
+        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings · synced {formatRelativeTime(syncedAt)}</span>
         <div className="flex items-center gap-2">
           {riskyOnly && riskySharePct.length > 0 && (
             <span className="text-sol-base01 text-[10px] tabular-nums">
@@ -402,10 +451,23 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
             <SortableHeader label="Price" sortKey="price" align="right" {...hp} />
             <SortableHeader label="Book Value" sortKey="book_value" align="right" {...hp} />
             <SortableHeader label="Market Value" sortKey="market_value" align="right" {...hp} />
+            <SortableHeader label="Allocation" sortKey="allocation" align="right" {...hp} />
             <SortableHeader label="P&L %" sortKey="pnl" align="right" {...hp} />
           </tr>
         </thead>
         <tbody>
+          {cashRow && (
+            <tr className="border-b border-sol-base02 bg-sol-base02/20">
+              <td className="py-0.5 px-3 text-sol-base1">{cashRow.units.currency}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{isValidAmount(cashRow.book_value) ? <>{formatAmount(cashRow.book_value.number)} <span className="text-sol-base01 text-xs">{cashRow.book_value.currency}</span></> : "—"}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{isValidAmount(cashRow.market_value) ? <>{formatAmount(cashRow.market_value.number)} <span className="text-sol-base01 text-xs">{cashRow.market_value.currency}</span></> : "—"}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{totalMarketValue ? `${((getNumericVal(cashRow.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—"}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">—</td>
+            </tr>
+          )}
           {sorted.map((h, i) => (
             <tr key={i} className="hover:bg-sol-base02/50">
               <td className="py-0.5 px-3 text-sol-base1">{h.units.currency}</td>
@@ -422,6 +484,9 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
               <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
                 {isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
               </td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                {totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—"}
+              </td>
               <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
                 {h.unrealized_profit_pct != null ? <>{h.unrealized_profit_pct > 0 ? "+" : ""}{formatAmount(h.unrealized_profit_pct)}%</> : "—"}
               </td>
@@ -436,6 +501,7 @@ function HoldingsTable({ holdings, totals }: { holdings: HoldingRow[]; totals: H
                 <td className="py-1 px-3 text-sol-base1" colSpan={4}>Total Stock{displayTotals.length > 1 && bv ? ` (${bv.currency})` : ""}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{bv ? formatAmount(bv.number) : "—"}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{mv ? formatAmount(mv.number) : "—"}</td>
+                <td className="py-1 px-3 text-right tabular-nums text-sol-base0">—</td>
                 <td className={`py-1 px-3 text-right tabular-nums ${pct > 0 ? "text-sol-green" : pct < 0 ? "text-sol-red" : "text-sol-base0"}`}>
                   {t.unrealized_profit_pct != null ? <>{pct > 0 ? "+" : ""}{formatAmount(pct)}%</> : "—"}
                 </td>
@@ -780,28 +846,57 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const { data: bsData, isLoading: bsLoading, error: bsError } = useSWR<BalanceSheetData>(bsKey, fetcher, { revalidateOnFocus: false });
-  const { data: isData, isLoading: isLoading, error: isError } = useSWR<IncomeStatementData>(isKey, fetcher, { revalidateOnFocus: false });
-  const { data: holdingsData, isLoading: holdingsLoading, error: holdingsError } = useSWR<HoldingsData>(holdingsKey, fetcher, { revalidateOnFocus: false });
-  const { data: fireData, isLoading: fireLoading, error: fireError } = useSWR<FireProgressData>(fireKey, fetcher, { revalidateOnFocus: false });
+  const bs = useFinanceData<BalanceSheetData>(bsKey);
+  const is = useFinanceData<IncomeStatementData>(isKey);
+  const holdings = useFinanceData<HoldingsData>(holdingsKey);
+  const fire = useFinanceData<FireProgressData>(fireKey);
+  const bsHist = useFinanceData<BalanceSheetHistoryItem[]>(bsHistKey);
+  const isHist = useFinanceData<IncomeStatementHistoryItem[]>(isHistKey);
 
-  const { data: bsHistData, isLoading: bsHistLoading, error: bsHistError } = useSWR<BalanceSheetHistoryItem[]>(bsHistKey, fetcher, { revalidateOnFocus: false });
-  const { data: isHistData, isLoading: isHistLoading, error: isHistError } = useSWR<IncomeStatementHistoryItem[]>(isHistKey, fetcher, { revalidateOnFocus: false });
+  const bsData = bs.data?.data;
+  const isData = is.data?.data;
+  const holdingsData = holdings.data?.data;
+  const fireData = fire.data?.data;
+  const bsHistData = bsHist.data?.data;
+  const isHistData = isHist.data?.data;
+
+  const activeEnvelope = tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : tab === "fire" ? fire.data : holdings.data;
+
+  const mutateActive = async () => {
+    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
+  };
+
+  const refreshSnapshots = async () => {
+    const res = await authFetch(`${API}/api/finance/refresh${vmQueryOnly}`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to refresh finance data");
+    await mutateActive();
+  };
 
   // Combined loading/error: table OR chart loading
-  const tableLoading = tab === "balance-sheet" ? bsLoading : tab === "income-statement" ? isLoading : tab === "fire" ? fireLoading : holdingsLoading;
-  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHistLoading : tab === "income-statement" ? isHistLoading : false;
+  const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : holdings.isLoading;
+  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
-  const tableError = tab === "balance-sheet" ? bsError : tab === "income-statement" ? isError : tab === "fire" ? fireError : holdingsError;
-  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHistError : tab === "income-statement" ? isHistError : null;
+  const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : holdings.error;
+  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error : null;
   const error = tableError && chartError;
 
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 text-sm">
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 space-y-2">
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1 rounded bg-sol-base02 px-2 py-1 text-[10px] text-sol-base0">
+            {activeEnvelope?.source === "live" && <span className="h-1.5 w-1.5 rounded-full bg-sol-orange" title="Refreshed live" />}
+            Synced {formatRelativeTime(activeEnvelope?.synced_at)}
+          </span>
+          <button
+            onClick={() => void refreshSnapshots()}
+            className="px-2 py-1 rounded text-xs cursor-pointer bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+            title="Refresh finance snapshots"
+          >
+            ↻
+          </button>
           <input
             type="text"
             value={timeInput}
@@ -837,12 +932,12 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           <p className="text-sol-red px-3">Error loading data</p>
         ) : tab === "balance-sheet" ? (
           <>
-            {bsHistLoading ? (
+            {bsHist.isLoading ? (
               <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
-            ) : bsHistError ? null : bsHistData ? (
+            ) : bsHist.error ? null : bsHistData ? (
               <div className="mb-3"><BalanceSheetChart data={bsHistData} granularity={granularity} onGranularityChange={handleGranularityChange} /></div>
             ) : null}
-            {bsLoading ? (
+            {bs.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
             ) : bsData ? (
               <div className="flex gap-2">
@@ -858,12 +953,12 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           </>
         ) : tab === "income-statement" ? (
           <>
-            {isHistLoading ? (
+            {isHist.isLoading ? (
               <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
-            ) : isHistError ? null : isHistData ? (
+            ) : isHist.error ? null : isHistData ? (
               <div className="mb-3"><IncomeStatementChart data={isHistData} granularity={granularity} onGranularityChange={handleGranularityChange} /></div>
             ) : null}
-            {isLoading ? (
+            {is.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
             ) : isData ? (
               <div className="flex gap-2">
@@ -877,23 +972,23 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
             ) : null}
           </>
         ) : tab === "holdings" ? (
-          holdingsLoading ? (
+          holdings.isLoading ? (
             <p className="text-sol-base01 italic px-3">Loading...</p>
           ) : holdingsData ? (
-            <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} />
+            <HoldingsTable holdings={holdingsData.rows} totals={holdingsData.totals} syncedAt={holdings.data?.synced_at} />
           ) : null
         ) : tab === "fire" ? (
           <>
-            {fireLoading ? (
+            {fire.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
-            ) : fireError ? (
+            ) : fire.error ? (
               <p className="text-sol-red px-3">Error loading FIRE progress</p>
             ) : fireData ? (
               <div className="px-2"><FireProgressView data={fireData} /></div>
             ) : null}
-            {bsHistLoading ? (
+            {bsHist.isLoading ? (
               <p className="text-sol-base01 italic px-3 mt-3">Loading chart...</p>
-            ) : bsHistError ? null : bsHistData ? (
+            ) : bsHist.error ? null : bsHistData ? (
               <div className="mt-4">
                 <BalanceSheetChart
                   data={bsHistData}

@@ -336,6 +336,11 @@ Resources:
           Properties:
             Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
+        SyncFinanceSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(30 minutes)
+            Input: '{"action": "sync_finance"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations
@@ -442,4 +447,3 @@ Outputs:
     Value: !GetAtt JobQueue.Arn
     Export:
       Name: !Sub ${AWS::StackName}-job-queue-arn
-

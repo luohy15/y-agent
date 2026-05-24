@@ -1,7 +1,11 @@
 """User service."""
 
 import os
-from storage.repository.user import get_or_create_user
+from storage.repository.user import get_or_create_user, list_users as repo_list_users
+
+
+def list_users():
+    return repo_list_users()
 
 def get_cli_user_id() -> int:
     """Resolve the configured string user_id to the integer user.id PK."""
