@@ -8,6 +8,9 @@ from agent.tool_base import Tool
 from loguru import logger
 
 from storage.service import finance_snapshot as snapshot_service
+from storage.service import finance_holding as holding_service
+from storage.service import finance_price as price_service
+from storage.service import finance_transaction as transaction_service
 from storage.service import user as user_service
 from storage.service import vm_config as vm_config_service
 from storage.service.finance_queries import CANONICAL_QUERIES, FinanceQuery, beancount_cmd
@@ -39,6 +42,25 @@ async def sync_query(user_id: int, vm_name: str, query: FinanceQuery, runner: _C
     return True
 
 
+async def sync_normalized(user_id: int, vm_name: str, runner: _CmdRunner, source: str = "sync") -> tuple[int, int]:
+    synced = 0
+    failed = 0
+    commands = [
+        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, vm_name, holding_service.rows_from_holdings_payload(payload), source=source)),
+        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, vm_name, payload, source=source)),
+        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(user_id, vm_name, payload, source=source)),
+    ]
+    for name, cmd, writer in commands:
+        try:
+            output = await runner.run_cmd(cmd, timeout=60)
+            writer(json.loads(output))
+            synced += 1
+        except Exception as exc:
+            failed += 1
+            logger.exception("[finance] normalized sync failed user_id={} vm_name={} name={}: {}", user_id, vm_name, name, exc)
+    return synced, failed
+
+
 async def warm_canonical_snapshots(user_id: int, vm_name: Optional[str] = None, source: str = "sync") -> dict:
     effective_vm_name = vm_name or ""
     vm_config = resolve_vm_config(user_id, vm_name or None)
@@ -62,6 +84,9 @@ async def warm_canonical_snapshots(user_id: int, vm_name: Optional[str] = None, 
                 query.convert,
                 exc,
             )
+    normalized_synced, normalized_failed = await sync_normalized(user_id, effective_vm_name, runner, source=source)
+    synced += normalized_synced
+    failed += normalized_failed
     return {"user_id": user_id, "vm_name": effective_vm_name, "synced": synced, "failed": failed}
 
 

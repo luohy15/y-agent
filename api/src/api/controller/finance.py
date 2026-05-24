@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
+from storage.service import finance_holding as holding_service
+from storage.service import finance_price as price_service
 from storage.service import finance_snapshot as snapshot_service
+from storage.service import finance_transaction as transaction_service
 from storage.service.finance_queries import CANONICAL_QUERIES, FinanceQuery, beancount_cmd
 
 router = APIRouter(prefix="/finance")
@@ -82,6 +85,30 @@ async def _warm_canonical(user_id: int, vm_name: str | None):
     return {"user_id": user_id, "vm_name": vm_name or "", "synced": synced, "failed": failed}
 
 
+async def _warm_normalized(user_id: int, vm_name: str | None):
+    effective_vm_name = vm_name or ""
+    synced = 0
+    failed = 0
+    commands = [
+        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, effective_vm_name, holding_service.rows_from_holdings_payload(payload), source="live")),
+        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, effective_vm_name, payload, source="live")),
+        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(user_id, effective_vm_name, payload, source="live")),
+    ]
+    for _, cmd, writer in commands:
+        try:
+            output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
+            writer(_parse_json(output))
+            synced += 1
+        except Exception:
+            failed += 1
+    return {"normalized_synced": synced, "normalized_failed": failed}
+
+
+def _envelope(rows, source: str = "db"):
+    synced_at = rows[0].synced_at if rows else ""
+    return {"data": [row.to_dict() for row in rows], "synced_at": synced_at, "source": source}
+
+
 @router.get("/balance-sheet")
 async def balance_sheet(
     request: Request,
@@ -110,14 +137,38 @@ async def income_statement(
     return await _get_cached_or_live(user_id, vm_name, query)
 
 
-@router.get("/holdings")
-async def holdings(
+@router.get("/positions")
+async def positions(
     request: Request,
     vm_name: str = Query(None),
+    at: str = Query(None),
 ):
     user_id = _get_user_id(request)
-    query = FinanceQuery("holdings", "holdings")
-    return await _get_cached_or_live(user_id, vm_name, query)
+    rows = holding_service.list_at(user_id, vm_name or "", at) if at else holding_service.list_for(user_id, vm_name or "")
+    return _envelope(rows)
+
+
+@router.get("/transactions")
+async def transactions(
+    request: Request,
+    vm_name: str = Query(None),
+    symbol: str = Query(None),
+    limit: int = Query(500),
+):
+    user_id = _get_user_id(request)
+    return _envelope(transaction_service.list_for(user_id, vm_name or "", symbol=symbol, limit=limit))
+
+
+@router.get("/prices")
+async def prices(
+    request: Request,
+    vm_name: str = Query(None),
+    symbol: str = Query(None),
+    from_: str = Query(None, alias="from"),
+    limit: int = Query(1000),
+):
+    user_id = _get_user_id(request)
+    return _envelope(price_service.list_for(user_id, vm_name or "", symbol=symbol, from_date=from_, limit=limit))
 
 
 @router.get("/fire-progress")
@@ -135,4 +186,5 @@ async def refresh(request: Request, vm_name: str = Query(None)):
     user_id = _get_user_id(request)
     snapshot_service.invalidate_user(user_id, vm_name or "")
     result = await _warm_canonical(user_id, vm_name)
-    return {"status": "ok", **result}
+    normalized = await _warm_normalized(user_id, vm_name)
+    return {"status": "ok", **result, **normalized}

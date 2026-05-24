@@ -21,7 +21,6 @@ CANONICAL_QUERIES: List[FinanceQuery] = [
     FinanceQuery("income_statement", "income-statement", time_filter="year"),
     FinanceQuery("income_statement", "income-statement", time_filter="year", history=True, granularity="monthly", convert="USD"),
     FinanceQuery("income_statement", "income-statement", time_filter="year", history=True, granularity="yearly", convert="USD"),
-    FinanceQuery("holdings", "holdings"),
     FinanceQuery("fire_progress", "fire-progress", convert="USD"),
 ]
 
