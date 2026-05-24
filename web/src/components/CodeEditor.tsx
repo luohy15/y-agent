@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import type { Extension } from "@codemirror/state";
 import { EditorState } from "@codemirror/state";
@@ -14,6 +14,8 @@ interface CodeEditorProps {
   onSave?: (filePath: string) => void;
   readOnly?: boolean;
   className?: string;
+  initialLine?: number;
+  onInitialLineApplied?: () => void;
 }
 
 export default function CodeEditor({
@@ -23,6 +25,8 @@ export default function CodeEditor({
   onSave,
   readOnly = false,
   className,
+  initialLine,
+  onInitialLineApplied,
 }: CodeEditorProps) {
   const langKey = useMemo(() => resolveLangKey(filePath), [filePath]);
   const [langExtension, setLangExtension] = useState<Extension | null>(
@@ -30,9 +34,27 @@ export default function CodeEditor({
   );
 
   const onSaveRef = useRef(onSave);
+  const editorViewRef = useRef<EditorView | null>(null);
+
+  const jumpToLine = useCallback((line: number | undefined) => {
+    const view = editorViewRef.current;
+    if (!view || !line) return;
+    const targetLine = Math.min(line, view.state.doc.lines);
+    const lineInfo = view.state.doc.line(targetLine);
+    view.dispatch({
+      selection: { anchor: lineInfo.from },
+      effects: EditorView.scrollIntoView(lineInfo.from, { y: "center" }),
+    });
+    view.focus();
+    onInitialLineApplied?.();
+  }, [onInitialLineApplied]);
   useEffect(() => {
     onSaveRef.current = onSave;
   }, [onSave]);
+
+  useEffect(() => {
+    jumpToLine(initialLine);
+  }, [initialLine, value, jumpToLine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +114,10 @@ export default function CodeEditor({
       height="100%"
       style={{ height: "100%", overflow: "hidden" }}
       indentWithTab={false}
+      onCreateEditor={(view) => {
+        editorViewRef.current = view;
+        jumpToLine(initialLine);
+      }}
     />
   );
 }

@@ -23,7 +23,7 @@ interface ChatViewProps {
   onTraceIdChange?: (traceId: string | null) => void;
   onBackendChange?: (backend: string | null) => void;
   onComplete?: () => void;
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
 }
@@ -311,21 +311,21 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     }
   }, [followUp, sending, chatId, vmName, botName, chatWorkDir]);
 
-  const handleOpenFile = useCallback((path: string) => {
+  const handleOpenFile = useCallback((path: string, line?: number) => {
     const normalized = path.replace(/^\.\//, "");
     if (normalized.startsWith("/")) {
-      onOpenFile?.(normalized);
+      onOpenFile?.(normalized, line);
       return;
     }
     if (normalized.startsWith("pages/") && defaultWorkDir) {
-      onOpenFile?.(`${defaultWorkDir}/${normalized}`);
+      onOpenFile?.(`${defaultWorkDir}/${normalized}`, line);
       return;
     }
     if (chatWorkDir) {
-      onOpenFile?.(`${chatWorkDir}/${normalized}`);
+      onOpenFile?.(`${chatWorkDir}/${normalized}`, line);
       return;
     }
-    onOpenFile?.(normalized);
+    onOpenFile?.(normalized, line);
   }, [chatWorkDir, defaultWorkDir, onOpenFile]);
 
   const createChat = useCallback(async (imageUploads?: ImageUploadPayload[]) => {

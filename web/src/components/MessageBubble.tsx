@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
-import { localFilePathFromMarkdownHref } from "../utils/localFileLinks";
+import { parseLocalFileReference } from "../utils/localFileLinks";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -16,7 +16,7 @@ interface MessageBubbleProps {
   timestamp?: string;
   images?: string[];
   dimmed?: boolean;
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
 }
@@ -102,12 +102,6 @@ function MessageImages({ images }: { images?: string[] }) {
 function truncate(s: string, n: number): string {
   if (!s) return "";
   return s.length > n ? s.slice(0, n) + "..." : s;
-}
-
-function looksLikeFilePath(s: string): boolean {
-  if (s.includes(" ") || s.includes("\n")) return false;
-  if (s.startsWith("http://") || s.startsWith("https://")) return false;
-  return s.includes("/");
 }
 
 // --- Tool icon & color mapping ---
@@ -275,7 +269,7 @@ function ToolCallCompact({
   args?: Record<string, unknown>;
   content: string;
   status: "pending" | "done" | "denied";
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getToolMeta(toolName);
@@ -470,14 +464,14 @@ export default function MessageBubble({ role, content, images, toolName, argumen
           remarkPlugins={[remarkGfm]}
           components={{
             a({ href, children, ...props }) {
-              const filePath = localFilePathFromMarkdownHref(href);
-              if (filePath && onOpenFile) {
+              const fileRef = parseLocalFileReference(href);
+              if (fileRef && onOpenFile) {
                 return (
                   <a
                     href={href}
                     onClick={(e) => {
                       e.preventDefault();
-                      onOpenFile(filePath);
+                      onOpenFile(fileRef.path, fileRef.line);
                     }}
                     {...props}
                   >
@@ -490,12 +484,13 @@ export default function MessageBubble({ role, content, images, toolName, argumen
             code({ children, className, ...props }) {
               const text = String(children).replace(/\n$/, "");
               const isInline = !className;
-              if (isInline && onOpenFile && looksLikeFilePath(text)) {
+              const fileRef = isInline ? parseLocalFileReference(text, { allowRelative: true }) : null;
+              if (fileRef && onOpenFile) {
                 return (
                   <code
                     {...props}
                     className="cursor-pointer text-sol-cyan hover:underline"
-                    onClick={() => onOpenFile(text)}
+                    onClick={() => onOpenFile(fileRef.path, fileRef.line)}
                   >
                     {children}
                   </code>
