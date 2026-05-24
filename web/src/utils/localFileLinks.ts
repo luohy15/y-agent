@@ -15,11 +15,34 @@ function hasFileLikeSegment(path: string): boolean {
   return name.includes(".");
 }
 
-interface LocalFileLinkOptions {
+export interface LocalFileLinkOptions {
   allowRelative?: boolean;
 }
 
-export function localFilePathFromMarkdownHref(href?: string | null, options: LocalFileLinkOptions = {}): string | null {
+export interface LocalFileReference {
+  path: string;
+  line?: number;
+  column?: number;
+}
+
+function splitLineSuffix(path: string): LocalFileReference | null {
+  const match = path.match(/^(.*?):(\d+)(?::(\d+))?$/);
+  if (!match) return { path };
+
+  const [, strippedPath, lineRaw, columnRaw] = match;
+  const line = Number(lineRaw);
+  if (!Number.isSafeInteger(line) || line < 1) return null;
+
+  const result: LocalFileReference = { path: strippedPath, line };
+  if (columnRaw !== undefined) {
+    const column = Number(columnRaw);
+    if (!Number.isSafeInteger(column) || column < 1) return null;
+    result.column = column;
+  }
+  return result;
+}
+
+export function parseLocalFileReference(href?: string | null, options: LocalFileLinkOptions = {}): LocalFileReference | null {
   if (!href) return null;
   const allowRelative = options.allowRelative ?? true;
   if (CONTROL_CHAR_RE.test(href)) return null;
@@ -36,7 +59,14 @@ export function localFilePathFromMarkdownHref(href?: string | null, options: Loc
   const isAbsolutePath = decoded.startsWith("/");
   const isRelativePath = decoded.startsWith("./") || decoded.includes("/");
   if (!isAbsolutePath && (!allowRelative || !isRelativePath)) return null;
-  if (!hasFileLikeSegment(decoded)) return null;
 
-  return decoded;
+  const reference = splitLineSuffix(decoded);
+  if (!reference) return null;
+  if (!hasFileLikeSegment(reference.path)) return null;
+
+  return reference;
+}
+
+export function localFilePathFromMarkdownHref(href?: string | null, options: LocalFileLinkOptions = {}): string | null {
+  return parseLocalFileReference(href, options)?.path ?? null;
 }

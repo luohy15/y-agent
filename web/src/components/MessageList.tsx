@@ -132,7 +132,7 @@ function findLastAssistant(messages: Message[], from: number, to: number): numbe
 }
 
 
-function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string) => void }) {
+function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string, line?: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const shortPath = (p: string) => { const parts = p.split("/"); return parts.length <= 2 ? p : parts.slice(-2).join("/"); };
   const paths = messages.map((m) => shortPath(String(m.arguments?.path || m.arguments?.file_path || ""))).filter(Boolean);
@@ -185,7 +185,7 @@ const toolIconMap: Record<string, { icon: string; color: string; bg: string }> =
 };
 const defaultToolIcon = { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
 
-function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string) => void }) {
+function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string, line?: number) => void }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   // Sync with external defaultExpanded changes (e.g. process toggle)
   useEffect(() => { setExpanded(defaultExpanded ?? false); }, [defaultExpanded]);
@@ -289,7 +289,7 @@ interface MessageListProps {
   running?: boolean;
   centered?: boolean;
   showProgress: boolean;
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;

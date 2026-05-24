@@ -54,6 +54,7 @@ export default function App() {
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
   const [previewFile, setPreviewFile] = useState<string | null>(() => localStorage.getItem("previewFile") || null);
+  const [pendingLines, setPendingLines] = useState<Record<string, number | undefined>>({});
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -131,8 +132,9 @@ export default function App() {
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
   useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
 
-  const handleOpenFile = useCallback((path: string) => {
+  const handleOpenFile = useCallback((path: string, line?: number) => {
     const p = path.replace(/^\.\//, "");
+    if (line) setPendingLines((lines) => ({ ...lines, [p]: line }));
     setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
     setActiveFile(p);
     // Pin preview if this file is the current preview (opened via non-preview action)
@@ -146,8 +148,9 @@ export default function App() {
   const previewFileRef = useRef(previewFile);
   previewFileRef.current = previewFile;
 
-  const handlePreviewFile = useCallback((path: string) => {
+  const handlePreviewFile = useCallback((path: string, line?: number) => {
     const p = path.replace(/^\.\//, "");
+    if (line) setPendingLines((lines) => ({ ...lines, [p]: line }));
     const files = openFilesRef.current;
     const currentPreview = previewFileRef.current;
     const isAlreadyOpen = files.includes(p);
@@ -183,6 +186,15 @@ export default function App() {
     setActiveFile(p);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+
+  const handleConsumeLine = useCallback((path: string) => {
+    setPendingLines((lines) => {
+      if (!(path in lines)) return lines;
+      const next = { ...lines };
+      delete next[path];
+      return next;
+    });
   }, []);
 
   const handlePinFile = useCallback((path: string) => {
@@ -750,7 +762,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>

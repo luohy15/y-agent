@@ -14,13 +14,13 @@ import LinkList from "./LinkList";
 import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { localFilePathFromMarkdownHref } from "../utils/localFileLinks";
+import { parseLocalFileReference } from "../utils/localFileLinks";
 
 
 interface FileViewerProps {
   openFiles: string[];
   activeFile: string | null;
-  onSelectFile: (path: string) => void;
+  onSelectFile: (path: string, line?: number) => void;
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
   vmName?: string | null;
@@ -42,7 +42,9 @@ interface FileViewerProps {
   onExternalLinkClick?: (url: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
-  onPreviewFile?: (path: string) => void;
+  onPreviewFile?: (path: string, line?: number) => void;
+  pendingLines?: Record<string, number | undefined>;
+  onConsumeLine?: (path: string) => void;
   onChatListRefresh?: () => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
 }
@@ -270,7 +272,7 @@ function isAbsoluteHttpLink(href: string): boolean {
   return /^https?:\/\//i.test(href);
 }
 
-function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: { content: string; currentFilePath?: string; onOpenFile?: (path: string) => void; onExternalLinkClick?: (url: string) => void }) {
+function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: { content: string; currentFilePath?: string; onOpenFile?: (path: string, line?: number) => void; onExternalLinkClick?: (url: string) => void }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const { data: frontMatter, body } = useMemo(() => parseFrontMatter(content ?? ""), [content]);
@@ -301,14 +303,14 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
               return <h2 id={id} {...props}>{children}</h2>;
             },
             a: ({ href, children, ...props }) => {
-              const filePath = localFilePathFromMarkdownHref(href, { allowRelative: false });
-              if (filePath && onOpenFile) {
+              const fileRef = parseLocalFileReference(href, { allowRelative: false });
+              if (fileRef && onOpenFile) {
                 return (
                   <a
                     href={href}
                     onClick={(e) => {
                       e.preventDefault();
-                      onOpenFile(filePath);
+                      onOpenFile(fileRef.path, fileRef.line);
                     }}
                     {...props}
                   >
@@ -711,7 +713,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLi
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, onChatListRefresh, onTraceTodoDirtyChange }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -722,6 +724,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [editContent, setEditContent] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const savingRef = useRef<Record<string, boolean>>({});
+
   const [zoom, setZoom] = useState(100);
   const [noteImported, setNoteImported] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
@@ -1194,6 +1197,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                       value={editContent[filePath] ?? fileData.content ?? ""}
                       onChange={(v) => setEditContent((prev) => ({ ...prev, [filePath]: v }))}
                       onSave={handleSave}
+                      initialLine={pendingLines[filePath]}
+                      onInitialLineApplied={() => onConsumeLine?.(filePath)}
                     />
                   </div>
                 )
