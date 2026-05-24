@@ -33,6 +33,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "batch_download_links":
         from worker.steps.batch_download_links import handle_batch_download_links
         return asyncio.run(handle_batch_download_links())
+    if action == "sync_finance":
+        from worker.steps.sync_finance import handle_sync_finance
+        return asyncio.run(handle_sync_finance())
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 
