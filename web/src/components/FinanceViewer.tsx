@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
@@ -1012,12 +1012,25 @@ function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange
 }
 
 function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPeriod = data[data.length - 1]?.period || "";
+  const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
   const [sortColumn, setSortColumn] = useState(latestPeriod);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
   const rows = useMemo(() => positionTableRows(data, positions, effectiveSortColumn, sortDir), [data, positions, effectiveSortColumn, sortDir]);
   const totals = useMemo(() => positionPeriodTotals(data), [data]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const frame = requestAnimationFrame(() => {
+      container.scrollLeft = container.scrollWidth - container.clientWidth;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [periodKey]);
 
   const handleSort = (period: string) => {
     if (period === effectiveSortColumn) {
@@ -1037,7 +1050,7 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
       {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div ref={scrollRef} className="overflow-x-auto">
           <table className="min-w-full text-xs">
             <thead>
               <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
