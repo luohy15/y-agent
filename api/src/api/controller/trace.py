@@ -120,16 +120,19 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
     note_ids = list_note_relations(user_id, trace_id)
     note_shares = {
-        share.note_id: share.share_id
+        share.note_id: {
+            "share_id": share.share_id,
+            "has_password": bool(share.password_hash),
+        }
         for share in get_note_shares_by_note_ids(user_id, note_ids)
     } if note_ids else {}
     notes = []
     if note_ids:
         for note in get_notes_by_ids(user_id, note_ids):
             note_data = note.to_dict()
-            share_id = note_shares.get(note.note_id)
-            if share_id:
-                note_data["share_id"] = share_id
+            share = note_shares.get(note.note_id)
+            if share:
+                note_data.update(share)
             notes.append(note_data)
 
     return {
@@ -311,16 +314,19 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
     from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
     note_ids = list_note_relations(user_id, trace_id)
     note_shares = {
-        share.note_id: share.share_id
+        share.note_id: {
+            "share_id": share.share_id,
+            "has_password": bool(share.password_hash),
+        }
         for share in get_note_shares_by_note_ids(user_id, note_ids)
     } if note_ids else {}
     notes = []
     if note_ids:
         for note in get_notes_by_ids(user_id, note_ids):
             note_data = note.to_dict()
-            share_id = note_shares.get(note.note_id)
-            if share_id:
-                note_data["share_id"] = share_id
+            share = note_shares.get(note.note_id)
+            if share:
+                note_data.update(share)
             notes.append(note_data)
 
     return {

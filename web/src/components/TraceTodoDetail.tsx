@@ -14,6 +14,7 @@ export interface TodoNoteInfo {
   content_key: string;
   front_matter?: Record<string, unknown> | null;
   share_id?: string;
+  has_password?: boolean;
 }
 
 export interface TodoInfo {
