@@ -1275,8 +1275,8 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(Math.abs(v) / 1000).toFixed(0)}k`} />
             <Tooltip content={<NetProfitTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            <Bar dataKey="Income" fill={SOL.green} isAnimationActive={false} />
-            <Bar dataKey="Expenses" fill={SOL.red} isAnimationActive={false} />
+            <Bar dataKey="Income" stackId="income-statement" fill={SOL.green} isAnimationActive={false} />
+            <Bar dataKey="Expenses" stackId="income-statement" fill={SOL.red} isAnimationActive={false} />
           </BarChart>
         ) : chartTab === "income" ? (
           <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
