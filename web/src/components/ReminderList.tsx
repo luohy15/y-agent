@@ -405,7 +405,7 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading reminders</p>
+          <p className="text-sol-red p-2">Error loading reminders</p>
         ) : groups.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No reminders</p>
         ) : (

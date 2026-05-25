@@ -226,7 +226,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading tasks</p>
+          <p className="text-sol-red p-2">Error loading tasks</p>
         ) : chats.length === 0 ? (
           <p className="text-sol-base01 italic p-2">{search ? "No matching tasks" : "No tasks yet"}</p>
         ) : (

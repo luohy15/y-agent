@@ -432,7 +432,7 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading routines</p>
+          <p className="text-sol-red p-2">Error loading routines</p>
         ) : routines.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No routines yet</p>
         ) : (

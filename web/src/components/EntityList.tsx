@@ -83,7 +83,7 @@ export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntit
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading entities</p>
+          <p className="text-sol-red p-2">Error loading entities</p>
         ) : filtered.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No entities found</p>
         ) : (

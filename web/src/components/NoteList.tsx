@@ -154,14 +154,14 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     if (showTodoMode) {
-      mutateTodoNotes(undefined, { revalidate: true });
+      mutateTodoNotes();
       return;
     }
-    if (tab === "journals") mutateJournals(undefined, { revalidate: true });
-    else if (tab === "pages") mutatePages(undefined, { revalidate: true });
-    else if (tab === "blog") mutateBlog(undefined, { revalidate: true });
-    else if (tab === "finance") mutateFinance(undefined, { revalidate: true });
-    else if (tab === "skills") mutateSkills(undefined, { revalidate: true });
+    if (tab === "journals") mutateJournals();
+    else if (tab === "pages") mutatePages();
+    else if (tab === "blog") mutateBlog();
+    else if (tab === "finance") mutateFinance();
+    else if (tab === "skills") mutateSkills();
   }, [refreshKey, showTodoMode, tab, mutateTodoNotes, mutateJournals, mutatePages, mutateBlog, mutateFinance, mutateSkills]);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
@@ -300,7 +300,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           ) : todoNotesLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : todoNotesError ? (
-            <p className="text-sol-base01 italic p-2">Error loading notes</p>
+            <p className="text-sol-red p-2">Error loading notes</p>
           ) : !todoNotes || todoNotes.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No notes found</p>
           ) : (
@@ -443,7 +443,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           financeLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : financeError ? (
-            <p className="text-sol-base01 italic p-2">Error loading {financeSubTab}</p>
+            <p className="text-sol-red p-2">Error loading {financeSubTab}</p>
           ) : financeFiles.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No files found</p>
           ) : (
@@ -467,7 +467,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           skillsLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : skillsError ? (
-            <p className="text-sol-base01 italic p-2">Error loading skills</p>
+            <p className="text-sol-red p-2">Error loading skills</p>
           ) : !skillsData?.skills?.length ? (
             <p className="text-sol-base01 italic p-2">No skills found</p>
           ) : filteredSkills.length === 0 ? (
@@ -493,7 +493,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           journalsLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : journalsError ? (
-            <p className="text-sol-base01 italic p-2">Error loading journals</p>
+            <p className="text-sol-red p-2">Error loading journals</p>
           ) : journalGroups.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No journals found</p>
           ) : (
@@ -528,7 +528,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           pagesLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : pagesError ? (
-            <p className="text-sol-base01 italic p-2">Error loading pages</p>
+            <p className="text-sol-red p-2">Error loading pages</p>
           ) : pageFiles.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No pages found</p>
           ) : (
@@ -563,7 +563,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           blogLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : blogError ? (
-            <p className="text-sol-base01 italic p-2">Error loading blog</p>
+            <p className="text-sol-red p-2">Error loading blog</p>
           ) : blogEntries.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No posts found</p>
           ) : (

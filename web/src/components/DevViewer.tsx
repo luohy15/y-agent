@@ -126,7 +126,7 @@ export default function DevViewer() {
           {isLoading ? (
             <p className="text-sol-base01 italic">Loading...</p>
           ) : error ? (
-            <p className="text-sol-red">Error loading worktrees</p>
+            <p className="text-sol-red p-2">Error loading worktrees</p>
           ) : !sorted || sorted.length === 0 ? (
             <p className="text-sol-base01 italic">No worktrees</p>
           ) : (
