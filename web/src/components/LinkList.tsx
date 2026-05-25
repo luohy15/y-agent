@@ -190,9 +190,10 @@ interface LinkListProps {
   todoId?: string | null;
   feedId?: string | null;
   hideFilters?: boolean;
+  refreshKey?: number;
 }
 
-export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters }: LinkListProps) {
+export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters, refreshKey }: LinkListProps) {
   const [filter, setFilter] = useState<FilterState>(loadFilter);
   const [rangeExpanded, setRangeExpanded] = useState<boolean>(filter.mode === "range");
   const [downloadedOnly, setDownloadedOnly] = useState(() => localStorage.getItem("linkListDownloaded") === "true");
@@ -237,6 +238,17 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   });
 
   const hasMore = data && data.length === LIMIT;
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    if (offset === 0) {
+      mutate();
+      return;
+    }
+    setOffset(0);
+    setAllLinks([]);
+    setLoadedOnce(false);
+  }, [refreshKey, offset, mutate]);
 
   const handleSearch = useCallback(() => {
     setQuery(searchInput);

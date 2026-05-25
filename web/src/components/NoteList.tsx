@@ -25,6 +25,7 @@ interface NoteListProps {
   onOpenFile: (path: string) => void;
   todoId?: string | null;
   hideFilters?: boolean;
+  refreshKey?: number;
 }
 
 type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
@@ -76,7 +77,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
   });
 }
 
-export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters }: NoteListProps) {
+export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters, refreshKey }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
     return saved === "finance" || saved === "skills" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
@@ -143,10 +144,25 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const { data: skillsData, isLoading: skillsLoading, error: skillsError, mutate: mutateSkills } = useSWR<{ skills: SkillEntry[] }>(skillsKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
-  const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
+  const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError, mutate: mutateTodoNotes } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
 
   const [spinning, setSpinning] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+
+  const showTodoMode = !!(todoId || hideFilters);
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    if (showTodoMode) {
+      mutateTodoNotes();
+      return;
+    }
+    if (tab === "journals") mutateJournals();
+    else if (tab === "pages") mutatePages();
+    else if (tab === "blog") mutateBlog();
+    else if (tab === "finance") mutateFinance();
+    else if (tab === "skills") mutateSkills();
+  }, [refreshKey, showTodoMode, tab, mutateTodoNotes, mutateJournals, mutatePages, mutateBlog, mutateFinance, mutateSkills]);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
 
@@ -272,8 +288,6 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     `px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-  const showTodoMode = !!(todoId || hideFilters);
 
   if (showTodoMode) {
     return (

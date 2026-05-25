@@ -238,9 +238,10 @@ interface FileTreeProps {
   onSelectFile?: (path: string) => void;
   vmName?: string | null;
   workDir?: string;
+  refreshKey?: number;
 }
 
-export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: FileTreeProps) {
+export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, refreshKey }: FileTreeProps) {
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -325,6 +326,16 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir }: 
       loadRoot();
     }
   }, [vmQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0 || !isLoggedIn) return;
+    if (dirRefreshMapRef.current.size > 5) {
+      setCollapseVersion(v => v + 1);
+      loadRoot();
+      return;
+    }
+    for (const refresh of dirRefreshMapRef.current.values()) refresh();
+  }, [refreshKey, isLoggedIn, loadRoot]);
 
   if (isLoggedIn && roots === null && !loading) {
     loadRoot();

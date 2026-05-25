@@ -82,6 +82,7 @@ export default function App() {
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
+  const [chatContextRefreshKey, setChatContextRefreshKey] = useState(0);
   const [chatListSpinning, setChatListSpinning] = useState(false);
   const [chatSpinning, setChatSpinning] = useState(false);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
@@ -480,6 +481,7 @@ export default function App() {
             onOpenFile={mobile ? (path) => { handleOpenFile(path); setChatListOpen(false); } : handleOpenFile}
             todoId={chatListTraceId}
             hideFilters
+            refreshKey={chatContextRefreshKey}
           />
         ) : chatContextPanel === "links" ? (
           <LinkList
@@ -493,11 +495,12 @@ export default function App() {
             }}
             todoId={chatListTraceId}
             hideFilters
+            refreshKey={chatContextRefreshKey}
           />
         ) : chatContextPanel === "files" ? (
-          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={mobile ? (path) => { handlePreviewFile(path); setChatListOpen(false); } : handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={mobile ? (path) => { handlePreviewFile(path); setChatListOpen(false); } : handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
         ) : (
-          <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={mobile ? (path) => { handleOpenDiffFile(path); setChatListOpen(false); } : handleOpenDiffFile} />
+          <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={mobile ? (path) => { handleOpenDiffFile(path); setChatListOpen(false); } : handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
         )}
       </div>
     </div>
@@ -843,7 +846,7 @@ export default function App() {
                   {chatTopic && <span className={`text-[0.65rem] ${topicBadgeClass(chatTopic)}`}>{chatTopic}</span>}
                   {chatSkill && <span className={`text-[0.65rem] ${topicBadgeClass(chatSkill)}`} title={`Skill: ${chatSkill}`}>/{chatSkill}</span>}
                   {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
-                  {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
+                  {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatContextRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat and context"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
                 <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>

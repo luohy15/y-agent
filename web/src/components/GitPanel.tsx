@@ -11,6 +11,7 @@ interface GitPanelProps {
   vmName?: string | null;
   workDir?: string;
   onSelectFile: (path: string) => void;
+  refreshKey?: number;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -37,7 +38,7 @@ function getDirName(path: string): string {
   return slash >= 0 ? path.slice(0, slash) : "";
 }
 
-export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: GitPanelProps) {
+export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile, refreshKey }: GitPanelProps) {
   const [files, setFiles] = useState<GitFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +81,11 @@ export default function GitPanel({ isLoggedIn, vmName, workDir, onSelectFile }: 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    refresh();
+  }, [refreshKey, refresh]);
 
   return (
     <div className="flex flex-col h-full">
