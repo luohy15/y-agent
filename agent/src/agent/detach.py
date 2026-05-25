@@ -12,6 +12,7 @@ refactor is scoped to the start_* path.
 """
 
 import asyncio
+import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -178,6 +179,22 @@ async def _start_detached_tmux(
         # 2. Per-backend setup (e.g. write SFTP stdin file for claude)
         if spec.setup:
             spec.setup(client, chat_id, prompt, exec_images)
+
+        if cwd:
+            cwd_exists = _ssh_exec(client, f"test -d {_shell_quote(cwd)} && echo ok || echo missing").strip() == "ok"
+            if not cwd_exists:
+                message = f"work_dir not found: {cwd}"
+                error_obj = (
+                    {"type": "result", "is_error": True, "result": message}
+                    if spec.setup
+                    else {"type": "error", "message": message}
+                )
+                _ssh_exec(
+                    client,
+                    f"printf '%s\\n' {_shell_quote(json.dumps(error_obj))} > {_shell_quote(stdout_file)}; "
+                    f"echo 1 > {_shell_quote(exit_file)}",
+                )
+                return None
 
         # 3. Assemble tmux inner command
         inner_parts = [
