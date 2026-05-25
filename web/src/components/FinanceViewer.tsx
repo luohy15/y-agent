@@ -1310,7 +1310,7 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
       </div>
       <ResponsiveContainer width="100%" height={300}>
         {chartTab === "net-profit" ? (
-          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+          <BarChart data={chartData} stackOffset="sign" margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(Math.abs(v) / 1000).toFixed(0)}k`} />
