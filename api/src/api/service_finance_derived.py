@@ -29,7 +29,14 @@ def parse_time_range(time_filter: str, default: str | None = None) -> tuple[date
 
 def period_boundaries(start_date: datetime.date, end_date: datetime.date, granularity: str):
     periods = []
-    if granularity == "monthly":
+    if granularity == "weekly":
+        cur = start_date - datetime.timedelta(days=start_date.weekday())
+        while cur < end_date:
+            next_period = cur + datetime.timedelta(days=7)
+            iso_year, iso_week, _ = cur.isocalendar()
+            periods.append((cur, min(next_period, end_date), f"{iso_year}-W{iso_week:02d}"))
+            cur = next_period
+    elif granularity == "monthly":
         cur = start_date.replace(day=1)
         while cur < end_date:
             next_period = (cur.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
