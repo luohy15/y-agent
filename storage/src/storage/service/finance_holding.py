@@ -7,6 +7,14 @@ from storage.util import get_utc_iso8601_timestamp
 NON_RISKY_TICKERS = {"CASH", "BOXX"}
 
 
+def _effective_market_value(row) -> float | None:
+    if row.market_value is not None:
+        return row.market_value
+    if row.is_cash or row.symbol == row.cost_currency:
+        return row.quantity
+    return None
+
+
 def is_risky_holding(row) -> bool:
     if row.is_cash:
         return False
@@ -20,13 +28,27 @@ def is_risky_holding(row) -> bool:
 def should_show_holding(row, risky_only: bool = False) -> bool:
     if abs(row.quantity or 0) <= 0.005:
         return False
-    if row.market_value is not None and abs(row.market_value) <= 0.005:
+    market_value = _effective_market_value(row)
+    if market_value is not None and abs(market_value) <= 0.005:
         return False
     return not risky_only or is_risky_holding(row)
 
 
 def filter_holdings(rows, risky_only: bool = False):
     return [row for row in rows if should_show_holding(row, risky_only)]
+
+
+def with_effective_values(rows):
+    result = []
+    for row in rows:
+        data = row.to_dict()
+        market_value = _effective_market_value(row)
+        if market_value is not None:
+            data["market_value"] = market_value
+        if data.get("book_value") is None and (row.is_cash or row.symbol == row.cost_currency):
+            data["book_value"] = market_value
+        result.append(data)
+    return result
 
 
 def _amount(value):

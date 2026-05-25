@@ -107,7 +107,8 @@ async def positions(
 ):
     user_id = _get_user_id(request)
     rows = holding_service.list_at(user_id, vm_name or "", at, risky_only=risky_only) if at else holding_service.list_for(user_id, vm_name or "", risky_only=risky_only)
-    return _envelope(rows)
+    synced_at = rows[0].synced_at if rows else ""
+    return _envelope_dict(holding_service.with_effective_values(rows), synced_at, source="db")
 
 
 @router.get("/transactions")
