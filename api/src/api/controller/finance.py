@@ -77,9 +77,14 @@ async def balance_sheet(
     history: bool = Query(False),
     granularity: str = Query("monthly"),
     convert: str = Query("USD"),
+    breakdown: str | None = Query(None),
+    risky_only: bool = Query(False),
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
+    if breakdown == "positions":
+        result = derived_service.balance_sheet_positions(user_id, vm_name or "", time, granularity, convert or None, risky_only=risky_only)
+        return _envelope_dict(result.data, result.synced_at)
     result = derived_service.balance_sheet(user_id, vm_name or "", time, history, granularity, convert or None)
     return _envelope_dict(result.data, result.synced_at)
 
