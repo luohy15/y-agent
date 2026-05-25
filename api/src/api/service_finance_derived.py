@@ -106,10 +106,10 @@ def convert(user_id: int, vm_name: str, amount: float, from_ccy: str, to_ccy: st
         inverse_price = lookup.latest(to_currency, from_currency, price_date)
         if inverse_price:
             return amount / inverse_price
-    direct = price_service.latest_pair(user_id, vm_name, from_currency, to_currency, price_date)
+    direct = price_service.latest_pair(from_currency, to_currency, price_date)
     if direct:
         return amount * float(direct.price)
-    inverse = price_service.latest_pair(user_id, vm_name, to_currency, from_currency, price_date)
+    inverse = price_service.latest_pair(to_currency, from_currency, price_date)
     if inverse and inverse.price:
         return amount / float(inverse.price)
     raise ConversionError(f"No price found for {from_currency} -> {to_currency}")
@@ -278,7 +278,7 @@ def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, d
             if currency and currency != target_currency:
                 pairs.add((currency, target_currency))
                 pairs.add((target_currency, currency))
-    return PriceLookup(price_service.list_for_pairs(user_id, vm_name, pairs, as_of))
+    return PriceLookup(price_service.list_for_pairs(pairs, as_of))
 
 
 def _price_lookup_for_roots(user_id: int, vm_name: str, totals: dict[str, dict[str, float]], roots: tuple[str, ...], target_currency: str | None, as_of: datetime.date) -> PriceLookup | None:
@@ -309,7 +309,7 @@ def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, di
 
 
 def _synced_at(user_id: int, vm_name: str) -> str:
-    return transaction_service.latest_synced_at(user_id, vm_name) or ""
+    return transaction_service.latest_synced_at(user_id) or ""
 
 
 @dataclass
@@ -324,7 +324,7 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
     assets_root = roots["assets"]
     liabilities_root = roots["liabilities"]
     if not history:
-        rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
+        rows = transaction_service.list_between(user_id, end_date=end_date)
         totals = _sum_rows(rows)
         as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
         result = {
@@ -336,7 +336,7 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
         start_date = start_date or end_date.replace(year=end_date.year - 1)
-    rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
+    rows = transaction_service.list_between(user_id, end_date=end_date)
     result = []
     dated_rows = _parsed_transaction_rows(rows)
     totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -363,11 +363,11 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     start_date, end_date = parse_time_range(time_filter)
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
     assets_root = roots["assets"]
-    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, vm_name, risky_only=True)} if risky_only else set()
+    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, risky_only=True)} if risky_only else set()
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
         start_date = start_date or end_date.replace(year=end_date.year - 1)
-    rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
+    rows = transaction_service.list_between(user_id, end_date=end_date)
     result = []
     dated_rows = _parsed_transaction_rows(rows)
     positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -395,7 +395,7 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
     income_root = roots["income"]
     expenses_root = roots["expenses"]
     if not history:
-        rows = transaction_service.list_between(user_id, vm_name, start_date=start_date, end_date=end_date)
+        rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
         totals = _sum_rows(rows)
         as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
         result = {
@@ -407,7 +407,7 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
         start_date = start_date or end_date.replace(year=end_date.year - 1)
-    rows = transaction_service.list_between(user_id, vm_name, start_date=start_date, end_date=end_date)
+    rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
     result = []
     for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         totals = _sum_rows(row for row in rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end)
@@ -421,7 +421,7 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
 
 
 def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
-    holdings = holding_service.list_at(user_id, vm_name, at, risky_only=risky_only) if at else holding_service.list_for(user_id, vm_name, risky_only=risky_only)
+    holdings = holding_service.list_at(user_id, at, risky_only=risky_only) if at else holding_service.list_for(user_id, risky_only=risky_only)
     rows = holding_service.with_effective_values(holdings)
     base_values = []
     for holding, row in zip(holdings, rows):
@@ -445,7 +445,7 @@ def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_o
 def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
     base_currency = "USD"
     today = _today()
-    holdings = holding_service.list_for(user_id, vm_name)
+    holdings = holding_service.list_for(user_id)
     net_worth = 0.0
     for row in holdings:
         amount = float(row.market_value or 0)
@@ -456,7 +456,7 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
     year_start = datetime.date(today.year, 1, 1)
     tomorrow = today + datetime.timedelta(days=1)
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
-    rows = transaction_service.list_between(user_id, vm_name, start_date=year_start, end_date=tomorrow)
+    rows = transaction_service.list_between(user_id, start_date=year_start, end_date=tomorrow)
     totals = _sum_rows(rows)
     ytd_income_usd = round(abs(convert_balance(user_id, vm_name, _root_sum(totals, roots["income"]), base_currency, today).get(base_currency, 0)), 2)
     ytd_expense_usd = round(convert_balance(user_id, vm_name, _root_sum(totals, roots["expenses"]), base_currency, today).get(base_currency, 0), 2)

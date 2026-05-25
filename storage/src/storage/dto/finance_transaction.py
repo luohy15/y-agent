@@ -6,7 +6,6 @@ from typing import Optional
 class FinanceTransaction:
     id: Optional[int]
     user_id: int
-    vm_name: str
     transaction_date: str
     entry_id: str
     posting_index: int

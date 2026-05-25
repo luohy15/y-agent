@@ -8,7 +8,6 @@ class FinanceHoldingEntity(Base, BaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
-    vm_name = Column(String, nullable=False, default="")
     snapshot_at = Column(DateTime(timezone=True), nullable=False)
     symbol = Column(String, nullable=False)
     quantity = Column(Float, nullable=False, default=0)
@@ -23,6 +22,6 @@ class FinanceHoldingEntity(Base, BaseEntity):
     source = Column(String, nullable=False, default="sync")
 
     __table_args__ = (
-        Index("ix_finance_holding_user_vm_snapshot", "user_id", "vm_name", "snapshot_at"),
-        Index("ix_finance_holding_user_vm_symbol", "user_id", "vm_name", "symbol"),
+        Index("ix_finance_holding_user_snapshot", "user_id", "snapshot_at"),
+        Index("ix_finance_holding_user_symbol", "user_id", "symbol"),
     )

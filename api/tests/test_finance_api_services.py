@@ -135,7 +135,7 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(result.data[0]["assets"], {"USD": 100.0})
         self.assertEqual(result.data[1]["assets"], {"USD": 107.8})
         self.assertEqual(result.data[1]["liabilities"], {"USD": -20.0})
-        list_for_pairs.assert_called_once_with(123, "", {("HKD", "USD"), ("USD", "HKD")}, datetime.date(2026, 12, 31))
+        list_for_pairs.assert_called_once_with({("HKD", "USD"), ("USD", "HKD")}, datetime.date(2026, 12, 31))
         latest_pair.assert_not_called()
 
     def test_balance_sheet_positions_history_uses_one_price_batch_and_running_totals(self):
@@ -151,7 +151,7 @@ class FinanceApiServicesTest(unittest.TestCase):
 
         self.assertEqual(result.data[0]["positions"], {"AAPL": {"USD": 10.0}})
         self.assertEqual(result.data[1]["positions"], {"AAPL": {"USD": 60.0}})
-        list_for_pairs.assert_called_once_with(123, "", {("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
+        list_for_pairs.assert_called_once_with({("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
         latest_pair.assert_not_called()
 
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
@@ -174,7 +174,6 @@ class FinanceApiServicesTest(unittest.TestCase):
         return FinanceTransaction(
             id=posting_index,
             user_id=123,
-            vm_name="",
             transaction_date=transaction_date,
             entry_id=entry_id,
             posting_index=posting_index,
@@ -201,8 +200,6 @@ class FinanceApiServicesTest(unittest.TestCase):
     def _price(self, symbol, currency, price_date, price):
         return FinancePrice(
             id=None,
-            user_id=123,
-            vm_name="",
             symbol=symbol,
             price_date=price_date,
             price=price,
@@ -222,7 +219,6 @@ class FinanceApiServicesTest(unittest.TestCase):
         return FinanceHolding(
             id=None,
             user_id=123,
-            vm_name="",
             snapshot_at="2026-05-25T00:00:00+00:00",
             snapshot_date="2026-05-25",
             symbol=symbol,

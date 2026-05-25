@@ -33,7 +33,6 @@ def _entity_to_dto(entity: FinanceHoldingEntity) -> FinanceHolding:
     return FinanceHolding(
         id=entity.id,
         user_id=entity.user_id,
-        vm_name=entity.vm_name,
         snapshot_at=snapshot_at.isoformat(),
         snapshot_date=snapshot_at.date().isoformat(),
         symbol=entity.symbol,
@@ -50,12 +49,11 @@ def _entity_to_dto(entity: FinanceHoldingEntity) -> FinanceHolding:
     )
 
 
-def _values(user_id: int, vm_name: str, row: dict, synced_at: str, source: str, snapshot_at: datetime) -> dict:
+def _values(user_id: int, row: dict, synced_at: str, source: str, snapshot_at: datetime) -> dict:
     symbol = row.get("symbol") or ""
     cost_currency = row.get("cost_currency") or row.get("currency") or ""
     return dict(
         user_id=user_id,
-        vm_name=vm_name or "",
         snapshot_at=_parse_datetime(row.get("snapshot_at") or snapshot_at),
         symbol=symbol,
         quantity=row.get("quantity") or 0,
@@ -72,43 +70,41 @@ def _values(user_id: int, vm_name: str, row: dict, synced_at: str, source: str, 
     )
 
 
-def append_snapshot(user_id: int, vm_name: str, rows: list[dict], snapshot_at: str | datetime, synced_at: str, source: str = "sync") -> int:
-    effective_vm_name = vm_name or ""
+def append_snapshot(user_id: int, rows: list[dict], snapshot_at: str | datetime, synced_at: str, source: str = "sync") -> int:
     effective_snapshot_at = _parse_datetime(snapshot_at)
     with get_db() as session:
         if rows:
             session.bulk_insert_mappings(
                 FinanceHoldingEntity,
-                [_values(user_id, effective_vm_name, row, synced_at, source, effective_snapshot_at) for row in rows],
+                [_values(user_id, row, synced_at, source, effective_snapshot_at) for row in rows],
             )
         session.flush()
         return len(rows)
 
 
-def latest_snapshot_at(user_id: int, vm_name: str) -> Optional[datetime]:
+def latest_snapshot_at(user_id: int) -> Optional[datetime]:
     with get_db() as session:
-        return session.query(func.max(FinanceHoldingEntity.snapshot_at)).filter_by(user_id=user_id, vm_name=vm_name or "").scalar()
+        return session.query(func.max(FinanceHoldingEntity.snapshot_at)).filter_by(user_id=user_id).scalar()
 
 
-def list_for(user_id: int, vm_name: str) -> list[FinanceHolding]:
-    snapshot_at = latest_snapshot_at(user_id, vm_name)
+def list_for(user_id: int) -> list[FinanceHolding]:
+    snapshot_at = latest_snapshot_at(user_id)
     if not snapshot_at:
         return []
     with get_db() as session:
-        rows = session.query(FinanceHoldingEntity).filter_by(user_id=user_id, vm_name=vm_name or "", snapshot_at=snapshot_at).order_by(FinanceHoldingEntity.market_value.desc().nullslast(), FinanceHoldingEntity.symbol.asc()).all()
+        rows = session.query(FinanceHoldingEntity).filter_by(user_id=user_id, snapshot_at=snapshot_at).order_by(FinanceHoldingEntity.market_value.desc().nullslast(), FinanceHoldingEntity.symbol.asc()).all()
         return [_entity_to_dto(row) for row in rows]
 
 
-def list_at(user_id: int, vm_name: str, snapshot_date: str) -> list[FinanceHolding]:
+def list_at(user_id: int, snapshot_date: str) -> list[FinanceHolding]:
     start, end = _day_bounds(snapshot_date)
     with get_db() as session:
         latest = session.query(func.max(FinanceHoldingEntity.snapshot_at)).filter(
             FinanceHoldingEntity.user_id == user_id,
-            FinanceHoldingEntity.vm_name == (vm_name or ""),
             FinanceHoldingEntity.snapshot_at >= start,
             FinanceHoldingEntity.snapshot_at < end,
         ).scalar()
         if not latest:
             return []
-        rows = session.query(FinanceHoldingEntity).filter_by(user_id=user_id, vm_name=vm_name or "", snapshot_at=latest).order_by(FinanceHoldingEntity.market_value.desc().nullslast(), FinanceHoldingEntity.symbol.asc()).all()
+        rows = session.query(FinanceHoldingEntity).filter_by(user_id=user_id, snapshot_at=latest).order_by(FinanceHoldingEntity.market_value.desc().nullslast(), FinanceHoldingEntity.symbol.asc()).all()
         return [_entity_to_dto(row) for row in rows]

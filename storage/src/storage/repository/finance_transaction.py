@@ -13,7 +13,6 @@ def _entity_to_dto(entity: FinanceTransactionEntity) -> FinanceTransaction:
     return FinanceTransaction(
         id=entity.id,
         user_id=entity.user_id,
-        vm_name=entity.vm_name,
         transaction_date=str(entity.transaction_date),
         entry_id=entity.entry_id,
         posting_index=entity.posting_index,
@@ -38,10 +37,9 @@ def _entity_to_dto(entity: FinanceTransactionEntity) -> FinanceTransaction:
     )
 
 
-def _values(user_id: int, vm_name: str, row: dict, synced_at: str, source: str) -> dict:
+def _values(user_id: int, row: dict, synced_at: str, source: str) -> dict:
     return dict(
         user_id=user_id,
-        vm_name=vm_name or "",
         transaction_date=row.get("transaction_date") or row.get("date"),
         entry_id=row.get("entry_id") or row.get("id"),
         posting_index=int(row.get("posting_index") or 0),
@@ -67,28 +65,27 @@ def _values(user_id: int, vm_name: str, row: dict, synced_at: str, source: str) 
     )
 
 
-def replace_for(user_id: int, vm_name: str, rows: list[dict], synced_at: str, source: str = "sync") -> int:
-    effective_vm_name = vm_name or ""
+def replace_for(user_id: int, rows: list[dict], synced_at: str, source: str = "sync") -> int:
     with get_db() as session:
-        session.query(FinanceTransactionEntity).filter_by(user_id=user_id, vm_name=effective_vm_name).delete()
+        session.query(FinanceTransactionEntity).filter_by(user_id=user_id).delete()
         if rows:
-            session.bulk_insert_mappings(FinanceTransactionEntity, [_values(user_id, effective_vm_name, row, synced_at, source) for row in rows])
+            session.bulk_insert_mappings(FinanceTransactionEntity, [_values(user_id, row, synced_at, source) for row in rows])
         session.flush()
         return len(rows)
 
 
-def list_for(user_id: int, vm_name: str, symbol: Optional[str] = None, limit: int = 500) -> list[FinanceTransaction]:
+def list_for(user_id: int, symbol: Optional[str] = None, limit: int = 500) -> list[FinanceTransaction]:
     with get_db() as session:
-        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id, vm_name=vm_name or "")
+        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id)
         if symbol:
             query = query.filter_by(symbol=symbol)
         rows = query.order_by(FinanceTransactionEntity.transaction_date.desc(), FinanceTransactionEntity.id.desc()).limit(limit).all()
         return [_entity_to_dto(row) for row in rows]
 
 
-def list_between(user_id: int, vm_name: str, start_date: date | None = None, end_date: date | None = None) -> list[FinanceTransaction]:
+def list_between(user_id: int, start_date: date | None = None, end_date: date | None = None) -> list[FinanceTransaction]:
     with get_db() as session:
-        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id, vm_name=vm_name or "")
+        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id)
         if start_date is not None:
             query = query.filter(FinanceTransactionEntity.transaction_date >= start_date)
         if end_date is not None:
@@ -97,7 +94,7 @@ def list_between(user_id: int, vm_name: str, start_date: date | None = None, end
         return [_entity_to_dto(row) for row in rows]
 
 
-def latest_synced_at(user_id: int, vm_name: str) -> str:
+def latest_synced_at(user_id: int) -> str:
     with get_db() as session:
-        row = session.query(FinanceTransactionEntity.synced_at).filter_by(user_id=user_id, vm_name=vm_name or "").order_by(FinanceTransactionEntity.synced_at.desc()).first()
+        row = session.query(FinanceTransactionEntity.synced_at).filter_by(user_id=user_id).order_by(FinanceTransactionEntity.synced_at.desc()).first()
         return row[0] if row else ""
