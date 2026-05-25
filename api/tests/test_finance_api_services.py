@@ -51,27 +51,48 @@ class FinanceApiServicesTest(unittest.TestCase):
         usd_stock = self._holding("QQQ", 1, 23020.97, "USD", False)
         usd_stock_2 = self._holding("NVDA", 1, 60000, "USD", False)
         hkd_stock = self._holding("0700", 1, 14311.85, "HKD", False)
-        cny_debt = self._holding("CNY", -404423, None, "CNY", True)
 
         def fake_convert(_user_id, _vm_name, amount, currency, _base_currency, _as_of):
             rates = {"USD": 1, "HKD": 0.128, "CNY": 0.138}
             return amount * rates[currency]
 
-        with patch.object(holding_service, "list_for", return_value=[usd_stock, usd_stock_2, hkd_stock, cny_debt]), patch.object(derived_service, "convert", side_effect=fake_convert):
+        with patch.object(holding_service, "list_for", return_value=[usd_stock, usd_stock_2, hkd_stock]), patch.object(derived_service, "convert", side_effect=fake_convert):
             result = derived_service.holding_positions(123, "")
 
         rows = result.data
-        total_base = 23020.97 + 60000 + 14311.85 * 0.128 + -404423 * 0.138
+        gross_asset_base = 23020.97 + 60000 + 14311.85 * 0.128
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row["symbol"] for row in rows], ["QQQ", "NVDA", "0700"])
         self.assertAlmostEqual(rows[0]["market_value_base"], 23020.97, places=2)
         self.assertAlmostEqual(rows[1]["market_value_base"], 60000, places=2)
         self.assertAlmostEqual(rows[2]["market_value_base"], 1831.92, places=2)
-        self.assertAlmostEqual(rows[3]["market_value_base"], -55810.37, places=2)
-        self.assertAlmostEqual(rows[0]["allocation_pct"], 23020.97 / total_base, places=6)
-        self.assertAlmostEqual(rows[2]["allocation_pct"], (14311.85 * 0.128) / total_base, places=6)
-        self.assertAlmostEqual(rows[3]["allocation_pct"], (-404423 * 0.138) / total_base, places=6)
-        self.assertGreater(rows[0]["allocation_pct"], 0)
-        self.assertLess(rows[3]["allocation_pct"], 0)
+        self.assertAlmostEqual(rows[0]["allocation_pct"], 23020.97 / gross_asset_base, places=6)
+        self.assertAlmostEqual(rows[1]["allocation_pct"], 60000 / gross_asset_base, places=6)
+        self.assertAlmostEqual(rows[2]["allocation_pct"], (14311.85 * 0.128) / gross_asset_base, places=6)
+        self.assertTrue(all(row["allocation_pct"] > 0 for row in rows))
+        self.assertTrue(all(row["market_value_base"] > 0 for row in rows))
+        self.assertAlmostEqual(sum(row["allocation_pct"] for row in rows), 1.0, places=4)
         self.assertEqual(rows[0]["allocation_base_currency"], "USD")
+
+    def test_holding_positions_keeps_negative_balance_asset(self):
+        # Source-level classification (BQL `^0` = Assets sortkey) filters out Liabilities
+        # rows entirely, so anything that reaches list_for is Asset-class. The API layer
+        # must NOT then drop a row by sign — a negative-balance Asset (e.g. temporary
+        # overdraft on Assets:Cash:CNY) should still appear in the response.
+        usd_stock = self._holding("QQQ", 1, 1000, "USD", False)
+        negative_cash_asset = self._holding("CNY", -500, None, "CNY", True)
+
+        def fake_convert(_user_id, _vm_name, amount, currency, _base_currency, _as_of):
+            rates = {"USD": 1, "CNY": 0.14}
+            return amount * rates[currency]
+
+        with patch.object(holding_service, "list_for", return_value=[usd_stock, negative_cash_asset]), patch.object(derived_service, "convert", side_effect=fake_convert):
+            result = derived_service.holding_positions(123, "")
+
+        rows = result.data
+        self.assertEqual([row["symbol"] for row in rows], ["QQQ", "CNY"])
+        self.assertLess(rows[1]["market_value_base"], 0)
+        self.assertLess(rows[1]["allocation_pct"], 0)
 
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [
