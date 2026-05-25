@@ -16,6 +16,7 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
         ec2_instance_id=entity.ec2_instance_id or "",
         ec2_region=entity.ec2_region or "",
         last_up=entity.last_up,
+        finance_config=dict(entity.finance_config or {}),
     )
 
 
@@ -28,6 +29,7 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
         ec2_instance_id=config.ec2_instance_id,
         ec2_region=config.ec2_region,
         last_up=config.last_up,
+        finance_config=dict(config.finance_config or {}),
     )
 
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
+from api import service_finance_derived as derived_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
 from storage.service import finance_transaction as transaction_service
@@ -48,6 +49,7 @@ async def _warm_normalized(user_id: int, vm_name: str | None):
         ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, effective_vm_name, holding_service.rows_from_holdings_payload(payload), source="live")),
         ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, effective_vm_name, payload, source="live")),
         ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(user_id, effective_vm_name, payload, source="live")),
+        ("fire-config", ["y", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", effective_vm_name], lambda payload: None),
     ]
     for _, cmd, writer in commands:
         try:
@@ -64,6 +66,10 @@ def _envelope(rows, source: str = "db"):
     return {"data": [row.to_dict() for row in rows], "synced_at": synced_at, "source": source}
 
 
+def _envelope_dict(data, synced_at: str, source: str = "derived"):
+    return {"data": data, "synced_at": synced_at or "", "source": source}
+
+
 @router.get("/balance-sheet")
 async def balance_sheet(
     request: Request,
@@ -74,16 +80,8 @@ async def balance_sheet(
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
-    cmd = ["y", "beancount"]
-    if time:
-        cmd += ["--time", time]
-    if history:
-        cmd += ["--history", "--granularity", granularity]
-    if convert:
-        cmd += ["--convert", convert]
-    cmd.append("balance-sheet")
-    output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
-    return _parse_json(output)
+    result = derived_service.balance_sheet(user_id, vm_name or "", time, history, granularity, convert or None)
+    return _envelope_dict(result.data, result.synced_at)
 
 
 @router.get("/income-statement")
@@ -96,16 +94,8 @@ async def income_statement(
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
-    cmd = ["y", "beancount"]
-    if time:
-        cmd += ["--time", time]
-    if history:
-        cmd += ["--history", "--granularity", granularity]
-    if convert:
-        cmd += ["--convert", convert]
-    cmd.append("income-statement")
-    output = await _exec(user_id, cmd, timeout=60, vm_name=vm_name)
-    return _parse_json(output)
+    result = derived_service.income_statement(user_id, vm_name or "", time, history, granularity, convert or None)
+    return _envelope_dict(result.data, result.synced_at)
 
 
 @router.get("/positions")
@@ -148,8 +138,8 @@ async def fire_progress(
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
-    output = await _exec(user_id, ["y", "beancount", "--convert", "USD", "fire-progress"], timeout=60, vm_name=vm_name)
-    return _parse_json(output)
+    result = derived_service.fire_progress(user_id, vm_name or "")
+    return _envelope_dict(result.data, result.synced_at)
 
 
 @router.post("/refresh")

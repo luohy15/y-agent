@@ -6,6 +6,8 @@ from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
 from storage.service import finance_transaction as transaction_service
 from storage.service.user import get_cli_user_id
+from yagent.commands.beancount.fire_progress import _load_fire_config
+from storage.service import finance_config as finance_config_service
 
 
 @click.command("snapshot")
@@ -29,5 +31,12 @@ def snapshot(ctx, user_id: int | None, vm_name: str):
         result = runner.invoke(beancount_group, args, catch_exceptions=False)
         writer(json.loads(result.output))
         synced += 1
+    cfg, source = _load_fire_config()
+    finance_config_service.set_for(target_user_id, vm_name, {
+        "monthly_expense_usd": cfg.get("monthly_expense_usd"),
+        "withdrawal_rate": cfg.get("withdrawal_rate"),
+        "target_usd": cfg.get("target_usd"),
+        "config_source": source,
+    })
     total = len(normalized)
-    click.echo(f"synced {synced}/{total} views")
+    click.echo(f"synced {synced}/{total} views + fire-config")

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import JSON, Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from .base import Base, BaseEntity
 
 
@@ -14,6 +15,7 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_instance_id = Column(String, nullable=False, default="")
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
+    finance_config = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

@@ -1,5 +1,6 @@
 """Function-based finance transaction repository."""
 
+from datetime import date
 from typing import Optional
 
 from storage.database.base import get_db
@@ -83,3 +84,20 @@ def list_for(user_id: int, vm_name: str, symbol: Optional[str] = None, limit: in
             query = query.filter_by(symbol=symbol)
         rows = query.order_by(FinanceTransactionEntity.transaction_date.desc(), FinanceTransactionEntity.id.desc()).limit(limit).all()
         return [_entity_to_dto(row) for row in rows]
+
+
+def list_between(user_id: int, vm_name: str, start_date: date | None = None, end_date: date | None = None) -> list[FinanceTransaction]:
+    with get_db() as session:
+        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id, vm_name=vm_name or "")
+        if start_date is not None:
+            query = query.filter(FinanceTransactionEntity.transaction_date >= start_date)
+        if end_date is not None:
+            query = query.filter(FinanceTransactionEntity.transaction_date < end_date)
+        rows = query.order_by(FinanceTransactionEntity.transaction_date.asc(), FinanceTransactionEntity.id.asc()).all()
+        return [_entity_to_dto(row) for row in rows]
+
+
+def latest_synced_at(user_id: int, vm_name: str) -> str:
+    with get_db() as session:
+        row = session.query(FinanceTransactionEntity.synced_at).filter_by(user_id=user_id, vm_name=vm_name or "").order_by(FinanceTransactionEntity.synced_at.desc()).first()
+        return row[0] if row else ""

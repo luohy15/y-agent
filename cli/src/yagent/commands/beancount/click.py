@@ -3,6 +3,7 @@ import os
 import click
 
 from .balance_sheet import balance_sheet
+from .fire_config import fire_config
 from .fire_progress import fire_progress
 from .holdings import holdings
 from .income_statement import income_statement
@@ -24,7 +25,7 @@ def beancount_group(ctx, time: str, history: bool, granularity: str, convert: st
     ctx.ensure_object(dict)
 
     # Skip beancount loading for commands that don't need it
-    if ctx.invoked_subcommand in ("update-market-data", "snapshot"):
+    if ctx.invoked_subcommand in ("update-market-data", "snapshot", "fire-config"):
         return
 
     from beancount import loader
@@ -61,5 +62,6 @@ beancount_group.add_command(holdings)
 beancount_group.add_command(price_history)
 beancount_group.add_command(prices)
 beancount_group.add_command(fire_progress)
+beancount_group.add_command(fire_config)
 beancount_group.add_command(snapshot)
 beancount_group.add_command(transactions)
