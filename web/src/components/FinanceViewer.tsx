@@ -980,14 +980,13 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
-function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange, controls }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[]; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void; controls?: ReactNode }) {
+function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[]; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
   const chartData = useMemo(() => positionChartRows(data, positions), [data, positions]);
   const hasData = chartData.some((row) => positions.some((account) => Math.abs(Number(row[account] || 0)) > 0.005));
 
   return (
     <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-        {controls}
+      <div className="absolute top-3 right-3">
         <HoldingsGranularityToggle value={granularity} onChange={onGranularityChange} />
       </div>
       <div className="mb-2">
@@ -1079,7 +1078,7 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
   );
 }
 
-function AssetsOverTimeView({ vmName, riskyOnly, time, granularity, onGranularityChange, controls }: { vmName?: string | null; riskyOnly: boolean; time: string; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void; controls?: ReactNode }) {
+function AssetsOverTimeView({ vmName, riskyOnly, time, granularity, onGranularityChange, controls }: { vmName?: string | null; riskyOnly: boolean; time: string; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void; controls: ReactNode }) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const key = `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${granularity}&convert=USD&risky_only=${riskyOnly ? "true" : "false"}&time=${encodeURIComponent(time)}${vmQuery}`;
   const history = useFinanceEnvelope<BalanceSheetPositionsHistoryItem[]>(key);
@@ -1094,7 +1093,10 @@ function AssetsOverTimeView({ vmName, riskyOnly, time, granularity, onGranularit
         <p className="text-sol-red px-3">Error loading assets history</p>
       ) : (
         <>
-          <AssetsOverTimeChart data={data} positions={positions} granularity={granularity} onGranularityChange={onGranularityChange} controls={controls} />
+          <AssetsOverTimeChart data={data} positions={positions} granularity={granularity} onGranularityChange={onGranularityChange} />
+          <div className="flex justify-end px-2">
+            {controls}
+          </div>
           <AssetsOverTimePerAccountTable data={data} positions={positions} />
         </>
       )}
@@ -1410,7 +1412,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 text-sm">
       {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 space-y-2">
+      <div className="sticky top-0 z-20 bg-sol-base03 border-b border-sol-base02 px-3 py-2 space-y-2">
         <div className="flex items-center justify-end gap-2">
           <span className="inline-flex items-center gap-1 rounded bg-sol-base02 px-2 py-1 text-[10px] text-sol-base0">
             <>Synced {formatRelativeTime(activeEnvelope?.synced_at)}</>
@@ -1498,11 +1500,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           </>
         ) : tab === "holdings" ? (
           <>
-            {(() => {
-              const holdingsControls = <HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />;
-              if (holdingsOverTime) return null;
-              return <div className="relative h-0"><div className="absolute top-0 right-2 z-10">{holdingsControls}</div></div>;
-            })()}
             {holdingsOverTime ? (
               <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} time={committedTime} granularity={holdingsGranularity} onGranularityChange={handleHoldingsGranularityChange} controls={<HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />} />
             ) : (
@@ -1511,6 +1508,9 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               ) : holdingsData ? (
                 <>
                   <HoldingsPieChart positions={holdingsData} />
+                  <div className="flex justify-end px-2 py-3">
+                    <HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />
+                  </div>
                   <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} />
                 </>
               ) : null
