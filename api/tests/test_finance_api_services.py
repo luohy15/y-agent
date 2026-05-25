@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from api import service_finance_derived as derived_service
+from storage.dto.finance_holding import FinanceHolding
 from storage.dto.finance_transaction import FinanceTransaction
 from storage.service import finance_holding as holding_service
 from storage.service import finance_transaction as transaction_service
@@ -34,6 +35,16 @@ class FinanceApiServicesTest(unittest.TestCase):
 
         self.assertEqual(holding_service.filter_holdings([stock, cash, zero_quantity, zero_market]), [stock, cash])
         self.assertEqual(holding_service.filter_holdings([stock, cash], risky_only=True), [stock])
+
+    def test_positions_payload_uses_quantity_for_cash_market_value(self):
+        cash = self._holding("USD", 100, None, "USD", True)
+        stock = self._holding("AAPL", 1, 200, "USD", False)
+
+        rows = holding_service.with_effective_values(holding_service.filter_holdings([stock, cash]))
+
+        self.assertEqual(rows[0]["market_value"], 200)
+        self.assertEqual(rows[1]["market_value"], 100)
+        self.assertEqual(sum(row["market_value"] for row in rows), 300)
 
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [
@@ -75,6 +86,26 @@ class FinanceApiServicesTest(unittest.TestCase):
             narration=narration,
             tags=[],
             links=[],
+            synced_at="2026-05-25T00:00:00Z",
+            source="test",
+        )
+
+    def _holding(self, symbol, quantity, market_value, cost_currency, is_cash):
+        return FinanceHolding(
+            id=None,
+            user_id=123,
+            vm_name="",
+            snapshot_at="2026-05-25T00:00:00+00:00",
+            snapshot_date="2026-05-25",
+            symbol=symbol,
+            quantity=quantity,
+            average_cost=None,
+            price=None,
+            book_value=None,
+            market_value=market_value,
+            unrealized_profit_pct=None,
+            cost_currency=cost_currency,
+            is_cash=is_cash,
             synced_at="2026-05-25T00:00:00Z",
             source="test",
         )
