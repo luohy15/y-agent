@@ -35,6 +35,16 @@ def period_boundaries(start_date: datetime.date, end_date: datetime.date, granul
             next_period = (cur.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
             periods.append((cur, min(next_period, end_date), cur.strftime("%Y-%m")))
             cur = next_period
+    elif granularity == "quarterly":
+        start_month = ((start_date.month - 1) // 3) * 3 + 1
+        cur = start_date.replace(month=start_month, day=1)
+        while cur < end_date:
+            next_year = cur.year + ((cur.month + 2) // 12)
+            next_month = ((cur.month + 2) % 12) + 1
+            next_period = cur.replace(year=next_year, month=next_month, day=1)
+            quarter = ((cur.month - 1) // 3) + 1
+            periods.append((cur, min(next_period, end_date), f"{cur.year}-Q{quarter}"))
+            cur = next_period
     else:
         cur = start_date.replace(month=1, day=1)
         while cur < end_date:
@@ -146,6 +156,12 @@ def _posting_amount(row) -> tuple[str, float] | None:
     return currency, float(row.amount)
 
 
+def _position_amount(row) -> tuple[str, float] | None:
+    if row.quantity is not None and row.symbol:
+        return row.symbol, float(row.quantity)
+    return _posting_amount(row)
+
+
 def _sum_rows(rows) -> dict[str, dict[str, float]]:
     totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for row in rows:
@@ -179,6 +195,27 @@ def _root_sum(totals: dict[str, dict[str, float]], root: str) -> dict[str, float
             for currency, amount in balances.items():
                 result[currency] += amount
     return dict(result)
+
+
+
+def _position_totals(rows, root: str) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for row in rows:
+        if row.account != root and not row.account.startswith(f"{root}:"):
+            continue
+        amount = _position_amount(row)
+        if not amount:
+            continue
+        symbol, value = amount
+        result[symbol][symbol] += value
+    return {symbol: dict(balance) for symbol, balance in result.items()}
+
+
+def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, dict[str, float]], target_currency: str, as_of: datetime.date | None) -> dict[str, dict[str, float]]:
+    return {
+        account: convert_balance(user_id, vm_name, balance, target_currency, as_of) if balance else {target_currency: 0.0}
+        for account, balance in accounts.items()
+    }
 
 
 def _synced_at(user_id: int, vm_name: str) -> str:
@@ -219,6 +256,28 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
             item["assets"] = convert_balance(user_id, vm_name, item["assets"], convert_to, as_of) if item["assets"] else {convert_to: 0.0}
             item["liabilities"] = convert_balance(user_id, vm_name, item["liabilities"], convert_to, as_of) if item["liabilities"] else {convert_to: 0.0}
         result.append(item)
+    return DerivedResult(result, _synced_at(user_id, vm_name))
+
+
+
+def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granularity: str, convert_to: str | None, risky_only: bool = False) -> DerivedResult:
+    start_date, end_date = parse_time_range(time_filter)
+    roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
+    assets_root = roots["assets"]
+    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, vm_name, risky_only=True)} if risky_only else set()
+    if start_date is None or end_date is None:
+        end_date = end_date or _today() + datetime.timedelta(days=1)
+        start_date = start_date or end_date.replace(year=end_date.year - 1)
+    rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
+    result = []
+    for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
+        period_rows = [row for row in rows if datetime.date.fromisoformat(row.transaction_date) < period_end]
+        positions = _position_totals(period_rows, assets_root)
+        if risky_only:
+            positions = {symbol: balance for symbol, balance in positions.items() if symbol in risky_symbols}
+        if convert_to:
+            positions = _convert_account_balances(user_id, vm_name, positions, convert_to, period_end - datetime.timedelta(days=1))
+        result.append({"period": label, "positions": positions})
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 

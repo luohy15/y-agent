@@ -28,6 +28,11 @@ interface BalanceSheetHistoryItem {
   liabilities: Record<string, number>;
 }
 
+interface BalanceSheetPositionsHistoryItem {
+  period: string;
+  positions: Record<string, Record<string, number>>;
+}
+
 interface IncomeStatementHistoryItem {
   period: string;
   income: Record<string, number>;
@@ -155,6 +160,7 @@ function formatAmount(amount: number): string {
 function formatPeriodLabel(period: string, fullYear = true): string {
   const [year, month] = period.split("-");
   if (!month) return year;
+  if (month.startsWith("Q")) return `${month} ${year}`;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${months[parseInt(month, 10) - 1]} ${fullYear ? year : year.slice(2)}`;
 }
@@ -635,6 +641,31 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
 }
 
 type Granularity = "monthly" | "yearly";
+type HoldingsSpan = "3M" | "1Y" | "3Y" | "5Y" | "ALL";
+
+const HOLDINGS_SPANS: HoldingsSpan[] = ["3M", "1Y", "3Y", "5Y", "ALL"];
+const ACCOUNT_COLORS = [SOL.blue, SOL.cyan, SOL.green, SOL.orange, SOL.magenta, SOL.violet, SOL.yellow, SOL.red];
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function dateRange(months = 0, years = 0): string {
+  const end = new Date();
+  end.setDate(end.getDate() + 1);
+  const start = new Date(end);
+  if (months) start.setMonth(start.getMonth() - months);
+  if (years) start.setFullYear(start.getFullYear() - years);
+  return `${isoDate(start)} - ${isoDate(end)}`;
+}
+
+function holdingsSpanParams(span: HoldingsSpan): { time: string; granularity: "monthly" | "quarterly" | "yearly" } {
+  if (span === "3M") return { time: dateRange(3), granularity: "monthly" };
+  if (span === "1Y") return { time: "year", granularity: "quarterly" };
+  if (span === "3Y") return { time: dateRange(0, 3), granularity: "yearly" };
+  if (span === "5Y") return { time: dateRange(0, 5), granularity: "yearly" };
+  return { time: "", granularity: "yearly" };
+}
 
 function GranularityToggle({ value, onChange }: { value: Granularity; onChange: (v: Granularity) => void }) {
   return (
@@ -650,6 +681,46 @@ function GranularityToggle({ value, onChange }: { value: Granularity; onChange: 
           }`}
         >
           {g === "monthly" ? "M" : "Y"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HoldingsModeToggle({ riskyOnly, overTime, onRiskyOnlyChange, onOverTimeChange }: { riskyOnly: boolean; overTime: boolean; onRiskyOnlyChange: (v: boolean) => void; onOverTimeChange: (v: boolean) => void }) {
+  return (
+    <div className="mb-3 flex justify-center gap-1">
+      {([["risky", riskyOnly, onRiskyOnlyChange], ["over time", overTime, onOverTimeChange]] as const).map(([label, checked, onChange]) => (
+        <button
+          key={label}
+          onClick={() => onChange(!checked)}
+          className={`px-2 py-1 rounded text-xs cursor-pointer ${
+            checked
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+          }`}
+        >
+          {checked ? "☑" : "☐"} {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HoldingsSpanToggle({ value, onChange }: { value: HoldingsSpan; onChange: (v: HoldingsSpan) => void }) {
+  return (
+    <div className="flex gap-1">
+      {HOLDINGS_SPANS.map((span) => (
+        <button
+          key={span}
+          onClick={() => onChange(span)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            value === span
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+        >
+          {span}
         </button>
       ))}
     </div>
@@ -848,28 +919,70 @@ function BalanceSheetChart({ data, granularity, onGranularityChange, targetLine 
   );
 }
 
-function AssetsOverTimeChart({ data, granularity, onGranularityChange }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
-  const chartData = useMemo(() =>
-    data.map((item) => ({
+function positionValue(balance: Record<string, number> | undefined): number {
+  return balance?.USD || 0;
+}
+
+function buildPositionSeries(data: BalanceSheetPositionsHistoryItem[]) {
+  const latest = data[data.length - 1];
+  const totals = new Map<string, number>();
+  for (const item of data) {
+    for (const [account, balance] of Object.entries(item.positions)) {
+      totals.set(account, Math.max(totals.get(account) || 0, Math.abs(positionValue(balance))));
+    }
+  }
+  const ordered = Array.from(totals.entries())
+    .filter(([, value]) => value > 0.005)
+    .sort((a, b) => positionValue(latest?.positions[b[0]]) - positionValue(latest?.positions[a[0]]));
+  const topAccounts = ordered.slice(0, 7).map(([account]) => account);
+  const otherAccounts = ordered.slice(7).map(([account]) => account);
+  return otherAccounts.length ? [...topAccounts, "Other"] : topAccounts;
+}
+
+function positionChartRows(data: BalanceSheetPositionsHistoryItem[], positions: string[]) {
+  return data.map((item) => {
+    const row: Record<string, string | number> = {
       period: formatPeriodLabel(item.period),
       rawPeriod: item.period,
-      Assets: item.assets.USD || 0,
-    })),
-    [data]
-  );
+    };
+    for (const account of positions) {
+      if (account === "Other") continue;
+      row[account] = positionValue(item.positions[account]);
+    }
+    if (positions.includes("Other")) {
+      const named = new Set(positions.filter((account) => account !== "Other"));
+      row.Other = Object.entries(item.positions).reduce((sum, [account, balance]) => sum + (named.has(account) ? 0 : positionValue(balance)), 0);
+    }
+    return row;
+  });
+}
+
+function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: string[], sortColumn: string, sortDir: "asc" | "desc") {
+  return positions
+    .map((position) => ({
+      position,
+      values: Object.fromEntries(data.map((item) => [item.period, position === "Other"
+        ? Object.entries(item.positions).reduce((sum, [name, balance]) => sum + (positions.includes(name) ? 0 : positionValue(balance)), 0)
+        : positionValue(item.positions[position])
+      ])),
+    }))
+    .sort((a, b) => {
+      const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+      return sortDir === "asc" ? delta : -delta;
+    });
+}
+
+function AssetsOverTimeChart({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+  const chartData = useMemo(() => positionChartRows(data, positions), [data, positions]);
+  const hasData = chartData.some((row) => positions.some((account) => Math.abs(Number(row[account] || 0)) > 0.005));
 
   return (
-    <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
-      <div className="mb-2 flex items-center justify-between pr-16">
-        <div>
-          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets over time</div>
-          <div className="text-sol-base01 text-[10px]">Transaction-based total assets in USD</div>
-        </div>
+    <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets over time</div>
+        <div className="text-sol-base01 text-[10px]">Transaction-based positions in USD</div>
       </div>
-      <div className="absolute top-3 right-3 z-10">
-        <GranularityToggle value={granularity} onChange={onGranularityChange} />
-      </div>
-      {chartData.length === 0 ? (
+      {!hasData ? (
         <div className="flex h-56 items-center justify-center text-sol-base01">No history yet</div>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
@@ -878,7 +991,9 @@ function AssetsOverTimeChart({ data, granularity, onGranularityChange }: { data:
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
             <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            <Bar dataKey="Assets" fill={SOL.blue} isAnimationActive={false} />
+            {positions.map((account, index) => (
+              <Bar key={account} dataKey={account} stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -886,35 +1001,88 @@ function AssetsOverTimeChart({ data, granularity, onGranularityChange }: { data:
   );
 }
 
-function AssetsOverTimeTable({ data, granularity, onGranularityChange }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
+function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+  const latestPeriod = data[data.length - 1]?.period || "";
+  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const rows = useMemo(() => positionTableRows(data, positions, effectiveSortColumn, sortDir), [data, positions, effectiveSortColumn, sortDir]);
+
+  const handleSort = (period: string) => {
+    if (period === effectiveSortColumn) {
+      setSortDir((dir) => dir === "desc" ? "asc" : "desc");
+    } else {
+      setSortColumn(period);
+      setSortDir("desc");
+    }
+  };
+
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
-      <div className="flex items-center justify-between border-b border-sol-base02 px-3 py-2">
-        <div>
-          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets history</div>
-          <div className="text-sol-base01 text-[10px]">{granularity === "monthly" ? "Monthly" : "Yearly"} totals</div>
-        </div>
-        <GranularityToggle value={granularity} onChange={onGranularityChange} />
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets history</div>
+        <div className="text-sol-base01 text-[10px]">Rows are symbols and cash currencies; columns are periods</div>
       </div>
-      {data.length === 0 ? (
+      {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
       ) : (
         <table className="w-full text-xs">
           <thead>
             <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
-              <th className="text-left font-normal py-1 px-3">Period</th>
-              <th className="text-right font-normal py-1 px-3">Assets (USD)</th>
+              <th className="text-left font-normal py-1 px-3">Position</th>
+              {data.map((item) => (
+                <th key={item.period} className="text-right font-normal py-1 px-3">
+                  <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
+                    {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {data.map((item) => (
-              <tr key={item.period} className="hover:bg-sol-base02/50">
-                <td className="py-0.5 px-3 text-sol-base0 tabular-nums">{formatPeriodLabel(item.period)}</td>
-                <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1">{formatAmount(item.assets.USD || 0)}</td>
+            {rows.map((row) => (
+              <tr key={row.position} className="hover:bg-sol-base02/50">
+                <td className="py-0.5 px-3 text-sol-base0">{row.position}</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1">{formatAmount(row.values[item.period] || 0)}</td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  );
+}
+
+function AssetsOverTimeView({ vmName, riskyOnly }: { vmName?: string | null; riskyOnly: boolean }) {
+  const [span, setSpan] = useState<HoldingsSpan>(() => (localStorage.getItem("finance-holdings-span") as HoldingsSpan) || "1Y");
+  const params = holdingsSpanParams(span);
+  const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
+  const key = `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${params.granularity}&convert=USD&risky_only=${riskyOnly ? "true" : "false"}${params.time ? `&time=${encodeURIComponent(params.time)}` : ""}${vmQuery}`;
+  const history = useFinanceEnvelope<BalanceSheetPositionsHistoryItem[]>(key);
+  const data = history.data?.data || [];
+  const positions = useMemo(() => buildPositionSeries(data), [data]);
+
+  const handleSpanChange = (value: HoldingsSpan) => {
+    setSpan(value);
+    localStorage.setItem("finance-holdings-span", value);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-end px-3">
+        <HoldingsSpanToggle value={span} onChange={handleSpanChange} />
+      </div>
+      {history.isLoading ? (
+        <p className="text-sol-base01 italic px-3">Loading assets history...</p>
+      ) : history.error ? (
+        <p className="text-sol-red px-3">Error loading assets history</p>
+      ) : (
+        <>
+          <AssetsOverTimeChart data={data} positions={positions} />
+          <AssetsOverTimePerAccountTable data={data} positions={positions} />
+        </>
       )}
     </div>
   );
@@ -1132,7 +1300,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
   const [granularity, setGranularity] = useState<Granularity>(() => (localStorage.getItem("finance-granularity") as Granularity) || "monthly");
-  const [holdingsGranularity, setHoldingsGranularity] = useState<Granularity>(() => (localStorage.getItem("finance-holdings-granularity") as Granularity) || "monthly");
+  const [holdingsOverTime, setHoldingsOverTime] = useState<boolean>(() => localStorage.getItem("finance-holdings-over-time") === "1");
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
@@ -1142,9 +1310,14 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     localStorage.setItem("finance-granularity", v);
   };
 
-  const handleHoldingsGranularityChange = (v: Granularity) => {
-    setHoldingsGranularity(v);
-    localStorage.setItem("finance-holdings-granularity", v);
+  const handleHoldingsRiskyOnlyChange = (v: boolean) => {
+    setHoldingsRiskyOnly(v);
+    localStorage.setItem("holdings-risky-only", v ? "1" : "0");
+  };
+
+  const handleHoldingsOverTimeChange = (v: boolean) => {
+    setHoldingsOverTime(v);
+    localStorage.setItem("finance-holdings-over-time", v ? "1" : "0");
   };
 
   // Table data fetches (always fetch for active tab)
@@ -1156,7 +1329,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const holdingsKey = tab === "holdings"
+  const holdingsKey = tab === "holdings" && !holdingsOverTime
     ? `${API}/api/finance/positions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
 
@@ -1177,10 +1350,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const holdingsHistKey = tab === "holdings"
-    ? `${API}/api/finance/balance-sheet?history=true&granularity=${holdingsGranularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
-    : null;
-
   const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
   const is = useFinanceEnvelope<IncomeStatementData>(isKey);
   const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
@@ -1188,7 +1357,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fire = useFinanceEnvelope<FireProgressData>(fireKey);
   const bsHist = useFinanceEnvelope<BalanceSheetHistoryItem[]>(bsHistKey);
   const isHist = useFinanceEnvelope<IncomeStatementHistoryItem[]>(isHistKey);
-  const holdingsHist = useFinanceEnvelope<BalanceSheetHistoryItem[]>(holdingsHistKey);
 
   const bsData = bs.data?.data;
   const isData = is.data?.data;
@@ -1197,12 +1365,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
   const isHistData = isHist.data?.data;
-  const holdingsHistData = holdingsHist.data?.data;
 
   const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : fire.data;
 
   const mutateActive = async () => {
-    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate(), holdingsHist.mutate()]);
+    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
   };
 
   const refreshSnapshots = async () => {
@@ -1213,11 +1380,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   // Combined loading/error: table OR chart loading
   const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
-  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading : tab === "holdings" ? holdingsHist.isLoading : false;
+  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
   const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
-  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error : tab === "holdings" ? holdingsHist.error : null;
+  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error : null;
   const error = tableError && chartError;
 
   return (
@@ -1311,24 +1478,19 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           </>
         ) : tab === "holdings" ? (
           <>
-            {holdings.isLoading ? (
-              <p className="text-sol-base01 italic px-3">Loading...</p>
-            ) : holdingsData ? (
-              <>
-                <HoldingsPieChart positions={holdingsData} />
-                <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} vmName={vmName} />
-              </>
-            ) : null}
-            {holdingsHist.isLoading ? (
-              <p className="text-sol-base01 italic px-3 mt-3">Loading chart...</p>
-            ) : holdingsHist.error ? (
-              <p className="text-sol-red px-3 mt-3">Error loading assets history</p>
-            ) : holdingsHistData ? (
-              <div className="mt-4 space-y-3">
-                <AssetsOverTimeChart data={holdingsHistData} granularity={holdingsGranularity} onGranularityChange={handleHoldingsGranularityChange} />
-                <AssetsOverTimeTable data={holdingsHistData} granularity={holdingsGranularity} onGranularityChange={handleHoldingsGranularityChange} />
-              </div>
-            ) : null}
+            <HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />
+            {holdingsOverTime ? (
+              <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} />
+            ) : (
+              holdings.isLoading ? (
+                <p className="text-sol-base01 italic px-3">Loading...</p>
+              ) : holdingsData ? (
+                <>
+                  <HoldingsPieChart positions={holdingsData} />
+                  <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} />
+                </>
+              ) : null
+            )}
           </>
         ) : tab === "transactions" ? (
           transactions.isLoading ? (
