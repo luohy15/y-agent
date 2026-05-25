@@ -96,7 +96,7 @@ export default function DevViewer() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const param = statusFilter === "all" ? "" : `?status=${statusFilter}`;
-  const { data: worktrees, isLoading, error } = useSWR<DevWorktree[]>(
+  const { data: worktrees, isLoading, isValidating, error } = useSWR<DevWorktree[]>(
     `${API}/api/dev-worktree/list${param}`,
     fetcher,
   );
@@ -123,7 +123,7 @@ export default function DevViewer() {
             ))}
           </div>
 
-          {isLoading ? (
+          {isLoading || isValidating ? (
             <p className="text-sol-base01 italic">Loading...</p>
           ) : error && !worktrees ? (
             <p className="text-sol-red p-2">Error loading worktrees</p>

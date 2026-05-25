@@ -287,7 +287,7 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
 
   const enabledQuery = enabledFilter === "all" ? "" : `?enabled=${enabledFilter === "enabled" ? "true" : "false"}`;
   const key = isLoggedIn ? `${API}/api/routine/list${enabledQuery}` : null;
-  const { data, isLoading, error, mutate } = useSWR<Routine[]>(key, fetcher, { revalidateOnFocus: false });
+  const { data, isLoading, isValidating, error, mutate } = useSWR<Routine[]>(key, fetcher, { revalidateOnFocus: false });
 
   const refresh = () => {
     mutate();
@@ -429,7 +429,7 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view routines</p>
-        ) : isLoading ? (
+        ) : isLoading || isValidating ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error && !data ? (
           <p className="text-sol-red p-2">Error loading routines</p>

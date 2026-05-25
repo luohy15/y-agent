@@ -225,7 +225,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
 
   const swrKey = isLoggedIn ? `${API}/api/link/list?${params.toString()}` : null;
 
-  const { data, isLoading, error, mutate } = useSWR<Link[]>(swrKey, fetcher, {
+  const { data, isLoading, isValidating, error, mutate } = useSWR<Link[]>(swrKey, fetcher, {
     onSuccess: (newData) => {
       if (offset === 0) {
         setAllLinks(newData);
@@ -382,7 +382,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
       <div className="flex-1 overflow-y-auto p-1.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view links</p>
-        ) : isLoading && !loadedOnce ? (
+        ) : isLoading || isValidating ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error && grouped.length === 0 ? (
           <p className="text-sol-red p-2">Error loading links</p>
