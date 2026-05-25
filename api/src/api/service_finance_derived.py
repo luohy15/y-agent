@@ -66,6 +66,12 @@ def convert_balance(user_id: int, vm_name: str, balance: dict[str, float], targe
     return {target_currency: round(total, 2)}
 
 
+def _parse_snapshot_date(value: str | None) -> datetime.date | None:
+    if not value:
+        return None
+    return datetime.date.fromisoformat(value[:10])
+
+
 def _tree_total(node: dict) -> float:
     return sum(node["balance"].values()) + sum(_tree_total(child) for child in node["children"])
 
@@ -245,6 +251,28 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
             item["expenses"] = convert_balance(user_id, vm_name, item["expenses"], convert_to, as_of) if item["expenses"] else {convert_to: 0.0}
         result.append(item)
     return DerivedResult(result, _synced_at(user_id, vm_name))
+
+
+def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
+    holdings = holding_service.list_at(user_id, vm_name, at, risky_only=risky_only) if at else holding_service.list_for(user_id, vm_name, risky_only=risky_only)
+    rows = holding_service.with_effective_values(holdings)
+    base_values = []
+    for holding, row in zip(holdings, rows):
+        market_value = row.get("market_value")
+        if market_value is None:
+            base_values.append(None)
+            continue
+        currency = row.get("cost_currency") or row.get("symbol") or base_currency
+        as_of = _parse_snapshot_date(row.get("snapshot_date") or getattr(holding, "snapshot_date", None)) or _today()
+        base_values.append(convert(user_id, vm_name, float(market_value), currency, base_currency, as_of))
+
+    total_base_market_value = sum(value for value in base_values if value is not None)
+    for row, base_value in zip(rows, base_values):
+        row["allocation_base_currency"] = base_currency
+        row["market_value_base"] = round(base_value, 2) if base_value is not None else None
+        row["allocation_pct"] = round(base_value / total_base_market_value * 100, 4) if base_value is not None and total_base_market_value else None
+
+    return DerivedResult(rows, holdings[0].synced_at if holdings else "")
 
 
 def fire_progress(user_id: int, vm_name: str) -> DerivedResult:

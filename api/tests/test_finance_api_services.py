@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from api import service_finance_derived as derived_service
 from storage.dto.finance_holding import FinanceHolding
@@ -45,6 +46,32 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(rows[0]["market_value"], 200)
         self.assertEqual(rows[1]["market_value"], 100)
         self.assertEqual(sum(row["market_value"] for row in rows), 300)
+
+    def test_holding_positions_allocation_converts_to_usd_base(self):
+        usd_stock = self._holding("QQQ", 1, 23020.97, "USD", False)
+        usd_stock_2 = self._holding("NVDA", 1, 60000, "USD", False)
+        hkd_stock = self._holding("0700", 1, 14311.85, "HKD", False)
+        cny_debt = self._holding("CNY", -404423, None, "CNY", True)
+
+        def fake_convert(_user_id, _vm_name, amount, currency, _base_currency, _as_of):
+            rates = {"USD": 1, "HKD": 0.128, "CNY": 0.138}
+            return amount * rates[currency]
+
+        with patch.object(holding_service, "list_for", return_value=[usd_stock, usd_stock_2, hkd_stock, cny_debt]), patch.object(derived_service, "convert", side_effect=fake_convert):
+            result = derived_service.holding_positions(123, "")
+
+        rows = result.data
+        total_base = 23020.97 + 60000 + 14311.85 * 0.128 + -404423 * 0.138
+        self.assertAlmostEqual(rows[0]["market_value_base"], 23020.97, places=2)
+        self.assertAlmostEqual(rows[1]["market_value_base"], 60000, places=2)
+        self.assertAlmostEqual(rows[2]["market_value_base"], 1831.92, places=2)
+        self.assertAlmostEqual(rows[3]["market_value_base"], -55810.37, places=2)
+        self.assertAlmostEqual(rows[0]["allocation_pct"], 23020.97 / total_base * 100, places=4)
+        self.assertAlmostEqual(rows[2]["allocation_pct"], (14311.85 * 0.128) / total_base * 100, places=4)
+        self.assertAlmostEqual(rows[3]["allocation_pct"], (-404423 * 0.138) / total_base * 100, places=4)
+        self.assertGreater(rows[0]["allocation_pct"], 0)
+        self.assertLess(rows[3]["allocation_pct"], 0)
+        self.assertEqual(rows[0]["allocation_base_currency"], "USD")
 
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [

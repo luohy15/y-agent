@@ -45,6 +45,7 @@ interface HoldingRow {
   price: HoldingAmount | number | null;
   book_value: HoldingAmount | [];
   market_value: HoldingAmount | [];
+  allocation_pct?: number | null;
   unrealized_profit_pct: number | null;
   is_cash?: boolean;
 }
@@ -63,6 +64,9 @@ interface HoldingPosition {
   price: number | null;
   book_value: number | null;
   market_value: number | null;
+  allocation_pct?: number | null;
+  allocation_base_currency?: string;
+  market_value_base?: number | null;
   unrealized_profit_pct: number | null;
   cost_currency: string;
   is_cash: boolean;
@@ -272,7 +276,7 @@ function holdingSortValue(h: HoldingRow, key: HoldingSortKey, totalMarketValue =
     case "price": return getNumericVal(h.price);
     case "book_value": return getNumericVal(h.book_value);
     case "market_value": return getNumericVal(h.market_value);
-    case "allocation": return totalMarketValue ? getNumericVal(h.market_value) / totalMarketValue : 0;
+    case "allocation": return h.allocation_pct ?? (totalMarketValue ? (getNumericVal(h.market_value) / totalMarketValue) * 100 : 0);
     case "pnl": return h.unrealized_profit_pct ?? 0;
   }
 }
@@ -299,6 +303,7 @@ function toHoldingRows(positions: HoldingPosition[]): HoldingRow[] {
     price: row.price,
     book_value: row.book_value == null ? [] : { number: row.book_value, currency: row.cost_currency },
     market_value: row.market_value == null ? [] : { number: row.market_value, currency: row.cost_currency },
+    allocation_pct: row.allocation_pct,
     unrealized_profit_pct: row.unrealized_profit_pct,
     is_cash: row.is_cash,
   }));
@@ -450,7 +455,7 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                 {isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
               </td>
               <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—"}
+                {h.allocation_pct != null ? `${h.allocation_pct.toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
               </td>
               <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
                 {h.unrealized_profit_pct != null ? <>{h.unrealized_profit_pct > 0 ? "+" : ""}{formatAmount(h.unrealized_profit_pct)}%</> : "—"}
