@@ -1,3 +1,4 @@
+import datetime
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -93,6 +94,18 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual([row["symbol"] for row in rows], ["QQQ", "CNY"])
         self.assertLess(rows[1]["market_value_base"], 0)
         self.assertLess(rows[1]["allocation_pct"], 0)
+
+    def test_period_boundaries_supports_weekly_granularity(self):
+        periods = derived_service.period_boundaries(datetime.date(2026, 5, 6), datetime.date(2026, 5, 25), "weekly")
+
+        self.assertEqual(
+            periods,
+            [
+                (datetime.date(2026, 5, 4), datetime.date(2026, 5, 11), "2026-W19"),
+                (datetime.date(2026, 5, 11), datetime.date(2026, 5, 18), "2026-W20"),
+                (datetime.date(2026, 5, 18), datetime.date(2026, 5, 25), "2026-W21"),
+            ],
+        )
 
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [
