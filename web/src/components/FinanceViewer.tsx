@@ -97,13 +97,13 @@ interface FireProgressData {
   withdrawal_rate: number;
   projected_months_to_target: number | null;
   projected_date: string | null;
-  config_source: "file" | "default";
+  config_source: "file" | "default" | "db" | "config" | "position" | "fire_target";
 }
 
 interface FinanceEnvelope<T> {
   data: T;
   synced_at: string;
-  source: "cache" | "live" | "sync" | "cli" | "db";
+  source: "cache" | "live" | "sync" | "cli" | "db" | "derived";
 }
 
 function useFinanceData<T>(key: string | null) {
@@ -946,24 +946,23 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const bs = useFinanceData<BalanceSheetData>(bsKey);
-  const is = useFinanceData<IncomeStatementData>(isKey);
+  const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
+  const is = useFinanceEnvelope<IncomeStatementData>(isKey);
   const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
   const transactions = useFinanceEnvelope<TransactionRow[]>(transactionsKey);
-  const fire = useFinanceData<FireProgressData>(fireKey);
-  const bsHist = useFinanceData<BalanceSheetHistoryItem[]>(bsHistKey);
-  const isHist = useFinanceData<IncomeStatementHistoryItem[]>(isHistKey);
+  const fire = useFinanceEnvelope<FireProgressData>(fireKey);
+  const bsHist = useFinanceEnvelope<BalanceSheetHistoryItem[]>(bsHistKey);
+  const isHist = useFinanceEnvelope<IncomeStatementHistoryItem[]>(isHistKey);
 
-  const bsData = bs.data;
-  const isData = is.data;
+  const bsData = bs.data?.data;
+  const isData = is.data?.data;
   const holdingsData = holdings.data?.data;
   const transactionsData = transactions.data?.data;
-  const fireData = fire.data;
-  const bsHistData = bsHist.data;
-  const isHistData = isHist.data;
+  const fireData = fire.data?.data;
+  const bsHistData = bsHist.data?.data;
+  const isHistData = isHist.data?.data;
 
-  const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : null;
-  const isLiveTab = tab === "balance-sheet" || tab === "income-statement" || tab === "fire";
+  const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : fire.data;
 
   const mutateActive = async () => {
     await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
@@ -990,14 +989,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
       <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 space-y-2">
         <div className="flex items-center justify-end gap-2">
           <span className="inline-flex items-center gap-1 rounded bg-sol-base02 px-2 py-1 text-[10px] text-sol-base0">
-            {isLiveTab ? (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-sol-orange" title="Fetched live over SSH" />
-                Live fetch
-              </>
-            ) : (
-              <>Synced {formatRelativeTime(activeEnvelope?.synced_at)}</>
-            )}
+            <>Synced {formatRelativeTime(activeEnvelope?.synced_at)}</>
           </span>
           <button
             onClick={() => void refreshSnapshots()}

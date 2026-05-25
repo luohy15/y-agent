@@ -1,5 +1,6 @@
 """Function-based finance price repository."""
 
+from datetime import date
 from typing import Optional
 
 from sqlalchemy.dialects.postgresql import insert
@@ -63,3 +64,9 @@ def list_for(user_id: int, vm_name: str, symbol: Optional[str] = None, from_date
             query = query.filter(FinancePriceEntity.price_date >= from_date)
         rows = query.order_by(FinancePriceEntity.symbol.asc(), FinancePriceEntity.price_date.asc()).limit(limit).all()
         return [_entity_to_dto(row) for row in rows]
+
+
+def latest_pair(user_id: int, vm_name: str, symbol: str, currency: str, as_of: date) -> FinancePrice | None:
+    with get_db() as session:
+        row = session.query(FinancePriceEntity).filter_by(user_id=user_id, vm_name=vm_name or "", symbol=symbol, currency=currency).filter(FinancePriceEntity.price_date <= as_of).order_by(FinancePriceEntity.price_date.desc()).first()
+        return _entity_to_dto(row) if row else None
