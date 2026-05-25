@@ -31,6 +31,7 @@ interface BalanceSheetHistoryItem {
 interface BalanceSheetPositionsHistoryItem {
   period: string;
   positions: Record<string, Record<string, number>>;
+  total?: Record<string, number>;
   risky?: Record<string, number>;
 }
 
@@ -179,6 +180,10 @@ function totalPositionValue(positions: Record<string, Record<string, number>>): 
 
 function riskyPeriodValue(item: BalanceSheetPositionsHistoryItem): number {
   return positionValue(item.risky);
+}
+
+function totalPeriodValue(item: BalanceSheetPositionsHistoryItem): number {
+  return positionValue(item.total);
 }
 
 function formatCompactUsd(value: number): string {
@@ -984,13 +989,14 @@ function buildPositionSeries(data: BalanceSheetPositionsHistoryItem[]) {
 function positionChartRows(data: BalanceSheetPositionsHistoryItem[], positions: string[]) {
   return data.map((item) => {
     const total = totalPositionValue(item.positions);
+    const unfilteredTotal = totalPeriodValue(item);
     const risky = riskyPeriodValue(item);
     const row: Record<string, string | number> = {
       period: formatPeriodLabel(item.period),
       rawPeriod: item.period,
       Total: total,
       RiskyValue: risky,
-      RiskyPct: total > 0 ? (risky / total) * 100 : 0,
+      RiskyPct: unfilteredTotal > 0 ? (risky / unfilteredTotal) * 100 : 0,
     };
     for (const account of positions) {
       if (account === "Other") continue;
@@ -1014,7 +1020,7 @@ function riskyPeriodTotals(data: BalanceSheetPositionsHistoryItem[]) {
 
 function riskyPeriodPercents(data: BalanceSheetPositionsHistoryItem[]) {
   return Object.fromEntries(data.map((item) => {
-    const total = totalPositionValue(item.positions);
+    const total = totalPeriodValue(item);
     return [item.period, total > 0 ? (riskyPeriodValue(item) / total) * 100 : 0];
   }));
 }
