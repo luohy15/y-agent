@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface Entity {
   entity_id: string;
@@ -81,11 +82,11 @@ export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntit
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view entities</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && !data ? (
-          <p className="text-sol-red p-2">Error loading entities</p>
+          <ListError error={error} />
         ) : filtered.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No entities found</p>
+          <ListEmpty label="entities" />
         ) : (
           <div className="space-y-0">
             {filtered.map((e) => {

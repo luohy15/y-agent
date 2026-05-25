@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface BotConfig {
   name: string;
@@ -359,12 +360,13 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
           </svg>
         </button>
       </div>
-      {loadError && <div className="px-3 py-2 text-xs text-sol-red border-b border-sol-base02">Failed to load bots.</div>}
       <div className="flex-1 min-h-0 overflow-y-auto p-2">
         {isLoading ? (
-          <div className="text-xs text-sol-base01 p-2">Loading...</div>
+          <ListLoading />
+        ) : loadError && !data ? (
+          <ListError error={loadError} />
         ) : filtered.length === 0 ? (
-          <div className="text-xs text-sol-base01 p-2">{query ? "No matching bots." : "No bots configured."}</div>
+          query ? <p className="text-sol-base01 italic p-2">No matching bots</p> : <ListEmpty label="bots" />
         ) : (
           <div className="space-y-1">
             {filtered.map((bot) => (

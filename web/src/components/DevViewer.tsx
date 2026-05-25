@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import useSWR, { mutate } from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface HistoryEntry {
   timestamp: string;
@@ -124,11 +125,11 @@ export default function DevViewer() {
           </div>
 
           {isLoading || isValidating ? (
-            <p className="text-sol-base01 italic">Loading...</p>
+            <ListLoading className="" />
           ) : error && !worktrees ? (
-            <p className="text-sol-red p-2">Error loading worktrees</p>
+            <ListError error={error} />
           ) : !sorted || sorted.length === 0 ? (
-            <p className="text-sol-base01 italic">No worktrees</p>
+            <ListEmpty label="worktrees" className="" />
           ) : (
             <table className="w-full border-collapse">
               <thead className="sticky top-0 bg-sol-base03">

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 export interface TraceListItem {
   trace_id: string;
@@ -78,11 +79,11 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && traces.length === 0 ? (
-          <p className="text-sol-red p-2">Error loading todos</p>
+          <ListError error={error} />
         ) : traces.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No todos yet</p>
+          <ListEmpty label="todos" />
         ) : (
           <>
             {traces.map((t) => {

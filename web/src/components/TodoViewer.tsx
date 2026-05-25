@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, Fragment, DragEvent } from "r
 import useSWR, { mutate } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 import TodoContextMenu from "./TodoContextMenu";
 
 interface TodoNote {
@@ -582,11 +583,11 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
         </div>
 
         {isLoading ? (
-          <p className="text-sol-base01 italic">Loading...</p>
+          <ListLoading className="" />
         ) : error ? (
-          <p className="text-sol-red">Error loading todos</p>
+          <ListError error={error} className="" />
         ) : !sortedTodos || sortedTodos.length === 0 ? (
-          <p className="text-sol-base01 italic">No todos</p>
+          <ListEmpty label="todos" className="" />
         ) : (
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-sol-base03">
