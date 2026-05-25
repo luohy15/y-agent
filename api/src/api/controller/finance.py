@@ -133,11 +133,12 @@ async def prices(
     request: Request,
     vm_name: str = Query(None),
     symbol: str = Query(None),
-    from_: str = Query(None, alias="from"),
+    time: str = Query("year to day-1"),
     limit: int = Query(1000),
 ):
     user_id = _get_user_id(request)
-    return _envelope(price_service.list_for(user_id, vm_name or "", symbol=symbol, from_date=from_, limit=limit))
+    from_date, to_date = derived_service.parse_time_range(time)
+    return _envelope(price_service.list_for(user_id, vm_name or "", symbol=symbol, from_date=str(from_date) if from_date else None, to_date=str(to_date) if to_date else None, limit=limit))
 
 
 @router.get("/fire-progress")

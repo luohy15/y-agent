@@ -6,8 +6,8 @@ def replace_for(user_id: int, vm_name: str, rows: list[dict], synced_at: str | N
     return repo.replace_for(user_id, vm_name, rows, synced_at or get_utc_iso8601_timestamp(), source)
 
 
-def list_for(user_id: int, vm_name: str, symbol: str | None = None, from_date: str | None = None, limit: int = 1000):
-    return repo.list_for(user_id, vm_name, symbol=symbol, from_date=from_date, limit=limit)
+def list_for(user_id: int, vm_name: str, symbol: str | None = None, from_date: str | None = None, to_date: str | None = None, limit: int = 1000):
+    return repo.list_for(user_id, vm_name, symbol=symbol, from_date=from_date, to_date=to_date, limit=limit)
 
 
 def latest_pair(user_id: int, vm_name: str, symbol: str, currency: str, as_of):
