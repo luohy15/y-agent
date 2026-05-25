@@ -29,6 +29,8 @@ interface TraceNote {
   content_key: string;
   front_matter?: { tags?: string[]; [key: string]: unknown };
   created_at?: string;
+  share_id?: string;
+  has_password?: boolean;
 }
 
 interface TraceChatsResponse {
@@ -48,19 +50,7 @@ function getDomain(url: string): string {
   }
 }
 
-function NoteShareButton({ noteId }: { noteId: string }) {
-  const myShareKey = `${API}/api/note/share/mine?note_id=${encodeURIComponent(noteId)}`;
-  const { data: myShare, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
-    myShareKey,
-    async (url: string) => {
-      const res = await authFetch(url);
-      if (res.status === 404) return null;
-      if (res.status === 401) { clearToken(); throw new Error("Unauthorized"); }
-      if (!res.ok) throw new Error("fetch failed");
-      return res.json();
-    },
-  );
-
+function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: string; existingShare: ExistingShare | null; mutateTrace: () => Promise<TraceChatsResponse | undefined> }) {
   const createNoteShare = async (opts: { password?: string; generate_password?: boolean }) => {
     const res = await authFetch(`${API}/api/note/share`, {
       method: "POST",
@@ -69,7 +59,7 @@ function NoteShareButton({ noteId }: { noteId: string }) {
     });
     if (!res.ok) throw new Error("share failed");
     const result = await res.json();
-    mutateMyShare();
+    await mutateTrace();
     return result;
   };
 
@@ -78,7 +68,7 @@ function NoteShareButton({ noteId }: { noteId: string }) {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("delete failed");
-    mutateMyShare();
+    await mutateTrace();
   };
 
   return (
@@ -87,7 +77,7 @@ function NoteShareButton({ noteId }: { noteId: string }) {
       buildUrl={(shareId) => `${window.location.origin}/n/${shareId}`}
       buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
       align="right"
-      existingShare={myShare ?? null}
+      existingShare={existingShare}
       onRefresh={() => createNoteShare({})}
       onDelete={deleteNoteShare}
     />
@@ -307,7 +297,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                             <span key={tag} className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded shrink-0">{tag}</span>
                           ))}
                           <div className="ml-auto shrink-0" onClick={(event) => event.stopPropagation()}>
-                            <NoteShareButton noteId={note.note_id} />
+                            <NoteShareButton
+                              noteId={note.note_id}
+                              existingShare={note.share_id ? { share_id: note.share_id, has_password: !!note.has_password } : null}
+                              mutateTrace={mutateTrace}
+                            />
                           </div>
                         </div>
                         <p className="text-[0.7rem] text-sol-base1 whitespace-pre-wrap mt-0.5">{note.content_key}</p>
