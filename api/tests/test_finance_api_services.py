@@ -5,8 +5,10 @@ from unittest.mock import patch
 
 from api import service_finance_derived as derived_service
 from storage.dto.finance_holding import FinanceHolding
+from storage.dto.finance_price import FinancePrice
 from storage.dto.finance_transaction import FinanceTransaction
 from storage.service import finance_holding as holding_service
+from storage.service import finance_price as price_service
 from storage.service import finance_transaction as transaction_service
 
 
@@ -107,6 +109,51 @@ class FinanceApiServicesTest(unittest.TestCase):
             ],
         )
 
+    def test_price_lookup_uses_latest_price_at_or_before_date(self):
+        lookup = derived_service.PriceLookup([
+            self._price("AAPL", "USD", "2026-05-01", 100),
+            self._price("AAPL", "USD", "2026-05-15", 120),
+            self._price("USD", "HKD", "2026-05-01", 7.8),
+        ])
+
+        self.assertIsNone(lookup.latest("AAPL", "USD", datetime.date(2026, 4, 30)))
+        self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 1)), 100)
+        self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 20)), 120)
+        self.assertEqual(derived_service.convert(123, "", 15.6, "HKD", "USD", datetime.date(2026, 5, 20), lookup), 2.0)
+
+    def test_balance_sheet_history_uses_one_price_batch_and_running_totals(self):
+        rows = [
+            self._transaction("entry-1", 0, "USD", "Deposit", 100, "USD", account="Assets:Cash", transaction_date="2026-01-05"),
+            self._transaction("entry-2", 0, "HKD", "Deposit", 78, "HKD", account="Assets:Cash", transaction_date="2026-02-05"),
+            self._transaction("entry-3", 0, "USD", "Debt", -20, "USD", account="Liabilities:Card", transaction_date="2026-02-10"),
+        ]
+
+        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(price_service, "list_for_pairs", return_value=[self._price("HKD", "USD", "2026-01-01", 0.1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
+            result = derived_service.balance_sheet(123, "", "2026", True, "monthly", "USD")
+
+        self.assertEqual([item["period"] for item in result.data[:3]], ["2026-01", "2026-02", "2026-03"])
+        self.assertEqual(result.data[0]["assets"], {"USD": 100.0})
+        self.assertEqual(result.data[1]["assets"], {"USD": 107.8})
+        self.assertEqual(result.data[1]["liabilities"], {"USD": -20.0})
+        list_for_pairs.assert_called_once_with(123, "", {("HKD", "USD"), ("USD", "HKD")}, datetime.date(2026, 12, 31))
+        latest_pair.assert_not_called()
+
+    def test_balance_sheet_positions_history_uses_one_price_batch_and_running_totals(self):
+        rows = [
+            self._transaction("entry-1", 0, "AAPL", "Buy", 1, "AAPL", account="Assets:Broker", transaction_date="2026-01-05"),
+            self._transaction("entry-2", 0, "AAPL", "Buy", 2, "AAPL", account="Assets:Broker", transaction_date="2026-02-05"),
+            self._transaction("entry-3", 0, "BND", "Buy", 5, "BND", account="Assets:Broker", transaction_date="2026-02-10"),
+        ]
+        risky = [SimpleNamespace(symbol="AAPL")]
+
+        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=risky), patch.object(price_service, "list_for_pairs", return_value=[self._price("AAPL", "USD", "2026-01-01", 10), self._price("AAPL", "USD", "2026-02-01", 20), self._price("BND", "USD", "2026-01-01", 1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
+            result = derived_service.balance_sheet_positions(123, "", "2026", "monthly", "USD", risky_only=True)
+
+        self.assertEqual(result.data[0]["positions"], {"AAPL": {"USD": 10.0}})
+        self.assertEqual(result.data[1]["positions"], {"AAPL": {"USD": 60.0}})
+        list_for_pairs.assert_called_once_with(123, "", {("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
+        latest_pair.assert_not_called()
+
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [
             self._transaction("entry-1", 0, "AAPL", "Buy", 1, "AAPL"),
@@ -123,15 +170,15 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(len(entries[0]["postings"]), 2)
         self.assertEqual(entries[0]["quantity"], [{"amount": 1.0, "currency": "AAPL"}, {"amount": -100.0, "currency": "USD"}])
 
-    def _transaction(self, entry_id, posting_index, symbol, side, amount, currency, narration="Buy AAPL"):
+    def _transaction(self, entry_id, posting_index, symbol, side, amount, currency, narration="Buy AAPL", account="Assets:Broker", transaction_date="2026-05-01"):
         return FinanceTransaction(
             id=posting_index,
             user_id=123,
             vm_name="",
-            transaction_date="2026-05-01",
+            transaction_date=transaction_date,
             entry_id=entry_id,
             posting_index=posting_index,
-            account="Assets:Broker",
+            account=account,
             symbol=symbol,
             side=side,
             quantity=amount,
@@ -149,6 +196,26 @@ class FinanceApiServicesTest(unittest.TestCase):
             links=[],
             synced_at="2026-05-25T00:00:00Z",
             source="test",
+        )
+
+    def _price(self, symbol, currency, price_date, price):
+        return FinancePrice(
+            id=None,
+            user_id=123,
+            vm_name="",
+            symbol=symbol,
+            price_date=price_date,
+            price=price,
+            currency=currency,
+            synced_at="2026-05-25T00:00:00Z",
+            source="test",
+        )
+
+    def _finance_config(self):
+        return patch.object(
+            derived_service.finance_config_service,
+            "get_for",
+            return_value={"account_roots": {"assets": "Assets", "liabilities": "Liabilities", "income": "Income", "expenses": "Expenses"}},
         )
 
     def _holding(self, symbol, quantity, market_value, cost_currency, is_cash):

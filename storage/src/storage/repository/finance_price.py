@@ -3,6 +3,7 @@
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import tuple_
 from sqlalchemy.dialects.postgresql import insert
 
 from storage.database.base import get_db
@@ -74,3 +75,18 @@ def latest_pair(user_id: int, vm_name: str, symbol: str, currency: str, as_of: d
     with get_db() as session:
         row = session.query(FinancePriceEntity).filter_by(user_id=user_id, vm_name=vm_name or "", symbol=symbol, currency=currency).filter(FinancePriceEntity.price_date <= as_of).order_by(FinancePriceEntity.price_date.desc()).first()
         return _entity_to_dto(row) if row else None
+
+
+def list_for_pairs(user_id: int, vm_name: str, pairs: set[tuple[str, str]], as_of: date) -> list[FinancePrice]:
+    if not pairs:
+        return []
+    with get_db() as session:
+        rows = (
+            session.query(FinancePriceEntity)
+            .filter_by(user_id=user_id, vm_name=vm_name or "")
+            .filter(tuple_(FinancePriceEntity.symbol, FinancePriceEntity.currency).in_(pairs))
+            .filter(FinancePriceEntity.price_date <= as_of)
+            .order_by(FinancePriceEntity.symbol.asc(), FinancePriceEntity.currency.asc(), FinancePriceEntity.price_date.asc())
+            .all()
+        )
+        return [_entity_to_dto(row) for row in rows]

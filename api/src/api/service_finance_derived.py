@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -14,6 +15,25 @@ from storage.service import finance_transaction as transaction_service
 
 class ConversionError(ValueError):
     pass
+
+
+class PriceLookup:
+    def __init__(self, rows):
+        self._prices: dict[tuple[str, str], list[tuple[datetime.date, float]]] = defaultdict(list)
+        for row in rows:
+            price_date = row.price_date if isinstance(row.price_date, datetime.date) else datetime.date.fromisoformat(row.price_date)
+            self._prices[(row.symbol, row.currency)].append((price_date, float(row.price)))
+        for prices in self._prices.values():
+            prices.sort(key=lambda item: item[0])
+
+    def latest(self, symbol: str, currency: str, as_of: datetime.date) -> float | None:
+        prices = self._prices.get((symbol, currency))
+        if not prices:
+            return None
+        index = bisect_right(prices, (as_of, float("inf")))
+        if index == 0:
+            return None
+        return prices[index - 1][1]
 
 
 def _today() -> datetime.date:
@@ -61,12 +81,19 @@ def period_boundaries(start_date: datetime.date, end_date: datetime.date, granul
     return periods
 
 
-def convert(user_id: int, vm_name: str, amount: float, from_ccy: str, to_ccy: str, as_of: datetime.date | None) -> float:
+def convert(user_id: int, vm_name: str, amount: float, from_ccy: str, to_ccy: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> float:
     from_currency = from_ccy or to_ccy
     to_currency = to_ccy or from_currency
     if from_currency == to_currency:
         return amount
     price_date = as_of or _today()
+    if lookup:
+        direct_price = lookup.latest(from_currency, to_currency, price_date)
+        if direct_price is not None:
+            return amount * direct_price
+        inverse_price = lookup.latest(to_currency, from_currency, price_date)
+        if inverse_price:
+            return amount / inverse_price
     direct = price_service.latest_pair(user_id, vm_name, from_currency, to_currency, price_date)
     if direct:
         return amount * float(direct.price)
@@ -76,10 +103,10 @@ def convert(user_id: int, vm_name: str, amount: float, from_ccy: str, to_ccy: st
     raise ConversionError(f"No price found for {from_currency} -> {to_currency}")
 
 
-def convert_balance(user_id: int, vm_name: str, balance: dict[str, float], target_currency: str, as_of: datetime.date | None) -> dict[str, float]:
+def convert_balance(user_id: int, vm_name: str, balance: dict[str, float], target_currency: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> dict[str, float]:
     total = 0.0
     for currency, amount in balance.items():
-        total += convert(user_id, vm_name, amount, currency, target_currency, as_of)
+        total += convert(user_id, vm_name, amount, currency, target_currency, as_of, lookup)
     return {target_currency: round(total, 2)}
 
 
@@ -144,12 +171,12 @@ def build_tree(rows: list[tuple[str, str, float]], root_account: str, base_curre
     return root
 
 
-def convert_tree(user_id: int, vm_name: str, node: dict, target_currency: str, as_of: datetime.date | None) -> dict:
-    children = [convert_tree(user_id, vm_name, child, target_currency, as_of) for child in node["children"]]
+def convert_tree(user_id: int, vm_name: str, node: dict, target_currency: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> dict:
+    children = [convert_tree(user_id, vm_name, child, target_currency, as_of, lookup) for child in node["children"]]
     children.sort(key=lambda child: abs(_tree_total(child)), reverse=True)
     return {
         "account": node["account"],
-        "balance": convert_balance(user_id, vm_name, node["balance"], target_currency, as_of) if node["balance"] else {},
+        "balance": convert_balance(user_id, vm_name, node["balance"], target_currency, as_of, lookup) if node["balance"] else {},
         "children": children,
     }
 
@@ -180,7 +207,7 @@ def _sum_rows(rows) -> dict[str, dict[str, float]]:
     return {account: dict(balance) for account, balance in totals.items()}
 
 
-def _tree_rows(totals: dict[str, dict[str, float]], root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None):
+def _tree_rows(totals: dict[str, dict[str, float]], root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None, lookup: PriceLookup | None = None):
     rows = []
     for account, balances in totals.items():
         if account != root and not account.startswith(f"{root}:"):
@@ -189,7 +216,7 @@ def _tree_rows(totals: dict[str, dict[str, float]], root: str, user_id: int, vm_
             if not amount:
                 continue
             if convert_to:
-                amount = convert(user_id, vm_name, amount, currency, convert_to, as_of)
+                amount = convert(user_id, vm_name, amount, currency, convert_to, as_of, lookup)
                 currency = convert_to
             rows.append((account, currency, amount))
     return rows
@@ -203,6 +230,50 @@ def _root_sum(totals: dict[str, dict[str, float]], root: str) -> dict[str, float
                 result[currency] += amount
     return dict(result)
 
+
+def _add_posting_total(totals: dict[str, dict[str, float]], row) -> None:
+    amount = _posting_amount(row)
+    if not amount:
+        return
+    currency, value = amount
+    totals[row.account][currency] += value
+
+
+def _add_position_total(totals: dict[str, dict[str, float]], row, root: str) -> None:
+    if row.account != root and not row.account.startswith(f"{root}:"):
+        return
+    amount = _position_amount(row)
+    if not amount:
+        return
+    symbol, value = amount
+    totals[symbol][symbol] += value
+
+
+def _parsed_transaction_rows(rows) -> list[tuple[datetime.date, object]]:
+    return [(transaction_date, row) for transaction_date, _index, row in sorted((datetime.date.fromisoformat(row.transaction_date), index, row) for index, row in enumerate(rows))]
+
+
+def _copy_balances(balances: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    return {key: dict(value) for key, value in balances.items()}
+
+
+def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, dict[str, float]], target_currency: str | None, as_of: datetime.date) -> PriceLookup | None:
+    if not target_currency:
+        return None
+    pairs = set()
+    for balance in balances.values():
+        for currency in balance:
+            if currency and currency != target_currency:
+                pairs.add((currency, target_currency))
+                pairs.add((target_currency, currency))
+    return PriceLookup(price_service.list_for_pairs(user_id, vm_name, pairs, as_of))
+
+
+def _price_lookup_for_roots(user_id: int, vm_name: str, totals: dict[str, dict[str, float]], roots: tuple[str, ...], target_currency: str | None, as_of: datetime.date) -> PriceLookup | None:
+    if not target_currency:
+        return None
+    balances = {root: _root_sum(totals, root) for root in roots}
+    return _price_lookup_for_balances(user_id, vm_name, balances, target_currency, as_of)
 
 
 def _position_totals(rows, root: str) -> dict[str, dict[str, float]]:
@@ -218,9 +289,9 @@ def _position_totals(rows, root: str) -> dict[str, dict[str, float]]:
     return {symbol: dict(balance) for symbol, balance in result.items()}
 
 
-def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, dict[str, float]], target_currency: str, as_of: datetime.date | None) -> dict[str, dict[str, float]]:
+def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, dict[str, float]], target_currency: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> dict[str, dict[str, float]]:
     return {
-        account: convert_balance(user_id, vm_name, balance, target_currency, as_of) if balance else {target_currency: 0.0}
+        account: convert_balance(user_id, vm_name, balance, target_currency, as_of, lookup) if balance else {target_currency: 0.0}
         for account, balance in accounts.items()
     }
 
@@ -255,13 +326,22 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
         start_date = start_date or end_date.replace(year=end_date.year - 1)
     rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
     result = []
+    dated_rows = _parsed_transaction_rows(rows)
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    row_index = 0
+    lookup = None
+    if convert_to:
+        all_totals = _sum_rows(rows)
+        lookup = _price_lookup_for_roots(user_id, vm_name, all_totals, (assets_root, liabilities_root), convert_to, end_date - datetime.timedelta(days=1))
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
-        totals = _sum_rows(row for row in rows if datetime.date.fromisoformat(row.transaction_date) < period_end)
+        while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
+            _add_posting_total(totals, dated_rows[row_index][1])
+            row_index += 1
         item = {"period": label, "assets": _root_sum(totals, assets_root), "liabilities": _root_sum(totals, liabilities_root)}
         if convert_to:
             as_of = period_end - datetime.timedelta(days=1)
-            item["assets"] = convert_balance(user_id, vm_name, item["assets"], convert_to, as_of) if item["assets"] else {convert_to: 0.0}
-            item["liabilities"] = convert_balance(user_id, vm_name, item["liabilities"], convert_to, as_of) if item["liabilities"] else {convert_to: 0.0}
+            item["assets"] = convert_balance(user_id, vm_name, item["assets"], convert_to, as_of, lookup) if item["assets"] else {convert_to: 0.0}
+            item["liabilities"] = convert_balance(user_id, vm_name, item["liabilities"], convert_to, as_of, lookup) if item["liabilities"] else {convert_to: 0.0}
         result.append(item)
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
@@ -277,14 +357,23 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
         start_date = start_date or end_date.replace(year=end_date.year - 1)
     rows = transaction_service.list_between(user_id, vm_name, end_date=end_date)
     result = []
+    dated_rows = _parsed_transaction_rows(rows)
+    positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    row_index = 0
+    lookup = None
+    if convert_to:
+        all_positions = _position_totals(rows, assets_root)
+        lookup = _price_lookup_for_balances(user_id, vm_name, all_positions, convert_to, end_date - datetime.timedelta(days=1))
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
-        period_rows = [row for row in rows if datetime.date.fromisoformat(row.transaction_date) < period_end]
-        positions = _position_totals(period_rows, assets_root)
+        while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
+            _add_position_total(positions, dated_rows[row_index][1], assets_root)
+            row_index += 1
+        period_positions = _copy_balances(positions)
         if risky_only:
-            positions = {symbol: balance for symbol, balance in positions.items() if symbol in risky_symbols}
+            period_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if convert_to:
-            positions = _convert_account_balances(user_id, vm_name, positions, convert_to, period_end - datetime.timedelta(days=1))
-        result.append({"period": label, "positions": positions})
+            period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, period_end - datetime.timedelta(days=1), lookup)
+        result.append({"period": label, "positions": period_positions})
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
