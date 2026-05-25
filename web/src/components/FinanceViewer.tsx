@@ -1041,36 +1041,38 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
       {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
       ) : (
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
-              <th className="text-left font-normal py-1 px-3">Position</th>
-              {data.map((item) => (
-                <th key={item.period} className="text-right font-normal py-1 px-3">
-                  <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
-                    {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
-                  </button>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.position} className="hover:bg-sol-base02/50">
-                <td className="py-0.5 px-3 text-sol-base0">{row.position}</td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Position</th>
                 {data.map((item) => (
-                  <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1">{formatAmount(row.values[item.period] || 0)}</td>
+                  <th key={item.period} className="text-right font-normal py-1 px-3 whitespace-nowrap">
+                    <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
+                      {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                    </button>
+                  </th>
                 ))}
               </tr>
-            ))}
-            <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
-              <td className="py-1 px-3 text-sol-base1">Total</td>
-              {data.map((item) => (
-                <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1">{formatAmount(totals[item.period] || 0)}</td>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.position} className="hover:bg-sol-base02/50">
+                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{row.position}</td>
+                  {data.map((item) => (
+                    <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          </tbody>
-        </table>
+              <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Total</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(totals[item.period] || 0)}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
