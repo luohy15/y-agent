@@ -107,6 +107,10 @@ interface FinanceEnvelope<T> {
 }
 
 function useFinanceData<T>(key: string | null) {
+  return useSWR<T>(key, fetcher, { revalidateOnFocus: false });
+}
+
+function useFinanceEnvelope<T>(key: string | null) {
   return useSWR<FinanceEnvelope<T>>(key, fetcher, { revalidateOnFocus: false });
 }
 
@@ -944,21 +948,22 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const bs = useFinanceData<BalanceSheetData>(bsKey);
   const is = useFinanceData<IncomeStatementData>(isKey);
-  const holdings = useFinanceData<HoldingPosition[]>(holdingsKey);
-  const transactions = useFinanceData<TransactionRow[]>(transactionsKey);
+  const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
+  const transactions = useFinanceEnvelope<TransactionRow[]>(transactionsKey);
   const fire = useFinanceData<FireProgressData>(fireKey);
   const bsHist = useFinanceData<BalanceSheetHistoryItem[]>(bsHistKey);
   const isHist = useFinanceData<IncomeStatementHistoryItem[]>(isHistKey);
 
-  const bsData = bs.data?.data;
-  const isData = is.data?.data;
+  const bsData = bs.data;
+  const isData = is.data;
   const holdingsData = holdings.data?.data;
   const transactionsData = transactions.data?.data;
-  const fireData = fire.data?.data;
-  const bsHistData = bsHist.data?.data;
-  const isHistData = isHist.data?.data;
+  const fireData = fire.data;
+  const bsHistData = bsHist.data;
+  const isHistData = isHist.data;
 
-  const activeEnvelope = tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : tab === "fire" ? fire.data : tab === "transactions" ? transactions.data : holdings.data;
+  const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : null;
+  const isLiveTab = tab === "balance-sheet" || tab === "income-statement" || tab === "fire";
 
   const mutateActive = async () => {
     await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
@@ -985,13 +990,19 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
       <div className="sticky top-0 z-10 bg-sol-base03 border-b border-sol-base02 px-3 py-2 space-y-2">
         <div className="flex items-center justify-end gap-2">
           <span className="inline-flex items-center gap-1 rounded bg-sol-base02 px-2 py-1 text-[10px] text-sol-base0">
-            {activeEnvelope?.source === "live" && <span className="h-1.5 w-1.5 rounded-full bg-sol-orange" title="Refreshed live" />}
-            Synced {formatRelativeTime(activeEnvelope?.synced_at)}
+            {isLiveTab ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-sol-orange" title="Fetched live over SSH" />
+                Live fetch
+              </>
+            ) : (
+              <>Synced {formatRelativeTime(activeEnvelope?.synced_at)}</>
+            )}
           </span>
           <button
             onClick={() => void refreshSnapshots()}
             className="px-2 py-1 rounded text-xs cursor-pointer bg-sol-base02 text-sol-base0 hover:text-sol-base1"
-            title="Refresh finance snapshots"
+            title="Refresh cached finance tables"
           >
             ↻
           </button>
