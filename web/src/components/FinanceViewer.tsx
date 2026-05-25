@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell,
 } from "recharts";
 
 interface AccountNode {
@@ -632,6 +632,68 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
   );
 }
 
+const HOLDINGS_PIE_COLORS = [SOL.blue, SOL.green, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.red];
+
+function HoldingsPieTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ payload?: { symbol: string; value: number; currency: string; allocation: number }; color?: string }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload;
+  if (!item) return null;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{item.symbol}</div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: payload[0]?.color ?? SOL.base0 }} />
+        <span style={{ color: SOL.base0 }}>{formatAmount(item.value)} {item.currency} · {(item.allocation * 100).toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+}
+
+function HoldingsPieChart({ positions }: { positions: HoldingPosition[] }) {
+  const chartData = useMemo(() => {
+    const rows = positions
+      .filter((position) => position.market_value_base != null && position.market_value_base > 0)
+      .map((position) => ({
+        symbol: position.symbol,
+        value: position.market_value_base as number,
+        currency: position.allocation_base_currency ?? "USD",
+      }))
+      .sort((a, b) => b.value - a.value);
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
+  }, [positions]);
+
+  if (chartData.length === 0) return null;
+
+  return (
+    <div className="mb-3">
+      <ResponsiveContainer width="100%" height={300}>
+        <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+          <Pie
+            data={chartData}
+            dataKey="value"
+            nameKey="symbol"
+            cx="50%"
+            cy="50%"
+            outerRadius={110}
+            label={({ symbol, allocation }) => (allocation >= 0.03 ? symbol : "")}
+            labelLine={false}
+            isAnimationActive={false}
+          >
+            {chartData.map((entry, index) => (
+              <Cell key={entry.symbol} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip content={<HoldingsPieTooltip />} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function BalanceSheetChart({ data, granularity, onGranularityChange, targetLine }: { data: BalanceSheetHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void; targetLine?: number }) {
   const chartData = useMemo(() =>
     data.map((item) => ({
@@ -1049,7 +1111,10 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           holdings.isLoading ? (
             <p className="text-sol-base01 italic px-3">Loading...</p>
           ) : holdingsData ? (
-            <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} />
+            <>
+              <HoldingsPieChart positions={holdingsData} />
+              <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} />
+            </>
           ) : null
         ) : tab === "transactions" ? (
           transactions.isLoading ? (
