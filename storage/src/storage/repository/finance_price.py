@@ -57,12 +57,14 @@ def replace_for(user_id: int, vm_name: str, rows: list[dict], synced_at: str, so
 
 def list_for(user_id: int, vm_name: str, symbol: Optional[str] = None, from_date: Optional[str] = None, limit: int = 1000) -> list[FinancePrice]:
     parsed_from_date = date.fromisoformat(from_date) if from_date else None
+    today = date.today()
     with get_db() as session:
         query = session.query(FinancePriceEntity).filter_by(user_id=user_id, vm_name=vm_name or "")
         if symbol:
             query = query.filter_by(symbol=symbol)
         if parsed_from_date:
             query = query.filter(FinancePriceEntity.price_date >= parsed_from_date)
+        query = query.filter(FinancePriceEntity.price_date <= today)
         rows = query.order_by(FinancePriceEntity.symbol.asc(), FinancePriceEntity.price_date.asc()).limit(limit).all()
         return [_entity_to_dto(row) for row in rows]
 

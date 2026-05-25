@@ -763,17 +763,15 @@ function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null
   if (from) params.set("from", from);
   const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
 
-  const chartData = useMemo(() => {
-    const today = localDateString(new Date());
-    return (prices.data?.data ?? [])
-      .filter((row) => row.price_date <= today)
-      .map((row) => ({
+  const chartData = useMemo(() =>
+    (prices.data?.data ?? []).map((row) => ({
         date: formatPriceDate(row.price_date),
         rawDate: row.price_date,
         price: row.price,
         currency: row.currency,
-      }));
-  }, [prices.data?.data]);
+      })),
+    [prices.data?.data]
+  );
 
   const currency = chartData[0]?.currency ?? "";
 
