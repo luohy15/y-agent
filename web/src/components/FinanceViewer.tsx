@@ -730,17 +730,19 @@ function tooltipLabel(payload: any[] | undefined, fallback?: string): string {
   return fallback ?? "";
 }
 
-function ChartTooltipContent({ active, payload, label, formatter }: {
+function ChartTooltipContent({ active, payload, label, formatter, sortByValueDesc = false }: {
   active?: boolean;
   payload?: Array<{ name: string; value: number; color: string; payload?: any }>;
   label?: string;
   formatter?: (value: number) => string;
+  sortByValueDesc?: boolean;
 }) {
   if (!active || !payload?.length) return null;
+  const rows = sortByValueDesc ? [...payload].sort((a, b) => Number(b.value || 0) - Number(a.value || 0)) : payload;
   return (
     <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
       <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
-      {payload.map((p, i) => (
+      {rows.map((p, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
           <span style={{ color: SOL.base0 }}>{p.name}: {formatter ? formatter(p.value) : p.value}</span>
@@ -993,7 +995,7 @@ function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-            <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} sortByValueDesc />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {positions.map((account, index) => {
               const isLast = index === positions.length - 1;
               return (
