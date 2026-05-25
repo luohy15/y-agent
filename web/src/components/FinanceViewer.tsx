@@ -136,6 +136,12 @@ function useFinanceEnvelope<T>(key: string | null) {
   return useSWR<FinanceEnvelope<T>>(key, fetcher, { revalidateOnFocus: false });
 }
 
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { name?: unknown; message?: unknown };
+  return maybeError.name === "AbortError" || (typeof maybeError.message === "string" && maybeError.message.toLowerCase().includes("abort"));
+}
+
 // Solarized dark colors
 const SOL = {
   base03: "#002b36",
@@ -1072,12 +1078,13 @@ function AssetsOverTimeView({ vmName, riskyOnly, time, granularity, onGranularit
   const history = useFinanceEnvelope<BalanceSheetPositionsHistoryItem[]>(key);
   const data = history.data?.data || [];
   const positions = useMemo(() => buildPositionSeries(data), [data]);
+  const showError = !!history.error && !isAbortError(history.error) && !history.data && !history.isLoading && !history.isValidating;
 
   return (
     <div className="space-y-3">
       {history.isLoading ? (
         <p className="text-sol-base01 italic px-3">Loading assets history...</p>
-      ) : history.error ? (
+      ) : showError ? (
         <p className="text-sol-red px-3">Error loading assets history</p>
       ) : (
         <>
