@@ -10,7 +10,7 @@ SELECT
   cost(sum(position)) as book_value,
   value(sum(position)) as market_value,
   safediv((abs(sum(number(value(position)))) - abs(sum(number(cost(position))))), sum(number(cost(position)))) * 100 as unrealized_profit_pct
-WHERE account_sortkey(account) ~ "^[01]"
+WHERE account_sortkey(account) ~ "^0"
 GROUP BY currency, cost_currency
 ORDER BY currency, cost_currency"""
 
@@ -19,7 +19,7 @@ SELECT
   cost(sum(position)) as book_value,
   value(sum(position)) as market_value,
   safediv((abs(sum(number(value(position)))) - abs(sum(number(cost(position))))), sum(number(cost(position)))) * 100 as unrealized_profit_pct
-WHERE account_sortkey(account) ~ "^[01]"
+WHERE account_sortkey(account) ~ "^0"
   AND currency != cost_currency
 GROUP BY cost_currency
 ORDER BY cost_currency"""
