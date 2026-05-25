@@ -229,7 +229,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
-        ) : error ? (
+        ) : error && todos.length === 0 ? (
           <p className="text-sol-red p-2">Error loading todos</p>
         ) : todos.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No todos</p>
