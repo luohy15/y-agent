@@ -243,6 +243,14 @@ def _root_sum(totals: dict[str, dict[str, float]], root: str) -> dict[str, float
     return dict(result)
 
 
+def _sum_balances(balances_by_key: dict[str, dict[str, float]]) -> dict[str, float]:
+    result: dict[str, float] = defaultdict(float)
+    for balances in balances_by_key.values():
+        for currency, amount in balances.items():
+            result[currency] += amount
+    return dict(result)
+
+
 def _add_posting_total(totals: dict[str, dict[str, float]], row) -> None:
     amount = _posting_amount(row)
     if not amount:
@@ -363,7 +371,7 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     start_date, end_date = parse_time_range(time_filter)
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
     assets_root = roots["assets"]
-    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, risky_only=True)} if risky_only else set()
+    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, risky_only=True)}
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
         start_date = start_date or end_date.replace(year=end_date.year - 1)
@@ -381,11 +389,15 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
             _add_position_total(positions, dated_rows[row_index][1], assets_root)
             row_index += 1
         period_positions = _copy_balances(positions)
+        risky_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if risky_only:
-            period_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
+            period_positions = risky_positions
         if convert_to:
-            period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, period_end - datetime.timedelta(days=1), lookup)
-        result.append({"period": label, "positions": period_positions})
+            as_of = period_end - datetime.timedelta(days=1)
+            period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, as_of, lookup)
+            risky_positions = _convert_account_balances(user_id, vm_name, risky_positions, convert_to, as_of, lookup)
+        risky_total = _sum_balances(risky_positions)
+        result.append({"period": label, "positions": period_positions, "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {})})
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
