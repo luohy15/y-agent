@@ -9,7 +9,6 @@ class FinanceTransactionEntity(Base, BaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
-    vm_name = Column(String, nullable=False, default="")
     transaction_date = Column(Date, nullable=False)
     entry_id = Column(String, nullable=False)
     posting_index = Column(Integer, nullable=False, default=0)
@@ -33,7 +32,7 @@ class FinanceTransactionEntity(Base, BaseEntity):
     source = Column(String, nullable=False, default="sync")
 
     __table_args__ = (
-        UniqueConstraint("user_id", "vm_name", "entry_id", "posting_index", name="uq_finance_transaction_posting"),
-        Index("ix_finance_transaction_user_vm_date", "user_id", "vm_name", "transaction_date"),
-        Index("ix_finance_transaction_user_vm_symbol", "user_id", "vm_name", "symbol"),
+        UniqueConstraint("user_id", "entry_id", "posting_index", name="uq_finance_transaction_posting"),
+        Index("ix_finance_transaction_user_date", "user_id", "transaction_date"),
+        Index("ix_finance_transaction_user_symbol", "user_id", "symbol"),
     )

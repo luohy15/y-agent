@@ -23,9 +23,9 @@ def snapshot(ctx, user_id: int | None, vm_name: str):
     runner = CliRunner()
     synced = 0
     normalized = [
-        ("holdings", ["holdings"], lambda payload: holding_service.append_snapshot(target_user_id, vm_name, holding_service.rows_from_holdings_payload(payload), source="cli")),
-        ("transactions", ["transactions"], lambda payload: transaction_service.replace_for(target_user_id, vm_name, payload, source="cli")),
-        ("prices", ["prices"], lambda payload: price_service.replace_for(target_user_id, vm_name, payload, source="cli")),
+        ("holdings", ["holdings"], lambda payload: holding_service.append_snapshot(target_user_id, holding_service.rows_from_holdings_payload(payload), source="cli")),
+        ("transactions", ["transactions"], lambda payload: transaction_service.replace_for(target_user_id, payload, source="cli")),
+        ("prices", ["prices"], lambda payload: price_service.replace_for(payload, source="cli")),
     ]
     for _, args, writer in normalized:
         result = runner.invoke(beancount_group, args, catch_exceptions=False)

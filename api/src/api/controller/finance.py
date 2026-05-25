@@ -46,9 +46,9 @@ async def _warm_normalized(user_id: int, vm_name: str | None):
     synced = 0
     failed = 0
     commands = [
-        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, effective_vm_name, holding_service.rows_from_holdings_payload(payload), source="live")),
-        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, effective_vm_name, payload, source="live")),
-        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(user_id, effective_vm_name, payload, source="live")),
+        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, holding_service.rows_from_holdings_payload(payload), source="live")),
+        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, payload, source="live")),
+        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(payload, source="live")),
         ("fire-config", ["y", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", effective_vm_name], lambda payload: None),
     ]
     for _, cmd, writer in commands:
@@ -123,22 +123,20 @@ async def transactions(
     limit: int = Query(500),
 ):
     user_id = _get_user_id(request)
-    rows = transaction_service.list_entries_for(user_id, vm_name or "", symbol=symbol, limit=limit)
+    rows = transaction_service.list_entries_for(user_id, symbol=symbol, limit=limit)
     synced_at = rows[0].get("synced_at", "") if rows else ""
     return {"data": rows, "synced_at": synced_at, "source": "db"}
 
 
 @router.get("/prices")
 async def prices(
-    request: Request,
     vm_name: str = Query(None),
     symbol: str = Query(None),
     time: str = Query("year to day-1"),
     limit: int = Query(1000),
 ):
-    user_id = _get_user_id(request)
     from_date, to_date = derived_service.parse_time_range(time)
-    return _envelope(price_service.list_for(user_id, vm_name or "", symbol=symbol, from_date=str(from_date) if from_date else None, to_date=str(to_date) if to_date else None, limit=limit))
+    return _envelope(price_service.list_for(symbol=symbol, from_date=str(from_date) if from_date else None, to_date=str(to_date) if to_date else None, limit=limit))
 
 
 @router.get("/fire-progress")

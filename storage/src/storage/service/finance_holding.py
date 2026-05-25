@@ -82,14 +82,14 @@ def rows_from_holdings_payload(payload: dict) -> list[dict]:
     return rows
 
 
-def append_snapshot(user_id: int, vm_name: str, rows: list[dict], snapshot_at: str | datetime | None = None, synced_at: str | None = None, source: str = "sync") -> int:
+def append_snapshot(user_id: int, rows: list[dict], snapshot_at: str | datetime | None = None, synced_at: str | None = None, source: str = "sync") -> int:
     effective_synced_at = synced_at or get_utc_iso8601_timestamp()
-    return repo.append_snapshot(user_id, vm_name, rows, snapshot_at or datetime.now(timezone.utc), effective_synced_at, source)
+    return repo.append_snapshot(user_id, rows, snapshot_at or datetime.now(timezone.utc), effective_synced_at, source)
 
 
-def list_for(user_id: int, vm_name: str, risky_only: bool = False):
-    return filter_holdings(repo.list_for(user_id, vm_name), risky_only=risky_only)
+def list_for(user_id: int, risky_only: bool = False):
+    return filter_holdings(repo.list_for(user_id), risky_only=risky_only)
 
 
-def list_at(user_id: int, vm_name: str, snapshot_date: str, risky_only: bool = False):
-    return filter_holdings(repo.list_at(user_id, vm_name, snapshot_date), risky_only=risky_only)
+def list_at(user_id: int, snapshot_date: str, risky_only: bool = False):
+    return filter_holdings(repo.list_at(user_id, snapshot_date), risky_only=risky_only)
