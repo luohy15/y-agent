@@ -103,9 +103,10 @@ async def positions(
     request: Request,
     vm_name: str = Query(None),
     at: str = Query(None),
+    risky_only: bool = Query(False),
 ):
     user_id = _get_user_id(request)
-    rows = holding_service.list_at(user_id, vm_name or "", at) if at else holding_service.list_for(user_id, vm_name or "")
+    rows = holding_service.list_at(user_id, vm_name or "", at, risky_only=risky_only) if at else holding_service.list_for(user_id, vm_name or "", risky_only=risky_only)
     return _envelope(rows)
 
 
@@ -117,7 +118,9 @@ async def transactions(
     limit: int = Query(500),
 ):
     user_id = _get_user_id(request)
-    return _envelope(transaction_service.list_for(user_id, vm_name or "", symbol=symbol, limit=limit))
+    rows = transaction_service.list_entries_for(user_id, vm_name or "", symbol=symbol, limit=limit)
+    synced_at = rows[0].get("synced_at", "") if rows else ""
+    return {"data": rows, "synced_at": synced_at, "source": "db"}
 
 
 @router.get("/prices")

@@ -70,6 +70,26 @@ def _tree_total(node: dict) -> float:
     return sum(node["balance"].values()) + sum(_tree_total(child) for child in node["children"])
 
 
+def _has_nonzero_balance(balance: dict[str, float]) -> bool:
+    return any(abs(amount) > 0.005 for amount in balance.values())
+
+
+def prune_zero_balance_accounts(node: dict) -> dict:
+    children = [prune_zero_balance_accounts(child) for child in node["children"]]
+    children = [child for child in children if _has_nonzero_balance(_aggregate_balance(child))]
+    return {"account": node["account"], "balance": node["balance"], "children": children}
+
+
+def _aggregate_balance(node: dict) -> dict[str, float]:
+    result: dict[str, float] = defaultdict(float)
+    for currency, amount in node["balance"].items():
+        result[currency] += amount
+    for child in node["children"]:
+        for currency, amount in _aggregate_balance(child).items():
+            result[currency] += amount
+    return dict(result)
+
+
 def build_tree(rows: list[tuple[str, str, float]], root_account: str, base_currency: str | None = None) -> dict:
     nodes: dict[str, dict] = {}
 
@@ -175,8 +195,8 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
         totals = _sum_rows(rows)
         as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
         result = {
-            "assets": build_tree(_tree_rows(totals, assets_root, user_id, vm_name, convert_to, as_of), assets_root, convert_to),
-            "liabilities": build_tree(_tree_rows(totals, liabilities_root, user_id, vm_name, convert_to, as_of), liabilities_root, convert_to),
+            "assets": prune_zero_balance_accounts(build_tree(_tree_rows(totals, assets_root, user_id, vm_name, convert_to, as_of), assets_root, convert_to)),
+            "liabilities": prune_zero_balance_accounts(build_tree(_tree_rows(totals, liabilities_root, user_id, vm_name, convert_to, as_of), liabilities_root, convert_to)),
         }
         return DerivedResult(result, _synced_at(user_id, vm_name))
 

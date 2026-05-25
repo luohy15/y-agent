@@ -4,6 +4,31 @@ from storage.repository import finance_holding as repo
 from storage.util import get_utc_iso8601_timestamp
 
 
+NON_RISKY_TICKERS = {"CASH", "BOXX"}
+
+
+def is_risky_holding(row) -> bool:
+    if row.is_cash:
+        return False
+    if row.symbol in NON_RISKY_TICKERS:
+        return False
+    if row.market_value is not None and row.symbol == row.cost_currency:
+        return False
+    return True
+
+
+def should_show_holding(row, risky_only: bool = False) -> bool:
+    if abs(row.quantity or 0) <= 0.005:
+        return False
+    if row.market_value is not None and abs(row.market_value) <= 0.005:
+        return False
+    return not risky_only or is_risky_holding(row)
+
+
+def filter_holdings(rows, risky_only: bool = False):
+    return [row for row in rows if should_show_holding(row, risky_only)]
+
+
 def _amount(value):
     if isinstance(value, dict):
         return value.get("number"), value.get("currency") or ""
@@ -40,9 +65,9 @@ def append_snapshot(user_id: int, vm_name: str, rows: list[dict], snapshot_at: s
     return repo.append_snapshot(user_id, vm_name, rows, snapshot_at or datetime.now(timezone.utc), effective_synced_at, source)
 
 
-def list_for(user_id: int, vm_name: str):
-    return repo.list_for(user_id, vm_name)
+def list_for(user_id: int, vm_name: str, risky_only: bool = False):
+    return filter_holdings(repo.list_for(user_id, vm_name), risky_only=risky_only)
 
 
-def list_at(user_id: int, vm_name: str, snapshot_date: str):
-    return repo.list_at(user_id, vm_name, snapshot_date)
+def list_at(user_id: int, vm_name: str, snapshot_date: str, risky_only: bool = False):
+    return filter_holdings(repo.list_at(user_id, vm_name, snapshot_date), risky_only=risky_only)

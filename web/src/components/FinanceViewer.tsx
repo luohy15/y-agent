@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
@@ -68,15 +68,21 @@ interface HoldingPosition {
   is_cash: boolean;
 }
 
+interface TransactionAmount {
+  amount: number;
+  currency: string;
+}
+
 interface TransactionRow {
   transaction_date: string;
+  entry_id?: string;
   symbol: string;
   side: string;
-  quantity: number | null;
+  quantity: number | TransactionAmount[] | null;
   price: number | null;
   price_currency: string;
-  amount: number | null;
-  amount_currency: string;
+  amount: number | TransactionAmount[] | null;
+  amount_currency?: string;
   commission: number | null;
   commission_currency: string;
   payee: string;
@@ -286,18 +292,6 @@ function SortableHeader({ label, sortKey, currentKey, dir, onSort, align }: {
   );
 }
 
-const NON_RISKY_TICKERS = new Set(["CASH", "BOXX"]);
-
-function isRiskyHolding(row: HoldingRow): boolean {
-  if (!isValidAmount(row.units)) return false;
-  if (row.is_cash) return false;
-  const ticker = row.units.currency;
-  if (NON_RISKY_TICKERS.has(ticker)) return false;
-  // Cash positions: ticker matches the market_value currency (e.g. USD, CNY, HKD).
-  if (isValidAmount(row.market_value) && row.market_value.currency === ticker) return false;
-  return true;
-}
-
 function toHoldingRows(positions: HoldingPosition[]): HoldingRow[] {
   return positions.map((row) => ({
     units: { number: row.quantity, currency: row.symbol },
@@ -360,11 +354,9 @@ function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]):
   });
 }
 
-function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string }) {
+function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
-  const [riskyOnly, setRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
-
   const handleSort = (key: HoldingSortKey) => {
     if (key === sortKey) {
       const next = sortDir === "asc" ? "desc" : "asc";
@@ -380,16 +372,12 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
 
   const toggleRiskyOnly = () => {
     const next = !riskyOnly;
-    setRiskyOnly(next);
     localStorage.setItem("holdings-risky-only", next ? "1" : "0");
+    onRiskyOnlyChange(next);
   };
 
-  // Filter out rows with empty/invalid units (e.g. units is [] or null)
-  const valid = holdings.filter((h) => isValidAmount(h.units));
-  const filtered = useMemo(
-    () => valid.filter((h) => riskyOnly || isRiskyHolding(h)),
-    [valid, riskyOnly],
-  );
+  const valid = useMemo(() => holdings.filter((h) => isValidAmount(h.units)), [holdings]);
+  const filtered = valid;
 
   const totalMarketValue = useMemo(
     () => valid.reduce((sum, row) => sum + getNumericVal(row.market_value), 0),
@@ -409,31 +397,7 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
     return copy;
   }, [filtered, sortKey, sortDir, totalMarketValue]);
 
-  const displayTotals = useMemo(
-    () => (riskyOnly ? recomputeTotals(filtered, totals) : totals),
-    [riskyOnly, filtered, totals],
-  );
-
-  // % of portfolio that's risky, by market_value, grouped per currency.
-  const riskySharePct = useMemo(() => {
-    const allByCur = new Map<string, number>();
-    const riskyByCur = new Map<string, number>();
-    for (const r of valid) {
-      if (!isValidAmount(r.market_value)) continue;
-      const cur = r.market_value.currency;
-      const mv = r.market_value.number;
-      allByCur.set(cur, (allByCur.get(cur) || 0) + mv);
-      if (isRiskyHolding(r)) {
-        riskyByCur.set(cur, (riskyByCur.get(cur) || 0) + mv);
-      }
-    }
-    const parts: { cur: string; pct: number }[] = [];
-    for (const [cur, total] of allByCur) {
-      if (total === 0) continue;
-      parts.push({ cur, pct: ((riskyByCur.get(cur) || 0) / total) * 100 });
-    }
-    return parts;
-  }, [valid]);
+  const displayTotals = useMemo(() => recomputeTotals(filtered, totals), [filtered, totals]);
 
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
 
@@ -442,18 +406,6 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
         <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings · synced {formatRelativeTime(syncedAt)}</span>
         <div className="flex items-center gap-2">
-          {riskyOnly && riskySharePct.length > 0 && (
-            <span className="text-sol-base01 text-[10px] tabular-nums">
-              Risky:{" "}
-              {riskySharePct.map((p, i) => (
-                <span key={p.cur}>
-                  {i > 0 && ", "}
-                  {p.pct.toFixed(1)}%
-                  <span className="ml-1">{p.cur}</span>
-                </span>
-              ))}
-            </span>
-          )}
           <button
             onClick={toggleRiskyOnly}
             className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
@@ -529,13 +481,28 @@ function HoldingsTable({ holdings, totals, syncedAt }: { holdings: HoldingRow[];
 
 type TransactionSortKey = "date" | "symbol" | "side" | "quantity" | "amount";
 
+
+function formatTransactionValue(value: number | TransactionAmount[] | null | undefined, currency?: string): ReactNode {
+  if (value == null) return "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    return value.map((item, index) => (
+      <span key={`${item.currency}-${index}`}>
+        {index > 0 && ", "}
+        {formatAmount(item.amount)} {item.currency && <span className="text-sol-base01 text-xs">{item.currency}</span>}
+      </span>
+    ));
+  }
+  return <>{formatAmount(value)} {currency && <span className="text-sol-base01 text-xs">{currency}</span>}</>;
+}
+
 function transactionSortValue(row: TransactionRow, key: TransactionSortKey): string | number {
   switch (key) {
     case "date": return row.transaction_date;
     case "symbol": return row.symbol;
     case "side": return row.side;
-    case "quantity": return row.quantity ?? 0;
-    case "amount": return row.amount ?? 0;
+    case "quantity": return Array.isArray(row.quantity) ? row.quantity.reduce((sum, item) => sum + item.amount, 0) : row.quantity ?? 0;
+    case "amount": return Array.isArray(row.amount) ? row.amount.reduce((sum, item) => sum + item.amount, 0) : row.amount ?? 0;
   }
 }
 
@@ -598,9 +565,9 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
               <td className="py-0.5 px-3 text-sol-base0 tabular-nums">{row.transaction_date}</td>
               <td className="py-0.5 px-3 text-sol-base1">{row.symbol}</td>
               <td className="py-0.5 px-3 text-sol-base0">{row.side}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.quantity == null ? "—" : formatAmount(row.quantity)}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.price == null ? "—" : <>{formatAmount(row.price)} <span className="text-sol-base01 text-xs">{row.price_currency}</span></>}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{row.amount == null ? "—" : <>{formatAmount(row.amount)} <span className="text-sol-base01 text-xs">{row.amount_currency}</span></>}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.quantity)}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.price, row.price_currency)}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.amount, row.amount_currency)}</td>
               <td className="py-0.5 px-3 text-sol-base0 truncate max-w-md">{row.payee || row.narration}</td>
             </tr>
           ))}
@@ -908,6 +875,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
   const [granularity, setGranularity] = useState<Granularity>(() => (localStorage.getItem("finance-granularity") as Granularity) || "monthly");
+  const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
 
@@ -926,7 +894,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     : null;
 
   const holdingsKey = tab === "holdings"
-    ? `${API}/api/finance/positions${vmQueryOnly}`
+    ? `${API}/api/finance/positions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
 
   const transactionsKey = tab === "transactions"
@@ -1076,7 +1044,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           holdings.isLoading ? (
             <p className="text-sol-base01 italic px-3">Loading...</p>
           ) : holdingsData ? (
-            <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} />
+            <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} />
           ) : null
         ) : tab === "transactions" ? (
           transactions.isLoading ? (
