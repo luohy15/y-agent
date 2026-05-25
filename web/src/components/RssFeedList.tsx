@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 import RssFeedContextMenu from "./RssFeedContextMenu";
 
 interface ScrapeConfig {
@@ -284,11 +285,11 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to manage RSS feeds</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && !data ? (
-          <p className="text-sol-red p-2">Error loading feeds</p>
+          <ListError error={error} />
         ) : !data || data.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No feeds yet. Add one above.</p>
+          <ListEmpty label="feeds" />
         ) : (
           <div className="space-y-0">
             <div

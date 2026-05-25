@@ -4,6 +4,7 @@ import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface Chat {
   chat_id: string;
@@ -224,11 +225,11 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view tasks</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && chats.length === 0 ? (
-          <p className="text-sol-red p-2">Error loading tasks</p>
+          <ListError error={error} />
         ) : chats.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">{search ? "No matching tasks" : "No tasks yet"}</p>
+          search ? <p className="text-sol-base01 italic p-2">No matching tasks</p> : <ListEmpty label="tasks" />
         ) : (
           <>
             {chats.map((c) => {

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { formatDateTime } from "../utils/formatTime";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface FileEntry {
   name: string;
@@ -298,11 +299,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           ) : !todoId ? (
             <p className="text-sol-base01 italic p-2">Select a todo to view notes</p>
           ) : todoNotesLoading || todoNotesValidating ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
+            <ListLoading />
           ) : todoNotesError && !todoNotes ? (
-            <p className="text-sol-red p-2">Error loading notes</p>
+            <ListError error={todoNotesError} />
           ) : !todoNotes || todoNotes.length === 0 ? (
-            <p className="text-sol-base01 italic p-2">No notes found</p>
+            <ListEmpty label="notes" />
           ) : (
             <div className="space-y-0">
               {todoNotes.map((note) => {
@@ -441,11 +442,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           <p className="text-sol-base01 italic p-2">Sign in to view notes</p>
         ) : tab === "finance" ? (
           financeLoading || financeValidating ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
+            <ListLoading />
           ) : financeError && !financeData ? (
-            <p className="text-sol-red p-2">Error loading {financeSubTab}</p>
+            <ListError error={financeError} />
           ) : financeFiles.length === 0 ? (
-            <p className="text-sol-base01 italic p-2">No files found</p>
+            <ListEmpty label={financeSubTab} />
           ) : (
             <div className="space-y-0">
               {financeFiles.map((file) => {
@@ -465,11 +466,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           )
         ) : tab === "skills" ? (
           skillsLoading || skillsValidating ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
+            <ListLoading />
           ) : skillsError && !skillsData ? (
-            <p className="text-sol-red p-2">Error loading skills</p>
+            <ListError error={skillsError} />
           ) : !skillsData?.skills?.length ? (
-            <p className="text-sol-base01 italic p-2">No skills found</p>
+            <ListEmpty label="skills" />
           ) : filteredSkills.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No matching skills</p>
           ) : (
@@ -491,11 +492,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           )
         ) : tab === "journals" ? (
           journalsLoading || journalsValidating ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
+            <ListLoading />
           ) : journalsError && !journalsData ? (
-            <p className="text-sol-red p-2">Error loading journals</p>
+            <ListError error={journalsError} />
           ) : journalGroups.length === 0 ? (
-            <p className="text-sol-base01 italic p-2">No journals found</p>
+            <ListEmpty label="journals" />
           ) : (
             journalGroups.map(([monthKey, files]) => (
               <div key={monthKey} className="mb-2">
@@ -526,11 +527,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           )
         ) : tab === "pages" ? (
           pagesLoading || pagesValidating ? (
-            <p className="text-sol-base01 italic p-2">Loading...</p>
+            <ListLoading />
           ) : pagesError && !pagesData ? (
-            <p className="text-sol-red p-2">Error loading pages</p>
+            <ListError error={pagesError} />
           ) : pageFiles.length === 0 ? (
-            <p className="text-sol-base01 italic p-2">No pages found</p>
+            <ListEmpty label="pages" />
           ) : (
             <div className="space-y-0">
               {pageFiles.map((file) => (

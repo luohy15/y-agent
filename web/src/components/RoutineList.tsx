@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { formatDateTime } from "../utils/formatTime";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface Routine {
   routine_id: string;
@@ -430,11 +431,11 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view routines</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && !data ? (
-          <p className="text-sol-red p-2">Error loading routines</p>
+          <ListError error={error} />
         ) : routines.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No routines yet</p>
+          <ListEmpty label="routines" />
         ) : (
           routines.map((r) => {
             const busy = busyId === r.routine_id;

@@ -3,6 +3,7 @@ import useSWRInfinite from "swr/infinite";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 import TodoContextMenu from "./TodoContextMenu";
 
 interface Todo {
@@ -228,11 +229,11 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && todos.length === 0 ? (
-          <p className="text-sol-red p-2">Error loading todos</p>
+          <ListError error={error} />
         ) : todos.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No todos</p>
+          <ListEmpty label="todos" />
         ) : (
           <>
             {todos.map((t) => {

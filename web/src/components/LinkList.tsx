@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 import { ALL_RSS_FEEDS_ID } from "./RssFeedList";
 
 interface Link {
@@ -383,11 +384,11 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view links</p>
         ) : isLoading || isValidating ? (
-          <p className="text-sol-base01 italic p-2">Loading...</p>
+          <ListLoading />
         ) : error && grouped.length === 0 ? (
-          <p className="text-sol-red p-2">Error loading links</p>
+          <ListError error={error} />
         ) : grouped.length === 0 ? (
-          <p className="text-sol-base01 italic p-2">No links found</p>
+          <ListEmpty label="links" />
         ) : (
           <>
             {grouped.map(([day, links]) => (

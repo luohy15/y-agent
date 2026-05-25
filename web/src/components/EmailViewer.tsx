@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, Fragment, useMemo } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface Email {
   email_id: string;
@@ -149,11 +150,11 @@ export default function EmailViewer() {
       {/* Content */}
       <div className="px-3 py-2">
         {isLoading && !loadedOnce ? (
-          <p className="text-sol-base01 italic">Loading...</p>
+          <ListLoading className="" />
         ) : error ? (
-          <p className="text-sol-red">Error loading emails</p>
+          <ListError error={error} className="" />
         ) : allEmails.length === 0 ? (
-          <p className="text-sol-base01 italic">No emails found</p>
+          <ListEmpty label="emails" className="" />
         ) : (
           <>
             <table className="w-full border-collapse">

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
+import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 interface CalendarEvent {
   event_id: string;
@@ -247,9 +248,11 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
       </div>
 
       {isLoading ? (
-        <p className="text-sol-base01 italic p-3">Loading...</p>
+        <ListLoading className="p-3" />
       ) : error ? (
-        <p className="text-sol-red p-3">Error loading events</p>
+        <ListError error={error} className="p-3" />
+      ) : events?.length === 0 ? (
+        <ListEmpty label="events" className="p-3" />
       ) : (
         <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto" onClick={() => setSelectedEvent(null)}>
           {/* Event detail popover */}
