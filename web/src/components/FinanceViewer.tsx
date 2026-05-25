@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
   LineChart, Line, BarChart, Bar, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, LabelList,
+  ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell,
 } from "recharts";
 
 interface AccountNode {
@@ -1047,6 +1047,7 @@ function AssetsOverTimeTooltip({ active, payload, label }: {
 }) {
   if (!active || !payload?.length) return null;
   const dataPoint = payload[0]?.payload;
+  const totalValue = Number(dataPoint?.Total || 0);
   const riskyValue = Number(dataPoint?.RiskyValue || 0);
   const riskyPct = Number(dataPoint?.RiskyPct || 0);
   const rows = payload
@@ -1055,6 +1056,10 @@ function AssetsOverTimeTooltip({ active, payload, label }: {
   return (
     <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
       <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.base1 }} />
+        <span style={{ color: SOL.base1, fontWeight: 500 }}>Total: {formatAmount(totalValue)} USD</span>
+      </div>
       {rows.map((p, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
@@ -1100,11 +1105,8 @@ function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange
             {hasRiskyData && <YAxis yAxisId="risky" orientation="right" domain={[0, 100]} tick={{ fill: SOL.yellow, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${v}%`} />}
             <Tooltip content={<AssetsOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {positions.map((account, index) => {
-              const isLast = index === positions.length - 1;
               return (
-                <Bar key={account} dataKey={account} yAxisId="assets" stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false}>
-                  {isLast && <LabelList dataKey="Total" position="top" formatter={(value: number) => formatCompactUsd(value)} fill={SOL.base1} fontSize={10} />}
-                </Bar>
+                <Bar key={account} dataKey={account} yAxisId="assets" stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
               );
             })}
             {hasRiskyData && <Line type="linear" dataKey="RiskyPct" yAxisId="risky" stroke={SOL.yellow} strokeDasharray="4 4" dot={false} strokeWidth={2} isAnimationActive={false} />}
