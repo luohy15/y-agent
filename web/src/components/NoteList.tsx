@@ -154,14 +154,14 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     if (showTodoMode) {
-      mutateTodoNotes();
+      mutateTodoNotes(undefined, { revalidate: true });
       return;
     }
-    if (tab === "journals") mutateJournals();
-    else if (tab === "pages") mutatePages();
-    else if (tab === "blog") mutateBlog();
-    else if (tab === "finance") mutateFinance();
-    else if (tab === "skills") mutateSkills();
+    if (tab === "journals") mutateJournals(undefined, { revalidate: true });
+    else if (tab === "pages") mutatePages(undefined, { revalidate: true });
+    else if (tab === "blog") mutateBlog(undefined, { revalidate: true });
+    else if (tab === "finance") mutateFinance(undefined, { revalidate: true });
+    else if (tab === "skills") mutateSkills(undefined, { revalidate: true });
   }, [refreshKey, showTodoMode, tab, mutateTodoNotes, mutateJournals, mutatePages, mutateBlog, mutateFinance, mutateSkills]);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
