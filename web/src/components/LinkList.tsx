@@ -242,7 +242,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     if (offset === 0) {
-      mutate(undefined, { revalidate: true });
+      mutate();
       return;
     }
     setOffset(0);
@@ -385,7 +385,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
         ) : isLoading && !loadedOnce ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error ? (
-          <p className="text-sol-base01 italic p-2">Error loading links</p>
+          <p className="text-sol-red p-2">Error loading links</p>
         ) : grouped.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No links found</p>
         ) : (
