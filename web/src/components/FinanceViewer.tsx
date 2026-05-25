@@ -178,17 +178,25 @@ function formatCompactUsd(value: number): string {
   return `${sign}${abs.toFixed(0)}`;
 }
 
-type PriceRange = "1M" | "3M" | "1Y" | "ALL";
+type PriceRange = "1M" | "3M" | "1Y" | "YTD" | "ALL";
 
-const PRICE_RANGES: PriceRange[] = ["1M", "3M", "1Y", "ALL"];
+const PRICE_RANGES: PriceRange[] = ["1M", "3M", "1Y", "YTD", "ALL"];
+
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function priceRangeStart(range: PriceRange): string | null {
   if (range === "ALL") return null;
   const date = new Date();
+  if (range === "YTD") return `${date.getFullYear()}-01-01`;
   if (range === "1M") date.setMonth(date.getMonth() - 1);
   if (range === "3M") date.setMonth(date.getMonth() - 3);
   if (range === "1Y") date.setFullYear(date.getFullYear() - 1);
-  return date.toISOString().slice(0, 10);
+  return localDateString(date);
 }
 
 function formatPriceDate(date: string): string {
@@ -748,19 +756,24 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
 }
 
 function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null }) {
-  const [range, setRange] = useState<PriceRange>("3M");
+  const [range, setRange] = useState<PriceRange>("YTD");
   const from = priceRangeStart(range);
   const params = new URLSearchParams({ symbol, limit: "1000" });
   if (vmName) params.set("vm_name", vmName);
   if (from) params.set("from", from);
   const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
 
-  const chartData = useMemo(() => (prices.data?.data ?? []).map((row) => ({
-    date: formatPriceDate(row.price_date),
-    rawDate: row.price_date,
-    price: row.price,
-    currency: row.currency,
-  })), [prices.data?.data]);
+  const chartData = useMemo(() => {
+    const today = localDateString(new Date());
+    return (prices.data?.data ?? [])
+      .filter((row) => row.price_date <= today)
+      .map((row) => ({
+        date: formatPriceDate(row.price_date),
+        rawDate: row.price_date,
+        price: row.price,
+        currency: row.currency,
+      }));
+  }, [prices.data?.data]);
 
   const currency = chartData[0]?.currency ?? "";
 
