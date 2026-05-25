@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, useMemo, type ReactNode } from "
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, BarChart, Bar, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell, LabelList,
 } from "recharts";
 
@@ -31,6 +31,7 @@ interface BalanceSheetHistoryItem {
 interface BalanceSheetPositionsHistoryItem {
   period: string;
   positions: Record<string, Record<string, number>>;
+  risky?: Record<string, number>;
 }
 
 interface IncomeStatementHistoryItem {
@@ -174,6 +175,10 @@ function formatPeriodLabel(period: string, fullYear = true): string {
 
 function totalPositionValue(positions: Record<string, Record<string, number>>): number {
   return Object.values(positions).reduce((sum, balance) => sum + positionValue(balance), 0);
+}
+
+function riskyPeriodValue(item: BalanceSheetPositionsHistoryItem): number {
+  return positionValue(item.risky);
 }
 
 function formatCompactUsd(value: number): string {
@@ -978,10 +983,14 @@ function buildPositionSeries(data: BalanceSheetPositionsHistoryItem[]) {
 
 function positionChartRows(data: BalanceSheetPositionsHistoryItem[], positions: string[]) {
   return data.map((item) => {
+    const total = totalPositionValue(item.positions);
+    const risky = riskyPeriodValue(item);
     const row: Record<string, string | number> = {
       period: formatPeriodLabel(item.period),
       rawPeriod: item.period,
-      Total: totalPositionValue(item.positions),
+      Total: total,
+      RiskyValue: risky,
+      RiskyPct: total > 0 ? (risky / total) * 100 : 0,
     };
     for (const account of positions) {
       if (account === "Other") continue;
@@ -999,6 +1008,17 @@ function positionPeriodTotals(data: BalanceSheetPositionsHistoryItem[]) {
   return Object.fromEntries(data.map((item) => [item.period, totalPositionValue(item.positions)]));
 }
 
+function riskyPeriodTotals(data: BalanceSheetPositionsHistoryItem[]) {
+  return Object.fromEntries(data.map((item) => [item.period, riskyPeriodValue(item)]));
+}
+
+function riskyPeriodPercents(data: BalanceSheetPositionsHistoryItem[]) {
+  return Object.fromEntries(data.map((item) => {
+    const total = totalPositionValue(item.positions);
+    return [item.period, total > 0 ? (riskyPeriodValue(item) / total) * 100 : 0];
+  }));
+}
+
 function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: string[], sortColumn: string, sortDir: "asc" | "desc") {
   return positions
     .map((position) => ({
@@ -1014,9 +1034,45 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
+function AssetsOverTimeTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string; payload?: any; dataKey?: string | number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const dataPoint = payload[0]?.payload;
+  const riskyValue = Number(dataPoint?.RiskyValue || 0);
+  const riskyPct = Number(dataPoint?.RiskyPct || 0);
+  const rows = payload
+    .filter((item) => item.dataKey !== "RiskyPct" && item.name !== "RiskyPct")
+    .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      {rows.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span style={{ color: SOL.base0 }}>{p.name}: {formatAmount(p.value)} USD</span>
+        </div>
+      ))}
+      <div className="mt-1 border-t pt-1" style={{ borderColor: SOL.base01 }}>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.yellow }} />
+          <span style={{ color: SOL.base1, fontWeight: 500 }}>Risky: {formatAmount(riskyValue)} USD</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.yellow }} />
+          <span style={{ color: SOL.base0 }}>Risky %: {formatAmount(riskyPct)}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[]; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
   const chartData = useMemo(() => positionChartRows(data, positions), [data, positions]);
   const hasData = chartData.some((row) => positions.some((account) => Math.abs(Number(row[account] || 0)) > 0.005));
+  const hasRiskyData = data.some((item) => item.risky && totalPositionValue(item.positions) > 0);
 
   return (
     <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
@@ -1031,20 +1087,22 @@ function AssetsOverTimeChart({ data, positions, granularity, onGranularityChange
         <div className="flex h-56 items-center justify-center text-sol-base01">No history yet</div>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData} margin={{ top: 24, right: 20, left: 20, bottom: 5 }}>
+          <ComposedChart data={chartData} margin={{ top: 24, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
-            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-            <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} sortByValueDesc />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <YAxis yAxisId="assets" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            {hasRiskyData && <YAxis yAxisId="risky" orientation="right" domain={[0, 100]} tick={{ fill: SOL.yellow, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${v}%`} />}
+            <Tooltip content={<AssetsOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {positions.map((account, index) => {
               const isLast = index === positions.length - 1;
               return (
-                <Bar key={account} dataKey={account} stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false}>
+                <Bar key={account} dataKey={account} yAxisId="assets" stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false}>
                   {isLast && <LabelList dataKey="Total" position="top" formatter={(value: number) => formatCompactUsd(value)} fill={SOL.base1} fontSize={10} />}
                 </Bar>
               );
             })}
-          </BarChart>
+            {hasRiskyData && <Line type="linear" dataKey="RiskyPct" yAxisId="risky" stroke={SOL.yellow} strokeDasharray="4 4" dot={false} strokeWidth={2} isAnimationActive={false} />}
+          </ComposedChart>
         </ResponsiveContainer>
       )}
     </div>
@@ -1060,6 +1118,8 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
   const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
   const rows = useMemo(() => positionTableRows(data, positions, effectiveSortColumn, sortDir), [data, positions, effectiveSortColumn, sortDir]);
   const totals = useMemo(() => positionPeriodTotals(data), [data]);
+  const riskyTotals = useMemo(() => riskyPeriodTotals(data), [data]);
+  const riskyPercents = useMemo(() => riskyPeriodPercents(data), [data]);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -1117,6 +1177,18 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
                 <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Total</td>
                 {data.map((item) => (
                   <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(totals[item.period] || 0)}</td>
+                ))}
+              </tr>
+              <tr className="bg-sol-base02/40 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base0 whitespace-nowrap">Risky</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base0 whitespace-nowrap">{formatAmount(riskyTotals[item.period] || 0)}</td>
+                ))}
+              </tr>
+              <tr className="bg-sol-base02/40 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base0 whitespace-nowrap">Risky %</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base0 whitespace-nowrap">{formatAmount(riskyPercents[item.period] || 0)}%</td>
                 ))}
               </tr>
             </tbody>
