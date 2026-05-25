@@ -34,8 +34,8 @@ interface BotConfigItem {
   model: string;
 }
 
-type RightPanel = "notes" | "chats" | "links" | "files" | "git";
-type ChatContextPanel = "notes" | "links";
+type RightPanel = "chats" | "notes" | "links" | "files" | "diff";
+type ChatContextPanel = "notes" | "links" | "files" | "diff";
 
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
@@ -114,12 +114,13 @@ export default function App() {
   });
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => localStorage.getItem("chatListCollapsed") === "true");
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
-    const saved = localStorage.getItem("rightPanel") as RightPanel;
-    return saved === "chats" || saved === "notes" || saved === "links" || saved === "files" || saved === "git" ? saved : "chats";
+    const saved = localStorage.getItem("rightPanel");
+    if (saved === "git") return "diff";
+    return saved === "chats" || saved === "notes" || saved === "links" || saved === "files" || saved === "diff" ? saved : "chats";
   });
   const [chatContextPanel, setChatContextPanel] = useState<ChatContextPanel>(() => {
     const saved = localStorage.getItem("chatContextPanel") as ChatContextPanel;
-    return saved === "links" ? saved : "notes";
+    return saved === "links" || saved === "files" || saved === "diff" ? saved : "notes";
   });
   const rightPanelResizingRef = useRef(false);
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
@@ -465,8 +466,10 @@ export default function App() {
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex items-center gap-1 px-2 py-1 border-b border-sol-base02 shrink-0">
         <span className="text-[0.6rem] uppercase tracking-wide text-sol-base01 mr-auto">Context</span>
-        <button onClick={() => setChatContextPanel("notes")} className={chatContextBtnClass(chatContextPanel === "notes")}>Notes</button>
-        <button onClick={() => setChatContextPanel("links")} className={chatContextBtnClass(chatContextPanel === "links")}>Links</button>
+        <button onClick={() => setChatContextPanel("notes")} className={chatContextBtnClass(chatContextPanel === "notes")}>Note</button>
+        <button onClick={() => setChatContextPanel("links")} className={chatContextBtnClass(chatContextPanel === "links")}>Link</button>
+        <button onClick={() => setChatContextPanel("files")} className={chatContextBtnClass(chatContextPanel === "files")}>File</button>
+        <button onClick={() => setChatContextPanel("diff")} className={chatContextBtnClass(chatContextPanel === "diff")}>Diff</button>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {chatContextPanel === "notes" ? (
@@ -478,7 +481,7 @@ export default function App() {
             todoId={chatListTraceId}
             hideFilters
           />
-        ) : (
+        ) : chatContextPanel === "links" ? (
           <LinkList
             isLoggedIn={auth.isLoggedIn}
             onPreview={(link) => {
@@ -491,6 +494,10 @@ export default function App() {
             todoId={chatListTraceId}
             hideFilters
           />
+        ) : chatContextPanel === "files" ? (
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={mobile ? (path) => { handlePreviewFile(path); setChatListOpen(false); } : handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+        ) : (
+          <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={mobile ? (path) => { handleOpenDiffFile(path); setChatListOpen(false); } : handleOpenDiffFile} />
         )}
       </div>
     </div>
@@ -874,11 +881,11 @@ export default function App() {
               </div>
               {/* Right panel tab header */}
               <div className="flex items-center gap-1 px-2 py-0.5 border-b border-sol-base02 shrink-0">
-                <button onClick={() => setRightPanel("notes")} className={rightPanelBtnClass(rightPanel === "notes")} title="Notes">
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
-                </button>
-                <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Filtered Chats">
+                <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Chat">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/></svg>
+                </button>
+                <button onClick={() => setRightPanel("notes")} className={rightPanelBtnClass(rightPanel === "notes")} title="Note">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
                 </button>
                 <button onClick={() => setRightPanel("links")} className={rightPanelBtnClass(rightPanel === "links")} title="Filtered Links">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
@@ -886,7 +893,7 @@ export default function App() {
                 <button onClick={() => setRightPanel("files")} className={rightPanelBtnClass(rightPanel === "files")} title="Files">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                 </button>
-                <button onClick={() => setRightPanel("git")} className={rightPanelBtnClass(rightPanel === "git")} title="Source Control">
+                <button onClick={() => setRightPanel("diff")} className={rightPanelBtnClass(rightPanel === "diff")} title="Diff">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg>
                 </button>
                 <div className="ml-auto flex items-center gap-1">
@@ -938,11 +945,11 @@ export default function App() {
           >
             {/* Mobile right panel tab header */}
             <div className="flex items-center gap-1 px-2 py-1 border-b border-sol-base02 shrink-0">
-              <button onClick={() => setRightPanel("notes")} className={rightPanelBtnClass(rightPanel === "notes")} title="Notes">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
-              </button>
-              <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Filtered Chats">
+              <button onClick={() => setRightPanel("chats")} className={rightPanelBtnClass(rightPanel === "chats")} title="Chat">
                 <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/></svg>
+              </button>
+              <button onClick={() => setRightPanel("notes")} className={rightPanelBtnClass(rightPanel === "notes")} title="Note">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
               </button>
               <button onClick={() => setRightPanel("links")} className={rightPanelBtnClass(rightPanel === "links")} title="Filtered Links">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
@@ -950,7 +957,7 @@ export default function App() {
               <button onClick={() => setRightPanel("files")} className={rightPanelBtnClass(rightPanel === "files")} title="Files">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               </button>
-              <button onClick={() => setRightPanel("git")} className={rightPanelBtnClass(rightPanel === "git")} title="Source Control">
+              <button onClick={() => setRightPanel("diff")} className={rightPanelBtnClass(rightPanel === "diff")} title="Diff">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg>
               </button>
               <div className="ml-auto flex items-center gap-1">
