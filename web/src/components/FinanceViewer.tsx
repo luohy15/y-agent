@@ -361,6 +361,46 @@ function holdingTotals(rows: HoldingRow[]): HoldingTotalRow[] {
   return recomputeTotals(rows, []);
 }
 
+function holdingBaseValue(row: HoldingPosition): number {
+  if (row.market_value_base != null) return row.market_value_base;
+  return row.market_value ?? 0;
+}
+
+function riskyAllocationSummary(allPositions?: HoldingPosition[], riskyPositions?: HoldingPosition[]) {
+  if (!allPositions || !riskyPositions) return null;
+  const total = allPositions.reduce((sum, row) => sum + Math.max(0, holdingBaseValue(row)), 0);
+  const risky = riskyPositions.reduce((sum, row) => sum + Math.max(0, holdingBaseValue(row)), 0);
+  return total > 0 ? { risky, total, ratio: risky / total } : null;
+}
+
+function RiskyAllocationSummary({ allPositions, riskyPositions, loading }: { allPositions?: HoldingPosition[]; riskyPositions?: HoldingPosition[]; loading: boolean }) {
+  const summary = useMemo(() => riskyAllocationSummary(allPositions, riskyPositions), [allPositions, riskyPositions]);
+  const currency = allPositions?.find((row) => row.market_value_base != null)?.allocation_base_currency ?? "USD";
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base02/40 px-3 py-2 text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sol-base1 font-medium uppercase tracking-wide">Risky Allocation</div>
+          <div className="text-sol-base01 text-[10px]">Risky assets / total holdings</div>
+        </div>
+        <div className="text-right tabular-nums">
+          {loading ? (
+            <div className="text-sol-base01 italic">Loading...</div>
+          ) : summary ? (
+            <>
+              <div className="text-sol-blue text-lg font-semibold">{(summary.ratio * 100).toFixed(1)}%</div>
+              <div className="text-sol-base01 text-[10px]">{formatAmount(summary.risky)} / {formatAmount(summary.total)} {currency}</div>
+            </>
+          ) : (
+            <div className="text-sol-base01">—</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatRelativeTime(iso?: string): string {
   if (!iso) return "not synced";
   const ts = new Date(iso).getTime();
@@ -1364,6 +1404,12 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const holdingsKey = tab === "holdings" && !holdingsOverTime
     ? `${API}/api/finance/positions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
+  const holdingsAllKey = tab === "holdings" && !holdingsOverTime && holdingsRiskyOnly
+    ? `${API}/api/finance/positions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=false`
+    : null;
+  const holdingsRiskyKey = tab === "holdings" && !holdingsOverTime && !holdingsRiskyOnly
+    ? `${API}/api/finance/positions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=true`
+    : null;
 
   const transactionsKey = tab === "transactions"
     ? `${API}/api/finance/transactions${vmQueryOnly}`
@@ -1385,6 +1431,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
   const is = useFinanceEnvelope<IncomeStatementData>(isKey);
   const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
+  const holdingsAll = useFinanceEnvelope<HoldingPosition[]>(holdingsAllKey);
+  const holdingsRisky = useFinanceEnvelope<HoldingPosition[]>(holdingsRiskyKey);
   const transactions = useFinanceEnvelope<TransactionRow[]>(transactionsKey);
   const fire = useFinanceEnvelope<FireProgressData>(fireKey);
   const bsHist = useFinanceEnvelope<BalanceSheetHistoryItem[]>(bsHistKey);
@@ -1393,6 +1441,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const bsData = bs.data?.data;
   const isData = is.data?.data;
   const holdingsData = holdings.data?.data;
+  const holdingsAllData = holdingsRiskyOnly ? holdingsAll.data?.data : holdingsData;
+  const holdingsRiskyData = holdingsRiskyOnly ? holdingsData : holdingsRisky.data?.data;
   const transactionsData = transactions.data?.data;
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
@@ -1518,7 +1568,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               ) : holdingsData ? (
                 <>
                   <HoldingsPieChart positions={holdingsData} />
-                  <div className="flex justify-end px-2 py-3">
+                  <div className="flex items-center justify-between gap-3 px-2 py-3">
+                    <RiskyAllocationSummary allPositions={holdingsAllData} riskyPositions={holdingsRiskyData} loading={holdings.isLoading || holdingsAll.isLoading || holdingsRisky.isLoading} />
                     <HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />
                   </div>
                   <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} />
