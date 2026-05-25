@@ -12,3 +12,7 @@ def list_for(user_id: int, vm_name: str, symbol: str | None = None, from_date: s
 
 def latest_pair(user_id: int, vm_name: str, symbol: str, currency: str, as_of):
     return repo.latest_pair(user_id, vm_name, symbol, currency, as_of)
+
+
+def list_for_pairs(user_id: int, vm_name: str, pairs: set[tuple[str, str]], as_of):
+    return repo.list_for_pairs(user_id, vm_name, pairs, as_of)
