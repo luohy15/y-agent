@@ -181,10 +181,10 @@ function formatCompactUsd(value: number): string {
 type PriceRange = "1M" | "3M" | "1Y" | "YTD" | "ALL";
 
 const PRICE_RANGES: Array<{ label: PriceRange; value: string }> = [
-  { label: "1M", value: "day-30 to day-1" },
-  { label: "3M", value: "day-90 to day-1" },
-  { label: "1Y", value: "day-365 to day-1" },
-  { label: "YTD", value: "year to day-1" },
+  { label: "1M", value: "1M" },
+  { label: "3M", value: "3M" },
+  { label: "1Y", value: "1Y" },
+  { label: "YTD", value: "YTD" },
   { label: "ALL", value: "" },
 ];
 
@@ -746,7 +746,7 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
 
 function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null }) {
   const [range, setRange] = useState<PriceRange>("YTD");
-  const time = PRICE_RANGES.find((item) => item.label === range)?.value ?? "year to day-1";
+  const time = PRICE_RANGES.find((item) => item.label === range)?.value ?? "YTD";
   const params = new URLSearchParams({ symbol, limit: "1000", time });
   if (vmName) params.set("vm_name", vmName);
   const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
