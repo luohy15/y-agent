@@ -87,7 +87,7 @@ function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: strin
 export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange }: TraceViewProps) {
   // Fetch chats for selected trace
   const traceChatsKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
-  const { data: traceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher);
+  const { data: traceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher, { revalidateOnFocus: false });
 
   // Fetch current share (if any) for this trace
   const myShareKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
@@ -100,6 +100,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
       if (!res.ok) throw new Error("fetch failed");
       return res.json();
     },
+    { revalidateOnFocus: false },
   );
 
   const traceChats = traceData?.chats;
