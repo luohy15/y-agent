@@ -384,7 +384,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
           <p className="text-sol-base01 italic p-2">Sign in to view links</p>
         ) : isLoading && !loadedOnce ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
-        ) : error ? (
+        ) : error && grouped.length === 0 ? (
           <p className="text-sol-red p-2">Error loading links</p>
         ) : grouped.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No links found</p>

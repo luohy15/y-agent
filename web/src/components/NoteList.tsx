@@ -299,7 +299,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <p className="text-sol-base01 italic p-2">Select a todo to view notes</p>
           ) : todoNotesLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : todoNotesError ? (
+          ) : todoNotesError && !todoNotes ? (
             <p className="text-sol-red p-2">Error loading notes</p>
           ) : !todoNotes || todoNotes.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No notes found</p>
@@ -442,7 +442,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         ) : tab === "finance" ? (
           financeLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : financeError ? (
+          ) : financeError && !financeData ? (
             <p className="text-sol-red p-2">Error loading {financeSubTab}</p>
           ) : financeFiles.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No files found</p>
@@ -466,7 +466,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         ) : tab === "skills" ? (
           skillsLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : skillsError ? (
+          ) : skillsError && !skillsData ? (
             <p className="text-sol-red p-2">Error loading skills</p>
           ) : !skillsData?.skills?.length ? (
             <p className="text-sol-base01 italic p-2">No skills found</p>
@@ -492,7 +492,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         ) : tab === "journals" ? (
           journalsLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : journalsError ? (
+          ) : journalsError && !journalsData ? (
             <p className="text-sol-red p-2">Error loading journals</p>
           ) : journalGroups.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No journals found</p>
@@ -527,7 +527,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         ) : tab === "pages" ? (
           pagesLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : pagesError ? (
+          ) : pagesError && !pagesData ? (
             <p className="text-sol-red p-2">Error loading pages</p>
           ) : pageFiles.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No pages found</p>
@@ -562,7 +562,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         ) : (
           blogLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
-          ) : blogError ? (
+          ) : blogError && !blogData ? (
             <p className="text-sol-red p-2">Error loading blog</p>
           ) : blogEntries.length === 0 ? (
             <p className="text-sol-base01 italic p-2">No posts found</p>

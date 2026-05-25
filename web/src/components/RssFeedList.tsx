@@ -285,7 +285,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
           <p className="text-sol-base01 italic p-2">Sign in to manage RSS feeds</p>
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
-        ) : error ? (
+        ) : error && !data ? (
           <p className="text-sol-red p-2">Error loading feeds</p>
         ) : !data || data.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No feeds yet. Add one above.</p>

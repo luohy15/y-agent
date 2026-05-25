@@ -34,5 +34,9 @@ export async function jsonFetcher(url: string, opts: { signal?: AbortSignal } = 
     clearToken();
     throw new Error("Unauthorized");
   }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText || `HTTP ${res.status}`);
+  }
   return res.json();
 }

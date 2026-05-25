@@ -79,7 +79,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
         ) : isLoading ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
-        ) : error ? (
+        ) : error && traces.length === 0 ? (
           <p className="text-sol-red p-2">Error loading todos</p>
         ) : traces.length === 0 ? (
           <p className="text-sol-base01 italic p-2">No todos yet</p>
