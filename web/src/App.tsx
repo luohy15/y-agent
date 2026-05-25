@@ -449,6 +449,13 @@ export default function App() {
     auth.logout();
   }, [auth]);
 
+  const refreshChatListAndContext = useCallback(() => {
+    setChatListRefreshKey((k) => k + 1);
+    setChatContextRefreshKey((k) => k + 1);
+    setChatListSpinning(true);
+    setTimeout(() => setChatListSpinning(false), 600);
+  }, []);
+
   const commandActions: CommandAction[] = useMemo(() => [
     {
       id: 'close-all-editors',
@@ -901,7 +908,7 @@ export default function App() {
                 </button>
                 <div className="ml-auto flex items-center gap-1">
                   <button
-                    onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
+                    onClick={refreshChatListAndContext}
                     className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
                     title="Refresh"
                   >
@@ -921,13 +928,13 @@ export default function App() {
                 {rightPanel === "chats" ? (
                   renderChatSplitPanel()
                 ) : rightPanel === "notes" ? (
-                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
+                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
                 ) : rightPanel === "links" ? (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters />
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
                 ) : rightPanel === "files" ? (
-                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} />
+                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
                 ) : (
-                  <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} />
+                  <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
                 )}
               </div>
             </div>
@@ -965,7 +972,7 @@ export default function App() {
               </button>
               <div className="ml-auto flex items-center gap-1">
                 <button
-                  onClick={() => { setChatListRefreshKey((k) => k + 1); setChatListSpinning(true); setTimeout(() => setChatListSpinning(false), 600); }}
+                  onClick={refreshChatListAndContext}
                   className="p-1.5 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
                   title="Refresh"
                 >
@@ -985,13 +992,13 @@ export default function App() {
               {rightPanel === "chats" ? (
                 renderChatSplitPanel(true)
               ) : rightPanel === "notes" ? (
-                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
               ) : rightPanel === "links" ? (
-                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
               ) : rightPanel === "files" ? (
-                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} />
+                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
               ) : (
-                <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} />
+                <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} refreshKey={chatContextRefreshKey} />
               )}
             </div>
           </div>

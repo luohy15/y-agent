@@ -242,7 +242,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
     if (offset === 0) {
-      mutate();
+      mutate(undefined, { revalidate: true });
       return;
     }
     setOffset(0);
