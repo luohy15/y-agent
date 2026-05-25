@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from "react";
+import { Fragment, useState, useMemo, type ReactNode } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import {
@@ -93,6 +93,13 @@ interface TransactionRow {
   narration: string;
 }
 
+interface FinancePriceRow {
+  symbol: string;
+  price_date: string;
+  price: number;
+  currency: string;
+}
+
 type Tab = "balance-sheet" | "income-statement" | "holdings" | "transactions" | "fire";
 
 interface FireProgressData {
@@ -150,6 +157,25 @@ function formatPeriodLabel(period: string, fullYear = true): string {
   if (!month) return year;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${months[parseInt(month, 10) - 1]} ${fullYear ? year : year.slice(2)}`;
+}
+
+type PriceRange = "1M" | "3M" | "1Y" | "ALL";
+
+const PRICE_RANGES: PriceRange[] = ["1M", "3M", "1Y", "ALL"];
+
+function priceRangeStart(range: PriceRange): string | null {
+  if (range === "ALL") return null;
+  const date = new Date();
+  if (range === "1M") date.setMonth(date.getMonth() - 1);
+  if (range === "3M") date.setMonth(date.getMonth() - 3);
+  if (range === "1Y") date.setFullYear(date.getFullYear() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatPriceDate(date: string): string {
+  const [year, month, day] = date.split("-");
+  if (!year || !month || !day) return date;
+  return `${month}/${day}`;
 }
 
 function shortName(account: string): string {
@@ -359,9 +385,10 @@ function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]):
   });
 }
 
-function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void }) {
+function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
+  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
   const handleSort = (key: HoldingSortKey) => {
     if (key === sortKey) {
       const next = sortDir === "asc" ? "desc" : "asc";
@@ -406,6 +433,11 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
 
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
 
+  const toggleExpanded = (row: HoldingRow) => {
+    if (row.is_cash) return;
+    setExpandedSymbol((current) => current === row.units.currency ? null : row.units.currency);
+  };
+
   return (
     <div className="mb-4">
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
@@ -438,30 +470,50 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
           </tr>
         </thead>
         <tbody>
-          {sorted.map((h, i) => (
-            <tr key={i} className="hover:bg-sol-base02/50">
-              <td className="py-0.5 px-3 text-sol-base1">{h.units.currency}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(h.units.number)}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {h.average_cost != null ? formatAmount(typeof h.average_cost === "number" ? h.average_cost : h.average_cost.number) : "—"}
-              </td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {h.price != null ? formatAmount(typeof h.price === "number" ? h.price : h.price.number) : "—"}
-              </td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {isValidAmount(h.book_value) ? <>{formatAmount(h.book_value.number)} <span className="text-sol-base01 text-xs">{h.book_value.currency}</span></> : "—"}
-              </td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
-              </td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                {h.allocation_pct != null ? `${(h.allocation_pct * 100).toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
-              </td>
-              <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
-                {h.unrealized_profit_pct != null ? <>{h.unrealized_profit_pct > 0 ? "+" : ""}{formatAmount(h.unrealized_profit_pct)}%</> : "—"}
-              </td>
-            </tr>
-          ))}
+          {sorted.map((h, i) => {
+            const isExpanded = expandedSymbol === h.units.currency;
+            const canExpand = !h.is_cash;
+            return (
+              <Fragment key={`${h.units.currency}-${i}`}>
+                <tr
+                  className={`hover:bg-sol-base02/50 ${canExpand ? "cursor-pointer" : ""}`}
+                  onClick={() => toggleExpanded(h)}
+                  title={canExpand ? `Show ${h.units.currency} price history` : undefined}
+                >
+                  <td className="py-0.5 px-3 text-sol-base1">
+                    <span className="inline-block w-4 text-center text-sol-base01 text-xs">{canExpand ? (isExpanded ? "\u25BC" : "\u25B6") : ""}</span>
+                    <span className="ml-1">{h.units.currency}</span>
+                  </td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(h.units.number)}</td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                    {h.average_cost != null ? formatAmount(typeof h.average_cost === "number" ? h.average_cost : h.average_cost.number) : "—"}
+                  </td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                    {h.price != null ? formatAmount(typeof h.price === "number" ? h.price : h.price.number) : "—"}
+                  </td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                    {isValidAmount(h.book_value) ? <>{formatAmount(h.book_value.number)} <span className="text-sol-base01 text-xs">{h.book_value.currency}</span></> : "—"}
+                  </td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                    {isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
+                  </td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
+                    {h.allocation_pct != null ? `${(h.allocation_pct * 100).toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
+                  </td>
+                  <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
+                    {h.unrealized_profit_pct != null ? <>{h.unrealized_profit_pct > 0 ? "+" : ""}{formatAmount(h.unrealized_profit_pct)}%</> : "—"}
+                  </td>
+                </tr>
+                {isExpanded ? (
+                  <tr className="border-y border-sol-base02 bg-sol-base03">
+                    <td colSpan={8} className="px-3 py-3">
+                      <PriceChart symbol={h.units.currency} vmName={vmName} />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
           {displayTotals.map((t, i) => {
             const bv = isValidAmount(t.book_value) ? t.book_value : null;
             const mv = isValidAmount(t.market_value) ? t.market_value : null;
@@ -607,6 +659,8 @@ function GranularityToggle({ value, onChange }: { value: Granularity; onChange: 
 // --- Chart Components ---
 
 function tooltipLabel(payload: any[] | undefined, fallback?: string): string {
+  const rawDate = payload?.[0]?.payload?.rawDate;
+  if (rawDate) return rawDate;
   const raw = payload?.[0]?.payload?.rawPeriod;
   if (raw) return formatPeriodLabel(raw, true);
   return fallback ?? "";
@@ -628,6 +682,70 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
           <span style={{ color: SOL.base0 }}>{p.name}: {formatter ? formatter(p.value) : p.value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null }) {
+  const [range, setRange] = useState<PriceRange>("3M");
+  const from = priceRangeStart(range);
+  const params = new URLSearchParams({ symbol, limit: "1000" });
+  if (vmName) params.set("vm_name", vmName);
+  if (from) params.set("from", from);
+  const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
+
+  const chartData = useMemo(() => (prices.data?.data ?? []).map((row) => ({
+    date: formatPriceDate(row.price_date),
+    rawDate: row.price_date,
+    price: row.price,
+    currency: row.currency,
+  })), [prices.data?.data]);
+
+  const currency = chartData[0]?.currency ?? "";
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 p-3" onClick={(event) => event.stopPropagation()}>
+      <div className="mb-2 flex items-center justify-between">
+        <div>
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{symbol} price history</div>
+          <div className="text-sol-base01 text-[10px]">{prices.data?.synced_at ? `synced ${formatRelativeTime(prices.data.synced_at)}` : "Daily prices"}</div>
+        </div>
+        <div className="flex gap-1">
+          {PRICE_RANGES.map((item) => (
+            <button
+              key={item}
+              onClick={() => setRange(item)}
+              className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+                range === item
+                  ? "bg-sol-blue text-sol-base03"
+                  : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      {prices.isLoading ? (
+        <div className="flex h-56 items-center justify-center text-sol-base01 italic">Loading price history...</div>
+      ) : prices.error ? (
+        <div className="flex h-56 items-center justify-center text-sol-red">Error loading price history</div>
+      ) : chartData.length === 0 ? (
+        <div className="flex h-56 items-center justify-center text-sol-base01">No price history</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="date" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} domain={["auto", "auto"]} tickFormatter={(v) => formatAmount(v)} />
+            <Tooltip
+              content={<ChartTooltipContent formatter={(value) => `${formatAmount(value)} ${currency}`} />}
+              labelFormatter={(label) => String(label)}
+            />
+            <Line type="monotone" dataKey="price" name="Price" stroke={SOL.blue} strokeWidth={2} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }
@@ -1113,7 +1231,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           ) : holdingsData ? (
             <>
               <HoldingsPieChart positions={holdingsData} />
-              <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} />
+              <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={setHoldingsRiskyOnly} vmName={vmName} />
             </>
           ) : null
         ) : tab === "transactions" ? (
