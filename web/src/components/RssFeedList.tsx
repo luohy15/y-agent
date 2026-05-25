@@ -76,7 +76,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
   const [err, setErr] = useState<string | null>(null);
 
   const swrKey = isLoggedIn ? `${API}/api/rss-feed/list` : null;
-  const { data, isLoading, error, mutate } = useSWR<RssFeed[]>(swrKey, fetcher, { revalidateOnFocus: false });
+  const { data, isLoading, isValidating, error, mutate } = useSWR<RssFeed[]>(swrKey, fetcher, { revalidateOnFocus: false });
 
   const handleAdd = useCallback(async () => {
     const url = urlInput.trim();
@@ -283,7 +283,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
       <div className="flex-1 overflow-y-auto p-1.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to manage RSS feeds</p>
-        ) : isLoading ? (
+        ) : isLoading || isValidating ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error && !data ? (
           <p className="text-sol-red p-2">Error loading feeds</p>

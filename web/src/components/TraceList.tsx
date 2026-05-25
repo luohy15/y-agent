@@ -77,7 +77,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
-        ) : isLoading ? (
+        ) : isLoading || isValidating ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error && traces.length === 0 ? (
           <p className="text-sol-red p-2">Error loading todos</p>

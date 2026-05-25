@@ -21,7 +21,7 @@ export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntit
   const [spinning, setSpinning] = useState(false);
 
   const swrKey = isLoggedIn ? `${API}/api/entity/list?limit=500` : null;
-  const { data, isLoading, error, mutate } = useSWR<Entity[]>(swrKey, fetcher, { revalidateOnFocus: false });
+  const { data, isLoading, isValidating, error, mutate } = useSWR<Entity[]>(swrKey, fetcher, { revalidateOnFocus: false });
 
   const types = useMemo(() => {
     if (!data) return [];
@@ -80,7 +80,7 @@ export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntit
       <div className="flex-1 overflow-y-auto p-1.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view entities</p>
-        ) : isLoading ? (
+        ) : isLoading || isValidating ? (
           <p className="text-sol-base01 italic p-2">Loading...</p>
         ) : error && !data ? (
           <p className="text-sol-red p-2">Error loading entities</p>
