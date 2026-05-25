@@ -35,6 +35,7 @@ interface BotConfigItem {
 }
 
 type RightPanel = "notes" | "chats" | "links" | "files" | "git";
+type ChatContextPanel = "notes" | "links";
 
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
@@ -115,6 +116,10 @@ export default function App() {
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
     const saved = localStorage.getItem("rightPanel") as RightPanel;
     return saved === "chats" || saved === "notes" || saved === "links" || saved === "files" || saved === "git" ? saved : "chats";
+  });
+  const [chatContextPanel, setChatContextPanel] = useState<ChatContextPanel>(() => {
+    const saved = localStorage.getItem("chatContextPanel") as ChatContextPanel;
+    return saved === "links" ? saved : "notes";
   });
   const rightPanelResizingRef = useRef(false);
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
@@ -237,6 +242,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("desktopSidebarOpen", String(desktopSidebarOpen)); }, [desktopSidebarOpen]);
   useEffect(() => { localStorage.setItem("sidebarPanel", sidebarPanel); }, [sidebarPanel]);
   useEffect(() => { localStorage.setItem("rightPanel", rightPanel); }, [rightPanel]);
+  useEffect(() => { localStorage.setItem("chatContextPanel", chatContextPanel); }, [chatContextPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
   useEffect(() => { localStorage.removeItem("selectedBot"); }, []);
   useEffect(() => {
@@ -451,6 +457,63 @@ export default function App() {
 
   const rightPanelBtnClass = (active: boolean) =>
     `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
+
+  const chatContextBtnClass = (active: boolean) =>
+    `px-2 py-1 text-[0.65rem] rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
+
+  const renderChatContextPanel = (mobile = false) => (
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-sol-base02 shrink-0">
+        <span className="text-[0.6rem] uppercase tracking-wide text-sol-base01 mr-auto">Context</span>
+        <button onClick={() => setChatContextPanel("notes")} className={chatContextBtnClass(chatContextPanel === "notes")}>Notes</button>
+        <button onClick={() => setChatContextPanel("links")} className={chatContextBtnClass(chatContextPanel === "links")}>Links</button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {chatContextPanel === "notes" ? (
+          <NoteList
+            isLoggedIn={auth.isLoggedIn}
+            vmName={selectedVM}
+            workDir={defaultWorkDir}
+            onOpenFile={mobile ? (path) => { handleOpenFile(path); setChatListOpen(false); } : handleOpenFile}
+            todoId={chatListTraceId}
+            hideFilters
+          />
+        ) : (
+          <LinkList
+            isLoggedIn={auth.isLoggedIn}
+            onPreview={(link) => {
+              setSelectedLinkId(link.activity_id);
+              setSelectedLinkLinkId(null);
+              setSelectedLinkContentKey(link.content_key || null);
+              handleOpenFile("link.md");
+              if (mobile) setChatListOpen(false);
+            }}
+            todoId={chatListTraceId}
+            hideFilters
+          />
+        )}
+      </div>
+    </div>
+  );
+
+  const renderChatSplitPanel = (mobile = false) => (
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden border-b border-sol-base02">
+        <ChatList
+          isLoggedIn={auth.isLoggedIn}
+          selectedChatId={selectedChatId}
+          onSelectChat={handleSelectChat}
+          refreshKey={chatListRefreshKey}
+          traceId={chatListTraceId}
+          hideFilters
+          onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }}
+        />
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {renderChatContextPanel(mobile)}
+      </div>
+    </div>
+  );
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
@@ -846,10 +909,7 @@ export default function App() {
               {/* Right panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
                 {rightPanel === "chats" ? (
-                  // Right-side ChatList is the in-context, trace-bound view — only filters
-                  // by trace_id (the surrounding chat's todo). Routine filtering lives on
-                  // the left-side ChatList instead.
-                  <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  renderChatSplitPanel()
                 ) : rightPanel === "notes" ? (
                   <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters />
                 ) : rightPanel === "links" ? (
@@ -913,9 +973,7 @@ export default function App() {
             {/* Mobile right panel content */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {rightPanel === "chats" ? (
-                // Right-side ChatList is the in-context, trace-bound view — only filters
-                // by trace_id. Routine filtering lives on the left-side ChatList.
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} traceId={chatListTraceId} hideFilters onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                renderChatSplitPanel(true)
               ) : rightPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters />
               ) : rightPanel === "links" ? (
