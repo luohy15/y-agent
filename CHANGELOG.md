@@ -13,9 +13,20 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.14] - 2026-05-24
+
+### Added
 - **Note sharing (2164 / 2165 / 2171)** — notes can now be shared via S3-backed snapshots at `/n/:shareId`, with optional password protection, share management, refresh-to-resnapshot, linked shared-note URLs in trace todo details, and a generated table of contents on shared note pages.
 - **Telegram assistant image delivery metadata (2112)** — assistant image delivery now records durable Telegram delivery metadata for follow-up chat rendering and monitoring.
 - **Claude Code resume session restoration** — Claude Code resume launches now restore missing session JSONL files from the backup-projects archive before starting `claude -r`, recovering chats pruned by Claude's cleanup window.
+- **Finance snapshots, holdings, prices, and transactions (2184)** — Beancount finance sync now persists snapshots, holdings, prices, and transactions through storage entities/repositories/services, adds matching CLI commands and API wiring, and expands FinanceViewer to browse the synced data.
 
 ### Changed
 
@@ -26,6 +37,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Tail cancellation resume state (2120)** — Codex, Claude, and Gemini tailers now return resumable monitoring state on cancellation, preserving offsets, message ids, sessions, and consumed steer ids for the next monitor pass.
 - **Attached image duplicate delivery (2115)** — chat image attachments are now delivered once per request instead of being duplicated through the API handoff path.
 - **Worker timeout resume session ids** — worker monitor metadata now falls back to the stored process session/thread id when a timeout or error result omits it, keeping resumed Claude/Codex/Gemini chats linked to the correct session.
+- **Local file link handling (2183)** — local file URL normalization, opening, and CodeEditor/FileViewer navigation now handle additional path shapes consistently across chat messages and tests.
 
 ### Removed
 
