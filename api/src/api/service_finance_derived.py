@@ -270,7 +270,7 @@ def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_o
     for row, base_value in zip(rows, base_values):
         row["allocation_base_currency"] = base_currency
         row["market_value_base"] = round(base_value, 2) if base_value is not None else None
-        row["allocation_pct"] = round(base_value / total_base_market_value * 100, 4) if base_value is not None and total_base_market_value else None
+        row["allocation_pct"] = round(base_value / total_base_market_value, 6) if base_value is not None and total_base_market_value else None
 
     return DerivedResult(rows, holdings[0].synced_at if holdings else "")
 
