@@ -13,6 +13,17 @@ from storage.service import finance_price as price_service
 from storage.service import finance_transaction as transaction_service
 
 
+TIME_RANGE_ALIASES = {
+    "ytd": "year to day-1",
+    "mtd": "month to day-1",
+    "qtd": "quarter to day-1",
+    "1m": "day-30 to day-1",
+    "3m": "day-90 to day-1",
+    "1y": "day-365 to day-1",
+    "all": "",
+}
+
+
 class ConversionError(ValueError):
     pass
 
@@ -41,7 +52,8 @@ def _today() -> datetime.date:
 
 
 def parse_time_range(time_filter: str, default: str | None = None) -> tuple[datetime.date | None, datetime.date | None]:
-    value = time_filter or default or ""
+    value = (time_filter or default or "").strip()
+    value = TIME_RANGE_ALIASES.get(value.lower(), value)
     if not value:
         return None, None
     return parse_date(value)
