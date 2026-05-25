@@ -150,9 +150,12 @@ class FinanceApiServicesTest(unittest.TestCase):
             result = derived_service.balance_sheet_positions(123, "", "2026", "monthly", "USD", risky_only=True)
 
         self.assertEqual(result.data[0]["positions"], {"AAPL": {"USD": 10.0}})
+        self.assertEqual(result.data[0]["total"], {"USD": 10.0})
         self.assertEqual(result.data[0]["risky"], {"USD": 10.0})
         self.assertEqual(result.data[1]["positions"], {"AAPL": {"USD": 60.0}})
+        self.assertEqual(result.data[1]["total"], {"USD": 65.0})
         self.assertEqual(result.data[1]["risky"], {"USD": 60.0})
+        self.assertEqual(result.data[2]["total"], {"USD": 65.0})
         self.assertEqual(result.data[2]["risky"], {"USD": 60.0})
         list_for_pairs.assert_called_once_with({("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
         latest_pair.assert_not_called()

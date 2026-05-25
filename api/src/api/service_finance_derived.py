@@ -389,15 +389,18 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
             _add_position_total(positions, dated_rows[row_index][1], assets_root)
             row_index += 1
         period_positions = _copy_balances(positions)
+        total_positions = period_positions
         risky_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if risky_only:
             period_positions = risky_positions
         if convert_to:
             as_of = period_end - datetime.timedelta(days=1)
+            total_positions = _convert_account_balances(user_id, vm_name, total_positions, convert_to, as_of, lookup)
             period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, as_of, lookup)
             risky_positions = _convert_account_balances(user_id, vm_name, risky_positions, convert_to, as_of, lookup)
+        total = _sum_balances(total_positions)
         risky_total = _sum_balances(risky_positions)
-        result.append({"period": label, "positions": period_positions, "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {})})
+        result.append({"period": label, "positions": period_positions, "total": total if total else ({convert_to: 0.0} if convert_to else {}), "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {})})
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
