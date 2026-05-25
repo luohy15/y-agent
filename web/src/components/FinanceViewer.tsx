@@ -180,24 +180,13 @@ function formatCompactUsd(value: number): string {
 
 type PriceRange = "1M" | "3M" | "1Y" | "YTD" | "ALL";
 
-const PRICE_RANGES: PriceRange[] = ["1M", "3M", "1Y", "YTD", "ALL"];
-
-function localDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function priceRangeStart(range: PriceRange): string | null {
-  if (range === "ALL") return null;
-  const date = new Date();
-  if (range === "YTD") return `${date.getFullYear()}-01-01`;
-  if (range === "1M") date.setMonth(date.getMonth() - 1);
-  if (range === "3M") date.setMonth(date.getMonth() - 3);
-  if (range === "1Y") date.setFullYear(date.getFullYear() - 1);
-  return localDateString(date);
-}
+const PRICE_RANGES: Array<{ label: PriceRange; value: string }> = [
+  { label: "1M", value: "day-30 to day-1" },
+  { label: "3M", value: "day-90 to day-1" },
+  { label: "1Y", value: "day-365 to day-1" },
+  { label: "YTD", value: "year to day-1" },
+  { label: "ALL", value: "" },
+];
 
 function formatPriceDate(date: string): string {
   const [year, month, day] = date.split("-");
@@ -757,10 +746,9 @@ function ChartTooltipContent({ active, payload, label, formatter }: {
 
 function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null }) {
   const [range, setRange] = useState<PriceRange>("YTD");
-  const from = priceRangeStart(range);
-  const params = new URLSearchParams({ symbol, limit: "1000" });
+  const time = PRICE_RANGES.find((item) => item.label === range)?.value ?? "year to day-1";
+  const params = new URLSearchParams({ symbol, limit: "1000", time });
   if (vmName) params.set("vm_name", vmName);
-  if (from) params.set("from", from);
   const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
 
   const chartData = useMemo(() =>
@@ -785,15 +773,15 @@ function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null
         <div className="flex gap-1">
           {PRICE_RANGES.map((item) => (
             <button
-              key={item}
-              onClick={() => setRange(item)}
+              key={item.label}
+              onClick={() => setRange(item.label)}
               className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
-                range === item
+                range === item.label
                   ? "bg-sol-blue text-sol-base03"
                   : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
               }`}
             >
-              {item}
+              {item.label}
             </button>
           ))}
         </div>
