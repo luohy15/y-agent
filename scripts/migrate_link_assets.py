@@ -23,9 +23,6 @@ from storage.entity.link import LinkActivityEntity, LinkEntity  # noqa: E402
 from storage.global_config import load_global_config  # noqa: E402
 from storage.repository import link as link_repo  # noqa: E402
 
-HOME = Path.home() / "luohy15"
-WEB_ROOT = HOME / "assets" / "web"
-TLDR_ROOT = HOME / "assets" / "tldr"
 REPORT = ROOT / "scripts" / "migration-report-2216.md"
 ORPHANS = ROOT / "scripts" / "migration-report-2216-orphans.md"
 
@@ -56,6 +53,10 @@ def load_database_url() -> str:
     if not database_url:
         raise SystemExit("DATABASE_URL not found in env, repo .env, or ~/.y-agent/config.toml")
     return database_url
+
+
+def resolve_home() -> Path:
+    return Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", str(Path.home() / "luohy15"))))
 
 
 def candidate_urls(path: Path, root: Path) -> list[str]:
@@ -127,13 +128,13 @@ def current_content_key(match: Match, kind: str, is_activity: bool) -> str | Non
     return match.activity.content_key if is_activity else match.link.content_key
 
 
-def copy_asset(path: Path, target_rel_path: str) -> None:
-    target_path = HOME / target_rel_path
+def copy_asset(path: Path, target_rel_path: str, home: Path) -> None:
+    target_path = home / target_rel_path
     target_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, target_path)
 
 
-def migrate_existing_kind(session, root: Path, kind: str, dry_run: bool, stats: MigrationStats) -> None:
+def migrate_existing_kind(session, home: Path, root: Path, kind: str, dry_run: bool, stats: MigrationStats) -> None:
     if not root.exists():
         return
     for path in sorted(root.rglob("*.md")):
@@ -145,7 +146,7 @@ def migrate_existing_kind(session, root: Path, kind: str, dry_run: bool, stats: 
                 stats.unresolvable_lines.append(f"- tldr: {path} -> {', '.join(urls) or 'unrecognized'}")
             continue
         target_rel_path, key, is_activity = destination(match, kind)
-        target_path = HOME / target_rel_path
+        target_path = home / target_rel_path
         if current_content_key(match, kind, is_activity) == key and (dry_run or target_path.exists()):
             continue
         if kind == "web":
@@ -154,7 +155,7 @@ def migrate_existing_kind(session, root: Path, kind: str, dry_run: bool, stats: 
             stats.tldr_migrated += 1
         if dry_run:
             continue
-        copy_asset(path, target_rel_path)
+        copy_asset(path, target_rel_path, home)
         if kind == "tldr":
             if is_activity:
                 match.activity.summary_content_key = key
@@ -169,7 +170,7 @@ def migrate_existing_kind(session, root: Path, kind: str, dry_run: bool, stats: 
                 match.link.download_status = "done"
 
 
-def promote_web_orphans(session, root: Path, dry_run: bool, stats: MigrationStats) -> None:
+def promote_web_orphans(session, home: Path, root: Path, dry_run: bool, stats: MigrationStats) -> None:
     if not root.exists():
         return
     for path in sorted(root.rglob("*.md")):
@@ -193,12 +194,12 @@ def promote_web_orphans(session, root: Path, dry_run: bool, stats: MigrationStat
         link.download_status = "done"
         link_id = link.link_id
         if not dry_run:
-            copy_asset(path, content_key)
+            copy_asset(path, content_key, home)
         stats.web_created += 1
         stats.create_lines.append(f"- {url} -> link_id={link_id} content_key={content_key} source={path}")
 
 
-def attach_tldr_orphans(session, root: Path, dry_run: bool, stats: MigrationStats) -> None:
+def attach_tldr_orphans(session, home: Path, root: Path, dry_run: bool, stats: MigrationStats) -> None:
     if not root.exists():
         return
     for path in sorted(root.rglob("*.md")):
@@ -209,13 +210,13 @@ def attach_tldr_orphans(session, root: Path, dry_run: bool, stats: MigrationStat
             stats.unresolvable_lines.append(f"- tldr: {path} -> {', '.join(urls) or 'unrecognized'}")
             continue
         target_rel_path, key, is_activity = destination(match, "tldr")
-        target_path = HOME / target_rel_path
+        target_path = home / target_rel_path
         if current_content_key(match, "tldr", is_activity) == key and (dry_run or target_path.exists()):
             continue
         stats.tldr_attached += 1
         if dry_run:
             continue
-        copy_asset(path, target_rel_path)
+        copy_asset(path, target_rel_path, home)
         if is_activity:
             match.activity.summary_content_key = key
         else:
@@ -261,12 +262,15 @@ def main() -> None:
     args = parser.parse_args()
 
     engine = create_engine(load_database_url())
+    home = resolve_home()
+    web_root = home / "assets" / "web"
+    tldr_root = home / "assets" / "tldr"
     Session = sessionmaker(bind=engine)
     stats = MigrationStats()
     with Session() as session:
-        migrate_existing_kind(session, WEB_ROOT, "web", args.dry_run, stats)
-        promote_web_orphans(session, WEB_ROOT, args.dry_run, stats)
-        attach_tldr_orphans(session, TLDR_ROOT, args.dry_run, stats)
+        migrate_existing_kind(session, home, web_root, "web", args.dry_run, stats)
+        promote_web_orphans(session, home, web_root, args.dry_run, stats)
+        attach_tldr_orphans(session, home, tldr_root, args.dry_run, stats)
         if args.dry_run:
             session.rollback()
         else:
