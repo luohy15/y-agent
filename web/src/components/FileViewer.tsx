@@ -496,27 +496,22 @@ function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalL
   if (fileData.content !== undefined || fileData.summary !== undefined) {
     const contentMissing = fileData.content === null || fileData.content === undefined;
     const visibleContent = showSummary && fileData.summary ? fileData.summary : (fileData.content || "");
-    const copyUrl = fileData.linkUrl ? () => { navigator.clipboard.writeText(fileData.linkUrl!); } : undefined;
     const header = (fileData.linkTitle || fileData.linkUrl || fileData.summaryContentKey) ? (
       <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
         {fileData.linkTitle && (
-          copyUrl ? (
-            <button
-              type="button"
-              onClick={copyUrl}
-              className="text-sol-base1 font-semibold text-sm break-words text-left cursor-pointer bg-transparent border-0 p-0 hover:text-sol-blue"
-              title={`Copy URL: ${fileData.linkUrl}`}
-            >
-              {fileData.linkTitle}
-            </button>
-          ) : (
-            <div className="text-sol-base1 font-semibold text-sm break-words">{fileData.linkTitle}</div>
-          )
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard.writeText(fileData.linkTitle!); }}
+            className="text-sol-base1 font-semibold text-sm break-words text-left cursor-pointer bg-transparent border-0 p-0 hover:text-sol-blue"
+            title={`Copy title: ${fileData.linkTitle}`}
+          >
+            {fileData.linkTitle}
+          </button>
         )}
         {fileData.linkUrl && (
           <button
             type="button"
-            onClick={copyUrl}
+            onClick={() => { navigator.clipboard.writeText(fileData.linkUrl!); }}
             className="text-sol-blue hover:text-sol-cyan text-xs truncate block mt-0.5 text-left cursor-pointer bg-transparent border-0 p-0 w-full"
             title={`Copy URL: ${fileData.linkUrl}`}
           >
