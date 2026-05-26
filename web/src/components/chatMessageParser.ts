@@ -6,13 +6,14 @@ export function parseRawChatMessage(evt: any): Message[] {
   const content = extractContent(msg.content);
   const timestamp = msg.timestamp;
   const images = msg.images;
+  const links = msg.links;
   const result: Message[] = [];
 
   if (role === "user") {
-    result.push({ role: "user", content, timestamp, images });
+    result.push({ role: "user", content, timestamp, images, links });
   } else if (role === "assistant" && msg.tool_calls) {
     if (content.trim()) {
-      result.push({ role: "assistant", content, timestamp, images });
+      result.push({ role: "assistant", content, timestamp, images, links });
     }
     for (const tc of msg.tool_calls) {
       const func = tc.function || {};
@@ -29,7 +30,7 @@ export function parseRawChatMessage(evt: any): Message[] {
     if (msg.arguments) parsed.arguments = msg.arguments;
     result.push(parsed);
   } else {
-    result.push({ role: "assistant", content, timestamp, images });
+    result.push({ role: "assistant", content, timestamp, images, links });
   }
   return result;
 }

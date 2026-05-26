@@ -28,6 +28,27 @@ describe("chat message parser", () => {
     }]);
   });
 
+  it("forwards assistant citation links", () => {
+    const links = [{
+      url: "https://www.cnbc.com/foo",
+      title: "CNBC story",
+      snippet: "A useful excerpt",
+      last_updated: "2026-05-26",
+    }];
+
+    expect(parseRawChatMessage({
+      role: "assistant",
+      content: "Answer [1]",
+      links,
+    })).toEqual([{
+      role: "assistant",
+      content: "Answer [1]",
+      timestamp: undefined,
+      images: undefined,
+      links,
+    }]);
+  });
+
   it("forwards assistant images only on text bubble when tool calls exist", () => {
     expect(parseRawChatMessage({
       role: "assistant",
