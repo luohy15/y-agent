@@ -82,7 +82,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
 - **Finance / Email / Calendar** — beancount balance sheet / income statement /
-  portfolio tracker; Gmail sync; full-stack calendar events with timezone-aware filtering.
+  portfolio tracker with Alpha Vantage realtime holdings price overlay; Gmail sync;
+  full-stack calendar events with timezone-aware filtering.
 
 ## Agent Runtime
 
@@ -266,7 +267,7 @@ y dev commit <name> [-m "msg"]
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
-  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`.
+  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`.
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

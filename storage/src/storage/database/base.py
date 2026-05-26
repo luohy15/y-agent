@@ -83,6 +83,7 @@ def init_tables():
     import storage.entity.finance_transaction  # noqa: F401
     import storage.entity.finance_holding  # noqa: F401
     import storage.entity.finance_price  # noqa: F401
+    import storage.entity.finance_realtime_quote  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 

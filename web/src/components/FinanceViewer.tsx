@@ -127,7 +127,19 @@ interface FireProgressData {
 interface FinanceEnvelope<T> {
   data: T;
   synced_at: string;
-  source: "cache" | "live" | "sync" | "cli" | "db" | "derived";
+  source: "cache" | "live" | "sync" | "cli" | "db" | "derived" | "partial";
+}
+
+interface RealtimeQuoteRow {
+  price: number;
+  as_of: string;
+  currency: string;
+}
+
+interface RealtimeQuotesEnvelope {
+  data: Record<string, RealtimeQuoteRow>;
+  fetched_at: string;
+  source: "cache" | "live" | "partial";
 }
 
 function useFinanceData<T>(key: string | null) {
@@ -457,7 +469,33 @@ function recomputeTotals(rows: HoldingRow[], originalTotals: HoldingTotalRow[]):
   });
 }
 
-function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null }) {
+function liveQuoteFor(row: HoldingRow, quoteBySymbol?: Map<string, RealtimeQuoteRow>): RealtimeQuoteRow | undefined {
+  if (row.is_cash || !isValidAmount(row.units)) return undefined;
+  const currency = isValidAmount(row.market_value) ? row.market_value.currency : (isValidAmount(row.book_value) ? row.book_value.currency : "");
+  const quote = quoteBySymbol?.get(row.units.currency.toUpperCase());
+  return quote && currency === "USD" ? quote : undefined;
+}
+
+function liveMarketValue(row: HoldingRow, quote: RealtimeQuoteRow | undefined): number | null {
+  return quote && isValidAmount(row.units) ? row.units.number * quote.price : null;
+}
+
+function liveQuotesLabel(rows: HoldingRow[], quoteBySymbol?: Map<string, RealtimeQuoteRow>, error?: boolean): string | null {
+  if (error) return "live quotes off";
+  const times = rows
+    .map((row) => liveQuoteFor(row, quoteBySymbol)?.as_of)
+    .filter((value): value is string => !!value)
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite);
+  if (!times.length) return null;
+  const oldest = new Date(Math.min(...times)).toISOString();
+  const newest = new Date(Math.max(...times)).toISOString();
+  const oldestLabel = formatRelativeTime(oldest);
+  const newestLabel = formatRelativeTime(newest);
+  return oldestLabel === newestLabel ? `live quotes as of ${oldestLabel}` : `live quotes as of ${oldestLabel}–${newestLabel}`;
+}
+
+function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName, quoteBySymbol, realtimeError }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null; quoteBySymbol?: Map<string, RealtimeQuoteRow>; realtimeError?: boolean }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
@@ -482,6 +520,7 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
 
   const valid = useMemo(() => holdings.filter((h) => isValidAmount(h.units)), [holdings]);
   const filtered = valid;
+  const realtimeLabel = useMemo(() => liveQuotesLabel(filtered, quoteBySymbol, realtimeError), [filtered, quoteBySymbol, realtimeError]);
 
   const totalMarketValue = useMemo(
     () => valid.reduce((sum, row) => sum + getNumericVal(row.market_value), 0),
@@ -506,14 +545,18 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
 
   const toggleExpanded = (row: HoldingRow) => {
-    if (row.is_cash) return;
-    setExpandedSymbol((current) => current === row.units.currency ? null : row.units.currency);
+    if (row.is_cash || !isValidAmount(row.units)) return;
+    const symbol = row.units.currency;
+    setExpandedSymbol((current) => current === symbol ? null : symbol);
   };
 
   return (
     <div className="mb-4">
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
-        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings · synced {formatRelativeTime(syncedAt)}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Holdings · synced {formatRelativeTime(syncedAt)}</span>
+          {realtimeLabel ? <span className="rounded bg-sol-base02 px-1.5 py-0.5 text-[10px] text-sol-base01">{realtimeLabel}</span> : null}
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={toggleRiskyOnly}
@@ -543,31 +586,40 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
         </thead>
         <tbody>
           {sorted.map((h, i) => {
-            const isExpanded = expandedSymbol === h.units.currency;
+            if (!isValidAmount(h.units)) return null;
+            const symbol = h.units.currency;
+            const isExpanded = expandedSymbol === symbol;
             const canExpand = !h.is_cash;
+            const liveQuote = liveQuoteFor(h, quoteBySymbol);
+            const liveMarket = liveMarketValue(h, liveQuote);
             return (
-              <Fragment key={`${h.units.currency}-${i}`}>
+              <Fragment key={`${symbol}-${i}`}>
                 <tr
                   className={`hover:bg-sol-base02/50 ${canExpand ? "cursor-pointer" : ""}`}
                   onClick={() => toggleExpanded(h)}
-                  title={canExpand ? `Show ${h.units.currency} price history` : undefined}
+                  title={canExpand ? `Show ${symbol} price history` : undefined}
                 >
                   <td className="py-0.5 px-3 text-sol-base1">
                     <span className="inline-block w-4 text-center text-sol-base01 text-xs">{canExpand ? (isExpanded ? "\u25BC" : "\u25B6") : ""}</span>
-                    <span className="ml-1">{h.units.currency}</span>
+                    <span className="ml-1">{symbol}</span>
                   </td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(h.units.number)}</td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
                     {h.average_cost != null ? formatAmount(typeof h.average_cost === "number" ? h.average_cost : h.average_cost.number) : "—"}
                   </td>
-                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                    {h.price != null ? formatAmount(typeof h.price === "number" ? h.price : h.price.number) : "—"}
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0" title={liveQuote ? `Realtime quote as of ${liveQuote.as_of}` : undefined}>
+                    {liveQuote ? (
+                      <div>
+                        <div>{formatAmount(liveQuote.price)}</div>
+                        <div className="text-[10px] text-sol-base01">as of {formatRelativeTime(liveQuote.as_of)}</div>
+                      </div>
+                    ) : h.price != null ? formatAmount(typeof h.price === "number" ? h.price : h.price.number) : "—"}
                   </td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
                     {isValidAmount(h.book_value) ? <>{formatAmount(h.book_value.number)} <span className="text-sol-base01 text-xs">{h.book_value.currency}</span></> : "—"}
                   </td>
-                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
-                    {isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0" title={liveMarket != null ? "Market value uses live realtime quote" : undefined}>
+                    {liveMarket != null ? <>{formatAmount(liveMarket)} <span className="text-sol-base01 text-xs">USD</span> <span className="text-sol-base01 text-[10px]">(live)</span></> : isValidAmount(h.market_value) ? <>{formatAmount(h.market_value.number)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
                   </td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
                     {h.allocation_pct != null ? `${(h.allocation_pct * 100).toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
@@ -579,7 +631,7 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                 {isExpanded ? (
                   <tr className="border-y border-sol-base02 bg-sol-base03">
                     <td colSpan={8} className="px-3 py-3">
-                      <PriceChart symbol={h.units.currency} vmName={vmName} />
+                      <PriceChart symbol={symbol} vmName={vmName} />
                     </td>
                   </tr>
                 ) : null}
@@ -915,7 +967,10 @@ function HoldingsPieChart({ positions }: { positions: HoldingPosition[] }) {
             cx="50%"
             cy="50%"
             outerRadius={110}
-            label={({ symbol, allocation }) => (allocation >= 0.03 ? symbol : "")}
+            label={(props) => {
+              const payload = props.payload as { symbol?: string; allocation?: number } | undefined;
+              return (payload?.allocation ?? 0) >= 0.03 ? (payload?.symbol ?? "") : "";
+            }}
             labelLine={false}
             isAnimationActive={false}
           >
@@ -1527,6 +1582,18 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
   const isHistData = isHist.data?.data;
+  const holdingRows = useMemo(() => holdingsData ? toHoldingRows(holdingsData) : [], [holdingsData]);
+  const realtimeSymbols = useMemo(() => holdingRows
+    .flatMap((row) => !row.is_cash && isValidAmount(row.units) && isValidAmount(row.market_value) && row.market_value.currency === "USD" ? [row.units.currency.toUpperCase()] : []), [holdingRows]);
+  const realtimeSymbolsKey = useMemo(() => Array.from(new Set(realtimeSymbols)).sort().join(","), [realtimeSymbols]);
+  const realtimeParams = new URLSearchParams({ symbols: realtimeSymbolsKey });
+  if (vmName) realtimeParams.set("vm_name", vmName);
+  const realtimeQuotes = useSWR<RealtimeQuotesEnvelope>(
+    tab === "holdings" && !holdingsOverTime && realtimeSymbolsKey ? `${API}/api/finance/realtime-quotes?${realtimeParams.toString()}` : null,
+    fetcher,
+    { refreshInterval: 60_000, revalidateOnFocus: false },
+  );
+  const quoteBySymbol = useMemo(() => new Map(Object.entries(realtimeQuotes.data?.data ?? {})), [realtimeQuotes.data?.data]);
 
   const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : fire.data;
 
@@ -1652,7 +1719,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
                     <RiskyAllocationSummary allPositions={holdingsAllData} riskyPositions={holdingsRiskyData} loading={holdings.isLoading || holdingsAll.isLoading || holdingsRisky.isLoading} />
                     <HoldingsModeToggle riskyOnly={holdingsRiskyOnly} overTime={holdingsOverTime} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOverTimeChange={handleHoldingsOverTimeChange} />
                   </div>
-                  <HoldingsTable holdings={toHoldingRows(holdingsData)} totals={holdingTotals(toHoldingRows(holdingsData))} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} />
+                  <HoldingsTable holdings={holdingRows} totals={holdingTotals(holdingRows)} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} quoteBySymbol={quoteBySymbol} realtimeError={!!realtimeQuotes.error} />
                 </>
               ) : null
             )}

@@ -7,6 +7,7 @@ from agent.tool_base import Tool
 from api import service_finance_derived as derived_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
+from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
 
 router = APIRouter(prefix="/finance")
@@ -70,6 +71,11 @@ def _envelope_dict(data, synced_at: str, source: str = "derived"):
     return {"data": data, "synced_at": synced_at or "", "source": source}
 
 
+def _normalize_realtime_symbols(symbols: str) -> list[str]:
+    normalized = sorted({symbol.strip().upper() for symbol in (symbols or "").split(",") if symbol.strip()})
+    return normalized[:50]
+
+
 @router.get("/balance-sheet")
 async def balance_sheet(
     request: Request,
@@ -113,6 +119,24 @@ async def positions(
     user_id = _get_user_id(request)
     result = derived_service.holding_positions(user_id, vm_name or "", at, risky_only=risky_only)
     return _envelope_dict(result.data, result.synced_at, source="db")
+
+
+@router.get("/realtime-quotes")
+async def realtime_quotes(
+    symbols: str = Query(""),
+    vm_name: str = Query(None),
+):
+    del vm_name
+    normalized = _normalize_realtime_symbols(symbols)
+    if not realtime_quote_service.api_key():
+        raise HTTPException(status_code=503, detail="ALPHAVANTAGE_API_KEY is not configured")
+    result = realtime_quote_service.fetch_bulk(normalized)
+    fetched_at = result.fetched_at.isoformat().replace("+00:00", "Z") if result.fetched_at else ""
+    return {
+        "data": {symbol: quote.to_dict() for symbol, quote in result.quotes.items()},
+        "fetched_at": fetched_at,
+        "source": result.source,
+    }
 
 
 @router.get("/transactions")
