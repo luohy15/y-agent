@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
 import { extractContent } from "./MessageList";
 import MessageList, { type Message } from "./MessageList";
-import { mergeToolArguments } from "./chatMessageParser";
+import { filterTrailingEmptyAssistantMessages, mergeToolArguments } from "./chatMessageParser";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, getTopicColor, stripTracePrefix, statusBadgeClass } from "./badges";
 import TraceTodoDetail, { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
@@ -50,7 +50,7 @@ function parseMessages(rawMessages: any[]): Message[] {
       result.push({ role: "assistant", content, timestamp: msg.timestamp });
     }
   }
-  return result;
+  return filterTrailingEmptyAssistantMessages(result);
 }
 
 function ShareToc({ messages, containerRef }: { messages: Message[]; containerRef: React.RefObject<HTMLDivElement | null> }) {

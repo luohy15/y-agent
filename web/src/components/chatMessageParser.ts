@@ -1,5 +1,48 @@
 import { extractContent, type Message } from "./MessageList";
 
+function hasDisplayableAssistantContent(message: Message): boolean {
+  return message.role === "assistant" && message.content.trim().length > 0;
+}
+
+function isDroppableTrailingAssistant(message: Message): boolean {
+  return message.role === "assistant"
+    && message.content.trim().length === 0
+    && !message.images?.length
+    && !message.links?.length;
+}
+
+export function filterTrailingEmptyAssistantMessages(messages: Message[]): Message[] {
+  const result: Message[] = [];
+  let turnStart = 0;
+
+  const flushTurn = (turnEnd: number) => {
+    let lastContentAssistant = -1;
+    for (let i = turnEnd - 1; i >= turnStart; i--) {
+      if (hasDisplayableAssistantContent(messages[i])) {
+        lastContentAssistant = i;
+        break;
+      }
+    }
+
+    for (let i = turnStart; i < turnEnd; i++) {
+      if (lastContentAssistant >= 0 && i > lastContentAssistant && isDroppableTrailingAssistant(messages[i])) {
+        continue;
+      }
+      result.push(messages[i]);
+    }
+  };
+
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "user" && i > turnStart) {
+      flushTurn(i);
+      turnStart = i;
+    }
+  }
+  flushTurn(messages.length);
+
+  return result;
+}
+
 export function parseRawChatMessage(evt: any): Message[] {
   const msg = evt.data || evt;
   const role = msg.role || "assistant";
