@@ -10,14 +10,11 @@ from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso860
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def resolve_base_url(base_url: Optional[str]) -> str:
     value = (base_url or "").strip().rstrip("/")
-    if not value or value == OPENROUTER_BASE_URL:
-        return DEFAULT_BASE_URL
-    return value
+    return value or DEFAULT_BASE_URL
 
 
 def resolve_model(model: Optional[str]) -> str:
