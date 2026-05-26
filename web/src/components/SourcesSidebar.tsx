@@ -1,4 +1,5 @@
 import { citationHostname } from "./citationDomain";
+import { normalizeLinks } from "./citationLinks";
 import type { CitationLink } from "./MessageList";
 
 interface SourcesSidebarProps {
@@ -7,7 +8,7 @@ interface SourcesSidebarProps {
 }
 
 export default function SourcesSidebar({ links, onClose }: SourcesSidebarProps) {
-  const validLinks = links.filter((link) => link.url);
+  const validLinks = normalizeLinks(links);
 
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-sol-base02 bg-sol-base03 shadow-xl sm:static sm:w-80 sm:shrink-0 sm:shadow-none">

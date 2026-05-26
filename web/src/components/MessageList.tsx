@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import MessageBubble, { type BubbleRole } from "./MessageBubble";
 
-export interface CitationLink {
+export type CitationLink = string | {
   url: string;
   title?: string;
   snippet?: string;
   last_updated?: string;
-}
+};
 
 export interface Message {
   role: BubbleRole;

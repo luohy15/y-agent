@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { API, authFetch } from "../api";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { parseLocalFileReference } from "../utils/localFileLinks";
-import { citationDomain } from "./citationDomain";
+import { citationDomain, citationHostname } from "./citationDomain";
+import { normalizeLinks, type NormalizedCitationLink } from "./citationLinks";
 import type { CitationLink } from "./MessageList";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
@@ -42,12 +43,73 @@ function preprocessCitationLinks(content: string, links?: CitationLink[]): strin
   if (!links?.length) return content;
   return content.replace(CITATION_RUN_RE, (match) => {
     const indices = Array.from(match.matchAll(CITATION_INDEX_RE), (m) => m[1]);
-    return indices.length ? `[ ](cite://${indices.join(",")})` : match;
+    return indices.length ? `[cite](cite://${indices.join(",")})` : match;
   });
 }
 
 function citationFallback(children: ReactNode): string {
   return typeof children === "string" ? children : "";
+}
+
+function CitationChip({ citationIndices, citationLinks, fallback }: { citationIndices: number[]; citationLinks: NormalizedCitationLink[]; fallback: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const citedLinks = citationIndices.map((n) => citationLinks[n - 1]).filter((link): link is NormalizedCitationLink => Boolean(link?.url));
+  const firstLink = citedLinks[0];
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  if (!firstLink || citedLinks.length !== citationIndices.length) return <>{fallback}</>;
+
+  const show = () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    setOpen(true);
+  };
+  const hide = () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 120);
+  };
+  const label = citationIndices.length === 1
+    ? citationDomain(firstLink.url)
+    : `${citationDomain(firstLink.url)} +${citationIndices.length - 1}`;
+
+  return (
+    <span className="relative inline-flex align-baseline" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+      <button
+        type="button"
+        onClick={() => window.open(firstLink.url, "_blank", "noopener,noreferrer")}
+        className="mx-0.5 inline-flex cursor-pointer items-center rounded-full border border-sol-base01/40 bg-sol-base02 px-1.5 py-0.5 align-baseline font-mono text-[0.65rem] font-semibold leading-none text-sol-cyan hover:border-sol-cyan hover:bg-sol-base01/20"
+      >
+        {label}
+      </button>
+      {open && (
+        <span
+          className="absolute left-0 top-full z-30 mt-1 block max-w-xs rounded border border-sol-base01/30 bg-sol-base02 p-2 text-[0.65rem] leading-snug text-sol-base0 shadow-xl"
+          onMouseEnter={show}
+          onMouseLeave={hide}
+        >
+          {citedLinks.map((link, index) => {
+            const citationNumber = citationIndices[index];
+            const hostname = citationHostname(link.url);
+            return (
+              <a
+                key={`${link.url}-${citationNumber}`}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block min-w-0 truncate rounded px-1 py-0.5 text-sol-blue hover:bg-sol-base01/20 hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="font-mono text-sol-base01">[{citationNumber}]</span> {link.title || hostname}
+              </a>
+            );
+          })}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function pickImageSrc(imagePath: string): string | null {
@@ -485,6 +547,7 @@ export default function MessageBubble({ role, content, images, links, toolName, 
   }
 
   const markdownContent = preprocessCitationLinks(content, links);
+  const citationLinks = normalizeLinks(links);
 
   // Assistant message: rendered markdown like CLI
   return (
@@ -493,34 +556,19 @@ export default function MessageBubble({ role, content, images, links, toolName, 
       <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          urlTransform={(url) => url.startsWith("cite://") ? url : defaultUrlTransform(url)}
           components={{
-            a({ href, children, ...props }) {
-              const citationIndices = parseCitationHref(href);
+            a({ href, children, node, ...props }) {
+              const rawHref = href || (node as { url?: string } | undefined)?.url;
+              const citationIndices = parseCitationHref(rawHref);
               if (citationIndices) {
-                const firstLink = links?.[citationIndices[0] - 1];
-                if (!firstLink?.url) return <>{citationFallback(children)}</>;
-                const missingCitation = citationIndices.some((n) => !links?.[n - 1]?.url);
-                if (missingCitation) return <>{citationFallback(children)}</>;
-
-                const label = citationIndices.length === 1
-                  ? citationDomain(firstLink.url)
-                  : `${citationDomain(firstLink.url)} +${citationIndices.length - 1}`;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => window.open(firstLink.url, "_blank", "noopener,noreferrer")}
-                    className="mx-0.5 inline-flex cursor-pointer items-center rounded-full border border-sol-base01/40 bg-sol-base02 px-1.5 py-0.5 align-baseline font-mono text-[0.65rem] font-semibold leading-none text-sol-cyan hover:border-sol-cyan hover:bg-sol-base01/20"
-                    title={firstLink.title || firstLink.url}
-                  >
-                    {label}
-                  </button>
-                );
+                return <CitationChip citationIndices={citationIndices} citationLinks={citationLinks} fallback={citationFallback(children)} />;
               }
-              const fileRef = parseLocalFileReference(href);
+              const fileRef = parseLocalFileReference(rawHref);
               if (fileRef && onOpenFile) {
                 return (
                   <a
-                    href={href}
+                    href={rawHref}
                     onClick={(e) => {
                       e.preventDefault();
                       onOpenFile(fileRef.path, fileRef.line);
@@ -552,13 +600,13 @@ export default function MessageBubble({ role, content, images, links, toolName, 
             },
           }}
         >{markdownContent}</ReactMarkdown>
-        {links?.length ? (
+        {citationLinks.length ? (
           <button
             type="button"
-            onClick={() => onShowSources?.(links)}
+            onClick={() => onShowSources?.(normalizeLinks(links))}
             className="mt-2 inline-flex items-center rounded-full border border-sol-base02 px-2 py-1 font-mono text-xs font-semibold text-sol-base01 hover:border-sol-blue hover:text-sol-blue"
           >
-            {links.length} source{links.length === 1 ? "" : "s"}
+            {citationLinks.length} source{citationLinks.length === 1 ? "" : "s"}
           </button>
         ) : null}
         <MessageImages images={images} />
