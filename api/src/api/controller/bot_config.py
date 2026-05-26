@@ -14,7 +14,7 @@ class BotConfigRequest(BaseModel):
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: Optional[str] = None
     backend: Optional[str] = None
-    model: str = ""
+    model: Optional[str] = None
     description: Optional[str] = None
     max_tokens: Optional[int] = None
     custom_api_path: Optional[str] = None
@@ -84,7 +84,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         base_url=req.base_url.strip() or "https://openrouter.ai/api/v1",
         api_key=req.api_key or "",
         backend=req.backend or None,
-        model=req.model.strip(),
+        model=(req.model or "").strip(),
         description=req.description or None,
         max_tokens=req.max_tokens,
         custom_api_path=req.custom_api_path or None,

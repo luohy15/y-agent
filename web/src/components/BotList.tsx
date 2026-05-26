@@ -100,7 +100,7 @@ interface BotFormProps {
 }
 
 function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave, onCancel, onDelete }: BotFormProps) {
-  const canSave = form.name.trim().length > 0 && form.model.trim().length > 0 && !busy;
+  const canSave = form.name.trim().length > 0 && !busy;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
       <div
@@ -138,7 +138,7 @@ function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave, onCanc
               </select>
             </Field>
           </div>
-          <Field label="Model" required>
+          <Field label="Model">
             <input
               type="text"
               value={form.model}
@@ -285,14 +285,13 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   const save = async () => {
     if (!form || busy) return;
     if (!form.name.trim()) { setError("Name is required"); return; }
-    if (!form.model.trim()) { setError("Model is required"); return; }
     setBusy(true);
     setError(null);
     const body = {
       name: form.name.trim(),
       base_url: form.base_url.trim() || DEFAULT_BASE_URL,
       backend: form.backend || null,
-      model: form.model.trim(),
+      model: form.model.trim() || null,
       description: form.description || null,
       max_tokens: form.max_tokens ? Number(form.max_tokens) : null,
       custom_api_path: form.custom_api_path || null,
