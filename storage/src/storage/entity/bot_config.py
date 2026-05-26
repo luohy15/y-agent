@@ -8,7 +8,7 @@ class BotConfigEntity(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String, nullable=False)
-    base_url = Column(String, nullable=False, default="https://openrouter.ai/api/v1")
+    base_url = Column(String, nullable=False, default="")
     api_key = Column(String, nullable=False, default="")
     api_type = Column(String, nullable=True)
     backend = Column(String, nullable=True)
