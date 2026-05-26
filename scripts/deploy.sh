@@ -8,14 +8,11 @@ AWS_PROFILE=${AWS_PROFILE:-default}
 AWS_REGION=${AWS_REGION:-us-east-1}
 BRANCH_NAME="${1:-}"
 
-# Load environment variables from shared and project .env files.
-# Shared first so project-local values can override on duplicates.
-for env_file in "$HOME/luohy15/.env" ".env"; do
-    if [ -f "$env_file" ]; then
-        echo "Loading environment variables from $env_file..."
-        export $(grep -v '^#' "$env_file" | xargs)
-    fi
-done
+# Load environment variables from .env if it exists
+if [ -f ".env" ]; then
+    echo "Loading environment variables from .env..."
+    export $(grep -v '^#' .env | xargs)
+fi
 
 set -e
 
