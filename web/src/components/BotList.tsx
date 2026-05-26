@@ -30,12 +30,10 @@ interface BotListProps {
   onChange?: () => void;
 }
 
-const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-
 function emptyForm(): BotFormState {
   return {
     name: "",
-    base_url: DEFAULT_BASE_URL,
+    base_url: "",
     api_key: "",
     backend: "",
     model: "",
@@ -48,7 +46,7 @@ function emptyForm(): BotFormState {
 function formFromBot(bot: BotConfig): BotFormState {
   return {
     name: bot.name,
-    base_url: bot.base_url || DEFAULT_BASE_URL,
+    base_url: bot.base_url || "",
     api_key: "",
     backend: bot.backend || "",
     model: bot.model || "",
@@ -289,7 +287,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
     setError(null);
     const body = {
       name: form.name.trim(),
-      base_url: form.base_url.trim() || DEFAULT_BASE_URL,
+      base_url: form.base_url.trim() || null,
       backend: form.backend || null,
       model: form.model.trim() || null,
       description: form.description || null,

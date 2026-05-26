@@ -11,7 +11,7 @@ router = APIRouter(prefix="/bot")
 
 class BotConfigRequest(BaseModel):
     name: str
-    base_url: str = "https://openrouter.ai/api/v1"
+    base_url: Optional[str] = None
     api_key: Optional[str] = None
     backend: Optional[str] = None
     model: Optional[str] = None
@@ -81,7 +81,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         raise HTTPException(status_code=400, detail="name is required")
     config = BotConfig(
         name=name,
-        base_url=req.base_url.strip() or "https://openrouter.ai/api/v1",
+        base_url=(req.base_url or "").strip(),
         api_key=req.api_key or "",
         backend=req.backend or None,
         model=(req.model or "").strip(),
@@ -105,10 +105,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
     fields_set = getattr(req, "model_fields_set", getattr(req, "__fields_set__", set()))
     config = BotConfig(
         name=name,
-        base_url=(
-            req.base_url.strip() if "base_url" in fields_set and req.base_url and req.base_url.strip()
-            else existing.base_url
-        ),
+        base_url=existing.base_url if "base_url" not in fields_set else (req.base_url or "").strip(),
         api_key=existing.api_key if "api_key" not in fields_set else (req.api_key or ""),
         backend=existing.backend if "backend" not in fields_set else (req.backend or None),
         model=existing.model if "model" not in fields_set else (req.model or "").strip(),
