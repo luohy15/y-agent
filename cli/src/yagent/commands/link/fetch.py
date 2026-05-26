@@ -11,6 +11,7 @@ Output is written to `$Y_AGENT_HOME/links/<link_id>/content.md`.
 """
 
 import asyncio
+import glob
 import json
 import os
 import re
@@ -247,23 +248,44 @@ def _parse_vtt(vtt: str) -> list[str]:
     return lines
 
 
-def _load_cookies_file(domain: str, video_id: str) -> Path | None:
-    try:
-        resp = api_request("GET", "/api/cookies", params={"domain": domain})
-    except Exception as exc:
-        click.echo(f"Warning: could not load {domain} cookies from API: {exc}", err=True)
+def _load_cookies_file(domains: list[str], video_id: str) -> Path | None:
+    blobs: list[str] = []
+    for domain in domains:
+        try:
+            resp = api_request("GET", "/api/cookies", params={"domain": domain})
+        except Exception as exc:
+            click.echo(f"Warning: could not load {domain} cookies from API: {exc}", err=True)
+            continue
+        cookies_txt = (resp.json().get("cookies_txt") or "").strip()
+        if cookies_txt:
+            blobs.append(cookies_txt)
+
+    if not blobs:
         return None
 
-    data = resp.json()
-    cookies_txt = data.get("cookies_txt") or ""
-    if not cookies_txt.strip():
-        return None
+    header = "# Netscape HTTP Cookie File\n"
+    merged_lines: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for blob in blobs:
+        for raw in blob.splitlines():
+            line = raw.rstrip("\r")
+            if not line.strip() or (line.startswith("#") and not line.startswith("#HttpOnly_")):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 7:
+                continue
+            key = (parts[0], parts[2], parts[5])
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_lines.append(line)
+    merged = header + "\n".join(merged_lines) + "\n"
 
     fd, tmp_path = tempfile.mkstemp(prefix=f"yt_{video_id}_", suffix=".cookies.txt")
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(cookies_txt)
+            f.write(merged)
         return Path(tmp_path)
     except Exception:
         os.close(fd)
@@ -274,16 +296,17 @@ def _load_cookies_file(domain: str, video_id: str) -> Path | None:
 def _fetch_youtube(url: str, lang: str = 'en') -> Path:
     video_id = extract_video_id(url)
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    cookies_path = _load_cookies_file("youtube.com", video_id)
+    cookies_path = _load_cookies_file(["youtube.com", "google.com"], video_id)
 
     cmd = [
         'yt-dlp',
         '--skip-download',
         '--write-subs',
         '--write-auto-subs',
-        f'--sub-langs={lang},-orig',
+        f'--sub-langs={lang},zh,zh-Hans,zh-CN,zh-Hant,zh-TW,ja,ko,-orig',
         '--sub-format=vtt',
         '--print-json',
+        '--remote-components', 'ejs:github',
         '-o', f'/tmp/yt_{video_id}',
         video_url,
     ]
@@ -302,10 +325,32 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
     title = info.get('title', video_id)
     author = info.get('uploader', '')
     description = info.get('description', '')
+    video_lang = info.get('language')
+
+    if not video_lang:
+        sample = f"{title} {description[:200]}"
+        if re.search(r'[一-鿿]', sample):
+            video_lang = 'zh-Hans'
+        elif re.search(r'[぀-ゟ゠-ヿ]', sample):
+            video_lang = 'ja'
+        elif re.search(r'[가-힯]', sample):
+            video_lang = 'ko'
+
+    candidates: list[str] = []
+    if video_lang:
+        candidates.extend([video_lang, f'{video_lang}-orig'])
+        if video_lang == 'zh-Hans':
+            candidates.extend(['zh-CN', 'zh', 'zh-Hant', 'zh-TW'])
+        elif video_lang == 'zh-Hant':
+            candidates.extend(['zh-TW', 'zh', 'zh-Hans', 'zh-CN'])
+    if lang and lang not in candidates:
+        candidates.extend([lang, f'{lang}-orig'])
+    if 'en' not in candidates:
+        candidates.extend(['en', 'en-orig'])
 
     subtitle_file = None
     subtitle_lang = None
-    for ext_lang in [lang, f'{lang}-orig', 'en', 'en-orig']:
+    for ext_lang in candidates:
         path = f'/tmp/yt_{video_id}.{ext_lang}.vtt'
         if os.path.exists(path):
             subtitle_file = path
@@ -326,9 +371,14 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
             vtt = f.read()
         lines.extend([f"## Subtitles ({subtitle_lang})", ""])
         lines.extend(_parse_vtt(vtt))
-        os.remove(subtitle_file)
     else:
         lines.extend(["## Subtitles", "", "*No subtitles available for this video*"])
+
+    for stale in glob.glob(f'/tmp/yt_{video_id}.*.vtt'):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
 
     return _write_markdown('\n'.join(lines))
 
@@ -454,8 +504,9 @@ def _extract_title(md: str) -> str:
 @click.option('--lang', '-l', default='en',
               help='Preferred subtitle language for YouTube (default: en).')
 @click.option('--json', 'json_output', is_flag=True,
-              help='Emit one-line JSON {status,title,content,path,error} on stdout '
-                   'instead of the human "Saved: ..." line. File is still written.')
+              help='Emit one-line JSON {status,title,path,error} on stdout '
+                   'instead of the human "Saved: ..." line. File is still written; '
+                   'read it from `path` if you need the content.')
 @click.option('--link-id', default=None, help='Existing link_id to write under.')
 @click.option('--activity-id', default=None, help='Existing activity_id for per-activity content.')
 def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None):
@@ -485,7 +536,6 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
                 click.echo(json.dumps({
                     "status": "failed",
                     "title": None,
-                    "content": None,
                     "path": None,
                     "error": "OXYLABS_USERNAME and OXYLABS_PASSWORD must be set",
                 }))
@@ -498,15 +548,13 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
         CURRENT_LINK_ID = link_id or (resolved.get("link_id") if resolved else None) or _resolve_or_create_link(url)
         CURRENT_ACTIVITY_ID = activity_id or (resolved.get("activity_id") if resolved else None)
         out_path = asyncio.run(_run(url, page, lang))
-        content = out_path.read_text(encoding='utf-8')
-        title = _extract_title(content) or None
+        title = _extract_title(out_path.read_text(encoding='utf-8')) or None
         _save_content_meta(url, title)
     except Exception as e:
         if json_output:
             click.echo(json.dumps({
                 "status": "failed",
                 "title": None,
-                "content": None,
                 "path": None,
                 "error": str(e),
             }))
@@ -514,21 +562,9 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
         raise click.ClickException(str(e))
 
     if json_output:
-        try:
-            content = out_path.read_text(encoding='utf-8')
-        except Exception as e:
-            click.echo(json.dumps({
-                "status": "failed",
-                "title": None,
-                "content": None,
-                "path": str(out_path),
-                "error": f"failed to read output file: {e}",
-            }))
-            return
         click.echo(json.dumps({
             "status": "done",
-            "title": _extract_title(content) or None,
-            "content": content,
+            "title": title,
             "path": str(out_path),
             "error": None,
         }))

@@ -60,9 +60,15 @@ def list_links(
             .filter(LinkActivityEntity.user_id == user_id)
         )
         if downloaded is True:
-            q = q.filter(LinkEntity.download_status == "done")
+            q = q.filter(or_(
+                LinkEntity.download_status == "done",
+                LinkActivityEntity.download_status == "done",
+            ))
         elif downloaded is False:
-            q = q.filter(or_(LinkEntity.download_status != "done", LinkEntity.download_status.is_(None)))
+            q = q.filter(
+                or_(LinkEntity.download_status != "done", LinkEntity.download_status.is_(None)),
+                or_(LinkActivityEntity.download_status != "done", LinkActivityEntity.download_status.is_(None)),
+            )
         if link_ids is not None:
             q = q.filter(LinkEntity.link_id.in_(link_ids))
         if activity_ids is not None:
