@@ -203,6 +203,36 @@ def _upsert_link(
     return entity
 
 
+def create_link_entity_for_migration(
+    session,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+    content_key: str,
+) -> LinkEntity:
+    """Create a migrated link row without creating user activity history."""
+    base_url = _strip_query(url)
+    existing = session.query(LinkEntity).filter_by(base_url=base_url).first()
+    if existing:
+        return existing
+    link_id = generate_id()
+    while session.query(LinkEntity).filter_by(link_id=link_id).first():
+        link_id = generate_id()
+    entity = LinkEntity(
+        link_id=link_id,
+        base_url=base_url,
+        title=title,
+        download_status="done",
+        content_key=content_key,
+        source=None,
+    )
+    entity.created_at_unix = timestamp
+    entity.updated_at_unix = timestamp
+    session.add(entity)
+    session.flush()
+    return entity
+
+
 def save_link(
     user_id: int,
     url: str,
