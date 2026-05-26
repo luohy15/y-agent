@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -246,13 +247,37 @@ def _parse_vtt(vtt: str) -> list[str]:
     return lines
 
 
+def _load_cookies_file(domain: str, video_id: str) -> Path | None:
+    try:
+        resp = api_request("GET", "/api/cookies", params={"domain": domain})
+    except Exception as exc:
+        click.echo(f"Warning: could not load {domain} cookies from API: {exc}", err=True)
+        return None
+
+    data = resp.json()
+    cookies_txt = data.get("cookies_txt") or ""
+    if not cookies_txt.strip():
+        return None
+
+    fd, tmp_path = tempfile.mkstemp(prefix=f"yt_{video_id}_", suffix=".cookies.txt")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(cookies_txt)
+        return Path(tmp_path)
+    except Exception:
+        os.close(fd)
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+
 def _fetch_youtube(url: str, lang: str = 'en') -> Path:
     video_id = extract_video_id(url)
     video_url = f"https://www.youtube.com/watch?v={video_id}"
+    cookies_path = _load_cookies_file("youtube.com", video_id)
 
     cmd = [
         'yt-dlp',
-        '--cookies-from-browser', 'chrome',
         '--skip-download',
         '--write-subs',
         '--write-auto-subs',
@@ -262,9 +287,16 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
         '-o', f'/tmp/yt_{video_id}',
         video_url,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Exception(f"yt-dlp error: {result.stderr}")
+    if cookies_path:
+        cmd[1:1] = ['--cookies', str(cookies_path)]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"yt-dlp error: {result.stderr}")
+    finally:
+        if cookies_path:
+            cookies_path.unlink(missing_ok=True)
 
     info = json.loads(result.stdout)
     title = info.get('title', video_id)

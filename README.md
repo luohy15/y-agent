@@ -60,6 +60,7 @@ Two paths, depending on whether you want to run your own instance:
 - [docs/cli.md](docs/cli.md) — install the CLI, sign in, common commands.
 - [docs/getting-started.md](docs/getting-started.md) — what the web UI looks like after sign-in.
 - [docs/capabilities.md](docs/capabilities.md) — what subsystems ship in a running deployment.
+- `y cookies sync` uploads local browser cookies for remote link fetchers such as YouTube.
 
 **Self-host** — run the API + worker yourself.
 

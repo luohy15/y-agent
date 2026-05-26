@@ -67,6 +67,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
 - **Link archive** — EC2 is the single source of truth: `~/luohy15/links/<link_id>/{content,summary}.md` is canonical, `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links.
+- **Browser cookies** — `y cookies sync` stores local browser cookies in the API/DB so remote `y link fetch` can pass them to `yt-dlp`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,

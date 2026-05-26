@@ -14,6 +14,7 @@ from storage.dto.reminder import Reminder
 from storage.dto.routine import Routine
 from storage.dto.rss_feed import RssFeed
 from storage.dto.user_preference import UserPreference
+from storage.dto.user_cookies import UserCookies
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -30,4 +31,5 @@ __all__ = [
     "Routine",
     "RssFeed",
     "UserPreference",
+    "UserCookies",
 ]

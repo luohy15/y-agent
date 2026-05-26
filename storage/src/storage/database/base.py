@@ -79,6 +79,7 @@ def init_tables():
     import storage.entity.entity_rss_relation  # noqa: F401
     import storage.entity.entity_link_relation  # noqa: F401
     import storage.entity.user_preference  # noqa: F401
+    import storage.entity.user_cookies  # noqa: F401
     import storage.entity.finance_transaction  # noqa: F401
     import storage.entity.finance_holding  # noqa: F401
     import storage.entity.finance_price  # noqa: F401
