@@ -138,7 +138,7 @@ async def list_links(
     links = link_service.list_links(
         user_id, query=query,
         limit=limit, offset=offset, activity_ids=activity_ids,
-        downloaded_only=bool(downloaded),
+        downloaded=downloaded,
         source_feed_id=source_feed_id,
         source=source,
         on=on, from_=from_, to=to,

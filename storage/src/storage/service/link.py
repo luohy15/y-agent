@@ -64,7 +64,7 @@ def list_links(
     offset: int = 0,
     link_ids: Optional[List[str]] = None,
     activity_ids: Optional[List[str]] = None,
-    downloaded_only: bool = False,
+    downloaded: Optional[bool] = None,
     source_feed_id: Optional[str] = None,
     source: Optional[str] = None,
     on: Optional[str] = None,
@@ -80,7 +80,7 @@ def list_links(
     return link_repo.list_links(
         user_id, query=query,
         limit=limit, offset=offset, link_ids=link_ids,
-        activity_ids=activity_ids, downloaded_only=downloaded_only,
+        activity_ids=activity_ids, downloaded=downloaded,
         source_feed_id=source_feed_id,
         source=source,
         on=on, from_=from_, to=to,

@@ -40,7 +40,7 @@ def list_links(
     offset: int = 0,
     link_ids: Optional[List[str]] = None,
     activity_ids: Optional[List[str]] = None,
-    downloaded_only: bool = False,
+    downloaded: Optional[bool] = None,
     source_feed_id: Optional[str] = None,
     source: Optional[str] = None,
     on: Optional[str] = None,
@@ -59,8 +59,10 @@ def list_links(
             .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
             .filter(LinkActivityEntity.user_id == user_id)
         )
-        if downloaded_only:
+        if downloaded is True:
             q = q.filter(LinkEntity.download_status == "done")
+        elif downloaded is False:
+            q = q.filter(or_(LinkEntity.download_status != "done", LinkEntity.download_status.is_(None)))
         if link_ids is not None:
             q = q.filter(LinkEntity.link_id.in_(link_ids))
         if activity_ids is not None:
