@@ -24,15 +24,22 @@ def resolve_model(model: Optional[str]) -> str:
     return (model or "").strip().strip('"').strip() or DEFAULT_MODEL
 
 
+_SEARCH_RESULT_FIELDS = ("title", "snippet", "last_updated")
+
+
 def _extract_citations(response_data: dict) -> List[Dict[str, Any]]:
-    titles_by_url: Dict[str, str] = {}
+    meta_by_url: Dict[str, Dict[str, Any]] = {}
     for result in response_data.get("search_results") or []:
         if not isinstance(result, dict):
             continue
         url = result.get("url")
-        title = result.get("title")
-        if isinstance(url, str) and url and isinstance(title, str) and title:
-            titles_by_url.setdefault(url, title)
+        if not (isinstance(url, str) and url):
+            continue
+        meta = meta_by_url.setdefault(url, {})
+        for field in _SEARCH_RESULT_FIELDS:
+            value = result.get(field)
+            if isinstance(value, str) and value and field not in meta:
+                meta[field] = value
 
     citations: List[Dict[str, Any]] = []
     seen = set()
@@ -42,16 +49,14 @@ def _extract_citations(response_data: dict) -> List[Dict[str, Any]]:
             return
         seen.add(url)
         entry: Dict[str, Any] = {"url": url}
-        title = titles_by_url.get(url)
-        if title:
-            entry["title"] = title
+        entry.update(meta_by_url.get(url, {}))
         citations.append(entry)
 
     for url in response_data.get("citations") or []:
         if isinstance(url, str) and url:
             _add(url)
 
-    for url in titles_by_url:
+    for url in meta_by_url:
         _add(url)
 
     return citations
