@@ -1,6 +1,6 @@
 """Perplexity chat-completions backend."""
 
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, List, Optional
 
 import httpx
 
@@ -24,32 +24,27 @@ def resolve_model(model: Optional[str]) -> str:
     return (model or "").strip().strip('"').strip() or DEFAULT_MODEL
 
 
-def _build_sources_footer(response_data: dict) -> str:
-    sources = []
-    seen_urls = set()
+def _extract_citation_urls(response_data: dict) -> List[str]:
+    urls: List[str] = []
+    seen = set()
 
     for url in response_data.get("citations") or []:
-        if isinstance(url, str) and url and url not in seen_urls:
-            sources.append(url)
-            seen_urls.add(url)
+        if isinstance(url, str) and url and url not in seen:
+            urls.append(url)
+            seen.add(url)
 
     for result in response_data.get("search_results") or []:
         if not isinstance(result, dict):
             continue
         url = result.get("url")
-        if isinstance(url, str) and url and url not in seen_urls:
-            sources.append(url)
-            seen_urls.add(url)
+        if isinstance(url, str) and url and url not in seen:
+            urls.append(url)
+            seen.add(url)
 
-    if not sources:
-        return ""
-
-    lines = ["", "", "---", "Sources:"]
-    lines.extend(f"- [{index}] {url}" for index, url in enumerate(sources, start=1))
-    return "\n".join(lines)
+    return urls
 
 
-def _assistant_message(content: str, model: str) -> Message:
+def _assistant_message(content: str, model: str, links: Optional[List[str]] = None) -> Message:
     return Message(
         role="assistant",
         content=content,
@@ -58,6 +53,7 @@ def _assistant_message(content: str, model: str) -> Message:
         id=generate_message_id(),
         provider="perplexity",
         model=model,
+        links=links or None,
     )
 
 
@@ -91,7 +87,7 @@ async def run_perplexity(
         response_data = response.json()
 
     content = (((response_data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-    content += _build_sources_footer(response_data)
+    links = _extract_citation_urls(response_data)
 
-    message_callback(_assistant_message(content, model))
+    message_callback(_assistant_message(content, model, links=links))
     return {"status": "completed", "usage": response_data.get("usage") or {}}
