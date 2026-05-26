@@ -380,12 +380,17 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                   {bot.name === "default" && <span className="text-[0.6rem] px-1.5 py-0.5 rounded bg-sol-base02 text-sol-base01 shrink-0">default</span>}
                   {bot.has_api_key && <span className="ml-auto text-[0.6rem] px-1.5 py-0.5 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
                 </div>
-                <div className="text-[0.68rem] text-sol-base01 truncate font-mono">{bot.model || "no model"}</div>
-                {(bot.backend || bot.description) && (
-                  <div className="text-[0.65rem] text-sol-base01/80 truncate">
-                    {[bot.backend, bot.description].filter(Boolean).join(" - ")}
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 min-w-0 text-[0.68rem] text-sol-base01 truncate">
+                  <span className="font-mono truncate shrink-0 max-w-[45%]">{bot.model || "no model"}</span>
+                  {(bot.backend || bot.description) && (
+                    <>
+                      <span className="text-sol-base01/60 shrink-0">·</span>
+                      <span className="text-[0.65rem] text-sol-base01/80 truncate min-w-0">
+                        {[bot.backend, bot.description].filter(Boolean).join(" - ")}
+                      </span>
+                    </>
+                  )}
+                </div>
               </button>
             ))}
           </div>
