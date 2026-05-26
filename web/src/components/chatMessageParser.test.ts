@@ -1,7 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { mergeToolArguments, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
+import { filterTrailingEmptyAssistantMessages, mergeToolArguments, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
 
 describe("chat message parser", () => {
+  it("drops empty assistant messages after the last content assistant in each turn", () => {
+    expect(filterTrailingEmptyAssistantMessages([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "thinking before reply" },
+      { role: "assistant", content: "final reply" },
+      { role: "assistant", content: "" },
+      { role: "assistant", content: "   " },
+      { role: "user", content: "two" },
+      { role: "assistant", content: "second reply" },
+      { role: "assistant", content: "" },
+    ])).toEqual([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "thinking before reply" },
+      { role: "assistant", content: "final reply" },
+      { role: "user", content: "two" },
+      { role: "assistant", content: "second reply" },
+    ]);
+  });
+
+  it("preserves mid-turn empty assistants and all tool messages", () => {
+    expect(filterTrailingEmptyAssistantMessages([
+      { role: "user", content: "run tools" },
+      { role: "assistant", content: "" },
+      { role: "tool_pending", content: "", toolName: "Read", toolCallId: "call_1" },
+      { role: "tool_result", content: "done", toolName: "Read", toolCallId: "call_1" },
+      { role: "assistant", content: "final reply" },
+      { role: "tool_result", content: "late tool", toolName: "Bash" },
+      { role: "assistant", content: "" },
+    ])).toEqual([
+      { role: "user", content: "run tools" },
+      { role: "assistant", content: "" },
+      { role: "tool_pending", content: "", toolName: "Read", toolCallId: "call_1" },
+      { role: "tool_result", content: "done", toolName: "Read", toolCallId: "call_1" },
+      { role: "assistant", content: "final reply" },
+      { role: "tool_result", content: "late tool", toolName: "Bash" },
+    ]);
+  });
+
+  it("keeps empty assistant-only turns without content-bearing replies", () => {
+    expect(filterTrailingEmptyAssistantMessages([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "" },
+      { role: "assistant", content: " " },
+      { role: "user", content: "two" },
+      { role: "assistant", content: "reply" },
+    ])).toEqual([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "" },
+      { role: "assistant", content: " " },
+      { role: "user", content: "two" },
+      { role: "assistant", content: "reply" },
+    ]);
+  });
+
   it("forwards user images", () => {
     expect(parseRawChatMessage({
       role: "user",

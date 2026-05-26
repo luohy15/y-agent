@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { API, getToken } from "../api";
 import MessageList, { type Message, extractContent } from "./MessageList";
-import { mergeToolArguments } from "./chatMessageParser";
+import { filterTrailingEmptyAssistantMessages, mergeToolArguments } from "./chatMessageParser";
 
 function parseMessages(rawMessages: any[]): Message[] {
   // Build tool_call_id → {name, args} map from assistant messages
@@ -40,7 +40,7 @@ function parseMessages(rawMessages: any[]): Message[] {
       result.push({ role: "assistant", content, timestamp: msg.timestamp });
     }
   }
-  return result;
+  return filterTrailingEmptyAssistantMessages(result);
 }
 
 export default function ShareView() {

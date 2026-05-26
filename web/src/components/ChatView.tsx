@@ -7,7 +7,7 @@ import ChatToc from "./ChatToc";
 import SourcesSidebar from "./SourcesSidebar";
 import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
-import { mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
+import { filterTrailingEmptyAssistantMessages, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -46,7 +46,7 @@ function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
       allMessages.push(m);
     }
   }
-  return allMessages;
+  return filterTrailingEmptyAssistantMessages(allMessages);
 }
 
 export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
@@ -67,6 +67,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [showSteerInput, setShowSteerInput] = useState(false);
   const [sourcesPanel, setSourcesPanel] = useState<{ links: CitationLink[]; messageIndex?: number } | null>(null);
+  const displayMessages = useMemo(() => filterTrailingEmptyAssistantMessages(messages), [messages]);
   useEffect(() => { if (completed) setShowSteerInput(false); }, [completed]);
 
   // Track scroll position to show/hide scroll-to-bottom button
@@ -425,8 +426,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
-        <MessageList messages={messages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
-        <ChatToc messages={messages} containerRef={scrollRef} />
+        <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
+        <ChatToc messages={displayMessages} containerRef={scrollRef} />
         {sourcesPanel && <SourcesSidebar links={sourcesPanel.links} onClose={() => setSourcesPanel(null)} />}
         {showScrollBottom && (
           <button
