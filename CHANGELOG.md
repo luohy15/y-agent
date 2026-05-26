@@ -13,10 +13,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Finance risk and performance views (2189 / 2191 / 2198 / 2201)** — FinanceViewer now adds richer portfolio performance/range controls, YTD/MTD/QTD/1M/3M/1Y/ALL aliases, backend-resolved price ranges, future-price filtering, risky allocation percentages per period, and consistent risky-only allocation math.
+- **Finance FIRE and config-backed analytics (2184 / 2185 / 2196)** — finance sync and APIs now expose config-backed FIRE/derived analytics, realized/unrealized holding calculations, normalized price/transaction/holding fields, and expanded tests for Beancount-derived portfolio data.
+- **Responsive sidebar/list layout polish (2192)** — app navigation and sidebar lists now better support compact layouts with shared responsive behavior across notes, links, chats, reminders, routines, RSS feeds, todos, traces, dev, entity, file tree, and git panels.
+- **Shared list error handling (2200)** — list panels now use a common error state component, including clean suppression for aborted list fetches.
 
 ### Changed
+- **Finance snapshots storage model (2184)** — the earlier finance snapshot persistence path was replaced by direct holdings, prices, and transactions storage as the durable source of synced finance data.
+- **Trace fetching and rendering stability (2199)** — detached agent handling and TraceView fetching/rendering were hardened to avoid noisy focus revalidation and preserve inline note-share metadata.
+- **Worker deployment cleanup (2184)** — removed obsolete Lambda template and handler wiring that no longer participates in the finance sync path.
 
 ### Fixed
+- **Finance price filtering (2184 / 2191)** — finance price queries now parse `from_date` before filtering, ignore future-dated prices, resolve time ranges on the backend, and default charts to YTD.
+- **Trace shared-note metadata (2184)** — trace payloads now inline note share metadata so shared note links render correctly in trace todo details.
 
 ### Removed
 
