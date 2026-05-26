@@ -1,4 +1,4 @@
-"""`y fetch get <url>` — fetch content from a URL and save as markdown.
+"""`y link fetch <url>` — fetch content from a URL and save as markdown.
 
 Routes to per-source handlers based on URL host:
 - mp.weixin.qq.com → Oxylabs + WeChat HTML parser
@@ -400,7 +400,7 @@ def _extract_title(md: str) -> str:
     return ''
 
 
-@click.command('get')
+@click.command('fetch')
 @click.argument('url')
 @click.option('--page', '-p', type=int, default=1,
               help='Page number (for Bilibili multi-part videos).')
@@ -409,7 +409,7 @@ def _extract_title(md: str) -> str:
 @click.option('--json', 'json_output', is_flag=True,
               help='Emit one-line JSON {status,title,content,path,error} on stdout '
                    'instead of the human "Saved: ..." line. File is still written.')
-def fetch_get(url: str, page: int, lang: str, json_output: bool):
+def link_fetch(url: str, page: int, lang: str, json_output: bool):
     """Fetch URL content and save as markdown.
 
     Output: ~/luohy15/assets/web/<YYYYMMDD>/https/<host>/<path>.md

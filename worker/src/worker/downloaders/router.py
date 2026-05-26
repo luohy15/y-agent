@@ -1,6 +1,6 @@
 """Route a URL to the SSH downloader.
 
-Always SSH to the user's VM and call `y fetch get --json` (single source of truth).
+Always SSH to the user's VM and call `y link fetch --json` (single source of truth).
 See `pages/plan-1965-fetch-link-dry.md` for the rationale.
 """
 
@@ -12,7 +12,7 @@ async def route_and_download(
     url: str,
     timeout: int = 300,
 ) -> dict:
-    """Dispatch every URL through SSH → `y fetch get --json` on the user's VM.
+    """Dispatch every URL through SSH → `y link fetch --json` on the user's VM.
 
     Returns `{status, title, content, method_used, error}`.
     """
