@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.controller.file import _exec
+from agent.openai_chat import openai_chat_completion
 from storage.service import bot_config as bot_service
 from storage.service import link as link_service
 
@@ -326,32 +327,16 @@ async def _call_tldr_bot(user_id: int, content: str, title: Optional[str], url: 
         "Content:",
         content,
     ])
-    payload = {
-        "model": bot_config.model,
-        "max_tokens": bot_config.max_tokens or TLDR_MAX_TOKENS,
-        "messages": [
-            {"role": "system", "content": TLDR_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    }
-    if bot_config.openrouter_config:
-        payload["provider"] = bot_config.openrouter_config.get("provider", bot_config.openrouter_config)
-
-    api_path = bot_config.custom_api_path or "/chat/completions"
-    url_endpoint = f"{bot_config.base_url.rstrip('/')}/{api_path.lstrip('/')}"
-    headers = {"Authorization": f"Bearer {bot_config.api_key}", "Content-Type": "application/json"}
     try:
-        async with httpx.AsyncClient(timeout=TLDR_TIMEOUT) as client:
-            resp = await client.post(url_endpoint, json=payload, headers=headers)
-    except httpx.HTTPError as e:
+        result, _ = await openai_chat_completion(
+            [{"role": "user", "content": user_content}],
+            bot_config,
+            max_tokens=bot_config.max_tokens or TLDR_MAX_TOKENS,
+            system_prompt=TLDR_SYSTEM_PROMPT,
+            timeout=TLDR_TIMEOUT,
+        )
+    except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
-    if not resp.is_success:
-        raise HTTPException(status_code=502, detail=f"LLM error {resp.status_code}: {resp.text}")
-    data = resp.json()
-    try:
-        result = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise HTTPException(status_code=502, detail=f"Unexpected LLM response: {data}")
     return (result or "").strip()
 
 

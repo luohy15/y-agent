@@ -134,6 +134,7 @@ function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave, onCanc
                 <option value="codex">codex</option>
                 <option value="claude_code">claude_code</option>
                 <option value="gemini">gemini</option>
+                <option value="openai">openai</option>
               </select>
             </Field>
           </div>
