@@ -252,6 +252,11 @@ def save_link_rss(
             user_id=user_id, link_id=link.id,
         ).first()
         if existing:
+            if existing.source is None or existing.source == "":
+                existing.source = "rss"
+            if existing.source_feed_id is None:
+                existing.source_feed_id = source_feed_id
+            session.flush()
             return _row_to_dto(existing, link), False
         activity = LinkActivityEntity(
             user_id=user_id,
