@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from loguru import logger
@@ -14,6 +15,9 @@ from storage.repository import finance_realtime_quote as repo
 
 
 AV_BASE = "https://www.alphavantage.co/query"
+
+# Alpha Vantage returns naïve timestamps in US Eastern (EDT/EST per DST).
+_AV_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass(frozen=True)
@@ -175,7 +179,7 @@ def _to_float(value: Any) -> float | None:
 
 def _to_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
-        return _as_aware_utc(value)
+        return _av_aware_utc(value)
     if value is None:
         return None
     text = str(value).strip()
@@ -184,7 +188,14 @@ def _to_datetime(value: Any) -> datetime | None:
     if text.endswith("Z"):
         text = f"{text[:-1]}+00:00"
     parsed = datetime.fromisoformat(text)
-    return _as_aware_utc(parsed)
+    return _av_aware_utc(parsed)
+
+
+def _av_aware_utc(value: datetime) -> datetime:
+    # Naïve datetimes from AV are US Eastern; tz-aware values pass through.
+    if value.tzinfo is None:
+        return value.replace(tzinfo=_AV_TZ).astimezone(UTC)
+    return value.astimezone(UTC)
 
 
 def _as_aware_utc(value: datetime) -> datetime:
