@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import MessageBubble, { type BubbleRole } from "./MessageBubble";
 
+export interface CitationLink {
+  url: string;
+  title?: string;
+  snippet?: string;
+  last_updated?: string;
+}
+
 export interface Message {
   role: BubbleRole;
   content: string;
@@ -9,6 +16,7 @@ export interface Message {
   toolCallId?: string;
   timestamp?: string;
   images?: string[];
+  links?: CitationLink[];
 }
 
 interface ContentPart {
@@ -185,7 +193,7 @@ const toolIconMap: Record<string, { icon: string; color: string; bg: string }> =
 };
 const defaultToolIcon = { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
 
-function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string, line?: number) => void }) {
+function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile, onShowSources }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string, line?: number) => void; onShowSources?: (links: CitationLink[], messageIndex?: number) => void }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   // Sync with external defaultExpanded changes (e.g. process toggle)
   useEffect(() => { setExpanded(defaultExpanded ?? false); }, [defaultExpanded]);
@@ -273,7 +281,7 @@ function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExp
             }
             return (
               <div key={ei.idx}>
-                <MessageBubble role={ei.message.role} content={ei.message.content} images={ei.message.images} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} />
+                <MessageBubble role={ei.message.role} content={ei.message.content} images={ei.message.images} links={ei.message.links} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, ei.idx) : undefined} />
               </div>
             );
           })}
@@ -290,13 +298,14 @@ interface MessageListProps {
   centered?: boolean;
   showProgress: boolean;
   onOpenFile?: (path: string, line?: number) => void;
+  onShowSources?: (links: CitationLink[], messageIndex?: number) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   inline?: boolean;
 }
 
-export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onSelectChat, onSelectTrace, scrollContainerRef, inline }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, scrollContainerRef, inline }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
@@ -315,12 +324,12 @@ export default function MessageList({ messages, running, centered, showProgress,
     <>
       {items.map((item) => {
         if (item.type === "process_summary") {
-          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} />;
+          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} onShowSources={onShowSources} />;
         }
         const isUser = item.message.role === "user";
         return (
           <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
-            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
+            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} links={item.message.links} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, item.index) : undefined} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
           </div>
         );
       })}

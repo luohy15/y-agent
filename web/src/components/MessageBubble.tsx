@@ -1,10 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { API, authFetch } from "../api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { parseLocalFileReference } from "../utils/localFileLinks";
+import { citationDomain } from "./citationDomain";
+import remarkCitations from "./remarkCitations";
+import type { CitationLink } from "./MessageList";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -15,10 +18,26 @@ interface MessageBubbleProps {
   arguments?: Record<string, unknown>;
   timestamp?: string;
   images?: string[];
+  links?: CitationLink[];
   dimmed?: boolean;
   onOpenFile?: (path: string, line?: number) => void;
+  onShowSources?: (links: CitationLink[]) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+}
+
+function parseCitationHref(href?: string): number[] | null {
+  if (!href?.startsWith("cite://")) return null;
+  const indices = href
+    .slice("cite://".length)
+    .split(",")
+    .map((part) => Number.parseInt(part, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return indices.length > 0 ? indices : null;
+}
+
+function citationFallback(children: ReactNode): string {
+  return typeof children === "string" ? children : "";
 }
 
 function pickImageSrc(imagePath: string): string | null {
@@ -434,7 +453,7 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
   );
 }
 
-export default function MessageBubble({ role, content, images, toolName, arguments: args, timestamp, dimmed, onOpenFile, onSelectChat, onSelectTrace }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, images, links, toolName, arguments: args, timestamp, dimmed, onOpenFile, onShowSources, onSelectChat, onSelectTrace }: MessageBubbleProps) {
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
@@ -461,9 +480,30 @@ export default function MessageBubble({ role, content, images, toolName, argumen
       {!dimmed && <TimestampLine timestamp={timestamp} />}
       <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkCitations]}
           components={{
             a({ href, children, ...props }) {
+              const citationIndices = parseCitationHref(href);
+              if (citationIndices) {
+                const firstLink = links?.[citationIndices[0] - 1];
+                if (!firstLink?.url) return <>{citationFallback(children)}</>;
+                const missingCitation = citationIndices.some((n) => !links?.[n - 1]?.url);
+                if (missingCitation) return <>{citationFallback(children)}</>;
+
+                const label = citationIndices.length === 1
+                  ? citationDomain(firstLink.url)
+                  : `${citationDomain(firstLink.url)} +${citationIndices.length - 1}`;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => window.open(firstLink.url, "_blank", "noopener,noreferrer")}
+                    className="mx-0.5 inline-flex cursor-pointer items-center rounded-full border border-sol-base01/40 bg-sol-base02 px-1.5 py-0.5 align-baseline font-mono text-[0.65rem] font-semibold leading-none text-sol-cyan hover:border-sol-cyan hover:bg-sol-base01/20"
+                    title={firstLink.title || firstLink.url}
+                  >
+                    {label}
+                  </button>
+                );
+              }
               const fileRef = parseLocalFileReference(href);
               if (fileRef && onOpenFile) {
                 return (
@@ -500,6 +540,15 @@ export default function MessageBubble({ role, content, images, toolName, argumen
             },
           }}
         >{content}</ReactMarkdown>
+        {links?.length ? (
+          <button
+            type="button"
+            onClick={() => onShowSources?.(links)}
+            className="mt-2 inline-flex items-center rounded-full border border-sol-base02 px-2 py-1 font-mono text-xs font-semibold text-sol-base01 hover:border-sol-blue hover:text-sol-blue"
+          >
+            {links.length} source{links.length === 1 ? "" : "s"}
+          </button>
+        ) : null}
         <MessageImages images={images} />
       </div>
     </div>
