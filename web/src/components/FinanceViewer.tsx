@@ -560,7 +560,7 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
             <SortableHeader label="Book Value" sortKey="book_value" align="right" {...hp} />
             <SortableHeader label="Market Value" sortKey="market_value" align="right" {...hp} />
             <SortableHeader label="Allocation" sortKey="allocation" align="right" {...hp} />
-            <SortableHeader label="P&L %" sortKey="pnl" align="right" {...hp} />
+            <SortableHeader label="P&L" sortKey="pnl" align="right" {...hp} />
           </tr>
         </thead>
         <tbody>
@@ -605,7 +605,22 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                     {h.allocation_pct != null ? `${(h.allocation_pct * 100).toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
                   </td>
                   <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
-                    {h.unrealized_profit_pct != null ? <>{h.unrealized_profit_pct > 0 ? "+" : ""}{formatAmount(h.unrealized_profit_pct)}%</> : "—"}
+                    {h.unrealized_profit_pct != null ? (
+                      (() => {
+                        const pnlAmount = isValidAmount(h.market_value) && isValidAmount(h.book_value) && h.market_value.currency === h.book_value.currency
+                          ? h.market_value.number - h.book_value.number
+                          : null;
+                        const sign = h.unrealized_profit_pct > 0 ? "+" : "";
+                        return (
+                          <div>
+                            <div>{sign}{formatAmount(h.unrealized_profit_pct)}%</div>
+                            {pnlAmount != null ? (
+                              <div className="text-[10px] text-sol-base01">{pnlAmount > 0 ? "+" : ""}{formatAmount(pnlAmount)} {h.market_value.currency}</div>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    ) : "—"}
                   </td>
                 </tr>
                 {isExpanded ? (
@@ -629,7 +644,14 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{mv ? formatAmount(mv.number) : "—"}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">—</td>
                 <td className={`py-1 px-3 text-right tabular-nums ${pct > 0 ? "text-sol-green" : pct < 0 ? "text-sol-red" : "text-sol-base0"}`}>
-                  {t.unrealized_profit_pct != null ? <>{pct > 0 ? "+" : ""}{formatAmount(pct)}%</> : "—"}
+                  {t.unrealized_profit_pct != null ? (
+                    <div>
+                      <div>{pct > 0 ? "+" : ""}{formatAmount(pct)}%</div>
+                      {bv && mv && bv.currency === mv.currency ? (
+                        <div className="text-[10px] text-sol-base01">{mv.number - bv.number > 0 ? "+" : ""}{formatAmount(mv.number - bv.number)} {mv.currency}</div>
+                      ) : null}
+                    </div>
+                  ) : "—"}
                 </td>
               </tr>
             );
