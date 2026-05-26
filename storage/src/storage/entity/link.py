@@ -11,6 +11,7 @@ class LinkEntity(Base, BaseEntity):
     title = Column(String, nullable=True)
     download_status = Column(String, nullable=True)  # pending/downloading/done/failed
     content_key = Column(String, nullable=True)       # S3 key for stored content
+    summary_content_key = Column(String, nullable=True)  # S3 key for stored TLDR summary
     source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id (public string, no FK — preserved after feed delete)
     crawl_fail_count = Column(Integer, nullable=True, default=0)  # download failure counter for batch backoff
@@ -29,6 +30,7 @@ class LinkActivityEntity(Base, BaseEntity):
     timestamp = Column(BigInteger, nullable=False, index=True)  # unix ms from browser
     download_status = Column(String, nullable=True)  # per-activity download status (for url != base_url)
     content_key = Column(String, nullable=True)       # per-activity S3 key (for url != base_url)
+    summary_content_key = Column(String, nullable=True)  # per-activity TLDR S3 key
     source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id when source='rss'
 

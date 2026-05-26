@@ -14,6 +14,7 @@ interface Link {
   published_at?: number | null;
   download_status?: string | null;
   content_key?: string | null;
+  summary_content_key?: string | null;
   source?: string | null;
   source_feed_id?: string | null;
 }
@@ -167,6 +168,48 @@ function DownloadButton({ link, onStatusChange }: { link: Link; onStatusChange: 
   );
 }
 
+async function generateTldr(linkId: string): Promise<any> {
+  const res = await authFetch(`${API}/api/link/tldr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ link_id: linkId }),
+  });
+  if (!res.ok) throw new Error("Failed to generate TLDR");
+  return res.json();
+}
+
+function TldrButton({ link, onGenerated }: { link: Link; onGenerated: (linkId: string, key: string) => void }) {
+  const [loading, setLoading] = useState(false);
+  const handleGenerate = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const data = await generateTldr(link.link_id);
+      if (data.summary_content_key) onGenerated(link.link_id, data.summary_content_key);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (link.summary_content_key) {
+    return (
+      <span className="shrink-0 px-1 rounded text-[0.55rem] font-medium bg-sol-blue/20 text-sol-blue" title={link.summary_content_key}>
+        TLDR
+      </span>
+    );
+  }
+  return (
+    <button
+      onClick={handleGenerate}
+      disabled={loading}
+      className="shrink-0 px-1 rounded text-[0.55rem] font-medium bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer disabled:opacity-50"
+      title="Generate TLDR"
+    >
+      {loading ? "..." : "+TLDR"}
+    </button>
+  );
+}
+
 function ExternalLinkButton({ link }: { link: Link }) {
   return (
     <button
@@ -290,6 +333,10 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
     setAllLinks((prev) =>
       prev.map((l) => l.url === url ? { ...l, download_status: status } : l)
     );
+  }, []);
+
+  const handleTldrGenerated = useCallback((linkId: string, key: string) => {
+    setAllLinks((prev) => prev.map((l) => l.link_id === linkId ? { ...l, summary_content_key: key } : l));
   }, []);
 
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
@@ -421,6 +468,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                           RSS
                         </span>
                       )}
+                      <TldrButton link={link} onGenerated={handleTldrGenerated} />
                       <ExternalLinkButton link={link} />
                       <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
                     </div>

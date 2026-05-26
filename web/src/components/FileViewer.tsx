@@ -81,12 +81,14 @@ function getBreadcrumb(path: string): string[] {
 }
 
 interface FileCache {
-  content?: string;
+  content?: string | null;
+  summary?: string | null;
   blobUrl?: string;
   loading: boolean;
   error?: string;
   linkTitle?: string;
   linkUrl?: string;
+  summaryContentKey?: string;
 }
 
 function FileContentTable({ filePath, content }: { filePath: string; content: string }) {
@@ -423,7 +425,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
   );
 }
 
-async function fetchLinkContent({ activityId, linkId }: { activityId?: string | null; linkId?: string | null }): Promise<{ title?: string; url?: string; content: string }> {
+async function fetchLinkContent({ activityId, linkId }: { activityId?: string | null; linkId?: string | null }): Promise<{ title?: string; url?: string; content: string | null; summary?: string | null; summaryContentKey?: string }> {
   const qs = activityId
     ? `activity_id=${encodeURIComponent(activityId)}`
     : linkId
@@ -432,12 +434,14 @@ async function fetchLinkContent({ activityId, linkId }: { activityId?: string | 
   const res = await authFetch(`${API}/api/link/content?${qs}`);
   if (!res.ok) throw new Error("Failed to fetch content");
   const data = await res.json();
-  return { title: data.title, url: data.url, content: data.content };
+  return { title: data.title, url: data.url || data.base_url, content: data.content, summary: data.summary, summaryContentKey: data.summary_content_key };
 }
 
 function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalLinkClick }: { activityId: string | null; linkId?: string | null; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean; onExternalLinkClick?: (url: string) => void }) {
   const cacheKey = activityId ? `link:activity:${activityId}` : linkId ? `link:link:${linkId}` : "";
   const fileData = cacheKey ? cache[cacheKey] : undefined;
+  const [showSummary, setShowSummary] = useState(false);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
 
   useEffect(() => {
     if (!cacheKey) return;
@@ -446,9 +450,38 @@ function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalL
 
     setCache((prev) => ({ ...prev, [cacheKey]: { loading: true } }));
     fetchLinkContent({ activityId, linkId })
-      .then(({ title, url, content }) => setCache((prev) => ({ ...prev, [cacheKey]: { content, linkTitle: title, linkUrl: url, loading: false } })))
+      .then(({ title, url, content, summary, summaryContentKey }) => setCache((prev) => ({ ...prev, [cacheKey]: { content, summary, summaryContentKey, linkTitle: title, linkUrl: url, loading: false } })))
       .catch((e) => setCache((prev) => ({ ...prev, [cacheKey]: { loading: false, error: e.message } })));
   }, [activityId, linkId, fileData, setCache, cacheKey]);
+
+  const handleGenerateSummary = async () => {
+    if (!cacheKey || generatingSummary) return;
+    setGeneratingSummary(true);
+    try {
+      const body = linkId ? { link_id: linkId } : { activity_id: activityId };
+      const res = await authFetch(`${API}/api/link/tldr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to generate TLDR");
+      const data = await res.json();
+      setCache((prev) => ({
+        ...prev,
+        [cacheKey]: {
+          ...(prev[cacheKey] || { loading: false }),
+          loading: false,
+          summary: data.summary,
+          summaryContentKey: data.summary_content_key,
+        },
+      }));
+      setShowSummary(true);
+    } catch (e) {
+      setCache((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || { loading: false }), loading: false, error: e instanceof Error ? e.message : String(e) } }));
+    } finally {
+      setGeneratingSummary(false);
+    }
+  };
 
   if (!activityId && !linkId) {
     return <p className="text-sol-base01 italic text-sm p-3">No link selected.</p>;
@@ -460,8 +493,10 @@ function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalL
   if (fileData.error) {
     return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
   }
-  if (fileData.content !== undefined) {
-    const header = (fileData.linkTitle || fileData.linkUrl) ? (
+  if (fileData.content !== undefined || fileData.summary !== undefined) {
+    const contentMissing = fileData.content === null || fileData.content === undefined;
+    const visibleContent = showSummary && fileData.summary ? fileData.summary : (fileData.content || "");
+    const header = (fileData.linkTitle || fileData.linkUrl || fileData.summaryContentKey) ? (
       <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
         {fileData.linkTitle && (
           <div className="text-sol-base1 font-semibold text-sm break-words">{fileData.linkTitle}</div>
@@ -477,13 +512,40 @@ function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalL
             {fileData.linkUrl}
           </a>
         )}
+        <div className="flex gap-1 mt-2">
+          {contentMissing && (
+            <span className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-orange/20 text-sol-orange" title="content_key is set but the file is not present on the EC2 VM">
+              not on VM
+            </span>
+          )}
+          {fileData.summaryContentKey && (
+            <button
+              onClick={() => setShowSummary((v) => !v)}
+              className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-blue/20 text-sol-blue hover:text-sol-cyan cursor-pointer"
+              title={fileData.summaryContentKey}
+            >
+              {showSummary ? "Full Content" : "TLDR"}
+            </button>
+          )}
+          {!fileData.summaryContentKey && (
+            <button
+              onClick={handleGenerateSummary}
+              disabled={generatingSummary}
+              className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer disabled:opacity-50"
+            >
+              {generatingSummary ? "Generating TLDR..." : "Generate TLDR"}
+            </button>
+          )}
+        </div>
       </div>
     ) : null;
     return (
       <div className="flex flex-col h-full">
         {header}
         <div className="flex-1 min-h-0 overflow-auto">
-          {raw ? <FileContentTable filePath={cacheKey} content={fileData.content} /> : <MarkdownPreview content={fileData.content} onExternalLinkClick={onExternalLinkClick} />}
+          {contentMissing && !showSummary ? (
+            <p className="text-sol-base01 italic text-sm p-3">Content key is set, but the file is not on the EC2 VM.</p>
+          ) : raw ? <FileContentTable filePath={cacheKey} content={visibleContent} /> : <MarkdownPreview content={visibleContent} onExternalLinkClick={onExternalLinkClick} />}
         </div>
       </div>
     );

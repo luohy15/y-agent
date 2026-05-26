@@ -66,11 +66,7 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
-- **Link archive** — Chrome bookmark sync plus SSH-only worker downloads via
-  `y link fetch --json` on the user's VM. The CLI fetcher handles WeChat / generic pages
-  through oxylabs, YouTube through yt-dlp, Twitter/X through Jina AI reader, and Bilibili
-  through oxylabs + API cookies. Each link becomes an `activity_id` with content stored
-  on S3; the FileViewer handles raw/preview toggling and "Add to link" from `pages/`.
+- **Link archive** — EC2 is the single source of truth: `~/luohy15/links/<link_id>/{content,summary}.md` is canonical, `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
