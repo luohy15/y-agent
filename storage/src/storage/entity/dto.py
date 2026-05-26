@@ -13,4 +13,5 @@ from storage.dto import (  # noqa: F401
     Reminder,
     Routine,
     RssFeed,
+    UserCookies,
 )
