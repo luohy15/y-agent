@@ -1,6 +1,6 @@
 """Perplexity chat-completions backend."""
 
-from typing import Callable, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import httpx
 
@@ -24,27 +24,40 @@ def resolve_model(model: Optional[str]) -> str:
     return (model or "").strip().strip('"').strip() or DEFAULT_MODEL
 
 
-def _extract_citation_urls(response_data: dict) -> List[str]:
-    urls: List[str] = []
-    seen = set()
-
-    for url in response_data.get("citations") or []:
-        if isinstance(url, str) and url and url not in seen:
-            urls.append(url)
-            seen.add(url)
-
+def _extract_citations(response_data: dict) -> List[Dict[str, Any]]:
+    titles_by_url: Dict[str, str] = {}
     for result in response_data.get("search_results") or []:
         if not isinstance(result, dict):
             continue
         url = result.get("url")
-        if isinstance(url, str) and url and url not in seen:
-            urls.append(url)
-            seen.add(url)
+        title = result.get("title")
+        if isinstance(url, str) and url and isinstance(title, str) and title:
+            titles_by_url.setdefault(url, title)
 
-    return urls
+    citations: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add(url: str) -> None:
+        if url in seen:
+            return
+        seen.add(url)
+        entry: Dict[str, Any] = {"url": url}
+        title = titles_by_url.get(url)
+        if title:
+            entry["title"] = title
+        citations.append(entry)
+
+    for url in response_data.get("citations") or []:
+        if isinstance(url, str) and url:
+            _add(url)
+
+    for url in titles_by_url:
+        _add(url)
+
+    return citations
 
 
-def _assistant_message(content: str, model: str, links: Optional[List[str]] = None) -> Message:
+def _assistant_message(content: str, model: str, links: Optional[List[Dict[str, Any]]] = None) -> Message:
     return Message(
         role="assistant",
         content=content,
@@ -87,7 +100,7 @@ async def run_perplexity(
         response_data = response.json()
 
     content = (((response_data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-    links = _extract_citation_urls(response_data)
+    links = _extract_citations(response_data)
 
     message_callback(_assistant_message(content, model, links=links))
     return {"status": "completed", "usage": response_data.get("usage") or {}}
