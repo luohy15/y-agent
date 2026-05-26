@@ -77,6 +77,12 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  AlphaVantageApiKey:
+    Type: String
+    Description: Alpha Vantage API key for finance realtime quotes
+    NoEcho: true
+    Default: ""
+
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -268,6 +274,7 @@ Resources:
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
           Y_AGENT_TIMEZONE: Asia/Shanghai
+          ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
           PORT: "8000"
