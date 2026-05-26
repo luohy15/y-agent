@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate legacy link assets into local ~/luohy15/links/<link_id>/ storage."""
+"""Migrate legacy link assets into local Y_AGENT_HOME links/<link_id>/ storage."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def load_database_url() -> str:
 
 
 def resolve_home() -> Path:
-    return Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", str(Path.home() / "luohy15"))))
+    return Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", "/Users/roy/luohy15")))
 
 
 def candidate_urls(path: Path, root: Path) -> list[str]:

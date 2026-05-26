@@ -7,7 +7,7 @@ Routes to per-source handlers based on URL host:
 - x.com / twitter.com → Jina AI reader
 - everything else → Oxylabs + generic HTML extractor
 
-Output is written to `~/luohy15/links/<link_id>/content.md`.
+Output is written to `$Y_AGENT_HOME/links/<link_id>/content.md`.
 """
 
 import asyncio
@@ -29,7 +29,7 @@ from ._oxylabs import fetch_json, fetch_raw, load_cookies_from_chrome
 from ._youtube import extract_video_id
 
 
-OUTPUT_BASE = Path.home() / "luohy15"
+OUTPUT_BASE = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expanduser()
 CURRENT_LINK_ID: str | None = None
 CURRENT_ACTIVITY_ID: str | None = None
 
@@ -428,7 +428,7 @@ def _extract_title(md: str) -> str:
 def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None):
     """Fetch URL content and save as markdown.
 
-    Output: ~/luohy15/links/<link_id>/content.md
+    Output: $Y_AGENT_HOME/links/<link_id>/content.md
 
     Source dispatch:
 
