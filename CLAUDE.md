@@ -41,7 +41,7 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
 - **AWS SAM**: Lambda (API / Worker / Admin), SQS, S3 + CloudFront (web + link/RSS content),
   EventBridge schedules (reminders, RSS), DynamoDB
 - **Integrations**: Telegram Bot API, Google OAuth, SSH/Paramiko, EC2 lifecycle (boto3),
-  opencli (Twitter/X, Bilibili), oxylabs (WeChat)
+  oxylabs (WeChat / generic pages), yt-dlp (YouTube), Jina AI reader (Twitter/X)
 
 ## Notable Subsystems
 
@@ -66,9 +66,11 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
-- **Link archive** — Chrome bookmark sync, Twitter/X and Bilibili downloads, WeChat via
-  oxylabs. Each link becomes an `activity_id` with content stored on S3; the FileViewer
-  handles raw/preview toggling and "Add to link" from `pages/`.
+- **Link archive** — Chrome bookmark sync plus SSH-only worker downloads via
+  `y link fetch --json` on the user's VM. The CLI fetcher handles WeChat / generic pages
+  through oxylabs, YouTube through yt-dlp, Twitter/X through Jina AI reader, and Bilibili
+  through oxylabs + API cookies. Each link becomes an `activity_id` with content stored
+  on S3; the FileViewer handles raw/preview toggling and "Add to link" from `pages/`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
@@ -160,7 +162,7 @@ Grouped by feature area:
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB
 - `steps/` — RSS feed fetch, link batch download
-- `downloaders/` — HTTP (httpx), oxylabs, SSH (opencli)
+- `downloaders/` — SSH wrapper that runs `y link fetch --json` on the user's VM
 - `link_downloader.py`, `process_manager.py`
 - `handler.py` — Lambda SQS event handler (in worker root)
 
