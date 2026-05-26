@@ -6,7 +6,6 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain } from "./citationDomain";
-import remarkCitations from "./remarkCitations";
 import type { CitationLink } from "./MessageList";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
@@ -34,6 +33,17 @@ function parseCitationHref(href?: string): number[] | null {
     .map((part) => Number.parseInt(part, 10))
     .filter((n) => Number.isFinite(n) && n > 0);
   return indices.length > 0 ? indices : null;
+}
+
+const CITATION_RUN_RE = /(\[\d+\])+/g;
+const CITATION_INDEX_RE = /\[(\d+)\]/g;
+
+function preprocessCitationLinks(content: string, links?: CitationLink[]): string {
+  if (!links?.length) return content;
+  return content.replace(CITATION_RUN_RE, (match) => {
+    const indices = Array.from(match.matchAll(CITATION_INDEX_RE), (m) => m[1]);
+    return indices.length ? `[ ](cite://${indices.join(",")})` : match;
+  });
 }
 
 function citationFallback(children: ReactNode): string {
@@ -474,13 +484,15 @@ export default function MessageBubble({ role, content, images, links, toolName, 
     return <UserMessage content={content} images={images} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
   }
 
+  const markdownContent = preprocessCitationLinks(content, links);
+
   // Assistant message: rendered markdown like CLI
   return (
     <div>
       {!dimmed && <TimestampLine timestamp={timestamp} />}
       <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkCitations]}
+          remarkPlugins={[remarkGfm]}
           components={{
             a({ href, children, ...props }) {
               const citationIndices = parseCitationHref(href);
@@ -539,7 +551,7 @@ export default function MessageBubble({ role, content, images, links, toolName, 
               return <code className={className} {...props}>{children}</code>;
             },
           }}
-        >{content}</ReactMarkdown>
+        >{markdownContent}</ReactMarkdown>
         {links?.length ? (
           <button
             type="button"
@@ -556,4 +568,5 @@ export default function MessageBubble({ role, content, images, links, toolName, 
 }
 
 export { pickImageSrc };
+export { preprocessCitationLinks };
 export type { BubbleRole };
