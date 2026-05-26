@@ -7,7 +7,7 @@ Routes to per-source handlers based on URL host:
 - x.com / twitter.com → Jina AI reader
 - everything else → Oxylabs + generic HTML extractor
 
-Output is written to `~/luohy15/assets/web/<YYYYMMDD>/https/<host>/<path>.md`.
+Output is written to `~/luohy15/links/<link_id>/content.md`.
 """
 
 import asyncio
@@ -15,7 +15,6 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -23,16 +22,52 @@ import click
 import httpx
 from dotenv import load_dotenv
 
+from yagent.api_client import api_request
+
 from ._bilibili import bv2av
 from ._oxylabs import fetch_json, fetch_raw, load_cookies_from_chrome
 from ._youtube import extract_video_id
 
 
 OUTPUT_BASE = Path.home() / "luohy15"
+CURRENT_LINK_ID: str | None = None
+CURRENT_ACTIVITY_ID: str | None = None
 
 
-def _dated_output_base() -> Path:
-    return OUTPUT_BASE / 'assets' / 'web' / datetime.now().strftime('%Y%m%d')
+def _content_key() -> str:
+    if not CURRENT_LINK_ID:
+        raise RuntimeError("link_id is required before writing content")
+    if CURRENT_ACTIVITY_ID:
+        return f"links/{CURRENT_LINK_ID}/{CURRENT_ACTIVITY_ID}/content.md"
+    return f"links/{CURRENT_LINK_ID}/content.md"
+
+
+def _write_markdown(content: str) -> Path:
+    out_path = OUTPUT_BASE / _content_key()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(content, encoding='utf-8')
+    return out_path
+
+
+def _resolve_or_create_link(url: str, title: str | None = None) -> str:
+    resp = api_request("GET", "/api/link/resolve", params={"url": url})
+    resolved = resp.json()
+    if resolved.get("found") and resolved.get("link_id"):
+        return resolved["link_id"]
+    created = api_request("POST", "/api/link", json={"url": url, "title": title}).json()
+    return created["link_id"]
+
+
+def _save_content_meta(url: str, title: str | None) -> dict:
+    resp = api_request("POST", "/api/link/content-meta", json={
+        "url": url,
+        "link_id": CURRENT_LINK_ID,
+        "activity_id": CURRENT_ACTIVITY_ID,
+        "content_key": _content_key(),
+        "title": title,
+        "download_status": "done",
+    })
+    return resp.json()
 
 
 def _detect_source(url: str) -> str:
@@ -94,11 +129,7 @@ async def _fetch_twitter(client: httpx.AsyncClient, url: str) -> Path:
         content,
     ])
 
-    out_dir = _dated_output_base() / 'https/x.com' / username / 'status'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{status_id}.md"
-    out_path.write_text(md, encoding='utf-8')
-    return out_path
+    return _write_markdown(md)
 
 
 # --- WeChat ---
@@ -141,11 +172,7 @@ async def _fetch_weixin(client: httpx.AsyncClient, url: str) -> Path:
         lines.append(f"- **Time**: {data['publish_time']}")
     lines.extend([f"- **Link**: {data['url']}", "", "---", "", data['content']])
 
-    out_dir = _dated_output_base() / 'https/mp.weixin.qq.com/s'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{_extract_weixin_id(url)}.md"
-    out_path.write_text('\n'.join(lines), encoding='utf-8')
-    return out_path
+    return _write_markdown('\n'.join(lines))
 
 
 # --- Bilibili ---
@@ -197,11 +224,7 @@ async def _fetch_bilibili(client: httpx.AsyncClient, bvid: str, page: int = 1) -
         for item in sub_data.get('body') or []:
             lines.append(item['content'])
 
-    out_dir = _dated_output_base() / 'https/www.bilibili.com/video'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{bvid}.md"
-    out_path.write_text('\n'.join(lines), encoding='utf-8')
-    return out_path
+    return _write_markdown('\n'.join(lines))
 
 
 # --- YouTube ---
@@ -274,11 +297,7 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
     else:
         lines.extend(["## Subtitles", "", "*No subtitles available for this video*"])
 
-    out_dir = _dated_output_base() / 'https/www.youtube.com'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{video_id}.md"
-    out_path.write_text('\n'.join(lines), encoding='utf-8')
-    return out_path
+    return _write_markdown('\n'.join(lines))
 
 
 # --- Generic page ---
@@ -362,12 +381,7 @@ async def _fetch_page(client: httpx.AsyncClient, url: str) -> Path:
 
     md = '\n'.join([f"# {data['title']}", "", f"- **Link**: {data['url']}", "", "---", "", data['content']])
 
-    dir_path, filename = _url_to_path(url)
-    out_dir = _dated_output_base() / dir_path
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{filename}.md"
-    out_path.write_text(md, encoding='utf-8')
-    return out_path
+    return _write_markdown(md)
 
 
 # --- Dispatch ---
@@ -409,10 +423,12 @@ def _extract_title(md: str) -> str:
 @click.option('--json', 'json_output', is_flag=True,
               help='Emit one-line JSON {status,title,content,path,error} on stdout '
                    'instead of the human "Saved: ..." line. File is still written.')
-def link_fetch(url: str, page: int, lang: str, json_output: bool):
+@click.option('--link-id', default=None, help='Existing link_id to write under.')
+@click.option('--activity-id', default=None, help='Existing activity_id for per-activity content.')
+def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None):
     """Fetch URL content and save as markdown.
 
-    Output: ~/luohy15/assets/web/<YYYYMMDD>/https/<host>/<path>.md
+    Output: ~/luohy15/links/<link_id>/content.md
 
     Source dispatch:
 
@@ -445,7 +461,13 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool):
             raise click.ClickException("OXYLABS_USERNAME and OXYLABS_PASSWORD must be set")
 
     try:
+        global CURRENT_LINK_ID, CURRENT_ACTIVITY_ID
+        CURRENT_LINK_ID = link_id or _resolve_or_create_link(url)
+        CURRENT_ACTIVITY_ID = activity_id
         out_path = asyncio.run(_run(url, page, lang))
+        content = out_path.read_text(encoding='utf-8')
+        title = _extract_title(content) or None
+        _save_content_meta(url, title)
     except Exception as e:
         if json_output:
             click.echo(json.dumps({

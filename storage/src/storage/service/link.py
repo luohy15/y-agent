@@ -142,6 +142,14 @@ def update_download_status(link_id: str, status: str, content_key: Optional[str]
     link_repo.update_link_download_status(link_id, status, content_key=content_key)
 
 
+def update_summary_content_key(link_id_or_activity_id: str, key: str, *, is_activity: bool):
+    """Update summary_content_key at link or activity level."""
+    if is_activity:
+        link_repo.update_link_activity_summary_content_key(link_id_or_activity_id, key)
+    else:
+        link_repo.update_link_summary_content_key(link_id_or_activity_id, key)
+
+
 def get_content_key_for_url(link_id: str, url: Optional[str] = None) -> Optional[str]:
     """Get content_key, checking activity-level first if url has query params."""
     if url:

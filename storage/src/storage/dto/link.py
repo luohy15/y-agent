@@ -38,6 +38,7 @@ class LinkActivity:
     updated_at_unix: Optional[int] = None
     download_status: Optional[str] = None
     content_key: Optional[str] = None
+    summary_content_key: Optional[str] = None
     source: Optional[str] = None
     source_feed_id: Optional[str] = None
     crawl_fail_count: Optional[int] = None
@@ -65,6 +66,8 @@ class LinkActivity:
             result['download_status'] = self.download_status
         if self.content_key is not None:
             result['content_key'] = self.content_key
+        if self.summary_content_key is not None:
+            result['summary_content_key'] = self.summary_content_key
         if self.source is not None:
             result['source'] = self.source
         if self.source_feed_id is not None:
@@ -83,6 +86,7 @@ class LinkSummary:
     timestamps: List[int]
     download_status: Optional[str] = None
     content_key: Optional[str] = None
+    summary_content_key: Optional[str] = None
 
     def to_dict(self) -> Dict:
         result = {
@@ -96,4 +100,6 @@ class LinkSummary:
             result['download_status'] = self.download_status
         if self.content_key is not None:
             result['content_key'] = self.content_key
+        if self.summary_content_key is not None:
+            result['summary_content_key'] = self.summary_content_key
         return result

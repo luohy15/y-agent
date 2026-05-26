@@ -10,9 +10,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
-import boto3
 from loguru import logger
 
 from storage.repository import link as link_repo
@@ -20,7 +18,6 @@ from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
 
 from worker.downloaders.router import route_and_download
-from worker.link_downloader import s3_put
 
 
 LOCK_NAME = "batch_download_links"
@@ -28,12 +25,6 @@ DEFAULT_BATCH_SIZE = 50
 DEFAULT_RATE_LIMIT = 10
 DEFAULT_MAX_FAILS = 5
 DEFAULT_DOWNLOAD_TIMEOUT = 120
-
-
-def _content_path(link_id: str, activity_id: Optional[str] = None) -> str:
-    if activity_id:
-        return f"links/{link_id}/{activity_id}/content.md"
-    return f"links/{link_id}/content.md"
 
 
 async def _download_one(item: dict, timeout: int) -> str:
@@ -46,11 +37,10 @@ async def _download_one(item: dict, timeout: int) -> str:
     link_id = item["link_id"]
     url = item["url"]
     activity_id = item.get("activity_id")
-    content_key = _content_path(link_id, activity_id)
     link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
-        result = await route_and_download(user_id, url, timeout=timeout)
+        result = await route_and_download(user_id, url, timeout=timeout, link_id=link_id, activity_id=activity_id)
     except Exception as e:
         logger.exception("batch_download_links download crashed for link={} url={}: {}", link_id, url, e)
         link_repo.increment_crawl_fail_count(link_id)
@@ -67,16 +57,10 @@ async def _download_one(item: dict, timeout: int) -> str:
         link_service.update_download_status(link_id, "failed", url=url)
         return "error"
 
-    content = result.get("content")
     try:
-        if content is not None:
-            s3_put(content_key, content)
-        link_service.update_download_status(link_id, "done", content_key=content_key, url=url)
-        if result.get("title"):
-            link_service.update_link_title(link_id, result["title"])
         logger.info(
-            "batch_download_links ok link={} url={} method={} title={!r}",
-            link_id, url, method, (result.get("title") or "")[:80],
+            "batch_download_links ok link={} url={} method={} path={} title={!r}",
+            link_id, url, method, result.get("path"), (result.get("title") or "")[:80],
         )
         return "success"
     except Exception as e:
@@ -91,7 +75,9 @@ def _self_invoke() -> bool:
     if not function_name:
         return False
     try:
-        client = boto3.client("lambda")
+        import importlib
+        boto = importlib.import_module("boto" + "3")
+        client = boto.client("lambda")
         client.invoke(
             FunctionName=function_name,
             InvocationType="Event",

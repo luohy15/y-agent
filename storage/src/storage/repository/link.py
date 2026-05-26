@@ -25,6 +25,7 @@ def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
         updated_at_unix=activity.updated_at_unix if activity.updated_at_unix else None,
         download_status=activity.download_status or link.download_status,
         content_key=activity.content_key or link.content_key,
+        summary_content_key=activity.summary_content_key or link.summary_content_key,
         source=activity.source,
         source_feed_id=activity.source_feed_id,
         crawl_fail_count=link.crawl_fail_count,
@@ -141,6 +142,7 @@ def list_link_summaries(
                     timestamps=[act.timestamp],
                     download_status=lnk.download_status,
                     content_key=lnk.content_key,
+                    summary_content_key=lnk.summary_content_key,
                 )
             else:
                 grouped[lnk.id].timestamps.append(act.timestamp)
@@ -415,6 +417,8 @@ def get_links_with_latest_activity(user_id: int, link_ids: List[str]) -> List[di
                 "base_url": entity.base_url,
                 "title": entity.title,
                 "download_status": entity.download_status,
+                "content_key": entity.content_key,
+                "summary_content_key": entity.summary_content_key,
                 "activity_id": internal_to_activity.get(entity.id),
             })
         return result
@@ -470,6 +474,7 @@ def resolve_url(user_id: int, url: str) -> dict:
         activity_id = activity.activity_id if activity else None
         download_status = (activity.download_status if activity else None) or link.download_status
         content_key = (activity.content_key if activity else None) or link.content_key
+        summary_content_key = (activity.summary_content_key if activity else None) or link.summary_content_key
 
         return {
             "base_url": base_url,
@@ -478,6 +483,7 @@ def resolve_url(user_id: int, url: str) -> dict:
             "activity_id": activity_id,
             "download_status": download_status,
             "content_key": content_key,
+            "summary_content_key": summary_content_key,
         }
 
 
@@ -498,6 +504,22 @@ def update_link_title(link_id: str, title: str):
         entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
         if entity:
             entity.title = title
+
+
+def update_link_summary_content_key(link_id: str, key: str):
+    """Update summary_content_key for a link."""
+    with get_db() as session:
+        entity = session.query(LinkEntity).filter_by(link_id=link_id).first()
+        if entity:
+            entity.summary_content_key = key
+
+
+def update_link_activity_summary_content_key(activity_id: str, key: str):
+    """Update summary_content_key for an activity."""
+    with get_db() as session:
+        activity = session.query(LinkActivityEntity).filter_by(activity_id=activity_id).first()
+        if activity:
+            activity.summary_content_key = key
 
 
 def upsert_link_for_download(url: str) -> dict:
