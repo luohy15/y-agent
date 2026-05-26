@@ -1,5 +1,7 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
+import MessageBubble, { pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
 
 describe("pickImageSrc", () => {
   it("passes through https image URLs", () => {
@@ -23,11 +25,27 @@ describe("preprocessCitationLinks", () => {
   const links = [{ url: "https://example.com/source" }];
 
   it("converts adjacent numeric citation runs into cite links", () => {
-    expect(preprocessCitationLinks("Answer [1][2] text [3].", links)).toBe("Answer [ ](cite://1,2) text [ ](cite://3).");
+    expect(preprocessCitationLinks("Answer [1][2] text [3].", links)).toBe("Answer [cite](cite://1,2) text [cite](cite://3).");
   });
 
   it("leaves content unchanged when message has no links", () => {
     expect(preprocessCitationLinks("Answer [1][2].", [])).toBe("Answer [1][2].");
     expect(preprocessCitationLinks("Answer [1][2].", undefined)).toBe("Answer [1][2].");
+  });
+});
+
+
+describe("citation chips", () => {
+  it("renders a chip label for legacy string citation links", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(MessageBubble, {
+        role: "assistant",
+        content: "Legacy source [1]",
+        links: ["https://www.example.com/article"],
+      }),
+    );
+
+    expect(html).toContain("example");
+    expect(html).not.toContain("Legacy source [1]");
   });
 });
