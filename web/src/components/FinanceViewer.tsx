@@ -320,7 +320,7 @@ function isValidAmount(v: unknown): v is HoldingAmount {
   return v != null && typeof v === "object" && !Array.isArray(v) && "number" in v;
 }
 
-type HoldingSortKey = "asset" | "units" | "avg_cost" | "price" | "book_value" | "market_value" | "allocation" | "pnl";
+type HoldingSortKey = "asset" | "units" | "avg_cost" | "price" | "book_value" | "market_value" | "allocation" | "pnl_amount" | "pnl";
 type SortDir = "asc" | "desc";
 
 function getNumericVal(v: HoldingAmount | number | null | []): number {
@@ -337,6 +337,7 @@ function holdingSortValue(h: HoldingRow, key: HoldingSortKey, totalMarketValue =
     case "book_value": return getNumericVal(h.book_value);
     case "market_value": return getNumericVal(h.market_value);
     case "allocation": return h.allocation_pct ?? (totalMarketValue ? getNumericVal(h.market_value) / totalMarketValue : 0);
+    case "pnl_amount": return getNumericVal(h.market_value) - getNumericVal(h.book_value);
     case "pnl": return h.unrealized_profit_pct ?? 0;
   }
 }
@@ -560,7 +561,8 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
             <SortableHeader label="Book Value" sortKey="book_value" align="right" {...hp} />
             <SortableHeader label="Market Value" sortKey="market_value" align="right" {...hp} />
             <SortableHeader label="Allocation" sortKey="allocation" align="right" {...hp} />
-            <SortableHeader label="P&L" sortKey="pnl" align="right" {...hp} />
+            <SortableHeader label="P&L" sortKey="pnl_amount" align="right" {...hp} />
+            <SortableHeader label="P&L %" sortKey="pnl" align="right" {...hp} />
           </tr>
         </thead>
         <tbody>
@@ -604,28 +606,27 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
                     {h.allocation_pct != null ? `${(h.allocation_pct * 100).toFixed(1)}%` : (totalMarketValue ? `${((getNumericVal(h.market_value) / totalMarketValue) * 100).toFixed(1)}%` : "—")}
                   </td>
-                  <td className={`py-0.5 px-3 text-right tabular-nums ${(h.unrealized_profit_pct ?? 0) > 0 ? "text-sol-green" : (h.unrealized_profit_pct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0"}`}>
-                    {h.unrealized_profit_pct != null ? (
-                      (() => {
-                        const pnlAmount = isValidAmount(h.market_value) && isValidAmount(h.book_value) && h.market_value.currency === h.book_value.currency
-                          ? h.market_value.number - h.book_value.number
-                          : null;
-                        const sign = h.unrealized_profit_pct > 0 ? "+" : "";
-                        return (
-                          <div>
-                            <div>{sign}{formatAmount(h.unrealized_profit_pct)}%</div>
-                            {pnlAmount != null ? (
-                              <div className="text-[10px] text-sol-base01">{pnlAmount > 0 ? "+" : ""}{formatAmount(pnlAmount)} {h.market_value.currency}</div>
-                            ) : null}
-                          </div>
-                        );
-                      })()
-                    ) : "—"}
-                  </td>
+                  {(() => {
+                    const pnlAmount = isValidAmount(h.market_value) && isValidAmount(h.book_value) && h.market_value.currency === h.book_value.currency
+                      ? h.market_value.number - h.book_value.number
+                      : null;
+                    const pnlPct = h.unrealized_profit_pct;
+                    const colorClass = (pnlPct ?? 0) > 0 ? "text-sol-green" : (pnlPct ?? 0) < 0 ? "text-sol-red" : "text-sol-base0";
+                    return (
+                      <>
+                        <td className={`py-0.5 px-3 text-right tabular-nums ${colorClass}`}>
+                          {pnlAmount != null ? <>{pnlAmount > 0 ? "+" : ""}{formatAmount(pnlAmount)} <span className="text-sol-base01 text-xs">{h.market_value.currency}</span></> : "—"}
+                        </td>
+                        <td className={`py-0.5 px-3 text-right tabular-nums ${colorClass}`}>
+                          {pnlPct != null ? <>{pnlPct > 0 ? "+" : ""}{formatAmount(pnlPct)}%</> : "—"}
+                        </td>
+                      </>
+                    );
+                  })()}
                 </tr>
                 {isExpanded ? (
                   <tr className="border-y border-sol-base02 bg-sol-base03">
-                    <td colSpan={8} className="px-3 py-3">
+                    <td colSpan={9} className="px-3 py-3">
                       <PriceChart symbol={symbol} vmName={vmName} />
                     </td>
                   </tr>
@@ -644,14 +645,10 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{mv ? formatAmount(mv.number) : "—"}</td>
                 <td className="py-1 px-3 text-right tabular-nums text-sol-base0">—</td>
                 <td className={`py-1 px-3 text-right tabular-nums ${pct > 0 ? "text-sol-green" : pct < 0 ? "text-sol-red" : "text-sol-base0"}`}>
-                  {t.unrealized_profit_pct != null ? (
-                    <div>
-                      <div>{pct > 0 ? "+" : ""}{formatAmount(pct)}%</div>
-                      {bv && mv && bv.currency === mv.currency ? (
-                        <div className="text-[10px] text-sol-base01">{mv.number - bv.number > 0 ? "+" : ""}{formatAmount(mv.number - bv.number)} {mv.currency}</div>
-                      ) : null}
-                    </div>
-                  ) : "—"}
+                  {bv && mv && bv.currency === mv.currency ? <>{mv.number - bv.number > 0 ? "+" : ""}{formatAmount(mv.number - bv.number)} <span className="text-sol-base01 text-xs">{mv.currency}</span></> : "—"}
+                </td>
+                <td className={`py-1 px-3 text-right tabular-nums ${pct > 0 ? "text-sol-green" : pct < 0 ? "text-sol-red" : "text-sol-base0"}`}>
+                  {t.unrealized_profit_pct != null ? <>{pct > 0 ? "+" : ""}{formatAmount(pct)}%</> : "—"}
                 </td>
               </tr>
             );
