@@ -211,12 +211,16 @@ function TldrButton({ link, onGenerated }: { link: Link; onGenerated: (linkId: s
 }
 
 function ExternalLinkButton({ link }: { link: Link }) {
+  const handleClick = async () => {
+    await navigator.clipboard.writeText(link.url);
+  };
+
   return (
     <button
-      onClick={() => window.open(link.url, "_blank", "noopener,noreferrer")}
+      onClick={handleClick}
       className="shrink-0 w-4 h-4 flex items-center justify-center text-sol-base01 opacity-0 group-hover:opacity-100 hover:text-sol-cyan cursor-pointer"
-      title={`Open original page: ${link.url}`}
-      aria-label="Open original page in new tab"
+      title={`Copy URL: ${link.url}`}
+      aria-label="Copy link URL"
     >
       <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
         <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
@@ -339,6 +343,10 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
     setAllLinks((prev) => prev.map((l) => l.link_id === linkId ? { ...l, summary_content_key: key } : l));
   }, []);
 
+  const handleTitleClick = useCallback(async (link: Link) => {
+    await navigator.clipboard.writeText(link.url);
+  }, []);
+
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
   const showRangeRow = rangeExpanded || filter.mode === "range";
 
@@ -456,10 +464,10 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                         loading="lazy"
                       />
                       <button
-                        onClick={() => onPreview(link)}
+                        onClick={() => handleTitleClick(link)}
                         className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1 text-left cursor-pointer bg-transparent border-0 p-0"
-                        title={link.url}
-                        aria-label={`Open internal view for ${link.title || link.url}`}
+                        title={`Copy URL: ${link.url}`}
+                        aria-label={`Copy URL for ${link.title || link.url}`}
                       >
                         {link.title || getDomain(link.base_url)}
                       </button>

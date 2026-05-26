@@ -26,6 +26,7 @@ from yagent.api_client import api_request
 
 from ._bilibili import bv2av
 from ._oxylabs import fetch_json, fetch_raw, load_cookies_from_chrome
+from ._resolve import normalize_url, resolve_url_ref
 from ._youtube import extract_video_id
 
 
@@ -444,8 +445,7 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
     """
     load_dotenv()
 
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
+    url = normalize_url(url)
 
     if _detect_source(url) not in ('youtube', 'twitter'):
         if not os.environ.get('OXYLABS_USERNAME') or not os.environ.get('OXYLABS_PASSWORD'):
@@ -462,8 +462,9 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
 
     try:
         global CURRENT_LINK_ID, CURRENT_ACTIVITY_ID
-        CURRENT_LINK_ID = link_id or _resolve_or_create_link(url)
-        CURRENT_ACTIVITY_ID = activity_id
+        resolved = None if link_id else resolve_url_ref(url, exit_on_missing=False)
+        CURRENT_LINK_ID = link_id or (resolved.get("link_id") if resolved else None) or _resolve_or_create_link(url)
+        CURRENT_ACTIVITY_ID = activity_id or (resolved.get("activity_id") if resolved else None)
         out_path = asyncio.run(_run(url, page, lang))
         content = out_path.read_text(encoding='utf-8')
         title = _extract_title(content) or None

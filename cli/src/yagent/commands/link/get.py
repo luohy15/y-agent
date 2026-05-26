@@ -4,10 +4,20 @@ import click
 import httpx
 
 from yagent.api_client import api_request
+from ._resolve import looks_like_url, resolve_url_ref
 
 
 def _fetch_content(id_value):
     """Try activity_id first, then link_id. Returns dict or exits."""
+    if looks_like_url(id_value):
+        resolved = resolve_url_ref(id_value)
+        activity_id = resolved.get("activity_id") if resolved else None
+        link_id = resolved.get("link_id") if resolved else None
+        if activity_id:
+            return api_request("GET", "/api/link/content", params={"activity_id": activity_id}).json()
+        if link_id:
+            return api_request("GET", "/api/link/content", params={"link_id": link_id}).json()
+
     try:
         resp = api_request("GET", "/api/link/content", params={"activity_id": id_value})
         return resp.json()
@@ -30,7 +40,7 @@ def _fetch_content(id_value):
 @click.argument('id')
 @click.option('--output', '-o', default=None, help='Output file path (default: stdout)')
 def link_get(id, output):
-    """Get link details and content by activity_id or link_id."""
+    """Get link details and content by activity_id, link_id, or URL."""
     link = _fetch_content(id)
 
     click.echo(f"Link ID:   {link.get('link_id', '-')}")
