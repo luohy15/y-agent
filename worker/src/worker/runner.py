@@ -13,6 +13,9 @@ import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
 
 
+PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
+
+
 def _latest_user_text_and_images(messages) -> tuple[str, list]:
     """Return the latest user message text plus image paths, preserving text-only behavior."""
     for msg in reversed(messages):
@@ -261,11 +264,70 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
     return False
 
 
+def _build_perplexity_messages(chat) -> list[dict]:
+    messages = []
+    for msg in chat.messages:
+        if msg.role not in PERPLEXITY_ALLOWED_ROLES:
+            continue
+        if not isinstance(msg.content, str):
+            continue
+        content = msg.content.strip()
+        if not content:
+            continue
+        messages.append({"role": msg.role, "content": content})
+    return messages
+
+
+async def _run_perplexity_inline(chat, chat_id: str, user_id: int, bot_config,
+                                 post_hooks: list = None, trace_id: str = None,
+                                 topic: str = None) -> None:
+    from agent.perplexity import run_perplexity
+    from storage.repository import chat as chat_repo
+    from storage.repository.chat import set_chat_unread
+
+    messages = _build_perplexity_messages(chat)
+    if not messages or messages[-1]["role"] != "user":
+        logger.error("No latest user message found for Perplexity chat {}", chat_id)
+        chat.running = False
+        await chat_repo.save_chat_by_id(chat)
+        return
+
+    try:
+        await run_perplexity(
+            messages,
+            bot_config,
+            lambda msg: message_callback(chat_id, msg),
+            chat_id=chat_id,
+            trace_id=trace_id,
+            topic=topic,
+        )
+    finally:
+        fresh = await chat_service.get_chat_by_id(chat_id)
+        if fresh:
+            fresh.running = False
+            await chat_repo.save_chat_by_id(fresh)
+
+    fresh = await chat_service.get_chat_by_id(chat_id)
+    if not fresh:
+        return
+
+    if not fresh.interrupted:
+        set_chat_unread(chat_id, True)
+        try:
+            if _send_telegram_reply(fresh, user_id, trace_id):
+                await chat_repo.save_chat_by_id(fresh)
+        except Exception as e:
+            logger.exception("telegram reply failed: {}", e)
+
+        if post_hooks:
+            _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
+
+
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
-    """Execute a chat round. Always runs in detached tmux mode, returns 'detached'.
+    """Execute a chat round. Perplexity runs inline; CLI backends detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli').
+    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli', 'perplexity').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -339,7 +401,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         chat.bot_name = bot_config.name
     await chat_repo.save_chat_by_id(chat)
 
-    # Always run in detached tmux mode
+    effective_backend = bot_config.backend or bot_config.api_type
+    if effective_backend == "perplexity":
+        await _run_perplexity_inline(chat, chat_id, user_id, bot_config,
+                                     post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+        return "done"
+
     await _start_detached(chat, chat_id, user_id, bot_config,
                            vm_name=vm_name, work_dir=work_dir,
                            post_hooks=post_hooks, trace_id=trace_id, topic=topic)
