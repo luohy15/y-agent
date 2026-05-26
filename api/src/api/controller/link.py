@@ -1,5 +1,6 @@
 import base64
 import os
+from pathlib import Path
 from typing import List, Optional
 
 import httpx
@@ -66,6 +67,7 @@ TLDR_SYSTEM_PROMPT = (
     "Return concise Markdown with the main points, key details, and any useful caveats. "
     "Do not include preambles."
 )
+Y_AGENT_HOME = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expanduser().resolve()
 
 
 def _safe_link_key(content_key: str) -> str:
@@ -74,21 +76,29 @@ def _safe_link_key(content_key: str) -> str:
     return content_key
 
 
+def _vm_content_path(content_key: str) -> str:
+    key = _safe_link_key(content_key)
+    path = (Y_AGENT_HOME / key).resolve()
+    if path != Y_AGENT_HOME and Y_AGENT_HOME not in path.parents:
+        raise HTTPException(status_code=400, detail="Invalid content key")
+    return str(path)
+
+
 async def _read_vm_content(user_id: int, content_key: Optional[str]) -> Optional[str]:
     if not content_key:
         return None
-    key = _safe_link_key(content_key)
+    path = _vm_content_path(content_key)
     try:
-        return await _exec(user_id, ["bash", "-lc", "cat \"$HOME/luohy15/$1\"", "_", key], timeout=30, work_dir=None)
+        return await _exec(user_id, ["bash", "-lc", "cat \"$1\"", "_", path], timeout=30, work_dir=None)
     except Exception:
         return None
 
 
 async def _write_vm_content(user_id: int, content_key: str, content: str) -> None:
-    key = _safe_link_key(content_key)
+    path = _vm_content_path(content_key)
     payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
-    script = "path=\"$HOME/luohy15/$1\"; mkdir -p \"$(dirname \"$path\")\" && printf '%s' \"$2\" | base64 -d > \"$path\""
-    await _exec(user_id, ["bash", "-lc", script, "_", key, payload], timeout=60, work_dir=None)
+    script = "path=\"$1\"; mkdir -p \"$(dirname \"$path\")\" && printf '%s' \"$2\" | base64 -d > \"$path\""
+    await _exec(user_id, ["bash", "-lc", script, "_", path, payload], timeout=60, work_dir=None)
 
 
 @router.get("/list")
