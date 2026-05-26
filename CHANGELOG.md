@@ -246,7 +246,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [0.5.7] - 2026-04-05
 
 ### Added
-- **Personal Information Hub (Phase 1)** — link download/archiving via SSH/opencli, Twitter/X post + article support
+- **Personal Information Hub (Phase 1)** — link download/archiving via SSH, Twitter/X post + article support
 - Link preview panel with markdown content fetching; raw/preview toggle in FileViewer
 - "Add to link" button for `pages/` files in FileViewer
 - Desktop header bar with panel toggles; bottom terminal panel
