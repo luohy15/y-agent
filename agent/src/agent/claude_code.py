@@ -33,7 +33,7 @@ from agent.poll_loop import PollLoop
 # Stream-json message converters
 # ---------------------------------------------------------------------------
 
-def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Message:
+def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Optional[Message]:
     """Convert a stream-json assistant object to a y-agent Message."""
     message = obj.get("message", {})
     content_blocks = message.get("content", [])
@@ -67,6 +67,9 @@ def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Message:
 
     content = "\n".join(text_parts)
     reasoning = "\n".join(thinking_parts) if thinking_parts else None
+
+    if not content and not reasoning and not tool_calls:
+        return None
 
     return Message.from_dict({
         "role": "assistant",
@@ -139,7 +142,9 @@ def convert_stream_messages(stream_lines: List[str]) -> List[Message]:
             continue
         msg_type = obj.get("type")
         if msg_type == "assistant":
-            messages.append(_convert_assistant(obj, tool_use_index))
+            msg = _convert_assistant(obj, tool_use_index)
+            if msg:
+                messages.append(msg)
         elif msg_type == "user":
             messages.extend(_convert_user_tool_results(obj, tool_use_index))
 
@@ -202,6 +207,13 @@ def convert_history_session(jsonl_lines: List[str]) -> Tuple[List[Message], Opti
         content = "\n".join(text_parts)
         reasoning = "\n".join(thinking_parts) if thinking_parts else None
         ts = pending_assistant_ts or get_utc_iso8601_timestamp()
+
+        if not content and not reasoning and not tool_calls:
+            pending_assistant_blocks = []
+            pending_assistant_model = None
+            pending_assistant_uuid = None
+            pending_assistant_ts = None
+            return
 
         messages.append(Message.from_dict({
             "role": "assistant",
@@ -344,6 +356,8 @@ class StreamConverter:
 
         if msg_type == "assistant":
             msg = _convert_assistant(obj, self.tool_use_index)
+            if not msg:
+                return []
             msg.parent_id = self.last_message_id
             self.last_message_id = msg.id
             messages.append(msg)
