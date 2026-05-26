@@ -13,6 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Manager bot (2217)** — added a `manager` bot config for Claude Code over OpenRouter GLM-4.7.
 - **Finance risk and performance views (2189 / 2191 / 2198 / 2201)** — FinanceViewer now adds richer portfolio performance/range controls, YTD/MTD/QTD/1M/3M/1Y/ALL aliases, backend-resolved price ranges, future-price filtering, risky allocation percentages per period, and consistent risky-only allocation math.
 - **Finance FIRE and config-backed analytics (2184 / 2185 / 2196)** — finance sync and APIs now expose config-backed FIRE/derived analytics, realized/unrealized holding calculations, normalized price/transaction/holding fields, and expanded tests for Beancount-derived portfolio data.
 - **Responsive sidebar/list layout polish (2192)** — app navigation and sidebar lists now better support compact layouts with shared responsive behavior across notes, links, chats, reminders, routines, RSS feeds, todos, traces, dev, entity, file tree, and git panels.
