@@ -1,8 +1,11 @@
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from agent.openai_chat import openai_chat_completion
+from storage.entity.dto import Chat, Message
 from storage.service import bot_config as bot_service
+from storage.repository import chat as chat_repo
+from storage.util import generate_id, generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
 router = APIRouter(prefix="/inline")
 
@@ -12,6 +15,7 @@ router = APIRouter(prefix="/inline")
 # speaks OpenAI's /chat/completions shape; pick a bot whose base_url is
 # compatible (OpenRouter, OpenAI itself, Google's OpenAI-compat endpoint…).
 INLINE_BOT_NAME = "inline"
+INLINE_TOPIC = "inline"
 INLINE_MAX_TOKENS = 2000
 INLINE_TIMEOUT = 30.0
 
@@ -33,6 +37,36 @@ class InlineResponse(BaseModel):
     result: str
 
 
+def _message(role: str, content: str, *, provider: str = None, model: str = None) -> Message:
+    return Message(
+        role=role,
+        content=content,
+        timestamp=get_utc_iso8601_timestamp(),
+        unix_timestamp=get_unix_timestamp(),
+        id=generate_message_id(),
+        provider=provider,
+        model=model,
+    )
+
+
+async def _persist_inline_chat(user_id: int, bot_config, user_content: str, result: str) -> None:
+    timestamp = get_utc_iso8601_timestamp()
+    chat = Chat(
+        id=generate_id(),
+        create_time=timestamp,
+        update_time=timestamp,
+        messages=[
+            _message("user", user_content),
+            _message("assistant", result, provider="openai", model=bot_config.model),
+        ],
+        backend="openai",
+        bot_name=bot_config.name,
+        topic=INLINE_TOPIC,
+        skill=INLINE_TOPIC,
+    )
+    await chat_repo.save_chat(user_id, chat)
+
+
 @router.post("", response_model=InlineResponse)
 async def inline(req: InlineRequest, request: Request) -> InlineResponse:
     user_id = request.state.user_id
@@ -48,34 +82,17 @@ async def inline(req: InlineRequest, request: Request) -> InlineResponse:
         f"<instruction>\n{req.instruction}\n</instruction>"
     )
 
-    payload = {
-        "model": bot_config.model,
-        "max_tokens": INLINE_MAX_TOKENS,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    }
-
-    url = f"{bot_config.base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {bot_config.api_key}",
-        "Content-Type": "application/json",
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=INLINE_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-    except httpx.HTTPError as e:
+        result, _ = await openai_chat_completion(
+            [{"role": "user", "content": user_content}],
+            bot_config,
+            max_tokens=INLINE_MAX_TOKENS,
+            system_prompt=SYSTEM_PROMPT,
+            timeout=INLINE_TIMEOUT,
+        )
+    except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
 
-    if not resp.is_success:
-        raise HTTPException(status_code=502, detail=f"LLM error {resp.status_code}: {resp.text}")
-
-    data = resp.json()
-    try:
-        result = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise HTTPException(status_code=502, detail=f"Unexpected LLM response: {data}")
-
-    return InlineResponse(result=(result or "").strip())
+    result = (result or "").strip()
+    await _persist_inline_chat(user_id, bot_config, user_content, result)
+    return InlineResponse(result=result)
