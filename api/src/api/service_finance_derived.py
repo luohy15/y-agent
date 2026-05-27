@@ -10,7 +10,7 @@ from fava.util.date import parse_date
 from storage.service import finance_config as finance_config_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
-from storage.service import finance_realtime_quote as realtime_quote_service
+from storage.service import finance_positions as positions_service
 from storage.service import finance_transaction as transaction_service
 
 
@@ -437,62 +437,8 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
 
 
 def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
-    holdings = holding_service.list_at(user_id, at, risky_only=risky_only) if at else holding_service.list_for(user_id, risky_only=risky_only)
-    rows = holding_service.with_effective_values(holdings)
-    _overlay_realtime_quotes(rows)
-    base_values = []
-    for holding, row in zip(holdings, rows):
-        market_value = row.get("market_value")
-        if market_value is None:
-            base_values.append(None)
-            continue
-        currency = row.get("cost_currency") or row.get("symbol") or base_currency
-        as_of = _parse_snapshot_date(row.get("snapshot_date") or getattr(holding, "snapshot_date", None)) or _today()
-        base_values.append(convert(user_id, vm_name, float(market_value), currency, base_currency, as_of))
-
-    total_base_market_value = sum(value for value in base_values if value is not None)
-    for row, base_value in zip(rows, base_values):
-        row["allocation_base_currency"] = base_currency
-        row["market_value_base"] = round(base_value, 2) if base_value is not None else None
-        row["allocation_pct"] = round(base_value / total_base_market_value, 6) if base_value is not None and total_base_market_value else None
-
-    return DerivedResult(rows, holdings[0].synced_at if holdings else "")
-
-
-def _overlay_realtime_quotes(rows: list[dict]) -> None:
-    """Override price / market_value / unrealized_profit_pct on USD rows with
-    fresh Alpha Vantage realtime quotes. Adds `price_as_of` so the UI can show
-    per-row freshness. Failures are silently skipped — the snapshot values
-    remain visible."""
-    symbols = sorted({
-        row["symbol"]
-        for row in rows
-        if not row.get("is_cash")
-        and row.get("symbol")
-        and (row.get("cost_currency") or "").upper() == "USD"
-        and row.get("quantity") is not None
-    })
-    if not symbols:
-        return
-    try:
-        result = realtime_quote_service.fetch_bulk(symbols)
-    except Exception:
-        return
-    for row in rows:
-        symbol = row.get("symbol")
-        quote = result.quotes.get(symbol) if symbol else None
-        if quote is None:
-            continue
-        quantity = row.get("quantity")
-        if quantity is None:
-            continue
-        live_market_value = float(quantity) * float(quote.close)
-        row["price"] = float(quote.close)
-        row["market_value"] = live_market_value
-        row["price_as_of"] = quote.as_of.isoformat().replace("+00:00", "Z")
-        book_value = row.get("book_value")
-        if book_value not in (None, 0):
-            row["unrealized_profit_pct"] = round((live_market_value - float(book_value)) / float(book_value) * 100, 4)
+    result = positions_service.derive_positions(user_id, snapshot_date=at, risky_only=risky_only, base_currency=base_currency)
+    return DerivedResult(result["data"], result["synced_at"])
 
 
 def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
