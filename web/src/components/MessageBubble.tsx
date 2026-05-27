@@ -16,7 +16,7 @@ interface HastNode {
   type?: string;
   tagName?: string;
   value?: string;
-  properties?: { className?: string | string[] };
+  properties?: { className?: string | string[]; [key: string]: unknown };
   children?: HastNode[];
 }
 
@@ -122,12 +122,20 @@ function CitationChip({ citationIndices, citationLinks, fallback }: { citationIn
   );
 }
 
+function classNameString(className?: string | string[]): string {
+  return Array.isArray(className) ? className.join(" ") : className ?? "";
+}
+
 function artifactTypeFromClassName(className?: string): ArtifactType | null {
   if (!className) return null;
   if (/\blanguage-mermaid\b/.test(className)) return "mermaid";
   if (/\blanguage-vega-lite\b/.test(className)) return "vega-lite";
   if (/\blanguage-artifact-svg\b/.test(className)) return "artifact-svg";
   return null;
+}
+
+function artifactTypeFromHastNode(node?: HastNode): ArtifactType | null {
+  return artifactTypeFromClassName(classNameString(node?.properties?.className));
 }
 
 function artifactKey(type: ArtifactType, spec: string): string {
@@ -151,9 +159,8 @@ function hastText(node: HastNode): string {
 }
 
 function artifactFromPreNode(node?: HastNode): { type: ArtifactType; spec: string } | null {
-  const codeNode = node?.children?.find((child) => child.tagName === "code");
-  const className = codeNode?.properties?.className;
-  const type = artifactTypeFromClassName(Array.isArray(className) ? className.join(" ") : className);
+  const codeNode = node?.children?.find((child) => child.type === "element" && child.tagName === "code");
+  const type = artifactTypeFromHastNode(codeNode);
   if (!type || !codeNode) return null;
   return { type, spec: hastText(codeNode).replace(/\n$/, "") };
 }
@@ -690,5 +697,6 @@ export default function MessageBubble({ role, content, images, links, toolName, 
 
 export { pickImageSrc };
 export { artifactTypeFromClassName };
+export { artifactFromPreNode };
 export { preprocessCitationLinks };
 export type { BubbleRole };
