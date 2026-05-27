@@ -16,6 +16,16 @@ from agent.ec2_wake import ensure_and_touch_vm
 PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
 OPENAI_ALLOWED_ROLES = {"system", "user", "assistant"}
 
+ARTIFACT_FENCE_RE = re.compile(
+    r"```(?P<lang>mermaid|vega-lite|artifact-svg)[^\n`]*\n.*?```",
+    re.IGNORECASE | re.DOTALL,
+)
+ARTIFACT_PLACEHOLDERS = {
+    "mermaid": "[diagram]",
+    "vega-lite": "[chart]",
+    "artifact-svg": "[svg]",
+}
+
 
 def _latest_user_text_and_images(messages) -> tuple[str, list]:
     """Return the latest user message text plus image paths, preserving text-only behavior."""
@@ -29,6 +39,18 @@ def _latest_user_text_and_images(messages) -> tuple[str, list]:
 def message_callback(chat_id: str, message: Message):
     logger.info("Event: role={} tool={} content_length={}", message.role, message.tool, len(message.content) if message.content else 0)
     chat_service.append_message_sync(chat_id, message)
+
+
+def strip_artifact_fences_for_telegram(text: str) -> str:
+    """Replace web-only artifact fences with compact Telegram placeholders."""
+    if not text:
+        return text
+
+    def replacement(match):
+        lang = match.group("lang").lower()
+        return ARTIFACT_PLACEHOLDERS.get(lang, "[artifact]")
+
+    return ARTIFACT_FENCE_RE.sub(replacement, text)
 
 
 def check_interrupted(chat_id: str) -> bool:
@@ -252,15 +274,16 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
     if images:
         sent_count = 0
         delivered_now = []
+        reply_caption = strip_artifact_fences_for_telegram(reply_text) if reply_text else None
         for index, image_path in enumerate(images):
-            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_text if index == 0 and reply_text else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client):
+            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_caption if index == 0 and reply_caption else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client):
                 sent_count += 1
                 delivered_now.append(image_path)
         changed = _append_delivered_images(target_message, delivered_now) if target_message is not None else False
         logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", sent_count, chat.topic, tg_chat_id)
         return changed
     elif reply_text and not had_images_before_filter:
-        send_telegram_message(bot_token, tg_chat_id, reply_text, topic_id)
+        send_telegram_message(bot_token, tg_chat_id, strip_artifact_fences_for_telegram(reply_text), topic_id)
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
     return False
 

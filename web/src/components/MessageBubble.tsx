@@ -8,6 +8,7 @@ import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain, citationHostname } from "./citationDomain";
 import { normalizeLinks, type NormalizedCitationLink } from "./citationLinks";
 import type { CitationLink } from "./MessageList";
+import ArtifactRenderer, { type ArtifactType } from "./ArtifactRenderer";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -110,6 +111,14 @@ function CitationChip({ citationIndices, citationLinks, fallback }: { citationIn
       )}
     </span>
   );
+}
+
+function artifactTypeFromClassName(className?: string): ArtifactType | null {
+  if (!className) return null;
+  if (/\blanguage-mermaid\b/.test(className)) return "mermaid";
+  if (/\blanguage-vega-lite\b/.test(className)) return "vega-lite";
+  if (/\blanguage-artifact-svg\b/.test(className)) return "artifact-svg";
+  return null;
 }
 
 function pickImageSrc(imagePath: string): string | null {
@@ -584,6 +593,10 @@ export default function MessageBubble({ role, content, images, links, toolName, 
             code({ children, className, ...props }) {
               const text = String(children).replace(/\n$/, "");
               const isInline = !className;
+              const artifactType = artifactTypeFromClassName(className);
+              if (artifactType) {
+                return <ArtifactRenderer type={artifactType} spec={text} />;
+              }
               const fileRef = isInline ? parseLocalFileReference(text, { allowRelative: true }) : null;
               if (fileRef && onOpenFile) {
                 return (
@@ -616,5 +629,6 @@ export default function MessageBubble({ role, content, images, links, toolName, 
 }
 
 export { pickImageSrc };
+export { artifactTypeFromClassName };
 export { preprocessCitationLinks };
 export type { BubbleRole };

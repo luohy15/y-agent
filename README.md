@@ -10,6 +10,8 @@ A personal AI agent system built on top of coding agents.
 
 A real trace: https://yovy.app/t/6fc5c4
 
+Web chat renders inline artifacts from assistant messages: Mermaid diagrams, Vega-Lite charts, and sanitized `artifact-svg` blocks.
+
 ---
 
 Coding agents like Claude Code / Codex are great for code, but code is only part of my daily life. I also have ledgers, calendars, todos, notes, emails. I want the agent to handle those too.

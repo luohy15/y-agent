@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import MessageBubble, { pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
+import MessageBubble, { artifactTypeFromClassName, pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
 
 describe("pickImageSrc", () => {
   it("passes through https image URLs", () => {
@@ -31,6 +31,18 @@ describe("preprocessCitationLinks", () => {
   it("leaves content unchanged when message has no links", () => {
     expect(preprocessCitationLinks("Answer [1][2].", [])).toBe("Answer [1][2].");
     expect(preprocessCitationLinks("Answer [1][2].", undefined)).toBe("Answer [1][2].");
+  });
+});
+
+describe("artifactTypeFromClassName", () => {
+  it("detects supported artifact fence languages", () => {
+    expect(artifactTypeFromClassName("language-mermaid")).toBe("mermaid");
+    expect(artifactTypeFromClassName("language-vega-lite")).toBe("vega-lite");
+    expect(artifactTypeFromClassName("language-artifact-svg")).toBe("artifact-svg");
+  });
+
+  it("does not treat regular svg code blocks as artifacts", () => {
+    expect(artifactTypeFromClassName("language-svg")).toBeNull();
   });
 });
 
