@@ -8,7 +8,7 @@ import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain, citationHostname } from "./citationDomain";
 import { normalizeLinks, type NormalizedCitationLink } from "./citationLinks";
 import type { CitationLink } from "./MessageList";
-import ArtifactRenderer, { type ArtifactType } from "./ArtifactRenderer";
+import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -25,6 +25,7 @@ interface MessageBubbleProps {
   onShowSources?: (links: CitationLink[]) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+  onOpenArtifact?: (type: ArtifactType, spec: string) => void;
 }
 
 function parseCitationHref(href?: string): number[] | null {
@@ -119,6 +120,15 @@ function artifactTypeFromClassName(className?: string): ArtifactType | null {
   if (/\blanguage-vega-lite\b/.test(className)) return "vega-lite";
   if (/\blanguage-artifact-svg\b/.test(className)) return "artifact-svg";
   return null;
+}
+
+function artifactKey(type: ArtifactType, spec: string): string {
+  const input = spec.slice(0, 200);
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+  }
+  return `${type}:${Math.abs(hash).toString(36)}`;
 }
 
 function pickImageSrc(imagePath: string): string | null {
@@ -534,7 +544,9 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
   );
 }
 
-export default function MessageBubble({ role, content, images, links, toolName, arguments: args, timestamp, dimmed, onOpenFile, onShowSources, onSelectChat, onSelectTrace }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, images, links, toolName, arguments: args, timestamp, dimmed, onOpenFile, onShowSources, onSelectChat, onSelectTrace, onOpenArtifact }: MessageBubbleProps) {
+  const [artifactMode, setArtifactMode] = useState<Record<string, ArtifactMode>>({});
+
   if (role === "system") {
     return <div className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
   }
@@ -595,7 +607,17 @@ export default function MessageBubble({ role, content, images, links, toolName, 
               const isInline = !className;
               const artifactType = artifactTypeFromClassName(className);
               if (artifactType) {
-                return <ArtifactRenderer type={artifactType} spec={text} />;
+                const key = artifactKey(artifactType, text);
+                return (
+                  <ArtifactView
+                    type={artifactType}
+                    spec={text}
+                    mode={artifactMode[key] ?? "preview"}
+                    onModeChange={(mode) => setArtifactMode((prev) => ({ ...prev, [key]: mode }))}
+                    onOpenInTab={onOpenArtifact ? () => onOpenArtifact(artifactType, text) : undefined}
+                    variant="inline"
+                  />
+                );
               }
               const fileRef = isInline ? parseLocalFileReference(text, { allowRelative: true }) : null;
               if (fileRef && onOpenFile) {

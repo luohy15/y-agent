@@ -15,6 +15,7 @@ import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { parseLocalFileReference } from "../utils/localFileLinks";
+import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 
 
 interface FileViewerProps {
@@ -27,6 +28,7 @@ interface FileViewerProps {
   workDir?: string;
   defaultWorkDir?: string;
   diffFiles?: Set<string>;
+  artifactTabs?: Record<string, { type: ArtifactType; spec: string }>;
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
   selectedLinkId?: string | null;
@@ -78,6 +80,10 @@ function downloadAsMarkdown(filename: string, content: string) {
 
 function getBreadcrumb(path: string): string[] {
   return path.replace(/^\.\//, "").split("/").filter(Boolean);
+}
+
+function artifactLabel(path: string, artifactTabs?: Record<string, { type: ArtifactType; spec: string }>): string {
+  return artifactTabs?.[path]?.type ?? "artifact";
 }
 
 interface FileCache {
@@ -781,7 +787,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLi
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -800,7 +806,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
-  const isTrace = !isDiff && activeFileName === "trace.md";
+  const isArtifact = !!activeFile?.startsWith("artifact:");
+  const isTrace = !isDiff && !isArtifact && activeFileName === "trace.md";
   const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isCalendar = !isDiff && !isTrace && activeFileName.endsWith("calendar.md");
   const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
@@ -813,7 +820,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev) return;
+    if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -844,7 +851,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, vmQuery]);
+  }, [activeFile, cache, isArtifact, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -1013,7 +1020,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             title={filePath}
           >
             {isDirty(filePath) && <span className="w-2 h-2 rounded-full bg-sol-base0 shrink-0" />}
-            <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
+            <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("artifact:") ? artifactLabel(filePath, artifactTabs) : filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1030,7 +1037,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       {activeFile && (
         <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
           {isDiff && <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span>}
-          {getBreadcrumb(isLinkPreview && selectedLinkContentKey ? (defaultWorkDir ? `${defaultWorkDir}/${selectedLinkContentKey}` : selectedLinkContentKey) : activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
+          {getBreadcrumb(isArtifact ? artifactLabel(activeFile, artifactTabs) : isLinkPreview && selectedLinkContentKey ? (defaultWorkDir ? `${defaultWorkDir}/${selectedLinkContentKey}` : selectedLinkContentKey) : activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
             <span key={i} className="flex items-center shrink-0">
               {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
@@ -1144,7 +1151,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {saving[activeFile] ? "Saving..." : "Save"}
             </button>
           )}
-          <button
+          {!isArtifact && <button
             onClick={handleRefresh}
             className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
             title="Refresh file"
@@ -1152,8 +1159,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V5L4.5 2 8 -1v2zm0 14a7 7 0 0 1-7-7h1.5A5.5 5.5 0 0 0 8 13.5V11l3.5 3L8 17v-2z" />
             </svg>
-          </button>
-          <button
+          </button>}
+          {!isArtifact && <button
             onClick={() => {
               const pathToCopy = isLinkPreview && selectedLinkContentKey && defaultWorkDir
                 ? `${defaultWorkDir}/${selectedLinkContentKey}`
@@ -1167,15 +1174,16 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               <path d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6z" />
               <path d="M2 4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h1v1H2z" />
             </svg>
-          </button>
+          </button>}
         </div>
       )}
       {/* Content - render all open files, show/hide to preserve scroll */}
       <div className="flex-1 min-h-0 bg-sol-base03 relative">
         {openFiles.map((filePath) => {
           const fileDiff = !!(diffFiles?.has(filePath));
+          const fileArtifact = filePath.startsWith("artifact:");
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileTrace = !fileDiff && fileName === "trace.md";
+          const fileTrace = !fileDiff && !fileArtifact && fileName === "trace.md";
           const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileCalendar = !fileDiff && !fileTrace && fileName.endsWith("calendar.md");
           const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
@@ -1193,10 +1201,18 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileArtifact || fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
+              ) : fileArtifact && artifactTabs?.[filePath] ? (
+                <ArtifactView
+                  type={artifactTabs[filePath].type}
+                  spec={artifactTabs[filePath].spec}
+                  mode={(mdPreview[filePath] !== false ? "preview" : "raw") as ArtifactMode}
+                  onModeChange={(mode) => setMdPreview((prev) => ({ ...prev, [filePath]: mode === "preview" }))}
+                  variant="tab"
+                />
               ) : fileTrace ? (
                 <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} defaultWorkDir={defaultWorkDir} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onOpenFile={onPreviewFile} onTraceTodoDirtyChange={onTraceTodoDirtyChange} />
               ) : fileTodo ? (

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
 import MessageList, { type CitationLink, type Message } from "./MessageList";
+import type { ArtifactType } from "./ArtifactView";
 import ChatInput, { type ChatInputHandle, type ImageUploadPayload } from "./ChatInput";
 import ChatToc from "./ChatToc";
 import SourcesSidebar from "./SourcesSidebar";
@@ -25,6 +26,7 @@ interface ChatViewProps {
   onBackendChange?: (backend: string | null) => void;
   onComplete?: () => void;
   onOpenFile?: (path: string, line?: number) => void;
+  onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
 }
@@ -49,7 +51,7 @@ function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
   return filterTrailingEmptyAssistantMessages(allMessages);
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onOpenArtifact, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -426,7 +428,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
-        <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} scrollContainerRef={scrollRef} />
+        <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} scrollContainerRef={scrollRef} />
         <ChatToc messages={displayMessages} containerRef={scrollRef} />
         {sourcesPanel && <SourcesSidebar links={sourcesPanel.links} onClose={() => setSourcesPanel(null)} />}
         {showScrollBottom && (
