@@ -35,7 +35,7 @@ export default function ArtifactView({ type, spec, mode, onModeChange, onOpenInT
   const showOpenInTab = variant === "inline" && !!onOpenInTab;
 
   return (
-    <div className={`${variant === "inline" ? "my-3" : "h-full p-3"} min-w-0`}>
+    <div data-testid="artifact-view" data-artifact-type={type} className={`${variant === "inline" ? "my-3" : "h-full p-3"} min-w-0`}>
       <div className="rounded border border-sol-base01/30 bg-sol-base03/60">
         <div className="flex items-center justify-end gap-2 border-b border-sol-base01/20 px-2 py-1">
           <button

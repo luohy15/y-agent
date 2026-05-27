@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import MessageBubble, { artifactTypeFromClassName, pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
+import MessageBubble, { artifactFromPreNode, artifactTypeFromClassName, pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
 
 vi.mock("./ArtifactRenderer", () => ({
   default: ({ type, spec }: { type: string; spec: string }) => React.createElement("div", { "data-testid": "artifact-renderer", "data-type": type }, spec),
@@ -51,6 +51,24 @@ describe("artifactTypeFromClassName", () => {
 });
 
 describe("artifact rendering", () => {
+  it("extracts artifacts from react-markdown's pre > code HAST shape", () => {
+    const artifact = artifactFromPreNode({
+      type: "element",
+      tagName: "pre",
+      properties: {},
+      children: [
+        {
+          type: "element",
+          tagName: "code",
+          properties: { className: ["language-mermaid"] },
+          children: [{ type: "text", value: "flowchart TD\nA-->B\n" }],
+        },
+      ],
+    });
+
+    expect(artifact).toEqual({ type: "mermaid", spec: "flowchart TD\nA-->B" });
+  });
+
   it("renders mermaid fences through ArtifactView instead of raw code", () => {
     const spec = `flowchart TD
     A[Start] --> B{Is it X?}
@@ -66,6 +84,8 @@ describe("artifact rendering", () => {
       }),
     );
 
+    expect(html).toContain('data-testid="artifact-view"');
+    expect(html).toContain('data-artifact-type="mermaid"');
     expect(html).toContain('data-testid="artifact-renderer"');
     expect(html).toContain('data-type="mermaid"');
     expect(html).toContain("Open in tab");
