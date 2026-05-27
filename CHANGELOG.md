@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Finance realtime quotes and P&L display (2229)** — finance APIs now persist Alpha Vantage realtime quotes, overlay them into holding positions, pass the API key through deploy/CI wiring, parse quote timestamps in US Eastern time, and show holdings P&L with separate amount and percent columns.
+- **Cross-machine YouTube cookie sync (2228)** — added `y cookies` CLI/API support for syncing browser cookies across machines, including multi-domain matching, language-aware subtitles, filtered link fetches, and lean JSON output.
+- **Link list and viewer controls (2226 / 2227)** — link listing now supports a tri-state downloaded filter, while link/file viewers copy titles and URLs from the detail view without changing list selection behavior.
+- **OpenRouter bot config hardening (2224 / 2225)** — bot config flows now honor custom OpenRouter-compatible base URLs and allow optional model/base URL fields in bot detail forms and storage defaults.
 - **Manager bot (2217)** — added a `manager` bot config for Claude Code over OpenRouter GLM-4.7.
 - **Finance risk and performance views (2189 / 2191 / 2198 / 2201)** — FinanceViewer now adds richer portfolio performance/range controls, YTD/MTD/QTD/1M/3M/1Y/ALL aliases, backend-resolved price ranges, future-price filtering, risky allocation percentages per period, and consistent risky-only allocation math.
 - **Finance FIRE and config-backed analytics (2184 / 2185 / 2196)** — finance sync and APIs now expose config-backed FIRE/derived analytics, realized/unrealized holding calculations, normalized price/transaction/holding fields, and expanded tests for Beancount-derived portfolio data.
@@ -20,11 +24,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Shared list error handling (2200)** — list panels now use a common error state component, including clean suppression for aborted list fetches.
 
 ### Changed
+- **Bot sidebar and local path handling (2216 / 2220)** — bot sidebar rows are capped to two lines, and API/CLI link asset paths now resolve from `Y_AGENT_HOME` instead of hard-coded home-directory assumptions.
 - **Finance snapshots storage model (2184)** — the earlier finance snapshot persistence path was replaced by direct holdings, prices, and transactions storage as the durable source of synced finance data.
 - **Trace fetching and rendering stability (2199)** — detached agent handling and TraceView fetching/rendering were hardened to avoid noisy focus revalidation and preserve inline note-share metadata.
 - **Worker deployment cleanup (2184)** — removed obsolete Lambda template and handler wiring that no longer participates in the finance sync path.
 
 ### Fixed
+- **Chat local file rendering (2219)** — Claude Code chat/file-link handling and shared chat rendering now resolve local file references more consistently across normal and shared views.
 - **Finance price filtering (2184 / 2191)** — finance price queries now parse `from_date` before filtering, ignore future-dated prices, resolve time ranges on the backend, and default charts to YTD.
 - **Trace shared-note metadata (2184)** — trace payloads now inline note share metadata so shared note links render correctly in trace todo details.
 
