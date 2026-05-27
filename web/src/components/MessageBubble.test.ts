@@ -1,7 +1,11 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import MessageBubble, { artifactTypeFromClassName, pickImageSrc, preprocessCitationLinks } from "./MessageBubble";
+
+vi.mock("./ArtifactRenderer", () => ({
+  default: ({ type, spec }: { type: string; spec: string }) => React.createElement("div", { "data-testid": "artifact-renderer", "data-type": type }, spec),
+}));
 
 describe("pickImageSrc", () => {
   it("passes through https image URLs", () => {
@@ -43,6 +47,30 @@ describe("artifactTypeFromClassName", () => {
 
   it("does not treat regular svg code blocks as artifacts", () => {
     expect(artifactTypeFromClassName("language-svg")).toBeNull();
+  });
+});
+
+describe("artifact rendering", () => {
+  it("renders mermaid fences through ArtifactView instead of raw code", () => {
+    const spec = `flowchart TD
+    A[Start] --> B{Is it X?}
+    B -->|Yes| C[Do X]
+    B -->|No| D[Try again]
+    C --> E[End]
+    D --> B`;
+    const html = renderToStaticMarkup(
+      React.createElement(MessageBubble, {
+        role: "assistant",
+        content: `\`\`\`mermaid\n${spec}\n\`\`\``,
+        onOpenArtifact: () => {},
+      }),
+    );
+
+    expect(html).toContain('data-testid="artifact-renderer"');
+    expect(html).toContain('data-type="mermaid"');
+    expect(html).toContain("Open in tab");
+    expect(html).not.toContain("<pre>");
+    expect(html).not.toContain('class="language-mermaid"');
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { Children, isValidElement, useState, useRef, useEffect, type ReactNode } from "react";
 import { API, authFetch } from "../api";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,14 @@ import type { CitationLink } from "./MessageList";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
+
+interface HastNode {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: { className?: string | string[] };
+  children?: HastNode[];
+}
 
 interface MessageBubbleProps {
   role: BubbleRole;
@@ -129,6 +137,33 @@ function artifactKey(type: ArtifactType, spec: string): string {
     hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
   }
   return `${type}:${Math.abs(hash).toString(36)}`;
+}
+
+function nodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  return "";
+}
+
+function hastText(node: HastNode): string {
+  if (typeof node.value === "string") return node.value;
+  return node.children?.map(hastText).join("") ?? "";
+}
+
+function artifactFromPreNode(node?: HastNode): { type: ArtifactType; spec: string } | null {
+  const codeNode = node?.children?.find((child) => child.tagName === "code");
+  const className = codeNode?.properties?.className;
+  const type = artifactTypeFromClassName(Array.isArray(className) ? className.join(" ") : className);
+  if (!type || !codeNode) return null;
+  return { type, spec: hastText(codeNode).replace(/\n$/, "") };
+}
+
+function artifactFromPreChildren(children: ReactNode): { type: ArtifactType; spec: string } | null {
+  const child = Children.toArray(children).find((item) => isValidElement(item) && item.type === "code");
+  if (!isValidElement<{ className?: string; children?: ReactNode }>(child)) return null;
+  const type = artifactTypeFromClassName(child.props.className);
+  if (!type) return null;
+  return { type, spec: nodeText(child.props.children).replace(/\n$/, "") };
 }
 
 function pickImageSrc(imagePath: string): string | null {
@@ -579,6 +614,23 @@ export default function MessageBubble({ role, content, images, links, toolName, 
           remarkPlugins={[remarkGfm]}
           urlTransform={(url) => url.startsWith("cite://") ? url : defaultUrlTransform(url)}
           components={{
+            pre({ children, node }) {
+              const artifact = artifactFromPreNode(node as HastNode | undefined) ?? artifactFromPreChildren(children);
+              if (artifact) {
+                const key = artifactKey(artifact.type, artifact.spec);
+                return (
+                  <ArtifactView
+                    type={artifact.type}
+                    spec={artifact.spec}
+                    mode={artifactMode[key] ?? "preview"}
+                    onModeChange={(mode) => setArtifactMode((prev) => ({ ...prev, [key]: mode }))}
+                    onOpenInTab={onOpenArtifact ? () => onOpenArtifact(artifact.type, artifact.spec) : undefined}
+                    variant="inline"
+                  />
+                );
+              }
+              return <pre>{children}</pre>;
+            },
             a({ href, children, node, ...props }) {
               const rawHref = href || (node as { url?: string } | undefined)?.url;
               const citationIndices = parseCitationHref(rawHref);
@@ -605,20 +657,6 @@ export default function MessageBubble({ role, content, images, links, toolName, 
             code({ children, className, ...props }) {
               const text = String(children).replace(/\n$/, "");
               const isInline = !className;
-              const artifactType = artifactTypeFromClassName(className);
-              if (artifactType) {
-                const key = artifactKey(artifactType, text);
-                return (
-                  <ArtifactView
-                    type={artifactType}
-                    spec={text}
-                    mode={artifactMode[key] ?? "preview"}
-                    onModeChange={(mode) => setArtifactMode((prev) => ({ ...prev, [key]: mode }))}
-                    onOpenInTab={onOpenArtifact ? () => onOpenArtifact(artifactType, text) : undefined}
-                    variant="inline"
-                  />
-                );
-              }
               const fileRef = isInline ? parseLocalFileReference(text, { allowRelative: true }) : null;
               if (fileRef && onOpenFile) {
                 return (
