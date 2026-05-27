@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import MessageBubble, { type BubbleRole } from "./MessageBubble";
+import type { ArtifactType } from "./ArtifactView";
 
 export type CitationLink = string | {
   url: string;
@@ -140,7 +141,7 @@ function findLastAssistant(messages: Message[], from: number, to: number): numbe
 }
 
 
-function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string, line?: number) => void }) {
+function FileToolGroup({ kind, messages, startIndex, onOpenFile, onOpenArtifact }: { kind: string; messages: Message[]; startIndex: number; onOpenFile?: (path: string, line?: number) => void; onOpenArtifact?: (type: ArtifactType, spec: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const shortPath = (p: string) => { const parts = p.split("/"); return parts.length <= 2 ? p : parts.slice(-2).join("/"); };
   const paths = messages.map((m) => shortPath(String(m.arguments?.path || m.arguments?.file_path || ""))).filter(Boolean);
@@ -173,7 +174,7 @@ function FileToolGroup({ kind, messages, startIndex, onOpenFile }: { kind: strin
       {expanded && (
         <div className="flex flex-col gap-1.5 mt-1 ml-6.5">
           {messages.map((m, j) => (
-            <MessageBubble key={startIndex + j} role={m.role} content={m.content} images={m.images} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} />
+            <MessageBubble key={startIndex + j} role={m.role} content={m.content} images={m.images} toolName={m.toolName} arguments={m.arguments} timestamp={m.timestamp} onOpenFile={onOpenFile} onOpenArtifact={onOpenArtifact} />
           ))}
         </div>
       )}
@@ -193,7 +194,7 @@ const toolIconMap: Record<string, { icon: string; color: string; bg: string }> =
 };
 const defaultToolIcon = { icon: "\u25C6", color: "text-sol-base01", bg: "bg-sol-base01/15" };
 
-function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile, onShowSources }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string, line?: number) => void; onShowSources?: (links: CitationLink[], messageIndex?: number) => void }) {
+function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExpanded, onOpenFile, onShowSources, onOpenArtifact }: { toolCounts: Record<string, number>; assistantCount: number; roundMessages: Message[]; roundStartIndex: number; defaultExpanded?: boolean; onOpenFile?: (path: string, line?: number) => void; onShowSources?: (links: CitationLink[], messageIndex?: number) => void; onOpenArtifact?: (type: ArtifactType, spec: string) => void }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   // Sync with external defaultExpanded changes (e.g. process toggle)
   useEffect(() => { setExpanded(defaultExpanded ?? false); }, [defaultExpanded]);
@@ -277,11 +278,11 @@ function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExp
         <div className="flex flex-col gap-1.5 mt-1 ml-6.5">
           {expandedItems.map((ei) => {
             if (ei.type === "file_group") {
-              return <FileToolGroup key={`fg-${ei.startIdx}`} kind={ei.kind} messages={ei.messages} startIndex={ei.startIdx} onOpenFile={onOpenFile} />;
+              return <FileToolGroup key={`fg-${ei.startIdx}`} kind={ei.kind} messages={ei.messages} startIndex={ei.startIdx} onOpenFile={onOpenFile} onOpenArtifact={onOpenArtifact} />;
             }
             return (
               <div key={ei.idx}>
-                <MessageBubble role={ei.message.role} content={ei.message.content} images={ei.message.images} links={ei.message.links} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, ei.idx) : undefined} />
+                <MessageBubble role={ei.message.role} content={ei.message.content} images={ei.message.images} links={ei.message.links} toolName={ei.message.toolName} arguments={ei.message.arguments} timestamp={ei.message.timestamp} dimmed={ei.dimmed} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, ei.idx) : undefined} onOpenArtifact={onOpenArtifact} />
               </div>
             );
           })}
@@ -301,11 +302,12 @@ interface MessageListProps {
   onShowSources?: (links: CitationLink[], messageIndex?: number) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+  onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   inline?: boolean;
 }
 
-export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, scrollContainerRef, inline }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, onOpenArtifact, scrollContainerRef, inline }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
@@ -324,12 +326,12 @@ export default function MessageList({ messages, running, centered, showProgress,
     <>
       {items.map((item) => {
         if (item.type === "process_summary") {
-          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} onShowSources={onShowSources} />;
+          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} onShowSources={onShowSources} onOpenArtifact={onOpenArtifact} />;
         }
         const isUser = item.message.role === "user";
         return (
           <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
-            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} links={item.message.links} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, item.index) : undefined} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
+            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} links={item.message.links} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, item.index) : undefined} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} />
           </div>
         );
       })}

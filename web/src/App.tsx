@@ -21,6 +21,7 @@ import RoutineList from "./components/RoutineList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
+import type { ArtifactType } from "./components/ArtifactView";
 
 interface VmConfigItem {
   name: string;
@@ -36,6 +37,7 @@ interface BotConfigItem {
 
 type RightPanel = "chats" | "notes" | "links" | "files" | "diff";
 type ChatContextPanel = "notes" | "links" | "files" | "diff";
+type ArtifactTab = { type: ArtifactType; spec: string };
 
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
@@ -51,10 +53,17 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("openFiles") || "[]"); } catch { return []; }
+    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter((path) => !path.startsWith("artifact:")); } catch { return []; }
   });
-  const [activeFile, setActiveFile] = useState<string | null>(() => localStorage.getItem("activeFile") || null);
-  const [previewFile, setPreviewFile] = useState<string | null>(() => localStorage.getItem("previewFile") || null);
+  const [activeFile, setActiveFile] = useState<string | null>(() => {
+    const saved = localStorage.getItem("activeFile") || null;
+    return saved?.startsWith("artifact:") ? null : saved;
+  });
+  const [previewFile, setPreviewFile] = useState<string | null>(() => {
+    const saved = localStorage.getItem("previewFile") || null;
+    return saved?.startsWith("artifact:") ? null : saved;
+  });
+  const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
   const [pendingLines, setPendingLines] = useState<Record<string, number | undefined>>({});
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -131,9 +140,9 @@ export default function App() {
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const botDropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles)); }, [openFiles]);
-  useEffect(() => { if (activeFile) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
-  useEffect(() => { if (previewFile) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
+  useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles.filter((path) => !path.startsWith("artifact:")))); }, [openFiles]);
+  useEffect(() => { if (activeFile && !activeFile.startsWith("artifact:")) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
+  useEffect(() => { if (previewFile && !previewFile.startsWith("artifact:")) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
   useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
@@ -214,6 +223,17 @@ export default function App() {
     handlePreviewFile(diffPath);
   }, [handlePreviewFile]);
 
+  const handleOpenArtifact = useCallback((type: ArtifactType, spec: string) => {
+    const id = Math.random().toString(36).slice(2, 10);
+    const path = `artifact:${id}.${type}`;
+    setArtifactTabs((prev) => ({ ...prev, [path]: { type, spec } }));
+    setOpenFiles((files) => [...files, path]);
+    setActiveFile(path);
+    setPreviewFile(null);
+    setChatHide(true);
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+
   const handleCloseFile = useCallback((path: string) => {
     setOpenFiles((files) => {
       const idx = files.indexOf(path);
@@ -228,6 +248,9 @@ export default function App() {
     setPreviewFile((current) => current === path ? null : current);
     if (path.startsWith("diff:")) {
       setDiffFiles((prev) => { const next = new Set(prev); next.delete(path); return next; });
+    }
+    if (path.startsWith("artifact:")) {
+      setArtifactTabs((prev) => { const next = { ...prev }; delete next[path]; return next; });
     }
   }, []);
 
@@ -842,7 +865,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -855,7 +878,7 @@ export default function App() {
                   {chatBackend && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{chatBackend}</span>}
                   {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatContextRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat and context"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
                 </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onOpenArtifact={handleOpenArtifact} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}
