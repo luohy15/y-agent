@@ -87,7 +87,7 @@ async def list_chats(
         q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, ChatEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, ChatEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
-        rows = (q.order_by(ChatEntity.updated_at.desc())
+        rows = (q.order_by(ChatEntity.updated_at_unix.desc())
                  .offset(offset)
                  .limit(limit)
                  .all())
