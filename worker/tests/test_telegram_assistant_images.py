@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from storage.entity.dto import Chat, Message
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
-from worker.runner import _consolidate_turn_images, _send_telegram_reply, message_callback
+from worker.runner import _consolidate_turn_images, _send_telegram_reply, message_callback, strip_artifact_fences_for_telegram
 
 
 def _message(role="assistant", content="hello", images=None, message_id="m1", telegram_delivered_images=None):
@@ -36,6 +36,20 @@ class AssistantImageAttachTest(unittest.TestCase):
 
         append_message.assert_called_once_with("chat-1", message)
         self.assertEqual(message.images, ["https://example.com/explicit.jpg"])
+
+
+class TelegramArtifactStripTest(unittest.TestCase):
+    def test_replaces_artifact_fences_with_placeholders(self):
+        text = "Chart:\n```vega-lite\n{\"mark\": \"bar\"}\n```\nFlow:\n```mermaid\ngraph TD; A-->B\n```\nLogo:\n```artifact-svg\n<svg></svg>\n```"
+
+        stripped = strip_artifact_fences_for_telegram(text)
+
+        self.assertEqual(stripped, "Chart:\n[chart]\nFlow:\n[diagram]\nLogo:\n[svg]")
+
+    def test_keeps_regular_svg_code_blocks(self):
+        text = "```svg\n<svg></svg>\n```"
+
+        self.assertEqual(strip_artifact_fences_for_telegram(text), text)
 
 
 class ConsolidateTurnImagesTest(unittest.TestCase):
@@ -126,6 +140,19 @@ class TelegramAssistantImagesTest(unittest.TestCase):
 
         send_photo.assert_not_called()
         send_message.assert_called_once_with("token", "tg-chat", "hello", None)
+
+    def test_text_only_strips_artifact_fence_before_send(self):
+        chat = _chat(_message("assistant", "Here:\n```mermaid\ngraph TD; A-->B\n```"))
+
+        with (
+            patch("worker.runner._resolve_telegram_target", return_value=("token", "tg-chat", None)),
+            patch("worker.runner._send_telegram_photo_reference") as send_photo,
+            patch("storage.util.send_telegram_message") as send_message,
+        ):
+            _send_telegram_reply(chat, 1)
+
+        send_photo.assert_not_called()
+        send_message.assert_called_once_with("token", "tg-chat", "Here:\n[diagram]", None)
 
     def test_sends_images_from_result_message_only(self):
         chat = _chat(

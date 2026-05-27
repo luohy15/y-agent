@@ -72,7 +72,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
   markdown → HTML conversion, per-topic routing, root-topic callbacks short-circuited
-  at the API layer.
+  at the API layer. Web-only artifact fences are stripped to `[chart]` / `[diagram]`
+  / `[svg]` placeholders before Telegram delivery.
+- **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
+  `artifact-svg` render inline in `MessageBubble` via lazy Mermaid / Vega-Lite / sanitized
+  SVG rendering. Plain `svg` fences remain code blocks.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
