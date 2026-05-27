@@ -86,8 +86,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
 - **Finance / Email / Calendar** — beancount balance sheet / income statement /
-  portfolio tracker with Alpha Vantage realtime holdings price overlay; Gmail sync;
-  full-stack calendar events with timezone-aware filtering.
+  portfolio tracker with Alpha Vantage realtime holdings price overlay exposed via
+  `y finance positions`; Gmail sync; full-stack calendar events with timezone-aware filtering.
 
 ## Agent Runtime
 
@@ -256,6 +256,9 @@ y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
+
+# DB-backed finance holdings view (same envelope as GET /api/finance/positions)
+y finance positions [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD]
 ```
 
 ## Conventions

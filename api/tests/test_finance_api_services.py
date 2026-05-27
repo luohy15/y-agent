@@ -8,6 +8,7 @@ from storage.dto.finance_holding import FinanceHolding
 from storage.dto.finance_price import FinancePrice
 from storage.dto.finance_transaction import FinanceTransaction
 from storage.service import finance_holding as holding_service
+from storage.service import finance_positions as positions_service
 from storage.service import finance_price as price_service
 from storage.service import finance_transaction as transaction_service
 
@@ -55,11 +56,11 @@ class FinanceApiServicesTest(unittest.TestCase):
         usd_stock_2 = self._holding("NVDA", 1, 60000, "USD", False)
         hkd_stock = self._holding("0700", 1, 14311.85, "HKD", False)
 
-        def fake_convert(_user_id, _vm_name, amount, currency, _base_currency, _as_of):
+        def fake_convert(amount, currency, _base_currency, _as_of):
             rates = {"USD": 1, "HKD": 0.128, "CNY": 0.138}
             return amount * rates[currency]
 
-        with patch.object(holding_service, "list_for", return_value=[usd_stock, usd_stock_2, hkd_stock]), patch.object(derived_service, "convert", side_effect=fake_convert):
+        with patch.object(holding_service, "list_for", return_value=[usd_stock, usd_stock_2, hkd_stock]), patch.object(positions_service, "convert", side_effect=fake_convert), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
             result = derived_service.holding_positions(123, "")
 
         rows = result.data
@@ -85,11 +86,11 @@ class FinanceApiServicesTest(unittest.TestCase):
         usd_stock = self._holding("QQQ", 1, 1000, "USD", False)
         negative_cash_asset = self._holding("CNY", -500, None, "CNY", True)
 
-        def fake_convert(_user_id, _vm_name, amount, currency, _base_currency, _as_of):
+        def fake_convert(amount, currency, _base_currency, _as_of):
             rates = {"USD": 1, "CNY": 0.14}
             return amount * rates[currency]
 
-        with patch.object(holding_service, "list_for", return_value=[usd_stock, negative_cash_asset]), patch.object(derived_service, "convert", side_effect=fake_convert):
+        with patch.object(holding_service, "list_for", return_value=[usd_stock, negative_cash_asset]), patch.object(positions_service, "convert", side_effect=fake_convert), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
             result = derived_service.holding_positions(123, "")
 
         rows = result.data
