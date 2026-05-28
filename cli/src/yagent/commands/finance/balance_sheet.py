@@ -2,7 +2,7 @@ import click
 
 from storage.service import finance_derived as derived_service
 
-from ._helpers import derived_envelope, echo_json, resolve_user_id
+from ._helpers import derived_result_envelope, echo_json, resolve_user_id
 
 
 @click.command("balance-sheet")
@@ -21,4 +21,4 @@ def balance_sheet(user_id: int | None, vm_name: str, time: str, history: bool, g
         result = derived_service.balance_sheet_positions(target_user_id, vm_name or "", time, granularity, convert or None, risky_only=risky_only)
     else:
         result = derived_service.balance_sheet(target_user_id, vm_name or "", time, history, granularity, convert or None)
-    echo_json(derived_envelope(result.data, result.synced_at))
+    echo_json(derived_result_envelope(result))
