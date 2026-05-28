@@ -51,7 +51,7 @@ These are only needed for the matching subcommands:
 |-----|---------|
 | `TINIFY_API_KEY` | `y image tinify` (TinyPNG compression) |
 | `GOOGLE_API_KEY` | `y image generate` / `refine` (Gemini) |
-| `ALPHAVANTAGE_API_KEY` | `y beancount` market-data updates |
+| `ALPHAVANTAGE_API_KEY` | `y finance beancount` market-data updates and realtime finance quote overlays |
 
 ## Common commands
 
@@ -78,6 +78,18 @@ y reminder add "ping me at 3pm to review the PR"
 y dev wt add /path/to/repo my-feature
 y dev commit my-feature -m "wip"
 y dev wt rm my-feature
+
+# Finance — DB-backed views matching /api/finance/*
+y finance balance-sheet --convert USD
+y finance income-statement --time month --convert USD
+y finance positions --base-currency USD
+y finance transactions --limit 20
+y finance prices --symbol AAPL --limit 5
+y finance fire-progress
+
+# Ledger-side producer / low-level local views
+y finance beancount snapshot
+y finance beancount update-market-data
 ```
 
 `y --help` lists every subcommand group; each group has its own `--help` for details.

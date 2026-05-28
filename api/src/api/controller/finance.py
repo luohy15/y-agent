@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent.config import resolve_vm_config
 from agent.tool_base import Tool
-from api import service_finance_derived as derived_service
 from storage.service import finance_holding as holding_service
+from storage.service import finance_derived as derived_service
 from storage.service import finance_price as price_service
 from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
@@ -47,10 +47,10 @@ async def _warm_normalized(user_id: int, vm_name: str | None):
     synced = 0
     failed = 0
     commands = [
-        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, holding_service.rows_from_holdings_payload(payload), source="live")),
-        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, payload, source="live")),
-        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(payload, source="live")),
-        ("fire-config", ["y", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", effective_vm_name], lambda payload: None),
+        ("holdings", ["y", "finance", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, holding_service.rows_from_holdings_payload(payload), source="live")),
+        ("transactions", ["y", "finance", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, payload, source="live")),
+        ("prices", ["y", "finance", "beancount", "prices"], lambda payload: price_service.replace_for(payload, source="live")),
+        ("fire-config", ["y", "finance", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", effective_vm_name], lambda payload: None),
     ]
     for _, cmd, writer in commands:
         try:

@@ -12,10 +12,7 @@ from storage.service.user import get_cli_user_id
 @click.option("--risky-only", is_flag=True, help="Only include risky holdings")
 @click.option("--base-currency", default="USD", help="Currency for allocation and market_value_base")
 def positions(user_id: int | None, snapshot_date: str | None, risky_only: bool, base_currency: str):
-    """Read DB-backed finance positions as JSON.
-
-    Run `y beancount snapshot` first if the stored snapshot looks stale.
-    """
+    """Read DB-backed finance positions as JSON."""
     target_user_id = user_id or get_cli_user_id()
     result = derive_positions(
         target_user_id,

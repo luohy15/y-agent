@@ -21,7 +21,10 @@ from .update_market_data import update_market_data
 @click.option("--convert", default="", help="Convert all amounts to this currency (e.g. USD)")
 @click.pass_context
 def beancount_group(ctx, time: str, history: bool, granularity: str, convert: str):
-    """Beancount financial reporting commands."""
+    """Beancount/ledger producer + low-level views.
+
+    Nested under y finance; for day-to-day reads use the DB-backed y finance commands.
+    """
     ctx.ensure_object(dict)
 
     # Skip beancount loading for commands that don't need it
