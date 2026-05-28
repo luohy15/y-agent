@@ -27,10 +27,10 @@ async def sync_normalized(user_id: int, vm_name: str, runner: _CmdRunner, source
     synced = 0
     failed = 0
     commands = [
-        ("holdings", ["y", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, holding_service.rows_from_holdings_payload(payload), source=source)),
-        ("transactions", ["y", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, payload, source=source)),
-        ("prices", ["y", "beancount", "prices"], lambda payload: price_service.replace_for(payload, source=source)),
-        ("fire-config", ["y", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", vm_name], lambda payload: None),
+        ("holdings", ["y", "finance", "beancount", "holdings"], lambda payload: holding_service.append_snapshot(user_id, holding_service.rows_from_holdings_payload(payload), source=source)),
+        ("transactions", ["y", "finance", "beancount", "transactions"], lambda payload: transaction_service.replace_for(user_id, payload, source=source)),
+        ("prices", ["y", "finance", "beancount", "prices"], lambda payload: price_service.replace_for(payload, source=source)),
+        ("fire-config", ["y", "finance", "beancount", "fire-config", "push", "--user-id", str(user_id), "--vm-name", vm_name], lambda payload: None),
     ]
     for name, cmd, writer in commands:
         try:

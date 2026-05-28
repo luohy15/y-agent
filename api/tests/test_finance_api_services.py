@@ -3,10 +3,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from api import service_finance_derived as derived_service
 from storage.dto.finance_holding import FinanceHolding
 from storage.dto.finance_price import FinancePrice
 from storage.dto.finance_transaction import FinanceTransaction
+from storage.service import finance_derived as derived_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_positions as positions_service
 from storage.service import finance_price as price_service

@@ -85,9 +85,11 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
-- **Finance / Email / Calendar** — beancount balance sheet / income statement /
-  portfolio tracker with Alpha Vantage realtime holdings price overlay exposed via
-  `y finance positions`; Gmail sync; full-stack calendar events with timezone-aware filtering.
+- **Finance / Email / Calendar** — DB-backed finance views under `y finance`
+  mirror `/api/finance/*` (balance sheet, income statement, positions,
+  transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
+  producer / low-level local view layer. Gmail sync; full-stack calendar events
+  with timezone-aware filtering.
 
 ## Agent Runtime
 
@@ -186,7 +188,7 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
-  `reminder`, `rss`, `link`, `email`, `dev`, `beancount`, `image`, `bot`, `trace`,
+  `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
   `assoc` / `unassoc`, plus `init` / `login` / `logout`
 
 ### Infrastructure
@@ -257,8 +259,17 @@ y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
-# DB-backed finance holdings view (same envelope as GET /api/finance/positions)
+# DB-backed finance views (same envelopes as GET /api/finance/*)
+y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
+y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
 y finance positions [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD]
+y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500]
+y finance prices [--symbol AAPL] [--time ytd] [--limit 1000]
+y finance fire-progress [--user-id <id>] [--vm-name <name>]
+
+# Ledger-side producer / low-level local views
+y finance beancount snapshot
+y finance beancount update-market-data
 ```
 
 ## Conventions
