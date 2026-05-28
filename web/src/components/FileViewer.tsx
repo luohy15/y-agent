@@ -14,6 +14,7 @@ import LinkList from "./LinkList";
 import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeSlug from "rehype-slug";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 
@@ -284,32 +285,30 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const { data: frontMatter, body } = useMemo(() => parseFrontMatter(content ?? ""), [content]);
-  const headings = useMemo(() => {
-    const lines = (body ?? "").split("\n");
-    const result: { text: string; id: string }[] = [];
-    for (const line of lines) {
-      const m = line.match(/^## (.+)/);
-      if (m) {
-        const text = m[1].trim();
-        const id = text.toLowerCase().replace(/[\s\p{P}]+/gu, "-").replace(/(^-|-$)/g, "");
-        result.push({ text, id });
-      }
+  const articleRef = useRef<HTMLDivElement | null>(null);
+  const [headings, setHeadings] = useState<{ text: string; id: string }[]>([]);
+
+  useEffect(() => {
+    const article = articleRef.current;
+    if (!article) {
+      setHeadings([]);
+      return;
     }
-    return result;
+    const raf = window.requestAnimationFrame(() => {
+      const els = Array.from(article.querySelectorAll<HTMLElement>("h2[id]"));
+      setHeadings(els.map((el) => ({ id: el.id, text: el.textContent || "" })));
+    });
+    return () => window.cancelAnimationFrame(raf);
   }, [body]);
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full relative">
+      <div ref={articleRef} className="flex-1 min-w-0 overflow-auto p-4 prose prose-invert prose-sm max-w-none text-sol-base0 break-words [&_pre]:overflow-x-auto [&_table]:overflow-x-auto [&_img]:max-w-full relative">
         <FrontMatterCard data={frontMatter} />
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeSlug]}
           components={{
-            h2: ({ children, ...props }) => {
-              const text = String(children).trim();
-              const id = text.toLowerCase().replace(/[\s\p{P}]+/gu, "-").replace(/(^-|-$)/g, "");
-              return <h2 id={id} {...props}>{children}</h2>;
-            },
             a: ({ href, children, ...props }) => {
               const fileRef = parseLocalFileReference(href, { allowRelative: false });
               if (fileRef && onOpenFile) {
