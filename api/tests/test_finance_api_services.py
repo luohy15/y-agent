@@ -165,6 +165,28 @@ class FinanceApiServicesTest(unittest.TestCase):
         list_for_pairs.assert_called_once_with({("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
         latest_pair.assert_not_called()
 
+    def test_fire_progress_net_worth_uses_assets_minus_liabilities(self):
+        rows = [
+            self._transaction("entry-1", 0, "USD", "Cash", 1000, "USD", account="Assets:Cash", transaction_date="2026-01-05"),
+            self._transaction("entry-2", 0, "USD", "Card", -250, "USD", account="Liabilities:Card", transaction_date="2026-01-06"),
+            self._transaction("entry-3", 0, "USD", "Salary", -500, "USD", account="Income:Salary", transaction_date="2026-01-07"),
+            self._transaction("entry-4", 0, "USD", "Rent", 100, "USD", account="Expenses:Rent", transaction_date="2026-01-08"),
+        ]
+        config = {
+            "account_roots": {"assets": "Assets", "liabilities": "Liabilities", "income": "Income", "expenses": "Expenses"},
+            "monthly_expense_usd": 100.0,
+            "withdrawal_rate": 0.04,
+            "target_usd": 30000.0,
+            "config_source": "test",
+        }
+
+        with patch.object(derived_service, "_today", return_value=datetime.date(2026, 1, 31)), patch.object(derived_service.finance_config_service, "get_for", return_value=config), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for") as list_holdings:
+            result = derived_service.fire_progress(123, "")
+
+        self.assertEqual(result.data["net_worth_usd"], 750.0)
+        self.assertEqual(result.data["gap_usd"], 29250.0)
+        list_holdings.assert_not_called()
+
     def test_entry_rows_returns_one_row_per_beancount_entry(self):
         rows = [
             self._transaction("entry-1", 0, "AAPL", "Buy", 1, "AAPL"),

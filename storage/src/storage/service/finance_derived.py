@@ -445,23 +445,21 @@ def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_o
 def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
     base_currency = "USD"
     today = _today()
-    holdings = holding_service.list_for(user_id)
-    net_worth = 0.0
-    for row in holdings:
-        amount = float(row.market_value or 0)
-        currency = row.cost_currency or row.symbol or base_currency
-        net_worth += convert(user_id, vm_name, amount, currency, base_currency, today)
-    net_worth_usd = round(net_worth, 2)
-
     year_start = datetime.date(today.year, 1, 1)
     tomorrow = today + datetime.timedelta(days=1)
-    roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
+    config = finance_config_service.get_for(user_id, vm_name)
+    roots = config["account_roots"]
+    balance_rows = transaction_service.list_between(user_id, end_date=tomorrow)
+    balance_totals = _sum_rows(balance_rows)
+    assets_usd = convert_balance(user_id, vm_name, _root_sum(balance_totals, roots["assets"]), base_currency, today).get(base_currency, 0)
+    liabilities_usd = convert_balance(user_id, vm_name, _root_sum(balance_totals, roots["liabilities"]), base_currency, today).get(base_currency, 0)
+    net_worth_usd = round(assets_usd + liabilities_usd, 2)
+
     rows = transaction_service.list_between(user_id, start_date=year_start, end_date=tomorrow)
     totals = _sum_rows(rows)
     ytd_income_usd = round(abs(convert_balance(user_id, vm_name, _root_sum(totals, roots["income"]), base_currency, today).get(base_currency, 0)), 2)
     ytd_expense_usd = round(convert_balance(user_id, vm_name, _root_sum(totals, roots["expenses"]), base_currency, today).get(base_currency, 0), 2)
 
-    config = finance_config_service.get_for(user_id, vm_name)
     monthly_expense_usd = float(config["monthly_expense_usd"])
     withdrawal_rate = float(config["withdrawal_rate"])
     target_usd = float(config["target_usd"])
@@ -494,4 +492,4 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
         "projected_months_to_target": projected_months,
         "projected_date": projected_date,
         "config_source": config["config_source"],
-    }, holdings[0].synced_at if holdings else _synced_at(user_id, vm_name))
+    }, _synced_at(user_id, vm_name))
