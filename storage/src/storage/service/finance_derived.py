@@ -474,6 +474,52 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
+def _expense_category(account: str, expenses_root: str) -> str | None:
+    prefix = f"{expenses_root}:"
+    if not account.startswith(prefix):
+        return None
+    child = account[len(prefix):].split(":", 1)[0]
+    return f"{expenses_root}:{child}" if child else None
+
+
+def _expense_category_totals(rows, expenses_root: str) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for row in rows:
+        category = _expense_category(row.account, expenses_root)
+        if not category:
+            continue
+        amount = _posting_amount(row)
+        if not amount:
+            continue
+        currency, value = amount
+        result[category][currency] += value
+    return {category: dict(balance) for category, balance in result.items()}
+
+
+def income_statement_categories(user_id: int, vm_name: str, time_filter: str, granularity: str, convert_to: str | None) -> DerivedResult:
+    start_date, end_date = parse_time_range(time_filter, default="month")
+    roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
+    expenses_root = roots["expenses"]
+    if start_date is None or end_date is None:
+        end_date = end_date or _today() + datetime.timedelta(days=1)
+        start_date = start_date or end_date.replace(year=end_date.year - 1)
+    rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
+    result = []
+    lookup = None
+    if convert_to:
+        all_categories = _expense_category_totals(rows, expenses_root)
+        lookup = _price_lookup_for_balances(user_id, vm_name, all_categories, convert_to, end_date - datetime.timedelta(days=1))
+    for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
+        period_rows = (row for row in rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end)
+        categories = _expense_category_totals(period_rows, expenses_root)
+        if convert_to:
+            as_of = period_end - datetime.timedelta(days=1)
+            categories = _convert_account_balances(user_id, vm_name, categories, convert_to, as_of, lookup)
+        total = _sum_balances(categories)
+        result.append({"period": label, "categories": categories, "total": total if total else ({convert_to: 0.0} if convert_to else {})})
+    return DerivedResult(result, _synced_at(user_id, vm_name))
+
+
 def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
     result = positions_service.derive_positions(user_id, snapshot_date=at, risky_only=risky_only, base_currency=base_currency)
     return DerivedResult(result["data"], result["synced_at"], {"summary": result["summary"]})

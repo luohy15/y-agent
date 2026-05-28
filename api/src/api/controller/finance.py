@@ -106,9 +106,13 @@ async def income_statement(
     history: bool = Query(False),
     granularity: str = Query("monthly"),
     convert: str = Query("USD"),
+    breakdown: str | None = Query(None),
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
+    if breakdown == "categories":
+        result = derived_service.income_statement_categories(user_id, vm_name or "", time, granularity, convert or None)
+        return _envelope_result(result)
     result = derived_service.income_statement(user_id, vm_name or "", time, history, granularity, convert or None)
     return _envelope_dict(result.data, result.synced_at)
 
