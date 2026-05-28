@@ -127,7 +127,7 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 20)), 120)
         self.assertEqual(derived_service.convert(123, "", 15.6, "HKD", "USD", datetime.date(2026, 5, 20), lookup), 2.0)
 
-    def test_price_lookup_overlays_realtime_usd_price_for_today(self):
+    def test_price_lookup_overlays_realtime_usd_price_for_usd_pairs(self):
         lookup = derived_service.PriceLookup([
             self._price("AAPL", "USD", "2026-05-01", 100),
             self._price("MSFT", "USD", "2026-05-01", 50),
@@ -136,7 +136,7 @@ class FinanceApiServicesTest(unittest.TestCase):
         with patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)):
             self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 28)), 200)
             self.assertEqual(lookup.latest("MSFT", "USD", datetime.date(2026, 5, 28)), 50)
-            self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 27)), 100)
+            self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 27)), 200)
 
     def test_build_realtime_overlay_filters_usd_non_cash_holdings(self):
         fetched_at = datetime.datetime(2026, 5, 28, 12, 0, tzinfo=datetime.UTC)
@@ -176,6 +176,27 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(result.meta["realtime_source"], "live")
         self.assertEqual(result.meta["realtime_synced_at"], "2026-05-28T12:00:00Z")
         list_for_pairs.assert_called_once_with({("AAPL", "USD"), ("USD", "AAPL")}, datetime.date(2026, 5, 28))
+
+    def test_balance_sheet_ytd_uses_realtime_overlay_despite_yesterday_as_of(self):
+        rows = [self._transaction("entry-1", 0, "AAPL", "Buy", 10, "AAPL", account="Assets:Broker", transaction_date="2026-05-01")]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(derived_service, "_build_realtime_overlay", return_value=({"AAPL": 200.0}, "2026-05-28T12:00:00Z", "cache")), patch.object(price_service, "list_for_pairs", return_value=[self._price("AAPL", "USD", "2026-01-01", 100)]):
+            result = derived_service.balance_sheet(123, "", "YTD", False, "monthly", "USD")
+
+        self.assertEqual(result.data["assets"]["children"][0]["balance"], {"USD": 2000.0})
+        self.assertEqual(result.meta["realtime_source"], "cache")
+        self.assertEqual(result.meta["realtime_synced_at"], "2026-05-28T12:00:00Z")
+
+    def test_balance_sheet_past_year_skips_realtime_overlay(self):
+        rows = [self._transaction("entry-1", 0, "AAPL", "Buy", 10, "AAPL", account="Assets:Broker", transaction_date="2025-05-01")]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(derived_service, "_build_realtime_overlay") as build_overlay, patch.object(price_service, "list_for_pairs", return_value=[self._price("AAPL", "USD", "2025-01-01", 100)]):
+            result = derived_service.balance_sheet(123, "", "2025", False, "monthly", "USD")
+
+        self.assertEqual(result.data["assets"]["children"][0]["balance"], {"USD": 1000.0})
+        self.assertEqual(result.meta["realtime_source"], "none")
+        self.assertEqual(result.meta["realtime_synced_at"], "")
+        build_overlay.assert_not_called()
 
     def test_balance_sheet_realtime_failure_falls_back_to_db_price(self):
         rows = [self._transaction("entry-1", 0, "AAPL", "Buy", 10, "AAPL", account="Assets:Broker", transaction_date="2026-05-01")]
