@@ -242,6 +242,35 @@ function totalBalance(node: AccountNode): Record<string, number> {
   return totals;
 }
 
+function mapAccountBalances(node: AccountNode, mapper: (amount: number) => number): AccountNode {
+  return {
+    account: node.account,
+    balance: Object.fromEntries(Object.entries(node.balance).map(([currency, amount]) => [currency, mapper(amount)])),
+    children: node.children.map((child) => mapAccountBalances(child, mapper)),
+  };
+}
+
+function balanceUsdValue(balance: Record<string, number> | undefined): number {
+  return balance?.USD || 0;
+}
+
+function incomeUsdValue(balance: Record<string, number> | undefined): number {
+  return Math.abs(balanceUsdValue(balance));
+}
+
+function positiveUsdValue(balance: Record<string, number> | undefined): number {
+  return Math.max(0, balanceUsdValue(balance));
+}
+
+function accountPieRows(root: AccountNode, valueForBalance: (balance: Record<string, number>) => number) {
+  const rows = root.children
+    .map((child) => ({ name: child.account, label: shortName(child.account), value: valueForBalance(totalBalance(child)) }))
+    .filter((row) => row.value > 0.005)
+    .sort((a, b) => b.value - a.value);
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
+}
+
 function BalanceDisplay({ balance }: { balance: Record<string, number> }) {
   const entries = Object.entries(balance).filter(([, v]) => Math.abs(v) > 0.005);
   if (entries.length === 0) return null;
@@ -795,26 +824,26 @@ function initialMode(): ViewMode {
   return localStorage.getItem("finance-expenses-over-time") === "1" || localStorage.getItem("finance-holdings-over-time") === "1" ? "over-time" : "live";
 }
 
-function initialGranularityByTab(): Record<ModeTab, SharedGranularity> {
-  const stored = localStorage.getItem("finance-granularity-by-tab");
-  if (stored) {
+function initialGranularity(): SharedGranularity {
+  const stored = normalizeGranularity(localStorage.getItem("finance-granularity"));
+  if (stored) return stored;
+
+  const storedByTab = localStorage.getItem("finance-granularity-by-tab");
+  if (storedByTab) {
     try {
-      const parsed = JSON.parse(stored) as Partial<Record<ModeTab, string>>;
-      return {
-        "balance-sheet": normalizeGranularity(parsed["balance-sheet"] ?? null) ?? "monthly",
-        "income-statement": normalizeGranularity(parsed["income-statement"] ?? null) ?? "monthly",
-        holdings: normalizeGranularity(parsed.holdings ?? null) ?? "monthly",
-      };
+      const parsed = JSON.parse(storedByTab) as Partial<Record<ModeTab, string>>;
+      return normalizeGranularity(parsed["balance-sheet"] ?? null)
+        ?? normalizeGranularity(parsed["income-statement"] ?? null)
+        ?? normalizeGranularity(parsed.holdings ?? null)
+        ?? "monthly";
     } catch {
       // Fall through to legacy migration.
     }
   }
-  const chartGranularity = normalizeGranularity(localStorage.getItem("finance-granularity")) ?? "monthly";
-  return {
-    "balance-sheet": chartGranularity === "weekly" ? "monthly" : chartGranularity,
-    "income-statement": normalizeGranularity(localStorage.getItem("finance-expenses-granularity")) ?? chartGranularity,
-    holdings: normalizeGranularity(localStorage.getItem("finance-holdings-granularity")) ?? "monthly",
-  };
+
+  return normalizeGranularity(localStorage.getItem("finance-expenses-granularity"))
+    ?? normalizeGranularity(localStorage.getItem("finance-holdings-granularity"))
+    ?? "monthly";
 }
 
 function ModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
@@ -956,6 +985,76 @@ function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null
 }
 
 const HOLDINGS_PIE_COLORS = [SOL.blue, SOL.green, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.red];
+
+function AccountPieTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ payload?: { name: string; label: string; value: number; allocation: number }; color?: string }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload;
+  if (!item) return null;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{shortName(item.name)}</div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: payload[0]?.color ?? SOL.base0 }} />
+        <span style={{ color: SOL.base0 }}>{formatAmount(item.value)} USD · {(item.allocation * 100).toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+}
+
+function AccountPieChart({ title, subtitle, data, emptyLabel = "No data yet" }: {
+  title: string;
+  subtitle: string;
+  data: Array<{ name: string; label: string; value: number; allocation: number }>;
+  emptyLabel?: string;
+}) {
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
+        <div className="text-sol-base01 text-[10px]">{subtitle}</div>
+      </div>
+      {data.length === 0 ? (
+        <div className="flex h-56 items-center justify-center text-sol-base01">{emptyLabel}</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <Pie data={data} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={95} label={(props) => {
+              const payload = props.payload as { label?: string; allocation?: number } | undefined;
+              return (payload?.allocation ?? 0) >= 0.03 ? (payload?.label ?? "") : "";
+            }} labelLine={false} isAnimationActive={false}>
+              {data.map((entry, index) => (
+                <Cell key={entry.name} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip content={<AccountPieTooltip />} />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function BalanceSheetLivePieChart({ assets }: { assets: AccountNode }) {
+  const data = useMemo(() => accountPieRows(assets, positiveUsdValue), [assets]);
+  return <AccountPieChart title="Assets by account" subtitle="Current top-level asset accounts in USD" data={data} emptyLabel="No assets yet" />;
+}
+
+function IncomeStatementLivePieChart({ income, expenses }: { income: AccountNode; expenses: AccountNode }) {
+  const data = useMemo(() => {
+    const incomeTotal = incomeUsdValue(totalBalance(income));
+    const expensesTotal = positiveUsdValue(totalBalance(expenses));
+    const rows = [
+      { name: "Income", label: "Income", value: incomeTotal },
+      { name: "Expenses", label: "Expenses", value: expensesTotal },
+    ].filter((row) => row.value > 0.005);
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
+  }, [income, expenses]);
+  return <AccountPieChart title="Income vs expenses" subtitle="Current month-to-date totals in USD" data={data} emptyLabel="No income statement data yet" />;
+}
 
 function HoldingsPieTooltip({ active, payload }: {
   active?: boolean;
@@ -1127,16 +1226,12 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
-function expenseValue(balance: Record<string, number> | undefined): number {
-  return balance?.USD || 0;
-}
-
 function totalExpenseValue(categories: Record<string, Record<string, number>>): number {
-  return Object.values(categories).reduce((sum, balance) => sum + expenseValue(balance), 0);
+  return Object.values(categories).reduce((sum, balance) => sum + balanceUsdValue(balance), 0);
 }
 
 function expensePeriodTotal(item: IncomeStatementCategoriesHistoryItem): number {
-  const explicitTotal = expenseValue(item.total);
+  const explicitTotal = balanceUsdValue(item.total);
   return explicitTotal || totalExpenseValue(item.categories);
 }
 
@@ -1145,12 +1240,12 @@ function buildExpenseCategorySeries(data: IncomeStatementCategoriesHistoryItem[]
   const totals = new Map<string, number>();
   for (const item of data) {
     for (const [category, balance] of Object.entries(item.categories)) {
-      totals.set(category, Math.max(totals.get(category) || 0, Math.abs(expenseValue(balance))));
+      totals.set(category, Math.max(totals.get(category) || 0, Math.abs(balanceUsdValue(balance))));
     }
   }
   const ordered = Array.from(totals.entries())
     .filter(([, value]) => value > 0.005)
-    .sort((a, b) => expenseValue(latest?.categories[b[0]]) - expenseValue(latest?.categories[a[0]]));
+    .sort((a, b) => balanceUsdValue(latest?.categories[b[0]]) - balanceUsdValue(latest?.categories[a[0]]));
   const topCategories = ordered.slice(0, 7).map(([category]) => category);
   const otherCategories = ordered.slice(7).map(([category]) => category);
   return otherCategories.length ? [...topCategories, "Other"] : topCategories;
@@ -1162,8 +1257,8 @@ function expenseCategoryRows(item: IncomeStatementCategoriesHistoryItem | undefi
     .map((category) => ({
       category,
       value: category === "Other"
-        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : expenseValue(balance)), 0)
-        : expenseValue(item.categories[category]),
+        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : balanceUsdValue(balance)), 0)
+        : balanceUsdValue(item.categories[category]),
     }))
     .filter((row) => Math.abs(row.value) > 0.005)
     .sort((a, b) => b.value - a.value);
@@ -1178,11 +1273,11 @@ function expenseChartRows(data: IncomeStatementCategoriesHistoryItem[], categori
     };
     for (const category of categories) {
       if (category === "Other") continue;
-      row[category] = expenseValue(item.categories[category]);
+      row[category] = balanceUsdValue(item.categories[category]);
     }
     if (categories.includes("Other")) {
       const named = new Set(categories.filter((category) => category !== "Other"));
-      row.Other = Object.entries(item.categories).reduce((sum, [category, balance]) => sum + (named.has(category) ? 0 : expenseValue(balance)), 0);
+      row.Other = Object.entries(item.categories).reduce((sum, [category, balance]) => sum + (named.has(category) ? 0 : balanceUsdValue(balance)), 0);
     }
     return row;
   });
@@ -1197,8 +1292,8 @@ function expensePeriodTableRows(data: IncomeStatementCategoriesHistoryItem[], ca
     .map((category) => ({
       category,
       values: Object.fromEntries(data.map((item) => [item.period, category === "Other"
-        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : expenseValue(balance)), 0)
-        : expenseValue(item.categories[category])
+        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : balanceUsdValue(balance)), 0)
+        : balanceUsdValue(item.categories[category])
       ])),
     }))
     .sort((a, b) => {
@@ -1607,15 +1702,15 @@ function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab:
   const metricRows = [
     {
       metric: "Income",
-      values: Object.fromEntries(data.map((item) => [item.period, Math.abs(item.income.USD || 0)])),
+      values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income)])),
     },
     {
       metric: "Expenses",
-      values: Object.fromEntries(data.map((item) => [item.period, item.expenses.USD || 0])),
+      values: Object.fromEntries(data.map((item) => [item.period, balanceUsdValue(item.expenses)])),
     },
     {
       metric: "Net Profit",
-      values: Object.fromEntries(data.map((item) => [item.period, Math.abs(item.income.USD || 0) - (item.expenses.USD || 0)])),
+      values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income) - balanceUsdValue(item.expenses)])),
     },
   ];
   const rows = chartTab === "net-profit" ? metricRows : metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
@@ -1821,13 +1916,13 @@ function NetProfitTooltip({ active, payload, label }: {
 function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }: { data: IncomeStatementHistoryItem[]; categoryData?: IncomeStatementCategoriesHistoryItem[]; chartTab: ISChartTab; onChartTabChange: (v: ISChartTab) => void }) {
   const chartData = useMemo(() =>
     data.map((item) => {
-      const income = Math.abs(item.income.USD || 0);
-      const expenses = item.expenses.USD || 0;
+      const income = incomeUsdValue(item.income);
+      const expenses = balanceUsdValue(item.expenses);
       return {
         period: formatPeriodLabel(item.period),
         rawPeriod: item.period,
-        Income: -income,       // downward
-        Expenses: expenses,    // upward
+        Income: income,
+        Expenses: expenses,
         "Net Profit": income - expenses,
       };
     }),
@@ -1841,14 +1936,15 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }
       ) : (
         <ResponsiveContainer width="100%" height={300}>
           {chartTab === "net-profit" ? (
-          <BarChart data={chartData} stackOffset="sign" margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(Math.abs(v) / 1000).toFixed(0)}k`} />
             <Tooltip content={<NetProfitTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            <Bar dataKey="Income" stackId="income-statement" fill={SOL.green} isAnimationActive={false} />
-            <Bar dataKey="Expenses" stackId="income-statement" fill={SOL.red} isAnimationActive={false} />
-          </BarChart>
+            <Bar dataKey="Income" fill={SOL.green} isAnimationActive={false} />
+            <Bar dataKey="Expenses" fill={SOL.red} isAnimationActive={false} />
+            <Line type="monotone" dataKey="Net Profit" stroke={SOL.blue} strokeWidth={2} dot={false} isAnimationActive={false} />
+          </ComposedChart>
           ) : chartTab === "income" ? (
           <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
@@ -1898,7 +1994,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
   const [mode, setMode] = useState<ViewMode>(initialMode);
-  const [granularityByTab, setGranularityByTab] = useState<Record<ModeTab, SharedGranularity>>(initialGranularityByTab);
+  const [granularity, setGranularity] = useState<SharedGranularity>(initialGranularity);
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
   const [isChartTab, setIsChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
@@ -1909,11 +2005,10 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   }, [mode]);
 
   useEffect(() => {
-    localStorage.setItem("finance-granularity-by-tab", JSON.stringify(granularityByTab));
-  }, [granularityByTab]);
+    localStorage.setItem("finance-granularity", granularity);
+  }, [granularity]);
 
   const activeMode = isModeTab(tab) ? mode : "over-time";
-  const activeGranularity = isModeTab(tab) ? granularityByTab[tab] : granularityByTab["balance-sheet"];
   const isLiveMode = isModeTab(tab) && activeMode === "live";
   const isOverTimeMode = isModeTab(tab) && activeMode === "over-time";
   const showsTimeInput = tab === "fire" || isOverTimeMode;
@@ -1925,11 +2020,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   };
 
   const handleGranularityChange = (v: SharedGranularity) => {
-    if (isModeTab(tab)) {
-      setGranularityByTab((current) => ({ ...current, [tab]: v }));
-    } else if (tab === "fire") {
-      setGranularityByTab((current) => ({ ...current, "balance-sheet": v }));
-    }
+    setGranularity(v);
   };
 
   const commitTimeInput = () => {
@@ -1969,19 +2060,19 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     : null;
 
   const bsHistKey = (tab === "balance-sheet" && mode === "over-time") || tab === "fire"
-    ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularityByTab["balance-sheet"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
   const bsPositionsHistKey = tab === "balance-sheet" && mode === "over-time"
-    ? `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${granularityByTab["balance-sheet"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    ? `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
   const isHistKey = tab === "income-statement" && mode === "over-time"
-    ? `${API}/api/finance/income-statement?history=true&granularity=${granularityByTab["income-statement"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
   const expensesCatHistKey = tab === "income-statement" && mode === "over-time" && isChartTab === "expenses"
-    ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${granularityByTab["income-statement"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
   const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
@@ -1996,6 +2087,10 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const bsData = bs.data?.data;
   const isData = is.data?.data;
+  const displayIsData = useMemo(() => isData ? {
+    income: mapAccountBalances(isData.income, (amount) => Math.abs(amount)),
+    expenses: isData.expenses,
+  } : undefined, [isData]);
   const holdingsData = holdings.data?.data;
   const transactionsData = transactions.data?.data;
   const fireData = fire.data?.data;
@@ -2052,7 +2147,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               className="px-2 py-1 rounded text-xs w-56 bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
             />
           ) : null}
-          {showsGranularity ? <SharedGranularityToggle value={activeGranularity} onChange={handleGranularityChange} /> : null}
+          {showsGranularity ? <SharedGranularityToggle value={granularity} onChange={handleGranularityChange} /> : null}
         </div>
         <div className="flex justify-center gap-1">
           {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
@@ -2081,13 +2176,16 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
             bs.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
             ) : bsData ? (
-              <div className="flex gap-2">
-                <div className="flex-1 min-w-0">
-                  <AccountTree root={bsData.assets} title="Assets" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <AccountTree root={bsData.liabilities} title="Liabilities" />
-                  <EquitySummary assets={bsData.assets} liabilities={bsData.liabilities} />
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                <BalanceSheetLivePieChart assets={bsData.assets} />
+                <div className="flex gap-2 min-w-0">
+                  <div className="flex-1 min-w-0">
+                    <AccountTree root={bsData.assets} title="Assets" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <AccountTree root={bsData.liabilities} title="Liabilities" />
+                    <EquitySummary assets={bsData.assets} liabilities={bsData.liabilities} />
+                  </div>
                 </div>
               </div>
             ) : null
@@ -2111,13 +2209,16 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           isLiveMode ? (
             is.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
-            ) : isData ? (
-              <div className="flex gap-2">
-                <div className="flex-1 min-w-0">
-                  <AccountTree root={isData.income} title="Income" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <AccountTree root={isData.expenses} title="Expenses" />
+            ) : displayIsData ? (
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                <IncomeStatementLivePieChart income={displayIsData.income} expenses={displayIsData.expenses} />
+                <div className="flex gap-2 min-w-0">
+                  <div className="flex-1 min-w-0">
+                    <AccountTree root={displayIsData.income} title="Income" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <AccountTree root={displayIsData.expenses} title="Expenses" />
+                  </div>
                 </div>
               </div>
             ) : null
@@ -2147,7 +2248,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           )
         ) : tab === "holdings" ? (
           mode === "over-time" ? (
-            <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} time={committedTime} granularity={granularityByTab.holdings} />
+            <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} time={committedTime} granularity={granularity} />
           ) : (
             holdings.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
