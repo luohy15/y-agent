@@ -77,6 +77,10 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertTrue(all(row["market_value_base"] > 0 for row in rows))
         self.assertAlmostEqual(sum(row["allocation_pct"] for row in rows), 1.0, places=4)
         self.assertEqual(rows[0]["allocation_base_currency"], "USD")
+        self.assertEqual(result.meta["summary"]["base_currency"], "USD")
+        self.assertAlmostEqual(result.meta["summary"]["total_base"], gross_asset_base, places=2)
+        self.assertAlmostEqual(result.meta["summary"]["risky_base"], gross_asset_base, places=2)
+        self.assertAlmostEqual(result.meta["summary"]["risky_pct"], 1.0, places=6)
 
     def test_holding_positions_keeps_negative_balance_asset(self):
         # Source-level classification (BQL `^0` = Assets sortkey) filters out Liabilities

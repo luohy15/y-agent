@@ -86,7 +86,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
 - **Finance / Email / Calendar** — DB-backed finance views under `y finance`
-  mirror `/api/finance/*` (balance sheet, income statement, positions,
+  mirror `/api/finance/*` (balance sheet, income statement, holdings,
   transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
   producer / low-level local view layer. Gmail sync; full-stack calendar events
   with timezone-aware filtering.
@@ -262,7 +262,7 @@ y dev commit <name> [-m "msg"]
 # DB-backed finance views (same envelopes as GET /api/finance/*)
 y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
 y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
-y finance positions [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD]
+y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD]
 y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500]
 y finance prices [--symbol AAPL] [--time ytd] [--limit 1000]
 y finance fire-progress [--user-id <id>] [--vm-name <name>]
