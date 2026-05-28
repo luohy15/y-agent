@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Finance positions CLI and reusable service (2243)** — added `y finance positions` / click wiring plus a storage-level positions service so the API and CLI share realtime quote overlays, P&L math, and allocation output.
+- **Chat artifacts rendering (1390 / 2237)** — chat messages can now render Markdown artifact fences, including Mermaid diagrams and HTML/CSS/JS previews, with a dedicated artifact viewer route and safer parser/test coverage for nested fences.
 - **Finance realtime quotes and P&L display (2229)** — finance APIs now persist Alpha Vantage realtime quotes, overlay them into holding positions, pass the API key through deploy/CI wiring, parse quote timestamps in US Eastern time, and show holdings P&L with separate amount and percent columns.
 - **Cross-machine YouTube cookie sync (2228)** — added `y cookies` CLI/API support for syncing browser cookies across machines, including multi-domain matching, language-aware subtitles, filtered link fetches, and lean JSON output.
 - **Link list and viewer controls (2226 / 2227)** — link listing now supports a tri-state downloaded filter, while link/file viewers copy titles and URLs from the detail view without changing list selection behavior.
@@ -24,6 +26,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Shared list error handling (2200)** — list panels now use a common error state component, including clean suppression for aborted list fetches.
 
 ### Changed
+- **Chat/todo list query indexes (2238)** — chat list ordering now uses `updated_at_unix` so the new composite indexes can cover hot chat and todo list paths.
 - **Bot sidebar and local path handling (2216 / 2220)** — bot sidebar rows are capped to two lines, and API/CLI link asset paths now resolve from `Y_AGENT_HOME` instead of hard-coded home-directory assumptions.
 - **Finance snapshots storage model (2184)** — the earlier finance snapshot persistence path was replaced by direct holdings, prices, and transactions storage as the durable source of synced finance data.
 - **Trace fetching and rendering stability (2199)** — detached agent handling and TraceView fetching/rendering were hardened to avoid noisy focus revalidation and preserve inline note-share metadata.
