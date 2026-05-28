@@ -41,7 +41,7 @@ class PriceLookup:
             prices.sort(key=lambda item: item[0])
 
     def latest(self, symbol: str, currency: str, as_of: datetime.date) -> float | None:
-        if currency == "USD" and as_of >= _today():
+        if currency == "USD":
             overlay_price = self._overlay.get(symbol.upper())
             if overlay_price is not None:
                 return overlay_price
@@ -310,6 +310,10 @@ def _realtime_meta(synced_at: str, source: str) -> dict:
     return {"realtime_synced_at": synced_at or "", "realtime_source": source or "none"}
 
 
+def _should_build_realtime_overlay(convert_to: str | None, end_date: datetime.date | None) -> bool:
+    return (convert_to or "").upper() == "USD" and (end_date is None or end_date >= _today())
+
+
 def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, dict[str, float]], target_currency: str | None, as_of: datetime.date, overlay: dict[str, float] | None = None) -> PriceLookup | None:
     if not target_currency:
         return None
@@ -369,7 +373,7 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
         rows = transaction_service.list_between(user_id, end_date=end_date)
         totals = _sum_rows(rows)
         as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
-        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if (convert_to or "").upper() == "USD" else ({}, "", "none")
+        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if _should_build_realtime_overlay(convert_to, end_date) else ({}, "", "none")
         lookup = _price_lookup_for_roots(user_id, vm_name, totals, (assets_root,), convert_to, as_of, overlay=overlay) if convert_to else None
         result = {
             "assets": prune_zero_balance_accounts(build_tree(_tree_rows(totals, assets_root, user_id, vm_name, convert_to, as_of, lookup), assets_root, convert_to)),
@@ -419,7 +423,7 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     lookup = None
     if convert_to:
         all_positions = _position_totals(rows, assets_root)
-        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if convert_to.upper() == "USD" else ({}, "", "none")
+        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if _should_build_realtime_overlay(convert_to, end_date) else ({}, "", "none")
         lookup = _price_lookup_for_balances(user_id, vm_name, all_positions, convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
     else:
         realtime_synced_at, realtime_source = "", "none"
