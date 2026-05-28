@@ -39,7 +39,7 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const renderId = useMemo(() => `artifact-${type}-${Math.random().toString(36).slice(2)}`, [type]);
+  const renderId = useMemo(() => `artifact-${type}-${Math.random().toString(36).slice(2)}`, [type, spec]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +60,14 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
 
         if (type === "mermaid") {
           const mermaid = (await import("mermaid")).default;
-          mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: "strict",
+            theme: "dark",
+            suppressErrorRendering: true,
+            flowchart: { htmlLabels: false },
+          });
+          await mermaid.parse(spec);
           const { svg } = await mermaid.render(renderId, spec);
           if (cancelled) return;
           container.innerHTML = sanitizeSvg(svg);
