@@ -280,6 +280,16 @@ def _add_position_total(totals: dict[str, dict[str, float]], row, root: str) -> 
     totals[symbol][symbol] += value
 
 
+def _add_account_position_total(totals: dict[str, dict[str, float]], row, root: str) -> None:
+    if row.account != root and not row.account.startswith(f"{root}:"):
+        return
+    amount = _position_amount(row)
+    if not amount:
+        return
+    symbol, value = amount
+    totals[row.account][symbol] += value
+
+
 def _parsed_transaction_rows(rows) -> list[tuple[datetime.date, object]]:
     return [(transaction_date, row) for transaction_date, _index, row in sorted((datetime.date.fromisoformat(row.transaction_date), index, row) for index, row in enumerate(rows))]
 
@@ -344,6 +354,37 @@ def _position_totals(rows, root: str) -> dict[str, dict[str, float]]:
         symbol, value = amount
         result[symbol][symbol] += value
     return {symbol: dict(balance) for symbol, balance in result.items()}
+
+
+def _account_position_totals(rows, root: str) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for row in rows:
+        if row.account != root and not row.account.startswith(f"{root}:"):
+            continue
+        amount = _position_amount(row)
+        if not amount:
+            continue
+        symbol, value = amount
+        result[row.account][symbol] += value
+    return {account: dict(balance) for account, balance in result.items()}
+
+
+def _asset_category(account: str, assets_root: str) -> str | None:
+    prefix = f"{assets_root}:"
+    if not account.startswith(prefix):
+        return None
+    child = account[len(prefix):].split(":", 1)[0]
+    return f"{assets_root}:{child}" if child else None
+
+
+def _asset_category_positions(account_positions: dict[str, dict[str, float]], assets_root: str) -> dict[str, dict[str, dict[str, float]]]:
+    result: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
+    for account, balance in account_positions.items():
+        category = _asset_category(account, assets_root)
+        if not category:
+            continue
+        result[category][account] = balance
+    return {category: dict(accounts) for category, accounts in result.items()}
 
 
 def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, dict[str, float]], target_currency: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> dict[str, dict[str, float]]:
@@ -419,31 +460,48 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     result = []
     dated_rows = _parsed_transaction_rows(rows)
     positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    account_positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     row_index = 0
     lookup = None
     if convert_to:
         all_positions = _position_totals(rows, assets_root)
+        all_account_positions = _account_position_totals(rows, assets_root)
+        all_balances = {**all_positions, **all_account_positions}
         overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if _should_build_realtime_overlay(convert_to, end_date) else ({}, "", "none")
-        lookup = _price_lookup_for_balances(user_id, vm_name, all_positions, convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
+        lookup = _price_lookup_for_balances(user_id, vm_name, all_balances, convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
     else:
         realtime_synced_at, realtime_source = "", "none"
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
             _add_position_total(positions, dated_rows[row_index][1], assets_root)
+            _add_account_position_total(account_positions, dated_rows[row_index][1], assets_root)
             row_index += 1
         period_positions = _copy_balances(positions)
+        period_account_positions = _copy_balances(account_positions)
         total_positions = period_positions
         risky_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if risky_only:
             period_positions = risky_positions
+            period_account_positions = {
+                account: {symbol: value for symbol, value in balance.items() if symbol in risky_symbols}
+                for account, balance in period_account_positions.items()
+                if any(symbol in risky_symbols for symbol in balance)
+            }
         if convert_to:
             as_of = period_end - datetime.timedelta(days=1)
             total_positions = _convert_account_balances(user_id, vm_name, total_positions, convert_to, as_of, lookup)
             period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, as_of, lookup)
+            period_account_positions = _convert_account_balances(user_id, vm_name, period_account_positions, convert_to, as_of, lookup)
             risky_positions = _convert_account_balances(user_id, vm_name, risky_positions, convert_to, as_of, lookup)
         total = _sum_balances(total_positions)
         risky_total = _sum_balances(risky_positions)
-        result.append({"period": label, "positions": period_positions, "total": total if total else ({convert_to: 0.0} if convert_to else {}), "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {})})
+        result.append({
+            "period": label,
+            "positions": period_positions,
+            "categories": _asset_category_positions(period_account_positions, assets_root),
+            "total": total if total else ({convert_to: 0.0} if convert_to else {}),
+            "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {}),
+        })
     return DerivedResult(result, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
 
 
@@ -478,18 +536,18 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
-def _expense_category(account: str, expenses_root: str) -> str | None:
-    prefix = f"{expenses_root}:"
+def _first_child_category(account: str, root: str) -> str | None:
+    prefix = f"{root}:"
     if not account.startswith(prefix):
         return None
     child = account[len(prefix):].split(":", 1)[0]
-    return f"{expenses_root}:{child}" if child else None
+    return f"{root}:{child}" if child else None
 
 
-def _expense_category_totals(rows, expenses_root: str) -> dict[str, dict[str, float]]:
+def _category_totals(rows, root: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for row in rows:
-        category = _expense_category(row.account, expenses_root)
+        category = _first_child_category(row.account, root)
         if not category:
             continue
         amount = _posting_amount(row)
@@ -503,6 +561,7 @@ def _expense_category_totals(rows, expenses_root: str) -> dict[str, dict[str, fl
 def income_statement_categories(user_id: int, vm_name: str, time_filter: str, granularity: str, convert_to: str | None) -> DerivedResult:
     start_date, end_date = parse_time_range(time_filter, default="month")
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
+    income_root = roots["income"]
     expenses_root = roots["expenses"]
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
@@ -511,16 +570,30 @@ def income_statement_categories(user_id: int, vm_name: str, time_filter: str, gr
     result = []
     lookup = None
     if convert_to:
-        all_categories = _expense_category_totals(rows, expenses_root)
+        all_income_categories = _category_totals(rows, income_root)
+        all_expense_categories = _category_totals(rows, expenses_root)
+        all_categories = {**all_income_categories, **all_expense_categories}
         lookup = _price_lookup_for_balances(user_id, vm_name, all_categories, convert_to, end_date - datetime.timedelta(days=1))
     for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         period_rows = (row for row in rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end)
-        categories = _expense_category_totals(period_rows, expenses_root)
+        period_rows = list(period_rows)
+        income_categories = _category_totals(period_rows, income_root)
+        expense_categories = _category_totals(period_rows, expenses_root)
         if convert_to:
             as_of = period_end - datetime.timedelta(days=1)
-            categories = _convert_account_balances(user_id, vm_name, categories, convert_to, as_of, lookup)
-        total = _sum_balances(categories)
-        result.append({"period": label, "categories": categories, "total": total if total else ({convert_to: 0.0} if convert_to else {})})
+            income_categories = _convert_account_balances(user_id, vm_name, income_categories, convert_to, as_of, lookup)
+            expense_categories = _convert_account_balances(user_id, vm_name, expense_categories, convert_to, as_of, lookup)
+        income_total = _sum_balances(income_categories)
+        expense_total = _sum_balances(expense_categories)
+        result.append({
+            "period": label,
+            "income_categories": income_categories,
+            "expense_categories": expense_categories,
+            "categories": expense_categories,
+            "income_total": income_total if income_total else ({convert_to: 0.0} if convert_to else {}),
+            "expense_total": expense_total if expense_total else ({convert_to: 0.0} if convert_to else {}),
+            "total": expense_total if expense_total else ({convert_to: 0.0} if convert_to else {}),
+        })
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
