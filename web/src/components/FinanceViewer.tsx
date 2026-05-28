@@ -1745,13 +1745,11 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange, 
 
   return (
     <div className="relative">
-      <div className="absolute top-0 right-2 z-10 flex items-center gap-2">
-        {chartTab === "expenses" ? (
-          <ExpensesModeToggle overTime={expensesOverTime} onOverTimeChange={onExpensesOverTimeChange} />
-        ) : (
+      {chartTab !== "expenses" ? (
+        <div className="absolute top-0 right-2 z-10">
           <GranularityToggle value={granularity} onChange={onGranularityChange} />
-        )}
-      </div>
+        </div>
+      ) : null}
       {chartTab === "expenses" && categoryData ? (
         <ExpensesCategoriesChartView data={categoryData} overTime={expensesOverTime} granularity={expensesGranularity} onGranularityChange={onExpensesGranularityChange} />
       ) : (
@@ -1784,6 +1782,11 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange, 
           )}
         </ResponsiveContainer>
       )}
+      {chartTab === "expenses" ? (
+        <div className="flex justify-end px-2 py-3">
+          <ExpensesModeToggle overTime={expensesOverTime} onOverTimeChange={onExpensesOverTimeChange} />
+        </div>
+      ) : null}
       <div className="flex justify-center gap-1 mt-1">
         {([["net-profit", "Net Profit"], ["income", "Income"], ["expenses", "Expenses"]] as const).map(([t, label]) => (
           <button
