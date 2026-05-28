@@ -775,25 +775,24 @@ function normalizeGranularity(value: string | null): SharedGranularity | null {
   return value === "weekly" || value === "monthly" || value === "yearly" ? value : null;
 }
 
-function initialModeByTab(): Record<ModeTab, ViewMode> {
-  const stored = localStorage.getItem("finance-mode-by-tab");
-  if (stored) {
+function initialMode(): ViewMode {
+  const stored = normalizeMode(localStorage.getItem("finance-mode"));
+  if (stored) return stored;
+
+  const byTab = localStorage.getItem("finance-mode-by-tab");
+  if (byTab) {
     try {
-      const parsed = JSON.parse(stored) as Partial<Record<ModeTab, string>>;
-      return {
-        "balance-sheet": normalizeMode(parsed["balance-sheet"] ?? null) ?? "live",
-        "income-statement": normalizeMode(parsed["income-statement"] ?? null) ?? "live",
-        holdings: normalizeMode(parsed.holdings ?? null) ?? "live",
-      };
+      const parsed = JSON.parse(byTab) as Partial<Record<ModeTab, string>>;
+      return normalizeMode(parsed["balance-sheet"] ?? null)
+        ?? normalizeMode(parsed["income-statement"] ?? null)
+        ?? normalizeMode(parsed.holdings ?? null)
+        ?? "live";
     } catch {
-      // Fall through to legacy migration.
+      // Fall through to older legacy keys.
     }
   }
-  return {
-    "balance-sheet": "live",
-    "income-statement": localStorage.getItem("finance-expenses-over-time") === "1" ? "over-time" : "live",
-    holdings: localStorage.getItem("finance-holdings-over-time") === "1" ? "over-time" : "live",
-  };
+
+  return localStorage.getItem("finance-expenses-over-time") === "1" || localStorage.getItem("finance-holdings-over-time") === "1" ? "over-time" : "live";
 }
 
 function initialGranularityByTab(): Record<ModeTab, SharedGranularity> {
@@ -1604,6 +1603,92 @@ function ExpensesCategoriesTableView({ data }: { data: IncomeStatementCategories
   return <ExpensesCategoriesPeriodTable data={data} categories={categories} />;
 }
 
+function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab: ISChartTab, sortColumn: string, sortDir: "asc" | "desc") {
+  const metricRows = [
+    {
+      metric: "Income",
+      values: Object.fromEntries(data.map((item) => [item.period, Math.abs(item.income.USD || 0)])),
+    },
+    {
+      metric: "Expenses",
+      values: Object.fromEntries(data.map((item) => [item.period, item.expenses.USD || 0])),
+    },
+    {
+      metric: "Net Profit",
+      values: Object.fromEntries(data.map((item) => [item.period, Math.abs(item.income.USD || 0) - (item.expenses.USD || 0)])),
+    },
+  ];
+  const rows = chartTab === "net-profit" ? metricRows : metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
+  return rows.sort((a, b) => {
+    const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+    return sortDir === "asc" ? delta : -delta;
+  });
+}
+
+function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatementHistoryItem[]; chartTab: ISChartTab }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const latestPeriod = data[data.length - 1]?.period || "";
+  const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
+  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const rows = useMemo(() => incomeStatementMetricRows(data, chartTab, effectiveSortColumn, sortDir), [data, chartTab, effectiveSortColumn, sortDir]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => { container.scrollLeft = container.scrollWidth - container.clientWidth; });
+    return () => cancelAnimationFrame(frame);
+  }, [periodKey]);
+
+  const handleSort = (period: string) => {
+    if (period === effectiveSortColumn) setSortDir((dir) => dir === "desc" ? "asc" : "desc");
+    else { setSortColumn(period); setSortDir("desc"); }
+  };
+
+  const title = chartTab === "net-profit" ? "Net Profit history" : chartTab === "income" ? "Income history" : "Expenses history";
+  const subtitle = chartTab === "net-profit" ? "Rows are income, expenses, and net profit; columns are periods" : "Rows are totals; columns are periods";
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
+        <div className="text-sol-base01 text-[10px]">{subtitle}</div>
+      </div>
+      {data.length === 0 ? (
+        <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
+      ) : (
+        <div ref={scrollRef} className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Metric</th>
+                {data.map((item) => (
+                  <th key={item.period} className="text-right font-normal py-1 px-3 whitespace-nowrap">
+                    <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
+                      {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.metric} className="hover:bg-sol-base02/50">
+                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{row.metric}</td>
+                  {data.map((item) => (
+                    <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- FIRE Progress View ---
 
 function formatUsd(amount: number): string {
@@ -1812,7 +1897,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem("finance-tab") as Tab) || "balance-sheet");
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
-  const [modeByTab, setModeByTab] = useState<Record<ModeTab, ViewMode>>(initialModeByTab);
+  const [mode, setMode] = useState<ViewMode>(initialMode);
   const [granularityByTab, setGranularityByTab] = useState<Record<ModeTab, SharedGranularity>>(initialGranularityByTab);
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
   const [isChartTab, setIsChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
@@ -1820,14 +1905,14 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
 
   useEffect(() => {
-    localStorage.setItem("finance-mode-by-tab", JSON.stringify(modeByTab));
-  }, [modeByTab]);
+    localStorage.setItem("finance-mode", mode);
+  }, [mode]);
 
   useEffect(() => {
     localStorage.setItem("finance-granularity-by-tab", JSON.stringify(granularityByTab));
   }, [granularityByTab]);
 
-  const activeMode = isModeTab(tab) ? modeByTab[tab] : "over-time";
+  const activeMode = isModeTab(tab) ? mode : "over-time";
   const activeGranularity = isModeTab(tab) ? granularityByTab[tab] : granularityByTab["balance-sheet"];
   const isLiveMode = isModeTab(tab) && activeMode === "live";
   const isOverTimeMode = isModeTab(tab) && activeMode === "over-time";
@@ -1836,7 +1921,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const handleModeChange = (v: ViewMode) => {
     if (!isModeTab(tab)) return;
-    setModeByTab((current) => ({ ...current, [tab]: v }));
+    setMode(v);
   };
 
   const handleGranularityChange = (v: SharedGranularity) => {
@@ -1863,15 +1948,15 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     localStorage.setItem("finance-is-chart-tab", v);
   };
 
-  const bsKey = tab === "balance-sheet" && modeByTab["balance-sheet"] === "live"
+  const bsKey = tab === "balance-sheet" && mode === "live"
     ? `${API}/api/finance/balance-sheet?time=&convert=USD${vmQuery}`
     : null;
 
-  const isKey = tab === "income-statement" && modeByTab["income-statement"] === "live"
+  const isKey = tab === "income-statement" && mode === "live"
     ? `${API}/api/finance/income-statement?time=month${vmQuery}`
     : null;
 
-  const holdingsKey = tab === "holdings" && modeByTab.holdings === "live"
+  const holdingsKey = tab === "holdings" && mode === "live"
     ? `${API}/api/finance/holdings${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
 
@@ -1883,19 +1968,19 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/fire-progress${vmQueryOnly}`
     : null;
 
-  const bsHistKey = (tab === "balance-sheet" && modeByTab["balance-sheet"] === "over-time") || tab === "fire"
+  const bsHistKey = (tab === "balance-sheet" && mode === "over-time") || tab === "fire"
     ? `${API}/api/finance/balance-sheet?history=true&granularity=${granularityByTab["balance-sheet"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const bsPositionsHistKey = tab === "balance-sheet" && modeByTab["balance-sheet"] === "over-time"
+  const bsPositionsHistKey = tab === "balance-sheet" && mode === "over-time"
     ? `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${granularityByTab["balance-sheet"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const isHistKey = tab === "income-statement" && modeByTab["income-statement"] === "over-time"
+  const isHistKey = tab === "income-statement" && mode === "over-time"
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularityByTab["income-statement"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const expensesCatHistKey = tab === "income-statement" && modeByTab["income-statement"] === "over-time" && isChartTab === "expenses"
+  const expensesCatHistKey = tab === "income-statement" && mode === "over-time" && isChartTab === "expenses"
     ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${granularityByTab["income-statement"]}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
@@ -2055,11 +2140,13 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
                 ) : expensesCatHistData ? (
                   <ExpensesCategoriesTableView data={expensesCatHistData} />
                 ) : null
+              ) : isHistData ? (
+                <IncomeStatementHistoryTable data={isHistData} chartTab={isChartTab} />
               ) : null}
             </div>
           )
         ) : tab === "holdings" ? (
-          modeByTab.holdings === "over-time" ? (
+          mode === "over-time" ? (
             <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} time={committedTime} granularity={granularityByTab.holdings} />
           ) : (
             holdings.isLoading ? (
