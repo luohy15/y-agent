@@ -92,7 +92,7 @@ async def balance_sheet(
     vm_name: str = Query(None),
 ):
     user_id = _get_user_id(request)
-    if breakdown == "positions":
+    if breakdown in ("positions", "categories"):
         result = derived_service.balance_sheet_positions(user_id, vm_name or "", time, granularity, convert or None, risky_only=risky_only)
         return _envelope_result(result)
     result = derived_service.balance_sheet(user_id, vm_name or "", time, history, granularity, convert or None)

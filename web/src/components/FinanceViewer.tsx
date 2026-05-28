@@ -31,6 +31,7 @@ interface BalanceSheetHistoryItem {
 interface BalanceSheetPositionsHistoryItem {
   period: string;
   positions: Record<string, Record<string, number>>;
+  categories?: Record<string, Record<string, Record<string, number>>>;
   total?: Record<string, number>;
   risky?: Record<string, number>;
 }
@@ -44,7 +45,11 @@ interface IncomeStatementHistoryItem {
 interface IncomeStatementCategoriesHistoryItem {
   period: string;
   categories: Record<string, Record<string, number>>;
+  income_categories?: Record<string, Record<string, number>>;
+  expense_categories?: Record<string, Record<string, number>>;
   total: Record<string, number>;
+  income_total?: Record<string, number>;
+  expense_total?: Record<string, number>;
 }
 
 interface HoldingAmount {
@@ -1059,21 +1064,14 @@ function IncomeStatementLivePieCharts({ income, expenses }: { income: AccountNod
   );
 }
 
-function MissingIncomeCategoriesTable() {
-  return (
-    <div className="rounded border border-sol-base02 bg-sol-base03 px-3 py-8 text-center text-sol-base01">
-      Income category history is not available from the current income-statement history API yet.
-    </div>
-  );
-}
-
-function IncomeStatementOverTimeTable({ data, chartTab, expenseCategoryData }: { data?: IncomeStatementHistoryItem[]; chartTab: ISChartTab; expenseCategoryData?: IncomeStatementCategoriesHistoryItem[] }) {
+function IncomeStatementOverTimeTable({ data, chartTab, categoryData }: { data?: IncomeStatementHistoryItem[]; chartTab: ISChartTab; categoryData?: IncomeStatementCategoriesHistoryItem[] }) {
   if (chartTab === "income") {
-    return <MissingIncomeCategoriesTable />;
+    if (!categoryData) return null;
+    return <IncomeStatementCategoriesTableView data={categoryData} kind="income" />;
   }
   if (chartTab === "expenses") {
-    if (!expenseCategoryData) return null;
-    return <ExpensesCategoriesTableView data={expenseCategoryData} />;
+    if (!categoryData) return null;
+    return <IncomeStatementCategoriesTableView data={categoryData} kind="expenses" />;
   }
   return data ? <IncomeStatementHistoryTable data={data} chartTab={chartTab} /> : null;
 }
@@ -1086,8 +1084,9 @@ function IncomeStatementOverTimeView({ data, categoryData, categoryState, chartT
   onChartTabChange: (v: ISChartTab) => void;
 }) {
   const chart = (() => {
-    if (chartTab === "expenses") {
-      if (categoryState.isLoading) return <p className="text-sol-base01 italic px-3 mb-2">Loading expenses...</p>;
+    if (chartTab === "income" || chartTab === "expenses") {
+      const label = chartTab === "income" ? "income" : "expenses";
+      if (categoryState.isLoading) return <p className="text-sol-base01 italic px-3 mb-2">Loading {label}...</p>;
       if (categoryState.error && !isAbortError(categoryState.error)) return null;
       if (categoryData) return <IncomeStatementChart data={data || []} categoryData={categoryData} chartTab={chartTab} onChartTabChange={onChartTabChange} />;
     }
@@ -1098,12 +1097,12 @@ function IncomeStatementOverTimeView({ data, categoryData, categoryState, chartT
   return (
     <div className="space-y-3">
       {chart}
-      {chartTab === "expenses" && categoryState.isLoading ? (
-        <p className="text-sol-base01 italic px-3">Loading expenses...</p>
-      ) : chartTab === "expenses" && categoryState.error && !isAbortError(categoryState.error) ? (
-        <p className="text-sol-red px-3">Error loading expenses</p>
+      {(chartTab === "income" || chartTab === "expenses") && categoryState.isLoading ? (
+        <p className="text-sol-base01 italic px-3">Loading {chartTab}...</p>
+      ) : (chartTab === "income" || chartTab === "expenses") && categoryState.error && !isAbortError(categoryState.error) ? (
+        <p className="text-sol-red px-3">Error loading {chartTab}</p>
       ) : (
-        <IncomeStatementOverTimeTable data={data} chartTab={chartTab} expenseCategoryData={categoryData} />
+        <IncomeStatementOverTimeTable data={data} chartTab={chartTab} categoryData={categoryData} />
       )}
     </div>
   );
@@ -1279,74 +1278,121 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
-function totalExpenseValue(categories: Record<string, Record<string, number>>): number {
-  return Object.values(categories).reduce((sum, balance) => sum + balanceUsdValue(balance), 0);
+function accountPositionValue(balance: Record<string, number> | undefined): number {
+  return balanceUsdValue(balance);
 }
 
-function expensePeriodTotal(item: IncomeStatementCategoriesHistoryItem): number {
-  const explicitTotal = balanceUsdValue(item.total);
-  return explicitTotal || totalExpenseValue(item.categories);
+function categoryAccountTotals(data: BalanceSheetPositionsHistoryItem[], account: string) {
+  return Object.fromEntries(data.map((item) => {
+    const value = Object.values(item.categories || {}).reduce((sum, accounts) => sum + accountPositionValue(accounts[account]), 0);
+    return [item.period, value];
+  }));
 }
 
-function buildExpenseCategorySeries(data: IncomeStatementCategoriesHistoryItem[]) {
+function categoryTotalValues(data: BalanceSheetPositionsHistoryItem[], category: string) {
+  return Object.fromEntries(data.map((item) => [item.period, Object.values(item.categories?.[category] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0)]));
+}
+
+function categoryGroupedPositionRows(data: BalanceSheetPositionsHistoryItem[], sortColumn: string, sortDir: "asc" | "desc") {
+  const latest = data[data.length - 1];
+  const categories = Array.from(new Set(data.flatMap((item) => Object.keys(item.categories || {}))))
+    .sort((a, b) => {
+      const delta = Object.values(latest?.categories?.[a] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0)
+        - Object.values(latest?.categories?.[b] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0);
+      return -delta;
+    });
+  return categories.flatMap((category) => {
+    const accounts = Array.from(new Set(data.flatMap((item) => Object.keys(item.categories?.[category] || {}))))
+      .sort((a, b) => {
+        const delta = (categoryAccountTotals(data, a)[sortColumn] || 0) - (categoryAccountTotals(data, b)[sortColumn] || 0);
+        return sortDir === "asc" ? delta : -delta;
+      });
+    return [
+      { type: "category" as const, key: category, label: shortName(category), values: categoryTotalValues(data, category) },
+      ...accounts.map((account) => ({ type: "account" as const, key: `${category}:${account}`, label: shortName(account), values: categoryAccountTotals(data, account) })),
+    ];
+  });
+}
+
+function categoryBalances(item: IncomeStatementCategoriesHistoryItem, kind: "income" | "expenses") {
+  return kind === "income" ? (item.income_categories || {}) : (item.expense_categories || item.categories);
+}
+
+function categoryBalanceValue(balance: Record<string, number> | undefined, kind: "income" | "expenses"): number {
+  return kind === "income" ? incomeUsdValue(balance) : balanceUsdValue(balance);
+}
+
+function totalCategoryValue(categories: Record<string, Record<string, number>>, kind: "income" | "expenses"): number {
+  return Object.values(categories).reduce((sum, balance) => sum + categoryBalanceValue(balance, kind), 0);
+}
+
+function categoryPeriodTotal(item: IncomeStatementCategoriesHistoryItem, kind: "income" | "expenses"): number {
+  const total = kind === "income" ? item.income_total : (item.expense_total || item.total);
+  const explicitTotal = categoryBalanceValue(total, kind);
+  return explicitTotal || totalCategoryValue(categoryBalances(item, kind), kind);
+}
+
+function buildIncomeStatementCategorySeries(data: IncomeStatementCategoriesHistoryItem[], kind: "income" | "expenses") {
   const latest = data[data.length - 1];
   const totals = new Map<string, number>();
   for (const item of data) {
-    for (const [category, balance] of Object.entries(item.categories)) {
-      totals.set(category, Math.max(totals.get(category) || 0, Math.abs(balanceUsdValue(balance))));
+    for (const [category, balance] of Object.entries(categoryBalances(item, kind))) {
+      totals.set(category, Math.max(totals.get(category) || 0, Math.abs(categoryBalanceValue(balance, kind))));
     }
   }
   const ordered = Array.from(totals.entries())
     .filter(([, value]) => value > 0.005)
-    .sort((a, b) => balanceUsdValue(latest?.categories[b[0]]) - balanceUsdValue(latest?.categories[a[0]]));
+    .sort((a, b) => categoryBalanceValue(latest ? categoryBalances(latest, kind)[b[0]] : undefined, kind) - categoryBalanceValue(latest ? categoryBalances(latest, kind)[a[0]] : undefined, kind));
   const topCategories = ordered.slice(0, 7).map(([category]) => category);
   const otherCategories = ordered.slice(7).map(([category]) => category);
   return otherCategories.length ? [...topCategories, "Other"] : topCategories;
 }
 
-function expenseCategoryRows(item: IncomeStatementCategoriesHistoryItem | undefined, categories: string[]) {
+function incomeStatementCategoryRows(item: IncomeStatementCategoriesHistoryItem | undefined, categories: string[], kind: "income" | "expenses") {
   if (!item) return [];
+  const balances = categoryBalances(item, kind);
   return categories
     .map((category) => ({
       category,
       value: category === "Other"
-        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : balanceUsdValue(balance)), 0)
-        : balanceUsdValue(item.categories[category]),
+        ? Object.entries(balances).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : categoryBalanceValue(balance, kind)), 0)
+        : categoryBalanceValue(balances[category], kind),
     }))
     .filter((row) => Math.abs(row.value) > 0.005)
     .sort((a, b) => b.value - a.value);
 }
 
-function expenseChartRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[]) {
+function incomeStatementCategoryChartRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[], kind: "income" | "expenses") {
   return data.map((item) => {
+    const balances = categoryBalances(item, kind);
     const row: Record<string, string | number> = {
       period: formatPeriodLabel(item.period),
       rawPeriod: item.period,
-      Total: expensePeriodTotal(item),
+      Total: categoryPeriodTotal(item, kind),
     };
     for (const category of categories) {
       if (category === "Other") continue;
-      row[category] = balanceUsdValue(item.categories[category]);
+      row[category] = categoryBalanceValue(balances[category], kind);
     }
     if (categories.includes("Other")) {
       const named = new Set(categories.filter((category) => category !== "Other"));
-      row.Other = Object.entries(item.categories).reduce((sum, [category, balance]) => sum + (named.has(category) ? 0 : balanceUsdValue(balance)), 0);
+      row.Other = Object.entries(balances).reduce((sum, [category, balance]) => sum + (named.has(category) ? 0 : categoryBalanceValue(balance, kind)), 0);
     }
     return row;
   });
 }
 
-function expensePeriodTotals(data: IncomeStatementCategoriesHistoryItem[]) {
-  return Object.fromEntries(data.map((item) => [item.period, expensePeriodTotal(item)]));
+function incomeStatementCategoryPeriodTotals(data: IncomeStatementCategoriesHistoryItem[], kind: "income" | "expenses") {
+  return Object.fromEntries(data.map((item) => [item.period, categoryPeriodTotal(item, kind)]));
 }
 
-function expensePeriodTableRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[], sortColumn: string, sortDir: "asc" | "desc") {
+function incomeStatementCategoryPeriodTableRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[], kind: "income" | "expenses", sortColumn: string, sortDir: "asc" | "desc") {
   return categories
     .map((category) => ({
       category,
       values: Object.fromEntries(data.map((item) => [item.period, category === "Other"
-        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : balanceUsdValue(balance)), 0)
-        : balanceUsdValue(item.categories[category])
+        ? Object.entries(categoryBalances(item, kind)).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : categoryBalanceValue(balance, kind)), 0)
+        : categoryBalanceValue(categoryBalances(item, kind)[category], kind)
       ])),
     }))
     .sort((a, b) => {
@@ -1436,7 +1482,9 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
   const [sortColumn, setSortColumn] = useState(latestPeriod);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const groupedRows = useMemo(() => categoryGroupedPositionRows(data, effectiveSortColumn, sortDir), [data, effectiveSortColumn, sortDir]);
   const rows = useMemo(() => positionTableRows(data, positions, effectiveSortColumn, sortDir), [data, positions, effectiveSortColumn, sortDir]);
+  const displayRows = groupedRows.length ? groupedRows : rows.map((row) => ({ type: "account" as const, key: row.position, label: row.position, values: row.values }));
   const totals = useMemo(() => positionPeriodTotals(data), [data]);
   const riskyTotals = useMemo(() => riskyPeriodTotals(data), [data]);
   const riskyPercents = useMemo(() => riskyPeriodPercents(data), [data]);
@@ -1465,7 +1513,7 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
       <div className="border-b border-sol-base02 px-3 py-2">
         <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets history</div>
-        <div className="text-sol-base01 text-[10px]">Rows are symbols and cash currencies; columns are periods</div>
+        <div className="text-sol-base01 text-[10px]">Rows are asset categories with accounts; columns are periods</div>
       </div>
       {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
@@ -1485,9 +1533,9 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.position} className="hover:bg-sol-base02/50">
-                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{row.position}</td>
+              {displayRows.map((row) => (
+                <tr key={row.key} className={row.type === "category" ? "border-t border-sol-base02 bg-sol-base02/30 font-medium" : "hover:bg-sol-base02/50"}>
+                  <td className={`sticky left-0 z-10 py-0.5 px-3 whitespace-nowrap ${row.type === "category" ? "bg-sol-base02 text-sol-base1" : "bg-sol-base03 text-sol-base0 pl-6"}`}>{row.label}</td>
                   {data.map((item) => (
                     <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
                   ))}
@@ -1555,23 +1603,25 @@ function ExpensesPieTooltip({ active, payload }: { active?: boolean; payload?: A
   );
 }
 
-function ExpensesPieChart({ item, categories }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[] }) {
+function IncomeStatementCategoriesPieChart({ item, categories, kind }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[]; kind: "income" | "expenses" }) {
   const chartData = useMemo(() => {
-    const rows = expenseCategoryRows(item, categories)
+    const rows = incomeStatementCategoryRows(item, categories, kind)
       .filter((row) => row.value > 0.005)
       .map((row) => ({ ...row, label: shortName(row.category) }));
     const total = rows.reduce((sum, row) => sum + row.value, 0);
     return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
-  }, [item, categories]);
+  }, [item, categories, kind]);
+  const title = kind === "income" ? "Income by category" : "Expenses by category";
+  const emptyLabel = kind === "income" ? "No income yet" : "No expenses yet";
 
   if (chartData.length === 0) {
-    return <div className="flex h-56 items-center justify-center rounded border border-sol-base02 text-sol-base01">No expenses yet</div>;
+    return <div className="flex h-56 items-center justify-center rounded border border-sol-base02 text-sol-base01">{emptyLabel}</div>;
   }
 
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
       <div className="mb-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses by category</div>
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
         <div className="text-sol-base01 text-[10px]">Latest period in USD</div>
       </div>
       <ResponsiveContainer width="100%" height={260}>
@@ -1591,13 +1641,14 @@ function ExpensesPieChart({ item, categories }: { item?: IncomeStatementCategori
   );
 }
 
-function ExpensesCategoriesTable({ item, categories }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[] }) {
-  const rows = useMemo(() => expenseCategoryRows(item, categories), [item, categories]);
-  const total = item ? expensePeriodTotal(item) : 0;
+function IncomeStatementCategoriesTable({ item, categories, kind }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[]; kind: "income" | "expenses" }) {
+  const rows = useMemo(() => incomeStatementCategoryRows(item, categories, kind), [item, categories, kind]);
+  const total = item ? categoryPeriodTotal(item, kind) : 0;
+  const title = kind === "income" ? "Income" : "Expenses";
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
       <div className="border-b border-sol-base02 px-3 py-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses</div>
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
         <div className="text-sol-base01 text-[10px]">Rows are top-level categories</div>
       </div>
       <table className="w-full text-xs">
@@ -1645,13 +1696,14 @@ function ExpensesOverTimeTooltip({ active, payload, label }: { active?: boolean;
   );
 }
 
-function ExpensesOverTimeChart({ data, categories }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[] }) {
-  const chartData = useMemo(() => expenseChartRows(data, categories), [data, categories]);
+function IncomeStatementCategoriesOverTimeChart({ data, categories, kind }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[]; kind: "income" | "expenses" }) {
+  const chartData = useMemo(() => incomeStatementCategoryChartRows(data, categories, kind), [data, categories, kind]);
+  const title = kind === "income" ? "Income over time" : "Expenses over time";
   const hasData = chartData.some((row) => categories.some((category) => Math.abs(Number(row[category] || 0)) > 0.005));
   return (
     <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
       <div className="mb-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses over time</div>
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
         <div className="text-sol-base01 text-[10px]">Top-level categories in USD</div>
       </div>
       {!hasData ? (
@@ -1664,7 +1716,7 @@ function ExpensesOverTimeChart({ data, categories }: { data: IncomeStatementCate
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
             <Tooltip content={<ExpensesOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {categories.map((category, index) => (
-              <Bar key={category} dataKey={category} stackId="expenses" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
+              <Bar key={category} dataKey={category} stackId={kind} fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
             ))}
           </BarChart>
         </ResponsiveContainer>
@@ -1673,15 +1725,16 @@ function ExpensesOverTimeChart({ data, categories }: { data: IncomeStatementCate
   );
 }
 
-function ExpensesCategoriesPeriodTable({ data, categories }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[] }) {
+function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[]; kind: "income" | "expenses" }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPeriod = data[data.length - 1]?.period || "";
   const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
   const [sortColumn, setSortColumn] = useState(latestPeriod);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
-  const rows = useMemo(() => expensePeriodTableRows(data, categories, effectiveSortColumn, sortDir), [data, categories, effectiveSortColumn, sortDir]);
-  const totals = useMemo(() => expensePeriodTotals(data), [data]);
+  const rows = useMemo(() => incomeStatementCategoryPeriodTableRows(data, categories, kind, effectiveSortColumn, sortDir), [data, categories, kind, effectiveSortColumn, sortDir]);
+  const totals = useMemo(() => incomeStatementCategoryPeriodTotals(data, kind), [data, kind]);
+  const title = kind === "income" ? "Income history" : "Expenses history";
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -1698,7 +1751,7 @@ function ExpensesCategoriesPeriodTable({ data, categories }: { data: IncomeState
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
       <div className="border-b border-sol-base02 px-3 py-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses history</div>
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{title}</div>
         <div className="text-sol-base01 text-[10px]">Rows are top-level categories; columns are periods</div>
       </div>
       {data.length === 0 || categories.length === 0 ? (
@@ -1741,14 +1794,14 @@ function ExpensesCategoriesPeriodTable({ data, categories }: { data: IncomeState
   );
 }
 
-function ExpensesCategoriesChartView({ data }: { data: IncomeStatementCategoriesHistoryItem[] }) {
-  const categories = useMemo(() => buildExpenseCategorySeries(data), [data]);
-  return <ExpensesOverTimeChart data={data} categories={categories} />;
+function IncomeStatementCategoriesChartView({ data, kind }: { data: IncomeStatementCategoriesHistoryItem[]; kind: "income" | "expenses" }) {
+  const categories = useMemo(() => buildIncomeStatementCategorySeries(data, kind), [data, kind]);
+  return <IncomeStatementCategoriesOverTimeChart data={data} categories={categories} kind={kind} />;
 }
 
-function ExpensesCategoriesTableView({ data }: { data: IncomeStatementCategoriesHistoryItem[] }) {
-  const categories = useMemo(() => buildExpenseCategorySeries(data), [data]);
-  return <ExpensesCategoriesPeriodTable data={data} categories={categories} />;
+function IncomeStatementCategoriesTableView({ data, kind }: { data: IncomeStatementCategoriesHistoryItem[]; kind: "income" | "expenses" }) {
+  const categories = useMemo(() => buildIncomeStatementCategorySeries(data, kind), [data, kind]);
+  return <IncomeStatementCategoriesPeriodTable data={data} categories={categories} kind={kind} />;
 }
 
 function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab: ISChartTab, sortColumn: string, sortDir: "asc" | "desc") {
@@ -1766,7 +1819,8 @@ function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab:
       values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income) - balanceUsdValue(item.expenses)])),
     },
   ];
-  const rows = chartTab === "net-profit" ? metricRows : metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
+  if (chartTab === "net-profit") return metricRows;
+  const rows = metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
   return rows.sort((a, b) => {
     const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
     return sortDir === "asc" ? delta : -delta;
@@ -1984,8 +2038,8 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }
 
   return (
     <div className="relative">
-      {chartTab === "expenses" && categoryData ? (
-        <ExpensesCategoriesChartView data={categoryData} />
+      {(chartTab === "income" || chartTab === "expenses") && categoryData ? (
+        <IncomeStatementCategoriesChartView data={categoryData} kind={chartTab} />
       ) : (
         <ResponsiveContainer width="100%" height={300}>
           {chartTab === "net-profit" ? (
@@ -2124,7 +2178,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const expensesCatHistKey = tab === "income-statement" && mode === "over-time" && isChartTab === "expenses"
+  const expensesCatHistKey = tab === "income-statement" && mode === "over-time" && (isChartTab === "income" || isChartTab === "expenses")
     ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
@@ -2167,11 +2221,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   };
 
   const tableLoading = tab === "balance-sheet" ? (isLiveMode ? bs.isLoading : bsHist.isLoading) : tab === "income-statement" ? (isLiveMode ? is.isLoading : isHist.isLoading) : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
-  const chartLoading = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.isLoading : tab === "fire" ? bsHist.isLoading : tab === "income-statement" && isOverTimeMode && isChartTab === "expenses" ? expensesCatHist.isLoading : false;
+  const chartLoading = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.isLoading : tab === "fire" ? bsHist.isLoading : tab === "income-statement" && isOverTimeMode && (isChartTab === "income" || isChartTab === "expenses") ? expensesCatHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
   const tableError = tab === "balance-sheet" ? (isLiveMode ? bs.error : bsHist.error) : tab === "income-statement" ? (isLiveMode ? is.error : isHist.error) : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
-  const chartError = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.error : tab === "fire" ? bsHist.error : tab === "income-statement" && isOverTimeMode && isChartTab === "expenses" ? (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : null;
+  const chartError = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.error : tab === "fire" ? bsHist.error : tab === "income-statement" && isOverTimeMode && (isChartTab === "income" || isChartTab === "expenses") ? (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : null;
   const error = tableError && chartError;
 
   return (
