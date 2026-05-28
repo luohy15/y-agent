@@ -82,7 +82,7 @@ y dev wt rm my-feature
 # Finance — DB-backed views matching /api/finance/*
 y finance balance-sheet --convert USD
 y finance income-statement --time month --convert USD
-y finance positions --base-currency USD
+y finance holdings --base-currency USD
 y finance transactions --limit 20
 y finance prices --symbol AAPL --limit 5
 y finance fire-progress

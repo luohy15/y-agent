@@ -71,6 +71,10 @@ def _envelope_dict(data, synced_at: str, source: str = "derived"):
     return {"data": data, "synced_at": synced_at or "", "source": source}
 
 
+def _envelope_result(result, source: str = "derived"):
+    return {"data": result.data, **result.meta, "synced_at": result.synced_at or "", "source": source}
+
+
 def _normalize_realtime_symbols(symbols: str) -> list[str]:
     normalized = sorted({symbol.strip().upper() for symbol in (symbols or "").split(",") if symbol.strip()})
     return normalized[:50]
@@ -109,16 +113,17 @@ async def income_statement(
     return _envelope_dict(result.data, result.synced_at)
 
 
-@router.get("/positions")
-async def positions(
+@router.get("/holdings")
+async def holdings(
     request: Request,
     vm_name: str = Query(None),
     at: str = Query(None),
     risky_only: bool = Query(False),
+    base_currency: str = Query("USD"),
 ):
     user_id = _get_user_id(request)
-    result = derived_service.holding_positions(user_id, vm_name or "", at, risky_only=risky_only)
-    return _envelope_dict(result.data, result.synced_at, source="db")
+    result = derived_service.holding_positions(user_id, vm_name or "", at, risky_only=risky_only, base_currency=base_currency)
+    return _envelope_result(result, source="db")
 
 
 @router.get("/realtime-quotes")

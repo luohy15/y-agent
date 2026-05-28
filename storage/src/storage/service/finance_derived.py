@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from bisect import bisect_right
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fava.util.date import parse_date
 
@@ -325,6 +325,7 @@ def _synced_at(user_id: int, vm_name: str) -> str:
 class DerivedResult:
     data: dict | list
     synced_at: str
+    meta: dict = field(default_factory=dict)
 
 
 def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, granularity: str, convert_to: str | None) -> DerivedResult:
@@ -438,7 +439,7 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
 
 def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
     result = positions_service.derive_positions(user_id, snapshot_date=at, risky_only=risky_only, base_currency=base_currency)
-    return DerivedResult(result["data"], result["synced_at"])
+    return DerivedResult(result["data"], result["synced_at"], {"summary": result["summary"]})
 
 
 def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
