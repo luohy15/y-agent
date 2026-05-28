@@ -759,6 +759,7 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
 
 type Granularity = "monthly" | "yearly";
 type HoldingsGranularity = "weekly" | "monthly" | "yearly";
+type ISChartTab = "net-profit" | "income" | "expenses";
 const ACCOUNT_COLORS = [SOL.blue, SOL.cyan, SOL.green, SOL.orange, SOL.magenta, SOL.violet, SOL.yellow, SOL.red];
 
 function GranularityToggle({ value, onChange }: { value: Granularity; onChange: (v: Granularity) => void }) {
@@ -1577,19 +1578,23 @@ function ExpensesModeToggle({ overTime, onOverTimeChange }: { overTime: boolean;
   );
 }
 
-function ExpensesCategoriesView({ data, overTime, granularity, onGranularityChange }: { data: IncomeStatementCategoriesHistoryItem[]; overTime: boolean; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
+function ExpensesCategoriesChartView({ data, overTime, granularity, onGranularityChange }: { data: IncomeStatementCategoriesHistoryItem[]; overTime: boolean; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
   const categories = useMemo(() => buildExpenseCategorySeries(data), [data]);
   const latest = data[data.length - 1];
   return overTime ? (
-    <div className="space-y-3">
-      <ExpensesOverTimeChart data={data} categories={categories} granularity={granularity} onGranularityChange={onGranularityChange} />
-      <ExpensesCategoriesPeriodTable data={data} categories={categories} />
-    </div>
+    <ExpensesOverTimeChart data={data} categories={categories} granularity={granularity} onGranularityChange={onGranularityChange} />
   ) : (
-    <div className="space-y-3">
-      <ExpensesPieChart item={latest} categories={categories} />
-      <ExpensesCategoriesTable item={latest} categories={categories} />
-    </div>
+    <ExpensesPieChart item={latest} categories={categories} />
+  );
+}
+
+function ExpensesCategoriesTableView({ data, overTime }: { data: IncomeStatementCategoriesHistoryItem[]; overTime: boolean }) {
+  const categories = useMemo(() => buildExpenseCategorySeries(data), [data]);
+  const latest = data[data.length - 1];
+  return overTime ? (
+    <ExpensesCategoriesPeriodTable data={data} categories={categories} />
+  ) : (
+    <ExpensesCategoriesTable item={latest} categories={categories} />
   );
 }
 
@@ -1692,8 +1697,6 @@ function FireProgressView({ data }: { data: FireProgressData }) {
   );
 }
 
-type ISChartTab = "net-profit" | "income" | "expenses";
-
 function NetProfitTooltip({ active, payload, label }: {
   active?: boolean;
   payload?: any[];
@@ -1724,9 +1727,7 @@ function NetProfitTooltip({ active, payload, label }: {
   );
 }
 
-function IncomeStatementChart({ data, granularity, onGranularityChange }: { data: IncomeStatementHistoryItem[]; granularity: Granularity; onGranularityChange: (v: Granularity) => void }) {
-  const [chartTab, setChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
-
+function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange, granularity, onGranularityChange, expensesOverTime, onExpensesOverTimeChange, expensesGranularity, onExpensesGranularityChange }: { data: IncomeStatementHistoryItem[]; categoryData?: IncomeStatementCategoriesHistoryItem[]; chartTab: ISChartTab; onChartTabChange: (v: ISChartTab) => void; granularity: Granularity; onGranularityChange: (v: Granularity) => void; expensesOverTime: boolean; onExpensesOverTimeChange: (v: boolean) => void; expensesGranularity: HoldingsGranularity; onExpensesGranularityChange: (v: HoldingsGranularity) => void }) {
   const chartData = useMemo(() =>
     data.map((item) => {
       const income = Math.abs(item.income.USD || 0);
@@ -1744,11 +1745,18 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
 
   return (
     <div className="relative">
-      <div className="absolute top-0 right-2 z-10">
-        <GranularityToggle value={granularity} onChange={onGranularityChange} />
+      <div className="absolute top-0 right-2 z-10 flex items-center gap-2">
+        {chartTab === "expenses" ? (
+          <ExpensesModeToggle overTime={expensesOverTime} onOverTimeChange={onExpensesOverTimeChange} />
+        ) : (
+          <GranularityToggle value={granularity} onChange={onGranularityChange} />
+        )}
       </div>
-      <ResponsiveContainer width="100%" height={300}>
-        {chartTab === "net-profit" ? (
+      {chartTab === "expenses" && categoryData ? (
+        <ExpensesCategoriesChartView data={categoryData} overTime={expensesOverTime} granularity={expensesGranularity} onGranularityChange={onExpensesGranularityChange} />
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          {chartTab === "net-profit" ? (
           <BarChart data={chartData} stackOffset="sign" margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
@@ -1757,7 +1765,7 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
             <Bar dataKey="Income" stackId="income-statement" fill={SOL.green} isAnimationActive={false} />
             <Bar dataKey="Expenses" stackId="income-statement" fill={SOL.red} isAnimationActive={false} />
           </BarChart>
-        ) : chartTab === "income" ? (
+          ) : chartTab === "income" ? (
           <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
@@ -1765,7 +1773,7 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
             <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(Math.abs(v)) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             <Bar dataKey="Income" fill={SOL.green} isAnimationActive={false} />
           </BarChart>
-        ) : (
+          ) : (
           <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
@@ -1773,13 +1781,14 @@ function IncomeStatementChart({ data, granularity, onGranularityChange }: { data
             <Tooltip content={<ChartTooltipContent formatter={(v) => formatAmount(v) + " USD"} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             <Bar dataKey="Expenses" fill={SOL.red} isAnimationActive={false} />
           </BarChart>
-        )}
-      </ResponsiveContainer>
+          )}
+        </ResponsiveContainer>
+      )}
       <div className="flex justify-center gap-1 mt-1">
         {([["net-profit", "Net Profit"], ["income", "Income"], ["expenses", "Expenses"]] as const).map(([t, label]) => (
           <button
             key={t}
-            onClick={() => { setChartTab(t); localStorage.setItem("finance-is-chart-tab", t); }}
+            onClick={() => onChartTabChange(t)}
             className={`px-2 py-0.5 rounded text-xs cursor-pointer ${
               chartTab === t
                 ? "bg-sol-blue text-sol-base03"
@@ -1810,6 +1819,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [holdingsOverTime, setHoldingsOverTime] = useState<boolean>(() => localStorage.getItem("finance-holdings-over-time") === "1");
   const [expensesOverTime, setExpensesOverTime] = useState<boolean>(() => localStorage.getItem("finance-expenses-over-time") === "1");
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
+  const [isChartTab, setIsChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
 
@@ -1843,6 +1853,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     localStorage.setItem("finance-expenses-over-time", v ? "1" : "0");
   };
 
+  const handleIncomeStatementChartTabChange = (v: ISChartTab) => {
+    setIsChartTab(v);
+    localStorage.setItem("finance-is-chart-tab", v);
+  };
+
   // Table data fetches (always fetch for active tab)
   const bsKey = tab === "balance-sheet"
     ? `${API}/api/finance/balance-sheet?time=${encodeURIComponent(committedTime)}&convert=USD${vmQuery}`
@@ -1872,7 +1887,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
-  const expensesCatHistKey = tab === "income-statement"
+  const expensesCatHistKey = tab === "income-statement" && isChartTab === "expenses"
     ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${expensesGranularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
@@ -1909,11 +1924,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   // Combined loading/error: table OR chart loading
   const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
-  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading || expensesCatHist.isLoading : false;
+  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? (isChartTab === "expenses" ? expensesCatHist.isLoading : isHist.isLoading) : false;
   const loading = tableLoading && chartLoading;
 
   const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
-  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error || (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : null;
+  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? (isChartTab === "expenses" ? (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : isHist.error) : null;
   const error = tableError && chartError;
 
   return (
@@ -1987,30 +2002,32 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           </>
         ) : tab === "income-statement" ? (
           <>
-            {isHist.isLoading ? (
+            {isChartTab === "expenses" && expensesCatHist.isLoading ? (
+              <p className="text-sol-base01 italic px-3 mb-2">Loading expenses...</p>
+            ) : isChartTab === "expenses" && expensesCatHist.error && !isAbortError(expensesCatHist.error) ? null : isChartTab === "expenses" && expensesCatHistData ? (
+              <div className="mb-3"><IncomeStatementChart data={isHistData || []} categoryData={expensesCatHistData} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} granularity={granularity} onGranularityChange={handleGranularityChange} expensesOverTime={expensesOverTime} onExpensesOverTimeChange={handleExpensesOverTimeChange} expensesGranularity={expensesGranularity} onExpensesGranularityChange={handleExpensesGranularityChange} /></div>
+            ) : isHist.isLoading ? (
               <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
             ) : isHist.error ? null : isHistData ? (
-              <div className="mb-3"><IncomeStatementChart data={isHistData} granularity={granularity} onGranularityChange={handleGranularityChange} /></div>
+              <div className="mb-3"><IncomeStatementChart data={isHistData} categoryData={expensesCatHistData} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} granularity={granularity} onGranularityChange={handleGranularityChange} expensesOverTime={expensesOverTime} onExpensesOverTimeChange={handleExpensesOverTimeChange} expensesGranularity={expensesGranularity} onExpensesGranularityChange={handleExpensesGranularityChange} /></div>
             ) : null}
             {is.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : isChartTab === "expenses" ? (
+              expensesCatHist.isLoading ? (
+                <p className="text-sol-base01 italic px-3">Loading expenses...</p>
+              ) : expensesCatHist.error && !isAbortError(expensesCatHist.error) ? (
+                <p className="text-sol-red px-3">Error loading expenses</p>
+              ) : expensesCatHistData ? (
+                <ExpensesCategoriesTableView data={expensesCatHistData} overTime={expensesOverTime} />
+              ) : null
             ) : isData ? (
               <div className="flex gap-2">
                 <div className="flex-1 min-w-0">
                   <AccountTree root={isData.income} title="Income" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="mb-2 flex items-center justify-between px-2">
-                    <div className="text-sol-base1 text-sm font-medium">Expenses</div>
-                    <ExpensesModeToggle overTime={expensesOverTime} onOverTimeChange={handleExpensesOverTimeChange} />
-                  </div>
-                  {expensesCatHist.isLoading ? (
-                    <p className="text-sol-base01 italic px-3">Loading expenses...</p>
-                  ) : expensesCatHist.error && !isAbortError(expensesCatHist.error) ? (
-                    <p className="text-sol-red px-3">Error loading expenses</p>
-                  ) : expensesCatHistData ? (
-                    <ExpensesCategoriesView data={expensesCatHistData} overTime={expensesOverTime} granularity={expensesGranularity} onGranularityChange={handleExpensesGranularityChange} />
-                  ) : null}
+                  <AccountTree root={isData.expenses} title="Expenses" />
                 </div>
               </div>
             ) : null}
