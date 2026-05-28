@@ -1037,23 +1037,76 @@ function AccountPieChart({ title, subtitle, data, emptyLabel = "No data yet" }: 
   );
 }
 
-function BalanceSheetLivePieChart({ assets }: { assets: AccountNode }) {
-  const data = useMemo(() => accountPieRows(assets, positiveUsdValue), [assets]);
-  return <AccountPieChart title="Assets by account" subtitle="Current top-level asset accounts in USD" data={data} emptyLabel="No assets yet" />;
+function BalanceSheetLivePieCharts({ assets, liabilities }: { assets: AccountNode; liabilities: AccountNode }) {
+  const assetData = useMemo(() => accountPieRows(assets, positiveUsdValue), [assets]);
+  const liabilityData = useMemo(() => accountPieRows(liabilities, incomeUsdValue), [liabilities]);
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <AccountPieChart title="Assets by account" subtitle="Current top-level asset accounts in USD" data={assetData} emptyLabel="No assets yet" />
+      <AccountPieChart title="Liabilities by account" subtitle="Current top-level liability accounts in USD" data={liabilityData} emptyLabel="No liabilities yet" />
+    </div>
+  );
 }
 
-function IncomeStatementLivePieChart({ income, expenses }: { income: AccountNode; expenses: AccountNode }) {
-  const data = useMemo(() => {
-    const incomeTotal = incomeUsdValue(totalBalance(income));
-    const expensesTotal = positiveUsdValue(totalBalance(expenses));
-    const rows = [
-      { name: "Income", label: "Income", value: incomeTotal },
-      { name: "Expenses", label: "Expenses", value: expensesTotal },
-    ].filter((row) => row.value > 0.005);
-    const total = rows.reduce((sum, row) => sum + row.value, 0);
-    return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
-  }, [income, expenses]);
-  return <AccountPieChart title="Income vs expenses" subtitle="Current month-to-date totals in USD" data={data} emptyLabel="No income statement data yet" />;
+function IncomeStatementLivePieCharts({ income, expenses }: { income: AccountNode; expenses: AccountNode }) {
+  const incomeData = useMemo(() => accountPieRows(income, incomeUsdValue), [income]);
+  const expenseData = useMemo(() => accountPieRows(expenses, positiveUsdValue), [expenses]);
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <AccountPieChart title="Income by category" subtitle="Current month-to-date income accounts in USD" data={incomeData} emptyLabel="No income yet" />
+      <AccountPieChart title="Expenses by category" subtitle="Current month-to-date expense accounts in USD" data={expenseData} emptyLabel="No expenses yet" />
+    </div>
+  );
+}
+
+function MissingIncomeCategoriesTable() {
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 px-3 py-8 text-center text-sol-base01">
+      Income category history is not available from the current income-statement history API yet.
+    </div>
+  );
+}
+
+function IncomeStatementOverTimeTable({ data, chartTab, expenseCategoryData }: { data?: IncomeStatementHistoryItem[]; chartTab: ISChartTab; expenseCategoryData?: IncomeStatementCategoriesHistoryItem[] }) {
+  if (chartTab === "income") {
+    return <MissingIncomeCategoriesTable />;
+  }
+  if (chartTab === "expenses") {
+    if (!expenseCategoryData) return null;
+    return <ExpensesCategoriesTableView data={expenseCategoryData} />;
+  }
+  return data ? <IncomeStatementHistoryTable data={data} chartTab={chartTab} /> : null;
+}
+
+function IncomeStatementOverTimeView({ data, categoryData, categoryState, chartTab, onChartTabChange }: {
+  data?: IncomeStatementHistoryItem[];
+  categoryData?: IncomeStatementCategoriesHistoryItem[];
+  categoryState: { isLoading: boolean; error?: unknown };
+  chartTab: ISChartTab;
+  onChartTabChange: (v: ISChartTab) => void;
+}) {
+  const chart = (() => {
+    if (chartTab === "expenses") {
+      if (categoryState.isLoading) return <p className="text-sol-base01 italic px-3 mb-2">Loading expenses...</p>;
+      if (categoryState.error && !isAbortError(categoryState.error)) return null;
+      if (categoryData) return <IncomeStatementChart data={data || []} categoryData={categoryData} chartTab={chartTab} onChartTabChange={onChartTabChange} />;
+    }
+    if (!data) return null;
+    return <IncomeStatementChart data={data} categoryData={categoryData} chartTab={chartTab} onChartTabChange={onChartTabChange} />;
+  })();
+
+  return (
+    <div className="space-y-3">
+      {chart}
+      {chartTab === "expenses" && categoryState.isLoading ? (
+        <p className="text-sol-base01 italic px-3">Loading expenses...</p>
+      ) : chartTab === "expenses" && categoryState.error && !isAbortError(categoryState.error) ? (
+        <p className="text-sol-red px-3">Error loading expenses</p>
+      ) : (
+        <IncomeStatementOverTimeTable data={data} chartTab={chartTab} expenseCategoryData={categoryData} />
+      )}
+    </div>
+  );
 }
 
 function HoldingsPieTooltip({ active, payload }: {
@@ -1965,7 +2018,7 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }
         </ResponsiveContainer>
       )}
       <div className="flex justify-center gap-1 mt-1">
-        {([["net-profit", "Net Profit"], ["income", "Income"], ["expenses", "Expenses"]] as const).map(([t, label]) => (
+        {([["income", "Income"], ["expenses", "Expenses"], ["net-profit", "Net Profit"]] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => onChartTabChange(t)}
@@ -1996,7 +2049,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [mode, setMode] = useState<ViewMode>(initialMode);
   const [granularity, setGranularity] = useState<SharedGranularity>(initialGranularity);
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
-  const [isChartTab, setIsChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "net-profit");
+  const [isChartTab, setIsChartTab] = useState<ISChartTab>(() => (localStorage.getItem("finance-is-chart-tab") as ISChartTab) || "income");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
 
@@ -2176,8 +2229,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
             bs.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
             ) : bsData ? (
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                <BalanceSheetLivePieChart assets={bsData.assets} />
+              <div className="space-y-3">
+                <BalanceSheetLivePieCharts assets={bsData.assets} liabilities={bsData.liabilities} />
                 <div className="flex gap-2 min-w-0">
                   <div className="flex-1 min-w-0">
                     <AccountTree root={bsData.assets} title="Assets" />
@@ -2210,8 +2263,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
             is.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
             ) : displayIsData ? (
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                <IncomeStatementLivePieChart income={displayIsData.income} expenses={displayIsData.expenses} />
+              <div className="space-y-3">
+                <IncomeStatementLivePieCharts income={displayIsData.income} expenses={displayIsData.expenses} />
                 <div className="flex gap-2 min-w-0">
                   <div className="flex-1 min-w-0">
                     <AccountTree root={displayIsData.income} title="Income" />
@@ -2223,28 +2276,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               </div>
             ) : null
           ) : (
-            <div className="space-y-3">
-              {isChartTab === "expenses" && expensesCatHist.isLoading ? (
-                <p className="text-sol-base01 italic px-3 mb-2">Loading expenses...</p>
-              ) : isChartTab === "expenses" && expensesCatHist.error && !isAbortError(expensesCatHist.error) ? null : isChartTab === "expenses" && expensesCatHistData ? (
-                <IncomeStatementChart data={isHistData || []} categoryData={expensesCatHistData} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} />
-              ) : isHist.isLoading ? (
-                <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
-              ) : isHist.error ? null : isHistData ? (
-                <IncomeStatementChart data={isHistData} categoryData={expensesCatHistData} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} />
-              ) : null}
-              {isChartTab === "expenses" ? (
-                expensesCatHist.isLoading ? (
-                  <p className="text-sol-base01 italic px-3">Loading expenses...</p>
-                ) : expensesCatHist.error && !isAbortError(expensesCatHist.error) ? (
-                  <p className="text-sol-red px-3">Error loading expenses</p>
-                ) : expensesCatHistData ? (
-                  <ExpensesCategoriesTableView data={expensesCatHistData} />
-                ) : null
-              ) : isHistData ? (
-                <IncomeStatementHistoryTable data={isHistData} chartTab={isChartTab} />
-              ) : null}
-            </div>
+            isHist.isLoading ? (
+              <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
+            ) : isHist.error ? null : isHistData ? (
+              <IncomeStatementOverTimeView data={isHistData} categoryData={expensesCatHistData} categoryState={expensesCatHist} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} />
+            ) : null
           )
         ) : tab === "holdings" ? (
           mode === "over-time" ? (
