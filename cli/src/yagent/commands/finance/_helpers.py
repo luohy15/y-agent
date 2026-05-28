@@ -17,6 +17,10 @@ def derived_envelope(data, synced_at: str | None, source: str = "derived") -> di
     return {"data": data, "synced_at": synced_at or "", "source": source}
 
 
+def derived_result_envelope(result, source: str = "derived") -> dict:
+    return {"data": result.data, **result.meta, "synced_at": result.synced_at or "", "source": source}
+
+
 def rows_envelope(rows, source: str = "db") -> dict:
     synced_at = rows[0].synced_at if rows else ""
     return {"data": [row.to_dict() for row in rows], "synced_at": synced_at, "source": source}

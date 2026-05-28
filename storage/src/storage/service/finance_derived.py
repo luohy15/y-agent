@@ -11,6 +11,7 @@ from storage.service import finance_config as finance_config_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
 from storage.service import finance_positions as positions_service
+from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
 
 
@@ -30,8 +31,9 @@ class ConversionError(ValueError):
 
 
 class PriceLookup:
-    def __init__(self, rows):
+    def __init__(self, rows, overlay: dict[str, float] | None = None):
         self._prices: dict[tuple[str, str], list[tuple[datetime.date, float]]] = defaultdict(list)
+        self._overlay = {symbol.upper(): float(price) for symbol, price in (overlay or {}).items()}
         for row in rows:
             price_date = row.price_date if isinstance(row.price_date, datetime.date) else datetime.date.fromisoformat(row.price_date)
             self._prices[(row.symbol, row.currency)].append((price_date, float(row.price)))
@@ -39,6 +41,10 @@ class PriceLookup:
             prices.sort(key=lambda item: item[0])
 
     def latest(self, symbol: str, currency: str, as_of: datetime.date) -> float | None:
+        if currency == "USD" and as_of >= _today():
+            overlay_price = self._overlay.get(symbol.upper())
+            if overlay_price is not None:
+                return overlay_price
         prices = self._prices.get((symbol, currency))
         if not prices:
             return None
@@ -50,6 +56,10 @@ class PriceLookup:
 
 def _today() -> datetime.date:
     return datetime.date.today()
+
+
+def _format_realtime_synced_at(value: datetime.datetime | None) -> str:
+    return value.isoformat().replace("+00:00", "Z") if value else ""
 
 
 def parse_time_range(time_filter: str, default: str | None = None) -> tuple[datetime.date | None, datetime.date | None]:
@@ -278,7 +288,29 @@ def _copy_balances(balances: dict[str, dict[str, float]]) -> dict[str, dict[str,
     return {key: dict(value) for key, value in balances.items()}
 
 
-def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, dict[str, float]], target_currency: str | None, as_of: datetime.date) -> PriceLookup | None:
+def _build_realtime_overlay(user_id: int) -> tuple[dict[str, float], str, str]:
+    symbols = sorted({
+        row.symbol.upper()
+        for row in holding_service.list_for(user_id)
+        if not getattr(row, "is_cash", False)
+        and getattr(row, "symbol", None)
+        and (getattr(row, "cost_currency", "") or "").upper() == "USD"
+        and getattr(row, "quantity", None) is not None
+    })
+    if not symbols:
+        return {}, "", "none"
+    try:
+        result = realtime_quote_service.fetch_bulk(symbols)
+    except Exception:
+        return {}, "", "none"
+    return {symbol: float(quote.close) for symbol, quote in result.quotes.items()}, _format_realtime_synced_at(result.fetched_at), result.source
+
+
+def _realtime_meta(synced_at: str, source: str) -> dict:
+    return {"realtime_synced_at": synced_at or "", "realtime_source": source or "none"}
+
+
+def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, dict[str, float]], target_currency: str | None, as_of: datetime.date, overlay: dict[str, float] | None = None) -> PriceLookup | None:
     if not target_currency:
         return None
     pairs = set()
@@ -287,14 +319,14 @@ def _price_lookup_for_balances(user_id: int, vm_name: str, balances: dict[str, d
             if currency and currency != target_currency:
                 pairs.add((currency, target_currency))
                 pairs.add((target_currency, currency))
-    return PriceLookup(price_service.list_for_pairs(pairs, as_of))
+    return PriceLookup(price_service.list_for_pairs(pairs, as_of), overlay=overlay)
 
 
-def _price_lookup_for_roots(user_id: int, vm_name: str, totals: dict[str, dict[str, float]], roots: tuple[str, ...], target_currency: str | None, as_of: datetime.date) -> PriceLookup | None:
+def _price_lookup_for_roots(user_id: int, vm_name: str, totals: dict[str, dict[str, float]], roots: tuple[str, ...], target_currency: str | None, as_of: datetime.date, overlay: dict[str, float] | None = None) -> PriceLookup | None:
     if not target_currency:
         return None
     balances = {root: _root_sum(totals, root) for root in roots}
-    return _price_lookup_for_balances(user_id, vm_name, balances, target_currency, as_of)
+    return _price_lookup_for_balances(user_id, vm_name, balances, target_currency, as_of, overlay=overlay)
 
 
 def _position_totals(rows, root: str) -> dict[str, dict[str, float]]:
@@ -337,11 +369,13 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
         rows = transaction_service.list_between(user_id, end_date=end_date)
         totals = _sum_rows(rows)
         as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
+        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if (convert_to or "").upper() == "USD" else ({}, "", "none")
+        lookup = _price_lookup_for_roots(user_id, vm_name, totals, (assets_root,), convert_to, as_of, overlay=overlay) if convert_to else None
         result = {
-            "assets": prune_zero_balance_accounts(build_tree(_tree_rows(totals, assets_root, user_id, vm_name, convert_to, as_of), assets_root, convert_to)),
+            "assets": prune_zero_balance_accounts(build_tree(_tree_rows(totals, assets_root, user_id, vm_name, convert_to, as_of, lookup), assets_root, convert_to)),
             "liabilities": prune_zero_balance_accounts(build_tree(_tree_rows(totals, liabilities_root, user_id, vm_name, convert_to, as_of), liabilities_root, convert_to)),
         }
-        return DerivedResult(result, _synced_at(user_id, vm_name))
+        return DerivedResult(result, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
 
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
@@ -385,7 +419,10 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     lookup = None
     if convert_to:
         all_positions = _position_totals(rows, assets_root)
-        lookup = _price_lookup_for_balances(user_id, vm_name, all_positions, convert_to, end_date - datetime.timedelta(days=1))
+        overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if convert_to.upper() == "USD" else ({}, "", "none")
+        lookup = _price_lookup_for_balances(user_id, vm_name, all_positions, convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
+    else:
+        realtime_synced_at, realtime_source = "", "none"
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
             _add_position_total(positions, dated_rows[row_index][1], assets_root)
@@ -403,7 +440,7 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
         total = _sum_balances(total_positions)
         risky_total = _sum_balances(risky_positions)
         result.append({"period": label, "positions": period_positions, "total": total if total else ({convert_to: 0.0} if convert_to else {}), "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {})})
-    return DerivedResult(result, _synced_at(user_id, vm_name))
+    return DerivedResult(result, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
 
 
 def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool, granularity: str, convert_to: str | None) -> DerivedResult:
@@ -451,7 +488,9 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
     roots = config["account_roots"]
     balance_rows = transaction_service.list_between(user_id, end_date=tomorrow)
     balance_totals = _sum_rows(balance_rows)
-    assets_usd = convert_balance(user_id, vm_name, _root_sum(balance_totals, roots["assets"]), base_currency, today).get(base_currency, 0)
+    overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id)
+    assets_lookup = _price_lookup_for_roots(user_id, vm_name, balance_totals, (roots["assets"],), base_currency, today, overlay=overlay)
+    assets_usd = convert_balance(user_id, vm_name, _root_sum(balance_totals, roots["assets"]), base_currency, today, assets_lookup).get(base_currency, 0)
     liabilities_usd = convert_balance(user_id, vm_name, _root_sum(balance_totals, roots["liabilities"]), base_currency, today).get(base_currency, 0)
     net_worth_usd = round(assets_usd + liabilities_usd, 2)
 
@@ -492,4 +531,4 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
         "projected_months_to_target": projected_months,
         "projected_date": projected_date,
         "config_source": config["config_source"],
-    }, _synced_at(user_id, vm_name))
+    }, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
