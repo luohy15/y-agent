@@ -41,6 +41,12 @@ interface IncomeStatementHistoryItem {
   expenses: Record<string, number>;
 }
 
+interface IncomeStatementCategoriesHistoryItem {
+  period: string;
+  categories: Record<string, Record<string, number>>;
+  total: Record<string, number>;
+}
+
 interface HoldingAmount {
   number: number;
   currency: string;
@@ -1088,6 +1094,86 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
+function expenseValue(balance: Record<string, number> | undefined): number {
+  return balance?.USD || 0;
+}
+
+function totalExpenseValue(categories: Record<string, Record<string, number>>): number {
+  return Object.values(categories).reduce((sum, balance) => sum + expenseValue(balance), 0);
+}
+
+function expensePeriodTotal(item: IncomeStatementCategoriesHistoryItem): number {
+  const explicitTotal = expenseValue(item.total);
+  return explicitTotal || totalExpenseValue(item.categories);
+}
+
+function buildExpenseCategorySeries(data: IncomeStatementCategoriesHistoryItem[]) {
+  const latest = data[data.length - 1];
+  const totals = new Map<string, number>();
+  for (const item of data) {
+    for (const [category, balance] of Object.entries(item.categories)) {
+      totals.set(category, Math.max(totals.get(category) || 0, Math.abs(expenseValue(balance))));
+    }
+  }
+  const ordered = Array.from(totals.entries())
+    .filter(([, value]) => value > 0.005)
+    .sort((a, b) => expenseValue(latest?.categories[b[0]]) - expenseValue(latest?.categories[a[0]]));
+  const topCategories = ordered.slice(0, 7).map(([category]) => category);
+  const otherCategories = ordered.slice(7).map(([category]) => category);
+  return otherCategories.length ? [...topCategories, "Other"] : topCategories;
+}
+
+function expenseCategoryRows(item: IncomeStatementCategoriesHistoryItem | undefined, categories: string[]) {
+  if (!item) return [];
+  return categories
+    .map((category) => ({
+      category,
+      value: category === "Other"
+        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : expenseValue(balance)), 0)
+        : expenseValue(item.categories[category]),
+    }))
+    .filter((row) => Math.abs(row.value) > 0.005)
+    .sort((a, b) => b.value - a.value);
+}
+
+function expenseChartRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[]) {
+  return data.map((item) => {
+    const row: Record<string, string | number> = {
+      period: formatPeriodLabel(item.period),
+      rawPeriod: item.period,
+      Total: expensePeriodTotal(item),
+    };
+    for (const category of categories) {
+      if (category === "Other") continue;
+      row[category] = expenseValue(item.categories[category]);
+    }
+    if (categories.includes("Other")) {
+      const named = new Set(categories.filter((category) => category !== "Other"));
+      row.Other = Object.entries(item.categories).reduce((sum, [category, balance]) => sum + (named.has(category) ? 0 : expenseValue(balance)), 0);
+    }
+    return row;
+  });
+}
+
+function expensePeriodTotals(data: IncomeStatementCategoriesHistoryItem[]) {
+  return Object.fromEntries(data.map((item) => [item.period, expensePeriodTotal(item)]));
+}
+
+function expensePeriodTableRows(data: IncomeStatementCategoriesHistoryItem[], categories: string[], sortColumn: string, sortDir: "asc" | "desc") {
+  return categories
+    .map((category) => ({
+      category,
+      values: Object.fromEntries(data.map((item) => [item.period, category === "Other"
+        ? Object.entries(item.categories).reduce((sum, [name, balance]) => sum + (categories.includes(name) ? 0 : expenseValue(balance)), 0)
+        : expenseValue(item.categories[category])
+      ])),
+    }))
+    .sort((a, b) => {
+      const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+      return sortDir === "asc" ? delta : -delta;
+    });
+}
+
 function AssetsOverTimeTooltip({ active, payload, label }: {
   active?: boolean;
   payload?: Array<{ name: string; value: number; color: string; payload?: any; dataKey?: string | number }>;
@@ -1278,6 +1364,231 @@ function AssetsOverTimeView({ vmName, riskyOnly, time, granularity, onGranularit
           <AssetsOverTimePerAccountTable data={data} positions={positions} />
         </>
       )}
+    </div>
+  );
+}
+
+function ExpensesPieTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number; payload?: { allocation?: number } }> }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0];
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }}>{shortName(item.name)}</div>
+      <div style={{ color: SOL.base0 }}>{formatAmount(item.value)} USD</div>
+      <div style={{ color: SOL.base0 }}>{(((item.payload?.allocation || 0) * 100)).toFixed(1)}%</div>
+    </div>
+  );
+}
+
+function ExpensesPieChart({ item, categories }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[] }) {
+  const chartData = useMemo(() => {
+    const rows = expenseCategoryRows(item, categories)
+      .filter((row) => row.value > 0.005)
+      .map((row) => ({ ...row, label: shortName(row.category) }));
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    return total > 0 ? rows.map((row) => ({ ...row, allocation: row.value / total })) : [];
+  }, [item, categories]);
+
+  if (chartData.length === 0) {
+    return <div className="flex h-56 items-center justify-center rounded border border-sol-base02 text-sol-base01">No expenses yet</div>;
+  }
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses by category</div>
+        <div className="text-sol-base01 text-[10px]">Latest period in USD</div>
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+          <Pie data={chartData} dataKey="value" nameKey="category" cx="50%" cy="50%" outerRadius={95} label={(props) => {
+            const payload = props.payload as { label?: string; allocation?: number } | undefined;
+            return (payload?.allocation ?? 0) >= 0.03 ? (payload?.label ?? "") : "";
+          }} labelLine={false} isAnimationActive={false}>
+            {chartData.map((entry, index) => (
+              <Cell key={entry.category} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip content={<ExpensesPieTooltip />} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ExpensesCategoriesTable({ item, categories }: { item?: IncomeStatementCategoriesHistoryItem; categories: string[] }) {
+  const rows = useMemo(() => expenseCategoryRows(item, categories), [item, categories]);
+  const total = item ? expensePeriodTotal(item) : 0;
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses</div>
+        <div className="text-sol-base01 text-[10px]">Rows are top-level categories</div>
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+            <th className="text-left font-normal py-1 px-3">Category</th>
+            <th className="text-right font-normal py-1 px-3">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.category} className="hover:bg-sol-base02/50">
+              <td className="py-0.5 px-3 text-sol-base0 whitespace-nowrap">{shortName(row.category)}</td>
+              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.value)}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+            <td className="py-1 px-3 text-sol-base1">Total</td>
+            <td className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ExpensesOverTimeTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string; payload?: any }>; label?: string }) {
+  if (!active || !payload?.length) return null;
+  const totalValue = Number(payload[0]?.payload?.Total || 0);
+  const rows = payload.filter((item) => Number(item.value || 0) > 0.005).sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.base1 }} />
+        <span style={{ color: SOL.base1, fontWeight: 500 }}>Total: {formatAmount(totalValue)} USD</span>
+      </div>
+      {rows.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span style={{ color: SOL.base0 }}>{shortName(p.name)}: {formatAmount(p.value)} USD</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExpensesOverTimeChart({ data, categories, granularity, onGranularityChange }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[]; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
+  const chartData = useMemo(() => expenseChartRows(data, categories), [data, categories]);
+  const hasData = chartData.some((row) => categories.some((category) => Math.abs(Number(row[category] || 0)) > 0.005));
+  return (
+    <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="absolute top-3 right-3"><HoldingsGranularityToggle value={granularity} onChange={onGranularityChange} /></div>
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses over time</div>
+        <div className="text-sol-base01 text-[10px]">Top-level categories in USD</div>
+      </div>
+      {!hasData ? (
+        <div className="flex h-56 items-center justify-center text-sol-base01">No history yet</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={chartData} margin={{ top: 24, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip content={<ExpensesOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            {categories.map((category, index) => (
+              <Bar key={category} dataKey={category} stackId="expenses" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function ExpensesCategoriesPeriodTable({ data, categories }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[] }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const latestPeriod = data[data.length - 1]?.period || "";
+  const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
+  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const rows = useMemo(() => expensePeriodTableRows(data, categories, effectiveSortColumn, sortDir), [data, categories, effectiveSortColumn, sortDir]);
+  const totals = useMemo(() => expensePeriodTotals(data), [data]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => { container.scrollLeft = container.scrollWidth - container.clientWidth; });
+    return () => cancelAnimationFrame(frame);
+  }, [periodKey]);
+
+  const handleSort = (period: string) => {
+    if (period === effectiveSortColumn) setSortDir((dir) => dir === "desc" ? "asc" : "desc");
+    else { setSortColumn(period); setSortDir("desc"); }
+  };
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Expenses history</div>
+        <div className="text-sol-base01 text-[10px]">Rows are top-level categories; columns are periods</div>
+      </div>
+      {data.length === 0 || categories.length === 0 ? (
+        <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
+      ) : (
+        <div ref={scrollRef} className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Category</th>
+                {data.map((item) => (
+                  <th key={item.period} className="text-right font-normal py-1 px-3 whitespace-nowrap">
+                    <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
+                      {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.category} className="hover:bg-sol-base02/50">
+                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{shortName(row.category)}</td>
+                  {data.map((item) => (
+                    <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
+                  ))}
+                </tr>
+              ))}
+              <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Total</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(totals[item.period] || 0)}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpensesModeToggle({ overTime, onOverTimeChange }: { overTime: boolean; onOverTimeChange: (v: boolean) => void }) {
+  return (
+    <div className="inline-flex rounded bg-sol-base02 p-0.5">
+      {([[false, "MTD"], [true, "Over time"]] as const).map(([value, label]) => (
+        <button key={label} onClick={() => onOverTimeChange(value)} className={`px-2 py-1 rounded text-[10px] cursor-pointer ${overTime === value ? "bg-sol-blue text-sol-base03" : "text-sol-base0 hover:text-sol-base1"}`}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function ExpensesCategoriesView({ data, overTime, granularity, onGranularityChange }: { data: IncomeStatementCategoriesHistoryItem[]; overTime: boolean; granularity: HoldingsGranularity; onGranularityChange: (v: HoldingsGranularity) => void }) {
+  const categories = useMemo(() => buildExpenseCategorySeries(data), [data]);
+  const latest = data[data.length - 1];
+  return overTime ? (
+    <div className="space-y-3">
+      <ExpensesOverTimeChart data={data} categories={categories} granularity={granularity} onGranularityChange={onGranularityChange} />
+      <ExpensesCategoriesPeriodTable data={data} categories={categories} />
+    </div>
+  ) : (
+    <div className="space-y-3">
+      <ExpensesPieChart item={latest} categories={categories} />
+      <ExpensesCategoriesTable item={latest} categories={categories} />
     </div>
   );
 }
@@ -1495,7 +1806,9 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");
   const [granularity, setGranularity] = useState<Granularity>(() => (localStorage.getItem("finance-granularity") as Granularity) || "monthly");
   const [holdingsGranularity, setHoldingsGranularity] = useState<HoldingsGranularity>(() => (localStorage.getItem("finance-holdings-granularity") as HoldingsGranularity) || "monthly");
+  const [expensesGranularity, setExpensesGranularity] = useState<HoldingsGranularity>(() => (localStorage.getItem("finance-expenses-granularity") as HoldingsGranularity) || "monthly");
   const [holdingsOverTime, setHoldingsOverTime] = useState<boolean>(() => localStorage.getItem("finance-holdings-over-time") === "1");
+  const [expensesOverTime, setExpensesOverTime] = useState<boolean>(() => localStorage.getItem("finance-expenses-over-time") === "1");
   const [holdingsRiskyOnly, setHoldingsRiskyOnly] = useState<boolean>(() => localStorage.getItem("holdings-risky-only") === "1");
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const vmQueryOnly = vmName ? `?vm_name=${encodeURIComponent(vmName)}` : "";
@@ -1518,6 +1831,16 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const handleHoldingsGranularityChange = (v: HoldingsGranularity) => {
     setHoldingsGranularity(v);
     localStorage.setItem("finance-holdings-granularity", v);
+  };
+
+  const handleExpensesGranularityChange = (v: HoldingsGranularity) => {
+    setExpensesGranularity(v);
+    localStorage.setItem("finance-expenses-granularity", v);
+  };
+
+  const handleExpensesOverTimeChange = (v: boolean) => {
+    setExpensesOverTime(v);
+    localStorage.setItem("finance-expenses-over-time", v ? "1" : "0");
   };
 
   // Table data fetches (always fetch for active tab)
@@ -1549,6 +1872,10 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
+  const expensesCatHistKey = tab === "income-statement"
+    ? `${API}/api/finance/income-statement?history=true&breakdown=categories&granularity=${expensesGranularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    : null;
+
   const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
   const is = useFinanceEnvelope<IncomeStatementData>(isKey);
   const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
@@ -1556,6 +1883,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fire = useFinanceEnvelope<FireProgressData>(fireKey);
   const bsHist = useFinanceEnvelope<BalanceSheetHistoryItem[]>(bsHistKey);
   const isHist = useFinanceEnvelope<IncomeStatementHistoryItem[]>(isHistKey);
+  const expensesCatHist = useFinanceEnvelope<IncomeStatementCategoriesHistoryItem[]>(expensesCatHistKey);
 
   const bsData = bs.data?.data;
   const isData = is.data?.data;
@@ -1564,12 +1892,13 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
   const isHistData = isHist.data?.data;
+  const expensesCatHistData = expensesCatHist.data?.data;
   const holdingRows = useMemo(() => holdingsData ? toHoldingRows(holdingsData) : [], [holdingsData]);
 
   const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? bs.data : tab === "income-statement" ? is.data : fire.data;
 
   const mutateActive = async () => {
-    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate()]);
+    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), isHist.mutate(), expensesCatHist.mutate()]);
   };
 
   const refreshSnapshots = async () => {
@@ -1580,11 +1909,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   // Combined loading/error: table OR chart loading
   const tableLoading = tab === "balance-sheet" ? bs.isLoading : tab === "income-statement" ? is.isLoading : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
-  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading : false;
+  const chartLoading = tab === "balance-sheet" || tab === "fire" ? bsHist.isLoading : tab === "income-statement" ? isHist.isLoading || expensesCatHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
   const tableError = tab === "balance-sheet" ? bs.error : tab === "income-statement" ? is.error : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
-  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error : null;
+  const chartError = tab === "balance-sheet" || tab === "fire" ? bsHist.error : tab === "income-statement" ? isHist.error || (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : null;
   const error = tableError && chartError;
 
   return (
@@ -1671,7 +2000,17 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
                   <AccountTree root={isData.income} title="Income" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <AccountTree root={isData.expenses} title="Expenses" />
+                  <div className="mb-2 flex items-center justify-between px-2">
+                    <div className="text-sol-base1 text-sm font-medium">Expenses</div>
+                    <ExpensesModeToggle overTime={expensesOverTime} onOverTimeChange={handleExpensesOverTimeChange} />
+                  </div>
+                  {expensesCatHist.isLoading ? (
+                    <p className="text-sol-base01 italic px-3">Loading expenses...</p>
+                  ) : expensesCatHist.error && !isAbortError(expensesCatHist.error) ? (
+                    <p className="text-sol-red px-3">Error loading expenses</p>
+                  ) : expensesCatHistData ? (
+                    <ExpensesCategoriesView data={expensesCatHistData} overTime={expensesOverTime} granularity={expensesGranularity} onGranularityChange={handleExpensesGranularityChange} />
+                  ) : null}
                 </div>
               </div>
             ) : null}
