@@ -31,7 +31,8 @@ interface BalanceSheetHistoryItem {
 interface BalanceSheetPositionsHistoryItem {
   period: string;
   positions: Record<string, Record<string, number>>;
-  categories?: Record<string, Record<string, Record<string, number>>>;
+  assets?: Record<string, number>;
+  liabilities?: Record<string, number>;
   total?: Record<string, number>;
   risky?: Record<string, number>;
 }
@@ -1278,42 +1279,6 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
     });
 }
 
-function accountPositionValue(balance: Record<string, number> | undefined): number {
-  return balanceUsdValue(balance);
-}
-
-function categoryAccountTotals(data: BalanceSheetPositionsHistoryItem[], account: string) {
-  return Object.fromEntries(data.map((item) => {
-    const value = Object.values(item.categories || {}).reduce((sum, accounts) => sum + accountPositionValue(accounts[account]), 0);
-    return [item.period, value];
-  }));
-}
-
-function categoryTotalValues(data: BalanceSheetPositionsHistoryItem[], category: string) {
-  return Object.fromEntries(data.map((item) => [item.period, Object.values(item.categories?.[category] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0)]));
-}
-
-function categoryGroupedPositionRows(data: BalanceSheetPositionsHistoryItem[], sortColumn: string, sortDir: "asc" | "desc") {
-  const latest = data[data.length - 1];
-  const categories = Array.from(new Set(data.flatMap((item) => Object.keys(item.categories || {}))))
-    .sort((a, b) => {
-      const delta = Object.values(latest?.categories?.[a] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0)
-        - Object.values(latest?.categories?.[b] || {}).reduce((sum, balance) => sum + accountPositionValue(balance), 0);
-      return -delta;
-    });
-  return categories.flatMap((category) => {
-    const accounts = Array.from(new Set(data.flatMap((item) => Object.keys(item.categories?.[category] || {}))))
-      .sort((a, b) => {
-        const delta = (categoryAccountTotals(data, a)[sortColumn] || 0) - (categoryAccountTotals(data, b)[sortColumn] || 0);
-        return sortDir === "asc" ? delta : -delta;
-      });
-    return [
-      { type: "category" as const, key: category, label: shortName(category), values: categoryTotalValues(data, category) },
-      ...accounts.map((account) => ({ type: "account" as const, key: `${category}:${account}`, label: shortName(account), values: categoryAccountTotals(data, account) })),
-    ];
-  });
-}
-
 function categoryBalances(item: IncomeStatementCategoriesHistoryItem, kind: "income" | "expenses") {
   return kind === "income" ? (item.income_categories || {}) : (item.expense_categories || item.categories);
 }
@@ -1475,16 +1440,127 @@ function AssetsOverTimeChart({ data, positions }: { data: BalanceSheetPositionsH
   );
 }
 
-function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+function balanceSheetCategoryRows(data: BalanceSheetPositionsHistoryItem[], side: "assets" | "liabilities", sortColumn: string, sortDir: "asc" | "desc") {
+  const categories = Array.from(new Set(data.flatMap((item) => Object.keys(item[side] || {}))));
+  return categories
+    .map((category) => ({
+      category,
+      values: Object.fromEntries(data.map((item) => [item.period, item[side]?.[category] || 0])),
+    }))
+    .sort((a, b) => {
+      const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+      return sortDir === "asc" ? delta : -delta;
+    });
+}
+
+function balanceSheetSideTotals(data: BalanceSheetPositionsHistoryItem[], side: "assets" | "liabilities") {
+  return Object.fromEntries(data.map((item) => [item.period, Object.values(item[side] || {}).reduce((sum, value) => sum + value, 0)]));
+}
+
+function BalanceSheetOverTimeTable({ data }: { data: BalanceSheetPositionsHistoryItem[] }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPeriod = data[data.length - 1]?.period || "";
   const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
   const [sortColumn, setSortColumn] = useState(latestPeriod);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
-  const groupedRows = useMemo(() => categoryGroupedPositionRows(data, effectiveSortColumn, sortDir), [data, effectiveSortColumn, sortDir]);
+  const assetRows = useMemo(() => balanceSheetCategoryRows(data, "assets", effectiveSortColumn, sortDir), [data, effectiveSortColumn, sortDir]);
+  const liabilityRows = useMemo(() => balanceSheetCategoryRows(data, "liabilities", effectiveSortColumn, sortDir), [data, effectiveSortColumn, sortDir]);
+  const assetTotals = useMemo(() => balanceSheetSideTotals(data, "assets"), [data]);
+  const liabilityTotals = useMemo(() => balanceSheetSideTotals(data, "liabilities"), [data]);
+  const netTotals = useMemo(() => Object.fromEntries(data.map((item) => [item.period, (assetTotals[item.period] || 0) + (liabilityTotals[item.period] || 0)])), [data, assetTotals, liabilityTotals]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => {
+      container.scrollLeft = container.scrollWidth - container.clientWidth;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [periodKey]);
+
+  const handleSort = (period: string) => {
+    if (period === effectiveSortColumn) {
+      setSortDir((dir) => dir === "desc" ? "asc" : "desc");
+    } else {
+      setSortColumn(period);
+      setSortDir("desc");
+    }
+  };
+
+  const renderSection = (label: string, rows: { category: string; values: Record<string, number> }[], totals: Record<string, number>, totalLabel: string) => (
+    <>
+      <tr className="border-t border-sol-base02 bg-sol-base02/30 font-medium">
+        <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">{label}</td>
+        {data.map((item) => (
+          <td key={item.period} className="py-1 px-3"></td>
+        ))}
+      </tr>
+      {rows.map((row) => (
+        <tr key={`${label}:${row.category}`} className="hover:bg-sol-base02/50">
+          <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 pl-6 text-sol-base0 whitespace-nowrap">{shortName(row.category)}</td>
+          {data.map((item) => (
+            <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
+          ))}
+        </tr>
+      ))}
+      <tr className="bg-sol-base02/40 font-medium">
+        <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">{totalLabel}</td>
+        {data.map((item) => (
+          <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(totals[item.period] || 0)}</td>
+        ))}
+      </tr>
+    </>
+  );
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Balance sheet history</div>
+        <div className="text-sol-base01 text-[10px]">Rows are first-level categories under assets and liabilities; columns are periods</div>
+      </div>
+      {data.length === 0 || (assetRows.length === 0 && liabilityRows.length === 0) ? (
+        <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
+      ) : (
+        <div ref={scrollRef} className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Category</th>
+                {data.map((item) => (
+                  <th key={item.period} className="text-right font-normal py-1 px-3 whitespace-nowrap">
+                    <button onClick={() => handleSort(item.period)} className="cursor-pointer hover:text-sol-base0">
+                      {formatPeriodLabel(item.period)} {effectiveSortColumn === item.period ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {renderSection("Assets", assetRows, assetTotals, "Total Assets")}
+              {renderSection("Liabilities", liabilityRows, liabilityTotals, "Total Liabilities")}
+              <tr className="border-t border-sol-base02 bg-sol-base02/60 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Net Worth</td>
+                {data.map((item) => (
+                  <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(netTotals[item.period] || 0)}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HoldingsOverTimeTable({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const latestPeriod = data[data.length - 1]?.period || "";
+  const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
+  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
   const rows = useMemo(() => positionTableRows(data, positions, effectiveSortColumn, sortDir), [data, positions, effectiveSortColumn, sortDir]);
-  const displayRows = groupedRows.length ? groupedRows : rows.map((row) => ({ type: "account" as const, key: row.position, label: row.position, values: row.values }));
   const totals = useMemo(() => positionPeriodTotals(data), [data]);
   const riskyTotals = useMemo(() => riskyPeriodTotals(data), [data]);
   const riskyPercents = useMemo(() => riskyPeriodPercents(data), [data]);
@@ -1492,11 +1568,9 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-
     const frame = requestAnimationFrame(() => {
       container.scrollLeft = container.scrollWidth - container.clientWidth;
     });
-
     return () => cancelAnimationFrame(frame);
   }, [periodKey]);
 
@@ -1512,8 +1586,8 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
       <div className="border-b border-sol-base02 px-3 py-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Assets history</div>
-        <div className="text-sol-base01 text-[10px]">Rows are asset categories with accounts; columns are periods</div>
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Holdings history</div>
+        <div className="text-sol-base01 text-[10px]">Rows are tickers; columns are periods</div>
       </div>
       {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
@@ -1533,9 +1607,9 @@ function AssetsOverTimePerAccountTable({ data, positions }: { data: BalanceSheet
               </tr>
             </thead>
             <tbody>
-              {displayRows.map((row) => (
-                <tr key={row.key} className={row.type === "category" ? "border-t border-sol-base02 bg-sol-base02/30 font-medium" : "hover:bg-sol-base02/50"}>
-                  <td className={`sticky left-0 z-10 py-0.5 px-3 whitespace-nowrap ${row.type === "category" ? "bg-sol-base02 text-sol-base1" : "bg-sol-base03 text-sol-base0 pl-6"}`}>{row.label}</td>
+              {rows.map((row) => (
+                <tr key={row.position} className="hover:bg-sol-base02/50">
+                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{row.position}</td>
                   {data.map((item) => (
                     <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
                   ))}
@@ -1584,7 +1658,7 @@ function AssetsOverTimeView({ vmName, riskyOnly, time, granularity }: { vmName?:
       ) : (
         <>
           <AssetsOverTimeChart data={data} positions={positions} />
-          <AssetsOverTimePerAccountTable data={data} positions={positions} />
+          <HoldingsOverTimeTable data={data} positions={positions} />
         </>
       )}
     </div>
@@ -1807,16 +1881,16 @@ function IncomeStatementCategoriesTableView({ data, kind }: { data: IncomeStatem
 function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab: ISChartTab, sortColumn: string, sortDir: "asc" | "desc") {
   const metricRows = [
     {
+      metric: "Net Profit",
+      values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income) - balanceUsdValue(item.expenses)])),
+    },
+    {
       metric: "Income",
       values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income)])),
     },
     {
       metric: "Expenses",
       values: Object.fromEntries(data.map((item) => [item.period, balanceUsdValue(item.expenses)])),
-    },
-    {
-      metric: "Net Profit",
-      values: Object.fromEntries(data.map((item) => [item.period, incomeUsdValue(item.income) - balanceUsdValue(item.expenses)])),
     },
   ];
   if (chartTab === "net-profit") return metricRows;
@@ -1849,7 +1923,7 @@ function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatement
   };
 
   const title = chartTab === "net-profit" ? "Net Profit history" : chartTab === "income" ? "Income history" : "Expenses history";
-  const subtitle = chartTab === "net-profit" ? "Rows are income, expenses, and net profit; columns are periods" : "Rows are totals; columns are periods";
+  const subtitle = chartTab === "net-profit" ? "Rows are net profit, income, and expenses; columns are periods" : "Rows are totals; columns are periods";
 
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
@@ -2203,7 +2277,6 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const fireData = fire.data?.data;
   const bsHistData = bsHist.data?.data;
   const bsPositionsHistData = bsPositionsHist.data?.data || [];
-  const bsPositions = useMemo(() => buildPositionSeries(bsPositionsHistData), [bsPositionsHistData]);
   const isHistData = isHist.data?.data;
   const expensesCatHistData = expensesCatHist.data?.data;
   const holdingRows = useMemo(() => holdingsData ? toHoldingRows(holdingsData) : [], [holdingsData]);
@@ -2308,7 +2381,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               ) : bsPositionsHist.error && !isAbortError(bsPositionsHist.error) ? (
                 <p className="text-sol-red px-3">Error loading positions history</p>
               ) : (
-                <AssetsOverTimePerAccountTable data={bsPositionsHistData} positions={bsPositions} />
+                <BalanceSheetOverTimeTable data={bsPositionsHistData} />
               )}
             </div>
           )
