@@ -377,6 +377,22 @@ function EquitySummary({ assets, liabilities }: { assets: AccountNode; liabiliti
   );
 }
 
+function NetIncomeSummary({ income, expenses }: { income: AccountNode; expenses: AccountNode }) {
+  const net = useMemo(
+    () => incomeUsdValue(totalBalance(income)) - balanceUsdValue(totalBalance(expenses)),
+    [income, expenses],
+  );
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02">
+        <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Net Income (Income − Expenses)</span>
+        <BalanceDisplay balance={{ USD: net }} />
+      </div>
+    </div>
+  );
+}
+
 function isValidAmount(v: unknown): v is HoldingAmount {
   return v != null && typeof v === "object" && !Array.isArray(v) && "number" in v;
 }
@@ -1855,6 +1871,7 @@ function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data
                     </button>
                   </th>
                 ))}
+                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
               </tr>
             </thead>
             <tbody>
@@ -1864,6 +1881,7 @@ function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data
                   {data.map((item) => (
                     <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
                   ))}
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02 font-medium">{formatAmount(sumPeriodValues(row.values))}</td>
                 </tr>
               ))}
               <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
@@ -1871,6 +1889,7 @@ function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data
                 {data.map((item) => (
                   <td key={item.period} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(totals[item.period] || 0)}</td>
                 ))}
+                <td className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatAmount(sumPeriodValues(totals))}</td>
               </tr>
             </tbody>
           </table>
@@ -1888,6 +1907,10 @@ function IncomeStatementCategoriesChartView({ data, kind }: { data: IncomeStatem
 function IncomeStatementCategoriesTableView({ data, kind }: { data: IncomeStatementCategoriesHistoryItem[]; kind: "income" | "expenses" }) {
   const categories = useMemo(() => buildIncomeStatementCategorySeries(data, kind), [data, kind]);
   return <IncomeStatementCategoriesPeriodTable data={data} categories={categories} kind={kind} />;
+}
+
+function sumPeriodValues(values: Record<string, number>): number {
+  return Object.values(values).reduce((sum, value) => sum + (value || 0), 0);
 }
 
 function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab: ISChartTab, sortColumn: string, sortDir: "asc" | "desc") {
@@ -1958,6 +1981,7 @@ function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatement
                     </button>
                   </th>
                 ))}
+                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
               </tr>
             </thead>
             <tbody>
@@ -1967,6 +1991,7 @@ function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatement
                   {data.map((item) => (
                     <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
                   ))}
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02 font-medium">{formatAmount(sumPeriodValues(row.values))}</td>
                 </tr>
               ))}
             </tbody>
@@ -2410,6 +2435,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <AccountTree root={displayIsData.expenses} title="Expenses" />
+                    <NetIncomeSummary income={displayIsData.income} expenses={displayIsData.expenses} />
                   </div>
                 </div>
               </div>
