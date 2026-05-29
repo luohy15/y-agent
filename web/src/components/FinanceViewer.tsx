@@ -2367,7 +2367,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           {showsGranularity ? <SharedGranularityToggle value={granularity} onChange={handleGranularityChange} /> : null}
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["income-statement", "Income Statement"], ["holdings", "Holdings"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["holdings", "Holdings"], ["income-statement", "Income Statement"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
