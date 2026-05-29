@@ -1669,7 +1669,7 @@ function HoldingsOverTimeTable({ data, positions }: { data: BalanceSheetPosition
   );
 }
 
-function AssetsOverTimeView({ vmName, riskyOnly, time, granularity }: { vmName?: string | null; riskyOnly: boolean; time: string; granularity: SharedGranularity }) {
+function AssetsOverTimeView({ vmName, riskyOnly, onRiskyOnlyChange, time, granularity }: { vmName?: string | null; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; time: string; granularity: SharedGranularity }) {
   const vmQuery = vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "";
   const key = `${API}/api/finance/balance-sheet?history=true&breakdown=positions&granularity=${granularity}&convert=USD&risky_only=${riskyOnly ? "true" : "false"}&time=${encodeURIComponent(time)}${vmQuery}`;
   const history = useFinanceEnvelope<BalanceSheetPositionsHistoryItem[]>(key);
@@ -1679,6 +1679,19 @@ function AssetsOverTimeView({ vmName, riskyOnly, time, granularity }: { vmName?:
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-end px-2">
+        <button
+          onClick={() => onRiskyOnlyChange(!riskyOnly)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            riskyOnly
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+          title="Hide cash and BOXX"
+        >
+          Risky only
+        </button>
+      </div>
       {history.isLoading ? (
         <p className="text-sol-base01 italic px-3">Loading assets history...</p>
       ) : showError ? (
@@ -2449,7 +2462,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           )
         ) : tab === "holdings" ? (
           mode === "over-time" ? (
-            <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} time={committedTime} granularity={granularity} />
+            <AssetsOverTimeView vmName={vmName} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} time={committedTime} granularity={granularity} />
           ) : (
             holdings.isLoading ? (
               <p className="text-sol-base01 italic px-3">Loading...</p>
