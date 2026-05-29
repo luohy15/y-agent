@@ -31,7 +31,7 @@ interface NoteListProps {
 
 type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
-type FinanceSubTab = "notes" | "tickers" | "topics";
+type FinanceSubTab = "notes" | "forex" | "tickers" | "topics";
 
 const FINANCE_DIR = "/Users/roy/luohy15/finance";
 
@@ -92,7 +92,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   });
   const [financeSubTab, setFinanceSubTab] = useState<FinanceSubTab>(() => {
     const saved = localStorage.getItem("noteListFinanceSubTab");
-    if (saved === "notes" || saved === "tickers" || saved === "topics") return saved;
+    if (saved === "notes" || saved === "forex" || saved === "tickers" || saved === "topics") return saved;
     return "notes";
   });
 
@@ -388,6 +388,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         {tab === "finance" && (
           <div className="flex gap-1 flex-wrap">
             <button onClick={() => handleFinanceSubTabChange("notes")} className={pillClass(financeSubTab === "notes")}>notes</button>
+            <button onClick={() => handleFinanceSubTabChange("forex")} className={pillClass(financeSubTab === "forex")}>forex</button>
             <button onClick={() => handleFinanceSubTabChange("tickers")} className={pillClass(financeSubTab === "tickers")}>tickers</button>
             <button onClick={() => handleFinanceSubTabChange("topics")} className={pillClass(financeSubTab === "topics")}>topics</button>
           </div>
