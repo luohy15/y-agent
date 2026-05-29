@@ -181,6 +181,45 @@ def render_balance_sheet(envelope: dict, history: bool, breakdown: str | None) -
     click.echo(tabulate(table, headers=["Account", "Balance"], tablefmt="simple"))
 
 
+def render_investment_returns(envelope: dict, history: bool) -> None:
+    data = envelope.get("data")
+    if history:
+        table = []
+        for row in (data or []):
+            table.append([
+                row.get("period"),
+                fmt_money(row.get("realized")),
+                fmt_money(row.get("unrealized")),
+                fmt_money(row.get("total_return_cumulative")),
+            ])
+        click.echo(tabulate(table, headers=["Period", "Realized", "Unrealized", "Total (cumulative)"], tablefmt="simple"))
+        return
+
+    d = data or {}
+    cur = d.get("convert") or "USD"
+    summary = [
+        ("Realized", fmt_money(d.get("realized"), cur)),
+        ("  Dividends", fmt_money(d.get("dividends"), cur)),
+        ("  Interest", fmt_money(d.get("interest"), cur)),
+        ("Unrealized", fmt_money(d.get("unrealized"), cur)),
+        ("Unrealized %", fmt_pct(d.get("unrealized_pct"))),
+        ("Total return", fmt_money(d.get("total_return"), cur)),
+    ]
+    click.echo(tabulate(summary, headers=["Metric", "Value"], tablefmt="simple"))
+    positions = d.get("positions") or []
+    if positions:
+        click.echo()
+        table = [[
+            p.get("symbol"),
+            fmt_money(p.get("market_value_base"), cur),
+            fmt_money(p.get("book_value_base"), cur),
+            fmt_money(p.get("unrealized"), cur),
+            fmt_pct(p.get("unrealized_pct")),
+        ] for p in positions]
+        headers = ["Symbol", f"MV ({cur})", f"Book ({cur})", "Unrealized", "Unreal%"]
+        click.echo(tabulate(table, headers=headers, tablefmt="simple"))
+
+
 def render_income_statement(envelope: dict, history: bool, breakdown: str) -> None:
     # Display convention: income shown positive (raw credit is negative), expenses positive.
     data = envelope.get("data")

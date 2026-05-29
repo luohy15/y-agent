@@ -117,6 +117,20 @@ async def income_statement(
     return _envelope_dict(result.data, result.synced_at)
 
 
+@router.get("/investment-returns")
+async def investment_returns(
+    request: Request,
+    time: str = Query("ytd"),
+    history: bool = Query(False),
+    granularity: str = Query("monthly"),
+    convert: str = Query("USD"),
+    vm_name: str = Query(None),
+):
+    user_id = _get_user_id(request)
+    result = derived_service.investment_returns(user_id, vm_name or "", time, history, granularity, convert or None)
+    return _envelope_result(result)
+
+
 @router.get("/holdings")
 async def holdings(
     request: Request,

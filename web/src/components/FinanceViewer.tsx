@@ -129,7 +129,34 @@ interface FinancePriceRow {
   currency: string;
 }
 
-type Tab = "balance-sheet" | "income-statement" | "holdings" | "transactions" | "fire";
+interface InvestmentReturnsPosition {
+  symbol: string;
+  market_value_base: number;
+  book_value_base: number;
+  unrealized: number;
+  unrealized_pct: number | null;
+}
+
+interface InvestmentReturnsData {
+  convert: string;
+  realized: number;
+  dividends: number;
+  interest: number;
+  unrealized: number;
+  unrealized_pct: number | null;
+  book_value_base: number;
+  positions: InvestmentReturnsPosition[];
+  total_return: number;
+}
+
+interface InvestmentReturnsHistoryItem {
+  period: string;
+  realized: number;
+  unrealized: number;
+  total_return_cumulative: number;
+}
+
+type Tab = "balance-sheet" | "income-statement" | "investment-returns" | "holdings" | "transactions" | "fire";
 
 interface FireProgressData {
   net_worth_usd: number;
@@ -831,14 +858,14 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
   );
 }
 
-type ModeTab = "balance-sheet" | "income-statement" | "holdings";
+type ModeTab = "balance-sheet" | "income-statement" | "investment-returns" | "holdings";
 type ViewMode = "live" | "over-time";
 type SharedGranularity = "weekly" | "monthly" | "yearly";
 type ISChartTab = "net-profit" | "income" | "expenses";
 const ACCOUNT_COLORS = [SOL.blue, SOL.cyan, SOL.green, SOL.orange, SOL.magenta, SOL.violet, SOL.yellow, SOL.red];
 
 function isModeTab(tab: Tab): tab is ModeTab {
-  return tab === "balance-sheet" || tab === "income-statement" || tab === "holdings";
+  return tab === "balance-sheet" || tab === "income-statement" || tab === "investment-returns" || tab === "holdings";
 }
 
 function normalizeMode(value: string | null): ViewMode | null {
@@ -2235,6 +2262,175 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }
   );
 }
 
+// --- Investment Returns ---
+
+function returnColor(value: number): string {
+  return value > 0 ? "text-sol-green" : value < 0 ? "text-sol-red" : "text-sol-base1";
+}
+
+function InvestmentReturnsLiveView({ data }: { data: InvestmentReturnsData }) {
+  const cur = data.convert || "USD";
+  const fmt = (value: number) => `${formatAmount(value)} ${cur}`;
+  return (
+    <div className="space-y-4 px-2">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+        <FireMetricCard
+          title="Realized (window)"
+          value={fmt(data.realized)}
+          sub={`Dividends ${formatAmount(data.dividends)} · Interest ${formatAmount(data.interest)}`}
+          valueColor={returnColor(data.realized)}
+        />
+        <FireMetricCard
+          title="Unrealized (now)"
+          value={fmt(data.unrealized)}
+          sub={data.unrealized_pct != null ? `${(data.unrealized_pct * 100).toFixed(2)}% of book` : "point-in-time"}
+          valueColor={returnColor(data.unrealized)}
+        />
+        <FireMetricCard
+          title="Total Return"
+          value={fmt(data.total_return)}
+          sub="Realized (window) + unrealized (point-in-time)"
+          valueColor={returnColor(data.total_return)}
+        />
+      </div>
+      <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+        <div className="border-b border-sol-base02 px-3 py-2">
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Unrealized by position</div>
+          <div className="text-sol-base01 text-[10px]">Market value minus book value, non-cash holdings in {cur}</div>
+        </div>
+        {data.positions.length === 0 ? (
+          <div className="px-3 py-8 text-center text-sol-base01">No positions</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-sol-base01 text-xs border-b border-sol-base02">
+                <th className="py-1 px-3 font-medium text-left">Symbol</th>
+                <th className="py-1 px-3 font-medium text-right">Market Value</th>
+                <th className="py-1 px-3 font-medium text-right">Book Value</th>
+                <th className="py-1 px-3 font-medium text-right">Unrealized</th>
+                <th className="py-1 px-3 font-medium text-right">Unreal %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.positions.map((position) => (
+                <tr key={position.symbol} className="hover:bg-sol-base02/50">
+                  <td className="py-0.5 px-3 text-sol-base1">{position.symbol}</td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(position.market_value_base)}</td>
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(position.book_value_base)}</td>
+                  <td className={`py-0.5 px-3 text-right tabular-nums ${returnColor(position.unrealized)}`}>{position.unrealized > 0 ? "+" : ""}{formatAmount(position.unrealized)}</td>
+                  <td className={`py-0.5 px-3 text-right tabular-nums ${returnColor(position.unrealized)}`}>{position.unrealized_pct != null ? `${position.unrealized_pct > 0 ? "+" : ""}${(position.unrealized_pct * 100).toFixed(2)}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InvestmentReturnsTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string; payload?: any }>; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{tooltipLabel(payload, label)}</div>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span style={{ color: SOL.base0 }}>{p.name}: {formatAmount(p.value)} USD</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InvestmentReturnsChart({ data }: { data: InvestmentReturnsHistoryItem[] }) {
+  const chartData = useMemo(() =>
+    data.map((item) => ({
+      period: formatPeriodLabel(item.period),
+      rawPeriod: item.period,
+      Realized: item.realized,
+      Unrealized: item.unrealized,
+      "Total Return": item.total_return_cumulative,
+    })),
+    [data]
+  );
+  const hasData = chartData.length > 0;
+  return (
+    <div className="relative rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Total return over time</div>
+        <div className="text-sol-base01 text-[10px]">Cumulative realized + point-in-time unrealized, in USD</div>
+      </div>
+      {!hasData ? (
+        <div className="flex h-56 items-center justify-center text-sol-base01">No history yet</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip content={<InvestmentReturnsTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            <Bar dataKey="Realized" fill={SOL.cyan} isAnimationActive={false} />
+            <Line type="linear" dataKey="Total Return" stroke={SOL.green} strokeWidth={2} dot={false} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function InvestmentReturnsHistoryTable({ data }: { data: InvestmentReturnsHistoryItem[] }) {
+  const realizedTotal = useMemo(() => data.reduce((sum, item) => sum + item.realized, 0), [data]);
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+      <div className="border-b border-sol-base02 px-3 py-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Investment returns history</div>
+        <div className="text-sol-base01 text-[10px]">Realized is the per-period flow; total return is cumulative realized + unrealized level</div>
+      </div>
+      {data.length === 0 ? (
+        <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+              <th className="text-left font-normal py-1 px-3">Period</th>
+              <th className="text-right font-normal py-1 px-3">Realized</th>
+              <th className="text-right font-normal py-1 px-3">Unrealized</th>
+              <th className="text-right font-normal py-1 px-3">Total (cumulative)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((item) => (
+              <tr key={item.period} className="hover:bg-sol-base02/50">
+                <td className="py-0.5 px-3 text-sol-base0 whitespace-nowrap">{formatPeriodLabel(item.period)}</td>
+                <td className={`py-0.5 px-3 text-right tabular-nums ${returnColor(item.realized)}`}>{formatAmount(item.realized)}</td>
+                <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1">{formatAmount(item.unrealized)}</td>
+                <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1">{formatAmount(item.total_return_cumulative)}</td>
+              </tr>
+            ))}
+            <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+              <td className="py-1 px-3 text-sol-base1">Realized Σ</td>
+              <td className={`py-1 px-3 text-right tabular-nums ${returnColor(realizedTotal)}`}>{formatAmount(realizedTotal)}</td>
+              <td className="py-1 px-3"></td>
+              <td className="py-1 px-3"></td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function InvestmentReturnsOverTimeView({ data }: { data: InvestmentReturnsHistoryItem[] }) {
+  return (
+    <div className="space-y-3">
+      <InvestmentReturnsChart data={data} />
+      <InvestmentReturnsHistoryTable data={data} />
+    </div>
+  );
+}
+
 // --- Main Component ---
 
 interface FinanceViewerProps {
@@ -2263,7 +2459,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const activeMode = isModeTab(tab) ? mode : "over-time";
   const isLiveMode = isModeTab(tab) && activeMode === "live";
   const isOverTimeMode = isModeTab(tab) && activeMode === "over-time";
-  const showsTimeInput = tab === "fire" || isOverTimeMode || (tab === "income-statement" && isLiveMode);
+  const showsTimeInput = tab === "fire" || isOverTimeMode || ((tab === "income-statement" || tab === "investment-returns") && isLiveMode);
   const showsGranularity = tab === "fire" || isOverTimeMode;
 
   const handleModeChange = (v: ViewMode) => {
@@ -2299,6 +2495,14 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/income-statement?time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
+  const irKey = tab === "investment-returns" && mode === "live"
+    ? `${API}/api/finance/investment-returns?time=${encodeURIComponent(committedTime)}&convert=USD${vmQuery}`
+    : null;
+
+  const irHistKey = tab === "investment-returns" && mode === "over-time"
+    ? `${API}/api/finance/investment-returns?history=true&granularity=${granularity}&convert=USD&time=${encodeURIComponent(committedTime)}${vmQuery}`
+    : null;
+
   const holdingsKey = tab === "holdings" && mode === "live"
     ? `${API}/api/finance/holdings${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
@@ -2329,6 +2533,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
 
   const bs = useFinanceEnvelope<BalanceSheetData>(bsKey);
   const is = useFinanceEnvelope<IncomeStatementData>(isKey);
+  const ir = useFinanceEnvelope<InvestmentReturnsData>(irKey);
+  const irHist = useFinanceEnvelope<InvestmentReturnsHistoryItem[]>(irHistKey);
   const holdings = useFinanceEnvelope<HoldingPosition[]>(holdingsKey);
   const transactions = useFinanceEnvelope<TransactionRow[]>(transactionsKey);
   const fire = useFinanceEnvelope<FireProgressData>(fireKey);
@@ -2343,6 +2549,8 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     income: mapAccountBalances(isData.income, (amount) => Math.abs(amount)),
     expenses: isData.expenses,
   } : undefined, [isData]);
+  const irData = ir.data?.data;
+  const irHistData = irHist.data?.data;
   const holdingsData = holdings.data?.data;
   const transactionsData = transactions.data?.data;
   const fireData = fire.data?.data;
@@ -2352,10 +2560,10 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const expensesCatHistData = expensesCatHist.data?.data;
   const holdingRows = useMemo(() => holdingsData ? toHoldingRows(holdingsData) : [], [holdingsData]);
 
-  const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? (bs.data || bsHist.data) : tab === "income-statement" ? (is.data || isHist.data) : fire.data;
+  const activeEnvelope = tab === "transactions" ? transactions.data : tab === "holdings" ? holdings.data : tab === "balance-sheet" ? (bs.data || bsHist.data) : tab === "income-statement" ? (is.data || isHist.data) : tab === "investment-returns" ? (ir.data || irHist.data) : fire.data;
 
   const mutateActive = async () => {
-    await Promise.all([bs.mutate(), is.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), bsPositionsHist.mutate(), isHist.mutate(), expensesCatHist.mutate()]);
+    await Promise.all([bs.mutate(), is.mutate(), ir.mutate(), irHist.mutate(), holdings.mutate(), transactions.mutate(), fire.mutate(), bsHist.mutate(), bsPositionsHist.mutate(), isHist.mutate(), expensesCatHist.mutate()]);
   };
 
   const refreshSnapshots = async () => {
@@ -2364,11 +2572,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     await mutateActive();
   };
 
-  const tableLoading = tab === "balance-sheet" ? (isLiveMode ? bs.isLoading : bsHist.isLoading) : tab === "income-statement" ? (isLiveMode ? is.isLoading : isHist.isLoading) : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
+  const tableLoading = tab === "balance-sheet" ? (isLiveMode ? bs.isLoading : bsHist.isLoading) : tab === "income-statement" ? (isLiveMode ? is.isLoading : isHist.isLoading) : tab === "investment-returns" ? (isLiveMode ? ir.isLoading : irHist.isLoading) : tab === "fire" ? fire.isLoading : tab === "transactions" ? transactions.isLoading : holdings.isLoading;
   const chartLoading = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.isLoading : tab === "fire" ? bsHist.isLoading : tab === "income-statement" && isOverTimeMode && (isChartTab === "income" || isChartTab === "expenses") ? expensesCatHist.isLoading : false;
   const loading = tableLoading && chartLoading;
 
-  const tableError = tab === "balance-sheet" ? (isLiveMode ? bs.error : bsHist.error) : tab === "income-statement" ? (isLiveMode ? is.error : isHist.error) : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
+  const tableError = tab === "balance-sheet" ? (isLiveMode ? bs.error : bsHist.error) : tab === "income-statement" ? (isLiveMode ? is.error : isHist.error) : tab === "investment-returns" ? (isLiveMode ? ir.error : irHist.error) : tab === "fire" ? fire.error : tab === "transactions" ? transactions.error : holdings.error;
   const chartError = tab === "balance-sheet" && isOverTimeMode ? bsPositionsHist.error : tab === "fire" ? bsHist.error : tab === "income-statement" && isOverTimeMode && (isChartTab === "income" || isChartTab === "expenses") ? (expensesCatHist.error && !isAbortError(expensesCatHist.error) ? expensesCatHist.error : null) : null;
   const error = tableError && chartError;
 
@@ -2401,7 +2609,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           {showsGranularity ? <SharedGranularityToggle value={granularity} onChange={handleGranularityChange} /> : null}
         </div>
         <div className="flex justify-center gap-1">
-          {([["balance-sheet", "Balance Sheet"], ["holdings", "Holdings"], ["income-statement", "Income Statement"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
+          {([["balance-sheet", "Balance Sheet"], ["holdings", "Holdings"], ["income-statement", "Income Statement"], ["investment-returns", "Investment Returns"], ["transactions", "Transactions"], ["fire", "FIRE"]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => { setTab(t); localStorage.setItem("finance-tab", t); }}
@@ -2479,6 +2687,24 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
               <p className="text-sol-base01 italic px-3 mb-2">Loading chart...</p>
             ) : isHist.error ? null : isHistData ? (
               <IncomeStatementOverTimeView data={isHistData} categoryData={expensesCatHistData} categoryState={expensesCatHist} chartTab={isChartTab} onChartTabChange={handleIncomeStatementChartTabChange} />
+            ) : null
+          )
+        ) : tab === "investment-returns" ? (
+          isLiveMode ? (
+            ir.isLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : ir.error ? (
+              <p className="text-sol-red px-3">Error loading investment returns</p>
+            ) : irData ? (
+              <InvestmentReturnsLiveView data={irData} />
+            ) : null
+          ) : (
+            irHist.isLoading ? (
+              <p className="text-sol-base01 italic px-3">Loading...</p>
+            ) : irHist.error && !isAbortError(irHist.error) ? (
+              <p className="text-sol-red px-3">Error loading investment returns history</p>
+            ) : irHistData ? (
+              <InvestmentReturnsOverTimeView data={irHistData} />
             ) : null
           )
         ) : tab === "holdings" ? (

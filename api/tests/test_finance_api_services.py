@@ -319,7 +319,49 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(len(entries[0]["postings"]), 2)
         self.assertEqual(entries[0]["quantity"], [{"amount": 1.0, "currency": "AAPL"}, {"amount": -100.0, "currency": "USD"}])
 
-    def _transaction(self, entry_id, posting_index, symbol, side, amount, currency, narration="Buy AAPL", account="Assets:Broker", transaction_date="2026-05-01"):
+    def test_investment_returns_live_realized_equals_income_net_plus_unrealized(self):
+        rows = [
+            self._transaction("e1", 0, "USD", "Sell", -100, "USD", account="Income:Investment", narration="Sell QQQ", transaction_date="2026-03-01"),
+            self._transaction("e2", 0, "USD", "Dividend", -20, "USD", account="Income:Investment:Dividend", narration="Dividend QQQ", transaction_date="2026-04-01"),
+        ]
+        holdings = [self._holding("QQQ", 10, 1500, "USD", False, book_value=1000)]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=holdings), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        # Realized == net of the Income:Investment subtree (sign-flipped to a gain).
+        self.assertEqual(result.data["realized"], 120.0)
+        self.assertEqual(result.data["dividends"], 20.0)
+        self.assertEqual(result.data["interest"], 0.0)
+        # Unrealized == Σ(market_value_base − book_value_base) over non-cash positions.
+        self.assertEqual(result.data["unrealized"], 500.0)
+        self.assertEqual(result.data["positions"][0]["unrealized"], 500.0)
+        self.assertEqual(result.data["positions"][0]["book_value_base"], 1000.0)
+        self.assertEqual(result.data["total_return"], 620.0)
+
+    def test_investment_returns_over_time_cumulative_curve(self):
+        rows = [
+            self._transaction("e1", 0, "QQQ", "Buy", 10, "QQQ", account="Assets:Broker:QQQ", narration="Buy QQQ", transaction_date="2026-01-05", cost=1000, cost_currency="USD"),
+            # Cash deposit (no cost lot): must NOT leak into market value / unrealized.
+            self._transaction("e3", 0, "USD", "Deposit", 5000, "USD", account="Assets:Cash:USD", narration="Deposit", transaction_date="2026-01-03"),
+            self._transaction("e2", 0, "USD", "Sell", -50, "USD", account="Income:Investment", narration="Sell QQQ", transaction_date="2026-02-10"),
+        ]
+        prices = [self._price("QQQ", "USD", "2026-01-01", 110), self._price("QQQ", "USD", "2026-02-01", 120)]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(price_service, "list_for_pairs", return_value=prices):
+            result = derived_service.investment_returns(123, "", "2026-01 to 2026-02", True, "monthly", "USD")
+
+        data = result.data
+        self.assertEqual([item["period"] for item in data], ["2026-01", "2026-02"])
+        self.assertEqual(data[0]["realized"], 0.0)
+        # Securities-only: market QQQ 10×110=1100 − book 1000; the 5000 cash deposit is excluded.
+        self.assertEqual(data[0]["unrealized"], 100.0)
+        self.assertEqual(data[0]["total_return_cumulative"], 100.0)
+        self.assertEqual(data[1]["realized"], 50.0)
+        self.assertEqual(data[1]["unrealized"], 200.0)  # market 1200 − book 1000
+        self.assertEqual(data[1]["total_return_cumulative"], 250.0)  # 50 cumulative realized + 200 unrealized
+
+    def _transaction(self, entry_id, posting_index, symbol, side, amount, currency, narration="Buy AAPL", account="Assets:Broker", transaction_date="2026-05-01", cost=None, cost_currency=""):
         return FinanceTransaction(
             id=posting_index,
             user_id=123,
@@ -334,8 +376,8 @@ class FinanceApiServicesTest(unittest.TestCase):
             price_currency="",
             amount=amount,
             amount_currency=currency,
-            cost=None,
-            cost_currency="",
+            cost=cost,
+            cost_currency=cost_currency,
             commission=None,
             commission_currency="",
             payee="Broker",
@@ -361,10 +403,10 @@ class FinanceApiServicesTest(unittest.TestCase):
         return patch.object(
             derived_service.finance_config_service,
             "get_for",
-            return_value={"account_roots": {"assets": "Assets", "liabilities": "Liabilities", "income": "Income", "expenses": "Expenses"}},
+            return_value={"account_roots": {"assets": "Assets", "liabilities": "Liabilities", "income": "Income", "expenses": "Expenses", "investment_income": "Income:Investment"}},
         )
 
-    def _holding(self, symbol, quantity, market_value, cost_currency, is_cash):
+    def _holding(self, symbol, quantity, market_value, cost_currency, is_cash, book_value=None):
         return FinanceHolding(
             id=None,
             user_id=123,
@@ -374,7 +416,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             quantity=quantity,
             average_cost=None,
             price=None,
-            book_value=None,
+            book_value=book_value,
             market_value=market_value,
             unrealized_profit_pct=None,
             cost_currency=cost_currency,
