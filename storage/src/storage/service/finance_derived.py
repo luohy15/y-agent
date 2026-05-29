@@ -528,13 +528,21 @@ def income_statement(user_id: int, vm_name: str, time_filter: str, history: bool
         start_date = start_date or end_date.replace(year=end_date.year - 1)
     rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
     result = []
+    # Convert every period at a single range-end rate (matching the live income
+    # statement) so the per-period values sum back to the live totals. Per-period
+    # FX rates make the range sum drift from the live figure for multi-currency
+    # flows (e.g. CNY income/expenses revalued at each month's rate).
+    as_of = end_date - datetime.timedelta(days=1)
+    lookup = None
+    if convert_to:
+        all_totals = _sum_rows(rows)
+        lookup = _price_lookup_for_roots(user_id, vm_name, all_totals, (income_root, expenses_root), convert_to, as_of)
     for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         totals = _sum_rows(row for row in rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end)
         item = {"period": label, "income": _root_sum(totals, income_root), "expenses": _root_sum(totals, expenses_root)}
         if convert_to:
-            as_of = period_end - datetime.timedelta(days=1)
-            item["income"] = convert_balance(user_id, vm_name, item["income"], convert_to, as_of) if item["income"] else {convert_to: 0.0}
-            item["expenses"] = convert_balance(user_id, vm_name, item["expenses"], convert_to, as_of) if item["expenses"] else {convert_to: 0.0}
+            item["income"] = convert_balance(user_id, vm_name, item["income"], convert_to, as_of, lookup) if item["income"] else {convert_to: 0.0}
+            item["expenses"] = convert_balance(user_id, vm_name, item["expenses"], convert_to, as_of, lookup) if item["expenses"] else {convert_to: 0.0}
         result.append(item)
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
@@ -571,19 +579,21 @@ def income_statement_categories(user_id: int, vm_name: str, time_filter: str, gr
         start_date = start_date or end_date.replace(year=end_date.year - 1)
     rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
     result = []
+    # Single range-end rate for all periods so per-category range sums match the
+    # live income statement (see income_statement for the same reconciliation).
+    as_of = end_date - datetime.timedelta(days=1)
     lookup = None
     if convert_to:
         all_income_categories = _category_totals(rows, income_root)
         all_expense_categories = _category_totals(rows, expenses_root)
         all_categories = {**all_income_categories, **all_expense_categories}
-        lookup = _price_lookup_for_balances(user_id, vm_name, all_categories, convert_to, end_date - datetime.timedelta(days=1))
+        lookup = _price_lookup_for_balances(user_id, vm_name, all_categories, convert_to, as_of)
     for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         period_rows = (row for row in rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end)
         period_rows = list(period_rows)
         income_categories = _category_totals(period_rows, income_root)
         expense_categories = _category_totals(period_rows, expenses_root)
         if convert_to:
-            as_of = period_end - datetime.timedelta(days=1)
             income_categories = _convert_account_balances(user_id, vm_name, income_categories, convert_to, as_of, lookup)
             expense_categories = _convert_account_balances(user_id, vm_name, expense_categories, convert_to, as_of, lookup)
         income_total = _sum_balances(income_categories)
