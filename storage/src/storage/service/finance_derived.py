@@ -41,7 +41,11 @@ class PriceLookup:
             prices.sort(key=lambda item: item[0])
 
     def latest(self, symbol: str, currency: str, as_of: datetime.date) -> float | None:
-        if currency == "USD":
+        # The realtime overlay holds *current* prices, so it may only stand in for
+        # the present period. Historical periods (as_of < today) must fall through
+        # to stored prices; otherwise an over-time series reprices every period at
+        # today's price and all columns collapse to the same value.
+        if currency == "USD" and as_of >= _today():
             overlay_price = self._overlay.get(symbol.upper())
             if overlay_price is not None:
                 return overlay_price
