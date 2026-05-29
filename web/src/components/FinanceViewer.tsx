@@ -31,6 +31,7 @@ interface BalanceSheetHistoryItem {
 interface BalanceSheetPositionsHistoryItem {
   period: string;
   positions: Record<string, Record<string, number>>;
+  units?: Record<string, number>;
   assets?: Record<string, number>;
   liabilities?: Record<string, number>;
   total?: Record<string, number>;
@@ -1300,6 +1301,11 @@ function positionTableRows(data: BalanceSheetPositionsHistoryItem[], positions: 
         ? Object.entries(item.positions).reduce((sum, [name, balance]) => sum + (positions.includes(name) ? 0 : positionValue(balance)), 0)
         : positionValue(item.positions[position])
       ])),
+      // Share / native-unit counts per period; "Other" aggregates distinct
+      // symbols so a unit count would be meaningless there.
+      units: position === "Other"
+        ? {}
+        : Object.fromEntries(data.map((item) => [item.period, item.units?.[position]]).filter(([, count]) => count != null)) as Record<string, number>,
     }))
     .sort((a, b) => {
       const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
@@ -1652,7 +1658,12 @@ function HoldingsOverTimeTable({ data, positions, riskyOnly, onRiskyOnlyChange }
                 <tr key={row.position} className="hover:bg-sol-base02/50">
                   <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 text-sol-base0 whitespace-nowrap">{row.position}</td>
                   {data.map((item) => (
-                    <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatAmount(row.values[item.period] || 0)}</td>
+                    <td key={item.period} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">
+                      <div>{formatAmount(row.values[item.period] || 0)}</div>
+                      {row.units[item.period] != null ? (
+                        <div className="text-sol-base01 text-[10px]">{formatAmount(row.units[item.period])}</div>
+                      ) : null}
+                    </td>
                   ))}
                 </tr>
               ))}
