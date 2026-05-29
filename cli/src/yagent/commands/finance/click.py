@@ -14,7 +14,8 @@ from .transactions import transactions
 def finance_group():
     """DB-backed finance views (mirror of /api/finance/*).
 
-    Daily-use read path; use y finance beancount for raw ledger access.
+    Daily-use read path; commands print friendly tables by default, with the raw
+    JSON envelope behind --json. Use y finance beancount for raw ledger access.
     """
 
 

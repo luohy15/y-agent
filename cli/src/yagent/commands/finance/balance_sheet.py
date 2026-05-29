@@ -2,7 +2,8 @@ import click
 
 from storage.service import finance_derived as derived_service
 
-from ._helpers import derived_result_envelope, echo_json, resolve_user_id
+from ._helpers import derived_result_envelope, echo_json, json_option, resolve_user_id
+from ._render import render_balance_sheet
 
 
 @click.command("balance-sheet")
@@ -14,11 +15,16 @@ from ._helpers import derived_result_envelope, echo_json, resolve_user_id
 @click.option("--convert", default="USD", help="Convert all amounts to this currency")
 @click.option("--breakdown", type=click.Choice(["positions", "categories"]), default=None, help="Return position-level asset breakdown")
 @click.option("--risky-only", is_flag=True, help="Only include risky holdings for position breakdown")
-def balance_sheet(user_id: int | None, vm_name: str, time: str, history: bool, granularity: str, convert: str, breakdown: str | None, risky_only: bool):
-    """Read DB-backed balance-sheet data as JSON."""
+@json_option
+def balance_sheet(user_id: int | None, vm_name: str, time: str, history: bool, granularity: str, convert: str, breakdown: str | None, risky_only: bool, as_json: bool):
+    """Read DB-backed balance-sheet data (table by default; --json for the raw envelope)."""
     target_user_id = resolve_user_id(user_id)
     if breakdown in ("positions", "categories"):
         result = derived_service.balance_sheet_positions(target_user_id, vm_name or "", time, granularity, convert or None, risky_only=risky_only)
     else:
         result = derived_service.balance_sheet(target_user_id, vm_name or "", time, history, granularity, convert or None)
-    echo_json(derived_result_envelope(result))
+    envelope = derived_result_envelope(result)
+    if as_json:
+        echo_json(envelope)
+    else:
+        render_balance_sheet(envelope, history, breakdown)

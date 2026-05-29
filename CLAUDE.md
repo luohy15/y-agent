@@ -259,13 +259,14 @@ y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
-# DB-backed finance views (same envelopes as GET /api/finance/*)
-y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
-y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD]
-y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD]
-y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500]
-y finance prices [--symbol AAPL] [--time ytd] [--limit 1000]
-y finance fire-progress [--user-id <id>] [--vm-name <name>]
+# DB-backed finance views (friendly tables by default; --json emits the raw
+# envelope, same shape as GET /api/finance/*)
+y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
+y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
+y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD] [--json]
+y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500] [--json]
+y finance prices [--symbol AAPL] [--time ytd] [--limit 1000] [--json]
+y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 
 # Ledger-side producer / low-level local views
 y finance beancount snapshot

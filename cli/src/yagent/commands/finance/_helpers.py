@@ -13,6 +13,11 @@ def echo_json(payload: dict):
     click.echo(json.dumps(payload))
 
 
+def json_option(f):
+    """Add a --json flag that emits the raw JSON envelope instead of a table."""
+    return click.option("--json", "as_json", is_flag=True, help="Output the raw JSON envelope instead of a table")(f)
+
+
 def derived_envelope(data, synced_at: str | None, source: str = "derived") -> dict:
     return {"data": data, "synced_at": synced_at or "", "source": source}
 
