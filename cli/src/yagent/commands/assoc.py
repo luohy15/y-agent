@@ -5,11 +5,25 @@ import click
 from yagent.api_client import api_request
 from yagent.commands.note.import_note import import_single as import_note_single
 from yagent.commands.entity.import_entity import import_single as import_entity_single
+from yagent.commands.link._resolve import looks_like_url, normalize_url, resolve_url_ref
 
 
 def _resolve_activity_id(id_value):
-    """If id_value looks like a file path, import it as a page link and return the activity_id.
-    Otherwise return id_value as-is."""
+    """Resolve a link reference to its activity_id.
+
+    - URL: resolve against the link library; reuse the existing activity_id when
+      present, otherwise create the link (which yields a fresh activity_id).
+    - File path: import it as a page link and return the activity_id.
+    - Otherwise: treat id_value as a bare activity_id and return it as-is."""
+    if looks_like_url(id_value):
+        resolved = resolve_url_ref(id_value, exit_on_missing=False)
+        if resolved and resolved.get('activity_id'):
+            return resolved['activity_id']
+        url = normalize_url(id_value)
+        resp = api_request("POST", "/api/link", json={"url": url})
+        data = resp.json()
+        click.echo(f"Created link: {url} -> {data.get('link_id', '?')}")
+        return data.get('activity_id')
     if '/' in id_value or id_value.endswith('.md'):
         if not os.path.isfile(id_value):
             click.echo(f"File not found: {id_value}", err=True)
