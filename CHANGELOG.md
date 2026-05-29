@@ -26,6 +26,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Shared list error handling (2200)** — list panels now use a common error state component, including clean suppression for aborted list fetches.
 
 ### Changed
+- **Friendly finance CLI tables (2274)** — the six DB-backed `y finance` commands (balance-sheet, income-statement, holdings, transactions, prices, fire-progress) now print human-readable tables by default, with the raw JSON envelope behind an explicit `--json` flag; `y finance beancount` is unchanged.
 - **Chat/todo list query indexes (2238)** — chat list ordering now uses `updated_at_unix` so the new composite indexes can cover hot chat and todo list paths.
 - **Bot sidebar and local path handling (2216 / 2220)** — bot sidebar rows are capped to two lines, and API/CLI link asset paths now resolve from `Y_AGENT_HOME` instead of hard-coded home-directory assumptions.
 - **Finance snapshots storage model (2184)** — the earlier finance snapshot persistence path was replaced by direct holdings, prices, and transactions storage as the durable source of synced finance data.
