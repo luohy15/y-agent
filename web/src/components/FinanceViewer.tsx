@@ -248,6 +248,16 @@ function totalBalance(node: AccountNode): Record<string, number> {
   return totals;
 }
 
+function accountSortMagnitude(node: AccountNode): number {
+  const totals = totalBalance(node);
+  if (totals.USD != null) return Math.abs(totals.USD);
+  return Object.values(totals).reduce((sum, amt) => sum + Math.abs(amt), 0);
+}
+
+function sortedChildrenByValue(node: AccountNode): AccountNode[] {
+  return [...node.children].sort((a, b) => accountSortMagnitude(b) - accountSortMagnitude(a));
+}
+
 function mapAccountBalances(node: AccountNode, mapper: (amount: number) => number): AccountNode {
   return {
     account: node.account,
@@ -297,6 +307,7 @@ function AccountRow({ node, depth = 0 }: { node: AccountNode; depth?: number }) 
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children.length > 0;
   const totals = useMemo(() => totalBalance(node), [node]);
+  const sortedChildren = useMemo(() => sortedChildrenByValue(node), [node]);
 
   return (
     <>
@@ -315,7 +326,7 @@ function AccountRow({ node, depth = 0 }: { node: AccountNode; depth?: number }) 
           <BalanceDisplay balance={totals} />
         </td>
       </tr>
-      {expanded && node.children.map((child) => (
+      {expanded && sortedChildren.map((child) => (
         <AccountRow key={child.account} node={child} depth={depth + 1} />
       ))}
     </>
@@ -324,6 +335,7 @@ function AccountRow({ node, depth = 0 }: { node: AccountNode; depth?: number }) 
 
 function AccountTree({ root, title }: { root: AccountNode; title: string }) {
   const totals = useMemo(() => totalBalance(root), [root]);
+  const sortedChildren = useMemo(() => sortedChildrenByValue(root), [root]);
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02">
@@ -332,7 +344,7 @@ function AccountTree({ root, title }: { root: AccountNode; title: string }) {
       </div>
       <table className="w-full text-sm">
         <tbody>
-          {root.children.map((child) => (
+          {sortedChildren.map((child) => (
             <AccountRow key={child.account} node={child} depth={0} />
           ))}
         </tbody>
@@ -2146,7 +2158,7 @@ function IncomeStatementChart({ data, categoryData, chartTab, onChartTabChange }
         </ResponsiveContainer>
       )}
       <div className="flex justify-center gap-1 mt-1">
-        {([["income", "Income"], ["expenses", "Expenses"], ["net-profit", "Net Profit"]] as const).map(([t, label]) => (
+        {([["net-profit", "Net Profit"], ["income", "Income"], ["expenses", "Expenses"]] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => onChartTabChange(t)}
