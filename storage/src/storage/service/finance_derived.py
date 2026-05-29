@@ -487,6 +487,9 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
         risky_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if risky_only:
             period_positions = risky_positions
+        # Capture raw share / native-currency counts before FX conversion collapses
+        # each position to a single target-currency amount.
+        units = {symbol: round(sum(balance.values()), 4) for symbol, balance in period_positions.items()}
         as_of = period_end - datetime.timedelta(days=1) if convert_to else None
         if convert_to:
             total_positions = _convert_account_balances(user_id, vm_name, total_positions, convert_to, as_of, lookup)
@@ -499,6 +502,7 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
         result.append({
             "period": label,
             "positions": period_positions,
+            "units": units,
             "assets": asset_levels,
             "liabilities": liability_levels,
             "total": total if total else ({convert_to: 0.0} if convert_to else {}),
