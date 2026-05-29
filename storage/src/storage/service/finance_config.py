@@ -15,6 +15,7 @@ DEFAULT_ACCOUNT_ROOTS = {
     "liabilities": "Liabilities",
     "income": "Income",
     "expenses": "Expenses",
+    "investment_income": "Income:Investment",
 }
 
 

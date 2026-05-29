@@ -55,9 +55,11 @@ def derive_positions(
     base_values = _base_values(holdings, rows, base_currency)
 
     total_base_market_value = sum(value for value in base_values if value is not None)
-    for row, base_value in zip(rows, base_values):
+    book_values = _base_book_values(holdings, rows, base_currency)
+    for row, base_value, book_value in zip(rows, base_values, book_values):
         row["allocation_base_currency"] = base_currency
         row["market_value_base"] = round(base_value, 2) if base_value is not None else None
+        row["book_value_base"] = round(book_value, 2) if book_value is not None else None
         row["allocation_pct"] = round(base_value / total_base_market_value, 6) if base_value is not None and total_base_market_value else None
 
     return {"data": rows, "summary": summary, "synced_at": all_holdings[0].synced_at if all_holdings else ""}
@@ -74,6 +76,19 @@ def _base_values(holdings: list, rows: list[dict], base_currency: str) -> list[f
         as_of = _parse_snapshot_date(row.get("snapshot_date") or getattr(holding, "snapshot_date", None)) or _today()
         base_values.append(convert(float(market_value), currency, base_currency, as_of))
     return base_values
+
+
+def _base_book_values(holdings: list, rows: list[dict], base_currency: str) -> list[float | None]:
+    book_values = []
+    for holding, row in zip(holdings, rows):
+        book_value = row.get("book_value")
+        if book_value is None:
+            book_values.append(None)
+            continue
+        currency = row.get("cost_currency") or row.get("symbol") or base_currency
+        as_of = _parse_snapshot_date(row.get("snapshot_date") or getattr(holding, "snapshot_date", None)) or _today()
+        book_values.append(convert(float(book_value), currency, base_currency, as_of))
+    return book_values
 
 
 def _risky_allocation_summary(holdings: list, base_values: list[float | None], risky_symbols: set[str], base_currency: str) -> dict:

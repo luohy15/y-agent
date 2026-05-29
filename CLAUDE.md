@@ -263,6 +263,7 @@ y dev commit <name> [-m "msg"]
 # envelope, same shape as GET /api/finance/*)
 y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
+y finance investment-returns [--user-id <id>] [--vm-name <name>] [--time ytd] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD] [--json]
 y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500] [--json]
 y finance prices [--symbol AAPL] [--time ytd] [--limit 1000] [--json]

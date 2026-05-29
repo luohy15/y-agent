@@ -618,6 +618,189 @@ def income_statement_categories(user_id: int, vm_name: str, time_filter: str, gr
     return DerivedResult(result, _synced_at(user_id, vm_name))
 
 
+def _side_flow(rows, side: str, root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None, lookup: PriceLookup | None) -> float:
+    """Sum postings classified as `side` (e.g. Dividend / Interest) under the
+    income root, converted and sign-flipped to a positive earned amount. Only
+    income-root postings are counted so the matching cash-side posting (which
+    shares the entry's side label) is not double-counted."""
+    total: dict[str, float] = defaultdict(float)
+    for row in rows:
+        if row.side != side:
+            continue
+        if row.account != root and not row.account.startswith(f"{root}:"):
+            continue
+        amount = _posting_amount(row)
+        if not amount:
+            continue
+        currency, value = amount
+        total[currency] += value
+    if convert_to:
+        return round(-convert_balance(user_id, vm_name, dict(total), convert_to, as_of, lookup).get(convert_to, 0.0), 2)
+    return round(-sum(total.values()), 2)
+
+
+def _unrealized_from_positions(positions: list[dict]) -> dict:
+    """Aggregate unrealized P&L from derive_positions rows (non-cash only)."""
+    rows = []
+    unrealized_total = 0.0
+    book_total = 0.0
+    for row in positions:
+        if row.get("is_cash"):
+            continue
+        market_base = row.get("market_value_base")
+        book_base = row.get("book_value_base")
+        if market_base is None or book_base is None:
+            continue
+        unrealized = round(market_base - book_base, 2)
+        unrealized_total += unrealized
+        book_total += book_base
+        rows.append({
+            "symbol": row.get("symbol"),
+            "market_value_base": market_base,
+            "book_value_base": book_base,
+            "unrealized": unrealized,
+            "unrealized_pct": round(unrealized / book_base, 6) if book_base else None,
+        })
+    rows.sort(key=lambda item: abs(item["unrealized"]), reverse=True)
+    return {
+        "unrealized": round(unrealized_total, 2),
+        "unrealized_pct": round(unrealized_total / book_total, 6) if book_total else None,
+        "book_value_base": round(book_total, 2),
+        "positions": rows,
+    }
+
+
+def investment_returns(user_id: int, vm_name: str, time_filter: str, history: bool, granularity: str, convert_to: str | None) -> DerivedResult:
+    start_date, end_date = parse_time_range(time_filter, default="ytd")
+    roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
+    income_root = roots["income"]
+    investment_income_root = roots["investment_income"]
+    base_currency = (convert_to or "USD")
+    if not history:
+        rows = transaction_service.list_between(user_id, start_date=start_date, end_date=end_date)
+        totals = _sum_rows(rows)
+        as_of = end_date - datetime.timedelta(days=1) if end_date else _today()
+        lookup = _price_lookup_for_roots(user_id, vm_name, totals, (investment_income_root,), convert_to, as_of) if convert_to else None
+        realized_balance = _root_sum(totals, investment_income_root)
+        if convert_to:
+            realized = round(-convert_balance(user_id, vm_name, realized_balance, convert_to, as_of, lookup).get(convert_to, 0.0), 2)
+        else:
+            realized = round(-sum(realized_balance.values()), 2)
+        realized_breakdown = build_tree(_tree_rows(totals, investment_income_root, user_id, vm_name, convert_to, as_of, lookup), investment_income_root, convert_to)
+        dividends = _side_flow(rows, "Dividend", income_root, user_id, vm_name, convert_to, as_of, lookup)
+        interest = _side_flow(rows, "Interest", income_root, user_id, vm_name, convert_to, as_of, lookup)
+        positions = positions_service.derive_positions(user_id, base_currency=base_currency)["data"]
+        unrealized = _unrealized_from_positions(positions)
+        result = {
+            "convert": base_currency,
+            "realized": realized,
+            "realized_breakdown": realized_breakdown,
+            "dividends": dividends,
+            "interest": interest,
+            "unrealized": unrealized["unrealized"],
+            "unrealized_pct": unrealized["unrealized_pct"],
+            "book_value_base": unrealized["book_value_base"],
+            "positions": unrealized["positions"],
+            "total_return": round(realized + unrealized["unrealized"], 2),
+        }
+        return DerivedResult(result, _synced_at(user_id, vm_name))
+
+    if start_date is None or end_date is None:
+        end_date = end_date or _today() + datetime.timedelta(days=1)
+        start_date = start_date or end_date.replace(year=end_date.year - 1)
+    assets_root = roots["assets"]
+    rows = transaction_service.list_between(user_id, end_date=end_date)
+    # Market value at each period end reuses the balance-sheet positions machinery
+    # (per-period stored prices, ya-2271 fix; realtime overlay only for the current
+    # period). Restrict it to the same cost-basis securities the book value sums
+    # (symbols with a cost lot) so cash/non-cost assets don't leak into unrealized.
+    security_symbols = _cost_basis_symbols(rows, assets_root)
+    market_by_period = {
+        item["period"]: round(sum(_balance_base_value((item.get("positions") or {}).get(symbol), base_currency) for symbol in security_symbols), 2)
+        for item in balance_sheet_positions(user_id, vm_name, time_filter, granularity, convert_to).data
+    }
+    dated_rows = _parsed_transaction_rows(rows)
+    income_rows = [row for row in rows if start_date <= datetime.date.fromisoformat(row.transaction_date) < end_date]
+    realized_as_of = end_date - datetime.timedelta(days=1)
+    realized_lookup = None
+    book_lookup = None
+    if convert_to:
+        realized_lookup = _price_lookup_for_roots(user_id, vm_name, _sum_rows(income_rows), (investment_income_root,), convert_to, realized_as_of)
+        book_lookup = _price_lookup_for_balances(user_id, vm_name, {assets_root: _book_value_currencies(rows, assets_root)}, convert_to, realized_as_of)
+    result = []
+    book_by_ccy: dict[str, float] = defaultdict(float)
+    row_index = 0
+    cumulative_realized = 0.0
+    for period_start, period_end, label in period_boundaries(start_date, end_date, granularity):
+        while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
+            _add_book_value(book_by_ccy, dated_rows[row_index][1], assets_root)
+            row_index += 1
+        as_of = period_end - datetime.timedelta(days=1)
+        book_value = convert_balance(user_id, vm_name, dict(book_by_ccy), convert_to, as_of, book_lookup).get(convert_to, 0.0) if convert_to else sum(book_by_ccy.values())
+        market_value = market_by_period.get(label, 0.0)
+        unrealized = round(market_value - book_value, 2)
+        period_income = _root_sum(_sum_rows(row for row in income_rows if period_start <= datetime.date.fromisoformat(row.transaction_date) < period_end), investment_income_root)
+        if convert_to:
+            realized = round(-convert_balance(user_id, vm_name, period_income, convert_to, realized_as_of, realized_lookup).get(convert_to, 0.0), 2)
+        else:
+            realized = round(-sum(period_income.values()), 2)
+        cumulative_realized = round(cumulative_realized + realized, 2)
+        result.append({
+            "period": label,
+            "realized": realized,
+            "unrealized": unrealized,
+            "total_return_cumulative": round(cumulative_realized + unrealized, 2),
+        })
+    return DerivedResult(result, _synced_at(user_id, vm_name))
+
+
+def _balance_base_value(balance: dict[str, float] | None, base_currency: str) -> float:
+    if not balance:
+        return 0.0
+    return balance.get(base_currency, sum(balance.values()))
+
+
+def _cost_basis_symbols(rows, root: str) -> set[str]:
+    """Symbols of asset-root postings that carry a cost lot (the securities whose
+    cost basis the book value sums). Used to keep the over-time market value on the
+    same set, so cash / non-cost assets don't inflate unrealized P&L."""
+    symbols = set()
+    for row in rows:
+        if row.cost is None:
+            continue
+        if row.account != root and not row.account.startswith(f"{root}:"):
+            continue
+        symbol = row.symbol or row.amount_currency
+        if symbol:
+            symbols.add(symbol)
+    return symbols
+
+
+def _book_value_currencies(rows, root: str) -> dict[str, float]:
+    totals: dict[str, float] = defaultdict(float)
+    for row in rows:
+        if row.cost is None:
+            continue
+        if row.account != root and not row.account.startswith(f"{root}:"):
+            continue
+        currency = row.cost_currency or row.amount_currency or row.symbol
+        if not currency:
+            continue
+        totals[currency] += float(row.cost)
+    return dict(totals)
+
+
+def _add_book_value(book_by_ccy: dict[str, float], row, root: str) -> None:
+    if row.cost is None:
+        return
+    if row.account != root and not row.account.startswith(f"{root}:"):
+        return
+    currency = row.cost_currency or row.amount_currency or row.symbol
+    if not currency:
+        return
+    book_by_ccy[currency] += float(row.cost)
+
+
 def holding_positions(user_id: int, vm_name: str, at: str | None = None, risky_only: bool = False, base_currency: str = "USD") -> DerivedResult:
     result = positions_service.derive_positions(user_id, snapshot_date=at, risky_only=risky_only, base_currency=base_currency)
     return DerivedResult(result["data"], result["synced_at"], {"summary": result["summary"]})
