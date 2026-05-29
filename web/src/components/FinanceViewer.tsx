@@ -765,6 +765,7 @@ function TransactionHeader({ label, sortKey, currentKey, dir, onSort, align }: {
 function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedAt?: string }) {
   const [sortKey, setSortKey] = useState<TransactionSortKey>(() => (localStorage.getItem("transactions-sort-key") as TransactionSortKey) || "date");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("transactions-sort-dir") as SortDir) || "desc");
+  const [symbolFilter, setSymbolFilter] = useState("");
   const handleSort = (key: TransactionSortKey) => {
     if (key === sortKey) {
       const next = sortDir === "asc" ? "desc" : "asc";
@@ -776,7 +777,9 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
     }
   };
   const sorted = useMemo(() => {
-    const copy = [...rows];
+    const q = symbolFilter.trim().toUpperCase();
+    const filtered = q ? rows.filter((r) => (r.symbol || "").toUpperCase().includes(q)) : rows;
+    const copy = [...filtered];
     copy.sort((a, b) => {
       const av = transactionSortValue(a, sortKey);
       const bv = transactionSortValue(b, sortKey);
@@ -784,12 +787,19 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [rows, sortKey, sortDir]);
+  }, [rows, sortKey, sortDir, symbolFilter]);
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
   return (
     <div className="mb-4">
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
         <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Transactions · synced {formatRelativeTime(syncedAt)}</span>
+        <input
+          type="text"
+          value={symbolFilter}
+          onChange={(e) => setSymbolFilter(e.target.value)}
+          placeholder="Filter symbol"
+          className="w-32 px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
+        />
       </div>
       <table className="w-full text-sm">
         <thead>
