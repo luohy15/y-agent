@@ -2268,9 +2268,56 @@ function returnColor(value: number): string {
   return value > 0 ? "text-sol-green" : value < 0 ? "text-sol-red" : "text-sol-base1";
 }
 
+type ReturnsSortKey = "symbol" | "market_value" | "book_value" | "unrealized" | "unrealized_pct";
+
+function returnsSortValue(position: InvestmentReturnsPosition, key: ReturnsSortKey): string | number {
+  switch (key) {
+    case "symbol": return position.symbol;
+    case "market_value": return position.market_value_base;
+    case "book_value": return position.book_value_base;
+    case "unrealized": return position.unrealized;
+    case "unrealized_pct": return position.unrealized_pct ?? 0;
+  }
+}
+
+function ReturnsHeader({ label, sortKey, currentKey, dir, onSort, align }: {
+  label: string; sortKey: ReturnsSortKey; currentKey: ReturnsSortKey; dir: SortDir;
+  onSort: (key: ReturnsSortKey) => void; align: "left" | "right";
+}) {
+  const active = currentKey === sortKey;
+  return (
+    <th className={`py-1 px-3 font-medium cursor-pointer select-none hover:text-sol-base1 ${align === "left" ? "text-left" : "text-right"}`} onClick={() => onSort(sortKey)}>
+      {label}{active && <span className="ml-1 text-sol-blue">{dir === "asc" ? "▲" : "▼"}</span>}
+    </th>
+  );
+}
+
 function InvestmentReturnsLiveView({ data }: { data: InvestmentReturnsData }) {
   const cur = data.convert || "USD";
   const fmt = (value: number) => `${formatAmount(value)} ${cur}`;
+  const [sortKey, setSortKey] = useState<ReturnsSortKey>(() => (localStorage.getItem("investment-returns-sort-key") as ReturnsSortKey) || "unrealized");
+  const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("investment-returns-sort-dir") as SortDir) || "desc");
+  const handleSort = (key: ReturnsSortKey) => {
+    if (key === sortKey) {
+      const next = sortDir === "asc" ? "desc" : "asc";
+      setSortDir(next); localStorage.setItem("investment-returns-sort-dir", next);
+    } else {
+      const next = key === "symbol" ? "asc" : "desc";
+      setSortKey(key); setSortDir(next);
+      localStorage.setItem("investment-returns-sort-key", key); localStorage.setItem("investment-returns-sort-dir", next);
+    }
+  };
+  const sortedPositions = useMemo(() => {
+    const copy = [...data.positions];
+    copy.sort((a, b) => {
+      const av = returnsSortValue(a, sortKey);
+      const bv = returnsSortValue(b, sortKey);
+      const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [data.positions, sortKey, sortDir]);
+  const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
   return (
     <div className="space-y-4 px-2">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
@@ -2304,15 +2351,15 @@ function InvestmentReturnsLiveView({ data }: { data: InvestmentReturnsData }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-sol-base01 text-xs border-b border-sol-base02">
-                <th className="py-1 px-3 font-medium text-left">Symbol</th>
-                <th className="py-1 px-3 font-medium text-right">Market Value</th>
-                <th className="py-1 px-3 font-medium text-right">Book Value</th>
-                <th className="py-1 px-3 font-medium text-right">Unrealized</th>
-                <th className="py-1 px-3 font-medium text-right">Unreal %</th>
+                <ReturnsHeader label="Symbol" sortKey="symbol" align="left" {...hp} />
+                <ReturnsHeader label="Market Value" sortKey="market_value" align="right" {...hp} />
+                <ReturnsHeader label="Book Value" sortKey="book_value" align="right" {...hp} />
+                <ReturnsHeader label="Unrealized" sortKey="unrealized" align="right" {...hp} />
+                <ReturnsHeader label="Unreal %" sortKey="unrealized_pct" align="right" {...hp} />
               </tr>
             </thead>
             <tbody>
-              {data.positions.map((position) => (
+              {sortedPositions.map((position) => (
                 <tr key={position.symbol} className="hover:bg-sol-base02/50">
                   <td className="py-0.5 px-3 text-sol-base1">{position.symbol}</td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(position.market_value_base)}</td>
