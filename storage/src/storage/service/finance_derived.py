@@ -369,24 +369,6 @@ def _account_position_totals(rows, root: str) -> dict[str, dict[str, float]]:
     return {account: dict(balance) for account, balance in result.items()}
 
 
-def _asset_category(account: str, assets_root: str) -> str | None:
-    prefix = f"{assets_root}:"
-    if not account.startswith(prefix):
-        return None
-    child = account[len(prefix):].split(":", 1)[0]
-    return f"{assets_root}:{child}" if child else None
-
-
-def _asset_category_positions(account_positions: dict[str, dict[str, float]], assets_root: str) -> dict[str, dict[str, dict[str, float]]]:
-    result: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
-    for account, balance in account_positions.items():
-        category = _asset_category(account, assets_root)
-        if not category:
-            continue
-        result[category][account] = balance
-    return {category: dict(accounts) for category, accounts in result.items()}
-
-
 def _convert_account_balances(user_id: int, vm_name: str, accounts: dict[str, dict[str, float]], target_currency: str, as_of: datetime.date | None, lookup: PriceLookup | None = None) -> dict[str, dict[str, float]]:
     return {
         account: convert_balance(user_id, vm_name, balance, target_currency, as_of, lookup) if balance else {target_currency: 0.0}
@@ -448,10 +430,26 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
 
 
 
+def _first_level_totals(account_positions: dict[str, dict[str, float]], root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None, lookup: PriceLookup | None) -> dict[str, float]:
+    levels: dict[str, float] = defaultdict(float)
+    for account, balance in account_positions.items():
+        category = _first_child_category(account, root)
+        if not category or not balance:
+            continue
+        if convert_to:
+            converted = convert_balance(user_id, vm_name, balance, convert_to, as_of, lookup)
+            levels[category] += converted.get(convert_to, 0.0)
+        else:
+            for amount in balance.values():
+                levels[category] += amount
+    return {category: round(value, 2) for category, value in levels.items()}
+
+
 def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granularity: str, convert_to: str | None, risky_only: bool = False) -> DerivedResult:
     start_date, end_date = parse_time_range(time_filter)
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
     assets_root = roots["assets"]
+    liabilities_root = roots["liabilities"]
     risky_symbols = {row.symbol for row in holding_service.list_for(user_id, risky_only=True)}
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
@@ -460,48 +458,53 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     result = []
     dated_rows = _parsed_transaction_rows(rows)
     positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    account_positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    asset_account_positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    liability_account_positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     row_index = 0
     lookup = None
     if convert_to:
         all_positions = _position_totals(rows, assets_root)
-        all_account_positions = _account_position_totals(rows, assets_root)
-        all_balances = {**all_positions, **all_account_positions}
+        all_asset_accounts = _account_position_totals(rows, assets_root)
+        all_liability_accounts = _account_position_totals(rows, liabilities_root)
+        all_balances = {**all_positions, **all_asset_accounts, **all_liability_accounts}
         overlay, realtime_synced_at, realtime_source = _build_realtime_overlay(user_id) if _should_build_realtime_overlay(convert_to, end_date) else ({}, "", "none")
         lookup = _price_lookup_for_balances(user_id, vm_name, all_balances, convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
     else:
         realtime_synced_at, realtime_source = "", "none"
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
-            _add_position_total(positions, dated_rows[row_index][1], assets_root)
-            _add_account_position_total(account_positions, dated_rows[row_index][1], assets_root)
+            row = dated_rows[row_index][1]
+            _add_position_total(positions, row, assets_root)
+            _add_account_position_total(asset_account_positions, row, assets_root)
+            _add_account_position_total(liability_account_positions, row, liabilities_root)
             row_index += 1
         period_positions = _copy_balances(positions)
-        period_account_positions = _copy_balances(account_positions)
         total_positions = period_positions
         risky_positions = {symbol: balance for symbol, balance in period_positions.items() if symbol in risky_symbols}
         if risky_only:
             period_positions = risky_positions
-            period_account_positions = {
-                account: {symbol: value for symbol, value in balance.items() if symbol in risky_symbols}
-                for account, balance in period_account_positions.items()
-                if any(symbol in risky_symbols for symbol in balance)
-            }
+        as_of = period_end - datetime.timedelta(days=1) if convert_to else None
         if convert_to:
-            as_of = period_end - datetime.timedelta(days=1)
             total_positions = _convert_account_balances(user_id, vm_name, total_positions, convert_to, as_of, lookup)
             period_positions = _convert_account_balances(user_id, vm_name, period_positions, convert_to, as_of, lookup)
-            period_account_positions = _convert_account_balances(user_id, vm_name, period_account_positions, convert_to, as_of, lookup)
             risky_positions = _convert_account_balances(user_id, vm_name, risky_positions, convert_to, as_of, lookup)
+        asset_levels = _first_level_totals(asset_account_positions, assets_root, user_id, vm_name, convert_to, as_of, lookup)
+        liability_levels = _first_level_totals(liability_account_positions, liabilities_root, user_id, vm_name, convert_to, as_of, lookup)
         total = _sum_balances(total_positions)
         risky_total = _sum_balances(risky_positions)
         result.append({
             "period": label,
             "positions": period_positions,
-            "categories": _asset_category_positions(period_account_positions, assets_root),
+            "assets": asset_levels,
+            "liabilities": liability_levels,
             "total": total if total else ({convert_to: 0.0} if convert_to else {}),
             "risky": risky_total if risky_total else ({convert_to: 0.0} if convert_to else {}),
         })
+    nonzero_assets = {cat for item in result for cat, value in item["assets"].items() if abs(value) > 0.005}
+    nonzero_liabilities = {cat for item in result for cat, value in item["liabilities"].items() if abs(value) > 0.005}
+    for item in result:
+        item["assets"] = {cat: value for cat, value in item["assets"].items() if cat in nonzero_assets}
+        item["liabilities"] = {cat: value for cat, value in item["liabilities"].items() if cat in nonzero_liabilities}
     return DerivedResult(result, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
 
 
