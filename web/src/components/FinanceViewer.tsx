@@ -1071,8 +1071,8 @@ function IncomeStatementLivePieCharts({ income, expenses }: { income: AccountNod
   const expenseData = useMemo(() => accountPieRows(expenses, positiveUsdValue), [expenses]);
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <AccountPieChart title="Income by category" subtitle="Current month-to-date income accounts in USD" data={incomeData} emptyLabel="No income yet" />
-      <AccountPieChart title="Expenses by category" subtitle="Current month-to-date expense accounts in USD" data={expenseData} emptyLabel="No expenses yet" />
+      <AccountPieChart title="Income by category" subtitle="Selected period income accounts in USD" data={incomeData} emptyLabel="No income yet" />
+      <AccountPieChart title="Expenses by category" subtitle="Selected period expense accounts in USD" data={expenseData} emptyLabel="No expenses yet" />
     </div>
   );
 }
@@ -2204,7 +2204,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
   const activeMode = isModeTab(tab) ? mode : "over-time";
   const isLiveMode = isModeTab(tab) && activeMode === "live";
   const isOverTimeMode = isModeTab(tab) && activeMode === "over-time";
-  const showsTimeInput = tab === "fire" || isOverTimeMode;
+  const showsTimeInput = tab === "fire" || isOverTimeMode || (tab === "income-statement" && isLiveMode);
   const showsGranularity = tab === "fire" || isOverTimeMode;
 
   const handleModeChange = (v: ViewMode) => {
@@ -2237,7 +2237,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     : null;
 
   const isKey = tab === "income-statement" && mode === "live"
-    ? `${API}/api/finance/income-statement?time=month${vmQuery}`
+    ? `${API}/api/finance/income-statement?time=${encodeURIComponent(committedTime)}${vmQuery}`
     : null;
 
   const holdingsKey = tab === "holdings" && mode === "live"
