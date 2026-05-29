@@ -1581,7 +1581,7 @@ function BalanceSheetOverTimeTable({ data }: { data: BalanceSheetPositionsHistor
   );
 }
 
-function HoldingsOverTimeTable({ data, positions }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[] }) {
+function HoldingsOverTimeTable({ data, positions, riskyOnly, onRiskyOnlyChange }: { data: BalanceSheetPositionsHistoryItem[]; positions: string[]; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestPeriod = data[data.length - 1]?.period || "";
   const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
@@ -1613,9 +1613,22 @@ function HoldingsOverTimeTable({ data, positions }: { data: BalanceSheetPosition
 
   return (
     <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
-      <div className="border-b border-sol-base02 px-3 py-2">
-        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Holdings history</div>
-        <div className="text-sol-base01 text-[10px]">Rows are tickers; columns are periods</div>
+      <div className="border-b border-sol-base02 px-3 py-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Holdings history</div>
+          <div className="text-sol-base01 text-[10px]">Rows are tickers; columns are periods</div>
+        </div>
+        <button
+          onClick={() => onRiskyOnlyChange(!riskyOnly)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            riskyOnly
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+          title="Hide cash and BOXX"
+        >
+          Risky only
+        </button>
       </div>
       {data.length === 0 || positions.length === 0 ? (
         <div className="px-3 py-8 text-center text-sol-base01">No history yet</div>
@@ -1679,19 +1692,6 @@ function AssetsOverTimeView({ vmName, riskyOnly, onRiskyOnlyChange, time, granul
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-end px-2">
-        <button
-          onClick={() => onRiskyOnlyChange(!riskyOnly)}
-          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
-            riskyOnly
-              ? "bg-sol-blue text-sol-base03"
-              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-          }`}
-          title="Hide cash and BOXX"
-        >
-          Risky only
-        </button>
-      </div>
       {history.isLoading ? (
         <p className="text-sol-base01 italic px-3">Loading assets history...</p>
       ) : showError ? (
@@ -1699,7 +1699,7 @@ function AssetsOverTimeView({ vmName, riskyOnly, onRiskyOnlyChange, time, granul
       ) : (
         <>
           <AssetsOverTimeChart data={data} positions={positions} />
-          <HoldingsOverTimeTable data={data} positions={positions} />
+          <HoldingsOverTimeTable data={data} positions={positions} riskyOnly={riskyOnly} onRiskyOnlyChange={onRiskyOnlyChange} />
         </>
       )}
     </div>
