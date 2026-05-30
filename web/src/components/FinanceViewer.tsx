@@ -1276,16 +1276,18 @@ function positionValue(balance: Record<string, number> | undefined): number {
 }
 
 function buildPositionSeries(data: BalanceSheetPositionsHistoryItem[]) {
-  const latest = data[data.length - 1];
   const totals = new Map<string, number>();
   for (const item of data) {
     for (const [account, balance] of Object.entries(item.positions)) {
       totals.set(account, Math.max(totals.get(account) || 0, Math.abs(positionValue(balance))));
     }
   }
+  // Order rows by max-abs value across the whole range (historical significance) so a
+  // ticker that was large but is now fully sold keeps its own row instead of folding
+  // into "Other" because its latest value is 0.
   const ordered = Array.from(totals.entries())
     .filter(([, value]) => value > 0.005)
-    .sort((a, b) => positionValue(latest?.positions[b[0]]) - positionValue(latest?.positions[a[0]]));
+    .sort((a, b) => b[1] - a[1]);
   const topAccounts = ordered.slice(0, 7).map(([account]) => account);
   const otherAccounts = ordered.slice(7).map(([account]) => account);
   return otherAccounts.length ? [...topAccounts, "Other"] : topAccounts;

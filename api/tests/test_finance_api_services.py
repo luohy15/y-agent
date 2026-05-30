@@ -237,25 +237,47 @@ class FinanceApiServicesTest(unittest.TestCase):
 
     def test_balance_sheet_positions_history_uses_one_price_batch_and_running_totals(self):
         rows = [
-            self._transaction("entry-1", 0, "AAPL", "Buy", 1, "AAPL", account="Assets:Broker", transaction_date="2026-01-05"),
-            self._transaction("entry-2", 0, "AAPL", "Buy", 2, "AAPL", account="Assets:Broker", transaction_date="2026-02-05"),
-            self._transaction("entry-3", 0, "BND", "Buy", 5, "BND", account="Assets:Broker", transaction_date="2026-02-10"),
+            self._transaction("entry-1", 0, "AAPL", "Buy", 1, "AAPL", account="Assets:Broker", transaction_date="2026-01-05", cost=10, cost_currency="USD"),
+            self._transaction("entry-2", 0, "AAPL", "Buy", 2, "AAPL", account="Assets:Broker", transaction_date="2026-02-05", cost=10, cost_currency="USD"),
+            self._transaction("entry-3", 0, "BND", "Buy", 5, "BND", account="Assets:Broker", transaction_date="2026-02-10", cost=1, cost_currency="USD"),
         ]
-        risky = [SimpleNamespace(symbol="AAPL")]
+        # The live snapshot only has AAPL, but BND carries a cost lot in range, so the
+        # risky set (derived from in-range cost-basis securities) is AAPL + BND.
+        snapshot = [SimpleNamespace(symbol="AAPL")]
 
-        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=risky), patch.object(price_service, "list_for_pairs", return_value=[self._price("AAPL", "USD", "2026-01-01", 10), self._price("AAPL", "USD", "2026-02-01", 20), self._price("BND", "USD", "2026-01-01", 1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
+        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=snapshot), patch.object(price_service, "list_for_pairs", return_value=[self._price("AAPL", "USD", "2026-01-01", 10), self._price("AAPL", "USD", "2026-02-01", 20), self._price("BND", "USD", "2026-01-01", 1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
             result = derived_service.balance_sheet_positions(123, "", "2026", "monthly", "USD", risky_only=True)
 
         self.assertEqual(result.data[0]["positions"], {"AAPL": {"USD": 10.0}})
         self.assertEqual(result.data[0]["total"], {"USD": 10.0})
         self.assertEqual(result.data[0]["risky"], {"USD": 10.0})
-        self.assertEqual(result.data[1]["positions"], {"AAPL": {"USD": 60.0}})
+        self.assertEqual(result.data[1]["positions"], {"AAPL": {"USD": 60.0}, "BND": {"USD": 5.0}})
         self.assertEqual(result.data[1]["total"], {"USD": 65.0})
-        self.assertEqual(result.data[1]["risky"], {"USD": 60.0})
+        self.assertEqual(result.data[1]["risky"], {"USD": 65.0})
         self.assertEqual(result.data[2]["total"], {"USD": 65.0})
-        self.assertEqual(result.data[2]["risky"], {"USD": 60.0})
+        self.assertEqual(result.data[2]["risky"], {"USD": 65.0})
         list_for_pairs.assert_called_once_with({("AAPL", "USD"), ("USD", "AAPL"), ("BND", "USD"), ("USD", "BND")}, datetime.date(2026, 12, 31))
         latest_pair.assert_not_called()
+
+    def test_balance_sheet_positions_history_keeps_fully_sold_risky_ticker(self):
+        # QQQ is bought then fully sold inside the range; the live snapshot no longer
+        # holds it. risky_only must still surface it for the periods it was held.
+        rows = [
+            self._transaction("entry-1", 0, "QQQ", "Buy", 10, "QQQ", account="Assets:Broker", transaction_date="2026-01-05", cost=100, cost_currency="USD"),
+            self._transaction("entry-2", 0, "QQQ", "Sell", -10, "QQQ", account="Assets:Broker", transaction_date="2026-03-05", cost=100, cost_currency="USD"),
+        ]
+
+        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(price_service, "list_for_pairs", return_value=[self._price("QQQ", "USD", "2026-01-01", 100)]), patch.object(price_service, "latest_pair"):
+            result = derived_service.balance_sheet_positions(123, "", "2026", "monthly", "USD", risky_only=True)
+
+        # Held in Jan/Feb: appears with a non-zero value despite being absent from the snapshot.
+        self.assertEqual(result.data[0]["positions"], {"QQQ": {"USD": 1000.0}})
+        self.assertEqual(result.data[0]["risky"], {"USD": 1000.0})
+        self.assertEqual(result.data[1]["positions"], {"QQQ": {"USD": 1000.0}})
+        self.assertEqual(result.data[1]["risky"], {"USD": 1000.0})
+        # After the sale: present but zeroed out (the frontend's >0.005 filter drops it).
+        self.assertEqual(result.data[2]["positions"], {"QQQ": {"USD": 0.0}})
+        self.assertEqual(result.data[2]["risky"], {"USD": 0.0})
 
     def test_fire_progress_net_worth_uses_assets_minus_liabilities(self):
         rows = [
