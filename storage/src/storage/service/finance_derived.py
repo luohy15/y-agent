@@ -80,8 +80,7 @@ def period_boundaries(start_date: datetime.date, end_date: datetime.date, granul
         cur = start_date - datetime.timedelta(days=start_date.weekday())
         while cur < end_date:
             next_period = cur + datetime.timedelta(days=7)
-            iso_year, iso_week, _ = cur.isocalendar()
-            periods.append((cur, min(next_period, end_date), f"{iso_year}-W{iso_week:02d}"))
+            periods.append((cur, min(next_period, end_date), cur.isoformat()))
             cur = next_period
     elif granularity == "monthly":
         cur = start_date.replace(day=1)

@@ -216,12 +216,14 @@ function formatAmount(amount: number): string {
 }
 
 function formatPeriodLabel(period: string, fullYear = true): string {
-  const [year, month] = period.split("-");
+  const [year, month, day] = period.split("-");
   if (!month) return year;
   if (month.startsWith("Q")) return `${month} ${year}`;
   if (month.startsWith("W")) return `${month} ${year.slice(2)}`;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${months[parseInt(month, 10) - 1]} ${fullYear ? year : year.slice(2)}`;
+  const monthLabel = months[parseInt(month, 10) - 1];
+  if (day) return fullYear ? `${monthLabel} ${parseInt(day, 10)}, ${year}` : `${monthLabel} ${parseInt(day, 10)} '${year.slice(2)}`;
+  return `${monthLabel} ${fullYear ? year : year.slice(2)}`;
 }
 
 function totalPositionValue(positions: Record<string, Record<string, number>>): number {
