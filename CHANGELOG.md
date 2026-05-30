@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Finance Investment Returns tab (2277)** — added an Investment Returns view splitting realized/unrealized/total P&L with MTD/YTD/over-time ranges, plus a sortable positions table (default Unrealized desc).
+- **Forex sub-tab in finance notes sidebar (2279)** — the finance notes sidebar now nests a forex sub-tab under notes → forex → tickers.
 - **Finance positions CLI and reusable service (2243)** — added `y finance positions` / click wiring plus a storage-level positions service so the API and CLI share realtime quote overlays, P&L math, and allocation output.
 - **Chat artifacts rendering (1390 / 2237)** — chat messages can now render Markdown artifact fences, including Mermaid diagrams and HTML/CSS/JS previews, with a dedicated artifact viewer route and safer parser/test coverage for nested fences.
 - **Finance realtime quotes and P&L display (2229)** — finance APIs now persist Alpha Vantage realtime quotes, overlay them into holding positions, pass the API key through deploy/CI wiring, parse quote timestamps in US Eastern time, and show holdings P&L with separate amount and percent columns.
