@@ -454,11 +454,15 @@ def balance_sheet_positions(user_id: int, vm_name: str, time_filter: str, granul
     roots = finance_config_service.get_for(user_id, vm_name)["account_roots"]
     assets_root = roots["assets"]
     liabilities_root = roots["liabilities"]
-    risky_symbols = {row.symbol for row in holding_service.list_for(user_id, risky_only=True)}
     if start_date is None or end_date is None:
         end_date = end_date or _today() + datetime.timedelta(days=1)
         start_date = start_date or end_date.replace(year=end_date.year - 1)
     rows = transaction_service.list_between(user_id, end_date=end_date)
+    # Risk class is a static property of a symbol; derive the risky set from the
+    # securities that carry a cost lot within the range (minus the non-risky
+    # tickers) so that fully-sold tickers still appear in the over-time history
+    # instead of being dropped because they're absent from the live snapshot.
+    risky_symbols = _cost_basis_symbols(rows, assets_root) - holding_service.NON_RISKY_TICKERS
     result = []
     dated_rows = _parsed_transaction_rows(rows)
     positions: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
