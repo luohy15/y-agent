@@ -34,8 +34,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Finance snapshots storage model (2184)** — the earlier finance snapshot persistence path was replaced by direct holdings, prices, and transactions storage as the durable source of synced finance data.
 - **Trace fetching and rendering stability (2199)** — detached agent handling and TraceView fetching/rendering were hardened to avoid noisy focus revalidation and preserve inline note-share metadata.
 - **Worker deployment cleanup (2184)** — removed obsolete Lambda template and handler wiring that no longer participates in the finance sync path.
+- **Finance over-time bucket labels (2288)** — weekly over-time buckets are now labeled with their Monday date instead of an ISO week number.
 
 ### Fixed
+- **Finance holdings over-time fully-sold tickers (2285)** — holdings over-time no longer drops tickers that were fully sold within the range (e.g. QQQ).
 - **Chat local file rendering (2219)** — Claude Code chat/file-link handling and shared chat rendering now resolve local file references more consistently across normal and shared views.
 - **Finance price filtering (2184 / 2191)** — finance price queries now parse `from_date` before filtering, ignore future-dated prices, resolve time ranges on the backend, and default charts to YTD.
 - **Trace shared-note metadata (2184)** — trace payloads now inline note share metadata so shared note links render correctly in trace todo details.
