@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.15] - 2026-05-31
+
+### Added
 - **Finance Investment Returns tab (2277)** — added an Investment Returns view splitting realized/unrealized/total P&L with MTD/YTD/over-time ranges, plus a sortable positions table (default Unrealized desc).
 - **Forex sub-tab in finance notes sidebar (2279)** — the finance notes sidebar now nests a forex sub-tab under notes → forex → tickers.
 - **Finance positions CLI and reusable service (2243)** — added `y finance positions` / click wiring plus a storage-level positions service so the API and CLI share realtime quote overlays, P&L math, and allocation output.
