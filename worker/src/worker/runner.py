@@ -615,6 +615,31 @@ def build_gemini_env(bot_config, chat_id: str = None, trace_id: str = None,
     return env
 
 
+def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None) -> list:
+    """pi resume command for a known session (used on fresh resume + steer restart)."""
+    cmd = ["pi", "-p", "--mode", "json", "--session", session_id]
+    if model:
+        cmd.extend(["--model", model])
+    if api_key:
+        cmd.extend(["--api-key", api_key])
+    return cmd
+
+
+def build_pi_env(bot_config, chat_id: str = None, trace_id: str = None,
+                 topic: str = None, last_message_id: str = None) -> dict:
+    """pi subprocess env: trace/topic vars (auth goes via --api-key on the cmd)."""
+    env = {}
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
     messages = list(chat.messages)
@@ -714,6 +739,55 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
     }
 
 
+def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for pi."""
+    messages = list(chat.messages)
+
+    user_prompt, user_images = _latest_user_text_and_images(messages)
+
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    last_message_id = messages[-1].id if messages else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+    api_key = bot_config.api_key or None
+
+    session_id = chat.external_id
+    resume = bool(session_id) and chat.work_dir == cwd
+
+    if resume and session_id:
+        cmd = build_pi_resume_cmd(session_id, model, api_key)
+    else:
+        cmd = ["pi", "-p", "--mode", "json"]
+        session_id = None
+        if model:
+            cmd.extend(["--model", model])
+        if api_key:
+            cmd.extend(["--api-key", api_key])
+
+    if chat.skill and not resume:
+        user_prompt = (
+            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
+            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
+        )
+
+    env = build_pi_env(bot_config, chat_id, trace_id, topic, last_message_id)
+
+    return {
+        "prompt": user_prompt,
+        "images": user_images,
+        "cmd": cmd,
+        "env": env if env else None,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "session_id": session_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
 
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
@@ -738,6 +812,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         params = _build_gemini_params(chat, chat_id, user_id, bot_config,
                                       vm_name=vm_name, work_dir=work_dir,
                                       trace_id=trace_id, topic=topic)
+    elif effective_backend == "pi_cli":
+        params = _build_pi_params(chat, chat_id, user_id, bot_config,
+                                  vm_name=vm_name, work_dir=work_dir,
+                                  trace_id=trace_id, topic=topic)
     else:
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
@@ -772,6 +850,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     elif effective_backend == "gemini_cli":
         from agent.gemini_cli import start_detached_gemini_ssh
         session_id = await start_detached_gemini_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+            images=params.get("images"),
+        )
+    elif effective_backend == "pi_cli":
+        from agent.pi_cli import start_detached_pi_ssh
+        session_id = await start_detached_pi_ssh(
             cmd=params["cmd"],
             prompt=params["prompt"],
             cwd=cwd,

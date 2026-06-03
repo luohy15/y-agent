@@ -11,7 +11,7 @@ from yagent.api_client import api_request
 @click.option('--topic', 'target_topic', default=None, help='New target topic')
 @click.option('--skill', 'target_skill', default=None, help='New target skill')
 @click.option('--work-dir', default=None, help='New work_dir')
-@click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex', 'gemini_cli']), help='New agent backend')
+@click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex', 'gemini_cli', 'pi_cli']), help='New agent backend')
 @click.option('--desc', 'description', default=None, help='New description')
 def routine_update(routine_id, name, schedule, message, target_topic, target_skill, work_dir, backend, description):
     """Update a routine."""

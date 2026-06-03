@@ -223,6 +223,19 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_steer_fn=steer_fn,
             ssh_client=client,
         )
+    elif backend_type == "pi_cli":
+        from agent.pi_cli import tail_pi_output
+        result = await tail_pi_output(
+            chat_id=chat_id,
+            vm_config=vm_config,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
+            ssh_client=client,
+        )
     else:
         from agent.claude_code import tail_ssh_output
         result = await tail_ssh_output(
@@ -242,6 +255,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     if result.get("status") == "steer":
         if backend_type == "gemini_cli":
             await _restart_gemini_with_steer(chat_id, proc, result)
+        elif backend_type == "pi_cli":
+            await _restart_pi_with_steer(chat_id, proc, result)
         else:
             await _restart_codex_with_steer(chat_id, proc, result)
         return
@@ -389,6 +404,32 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
 
         if result["status"] == "error":
             error_text = (result_data.get("result") if result_data else None) or "Gemini CLI exited with an error."
+            error_msg = Message(
+                id=generate_message_id(),
+                role="assistant",
+                content=error_text,
+                timestamp=get_utc_iso8601_timestamp(),
+                unix_timestamp=get_unix_timestamp(),
+            )
+            fresh.messages.append(error_msg)
+    elif backend_type == "pi_cli":
+        effective_session_id = result.get("session_id") or proc.get("session_id")
+        if effective_session_id:
+            if cwd_matches:
+                fresh.external_id = effective_session_id
+            else:
+                logger.warning(
+                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (pi session_id={})",
+                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
+                )
+        if result_data and not result_data.get("is_error"):
+            usage = result_data.get("usage") or {}
+            if usage:
+                fresh.input_tokens = usage.get("input_tokens")
+                fresh.output_tokens = usage.get("output_tokens")
+
+        if result["status"] == "error":
+            error_text = (result_data.get("result") if result_data else None) or "pi exited with an error."
             error_msg = Message(
                 id=generate_message_id(),
                 role="assistant",
@@ -611,6 +652,75 @@ async def _restart_gemini_with_steer(chat_id: str, proc: dict, result: dict):
     )
     release_lease(chat_id)
     logger.info("gemini steer: restarted chat_id={} session_id={}", chat_id, session_id)
+
+
+async def _restart_pi_with_steer(chat_id: str, proc: dict, result: dict):
+    """Restart a steered pi run via `pi --session <session_id>`."""
+    from agent.config import resolve_vm_config, resolve_bot_config
+    from agent.pi_cli import start_detached_pi_ssh
+    from worker.runner import build_pi_resume_cmd, build_pi_env
+
+    session_id = result.get("session_id")
+    if not session_id:
+        logger.warning("pi steer: no session_id for chat_id={}, cannot resume", chat_id)
+        from storage.entity.dto import Message
+        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+        error_msg = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=(
+                "pi could not resume the steer message because the current run "
+                "did not emit a session id before it was interrupted. Please send the "
+                "message again after starting a new run."
+            ),
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        )
+        message_callback(chat_id, error_msg)
+        complete_process(chat_id, status="error")
+        await _mark_chat_stopped(chat_id)
+        return
+
+    user_id = proc["user_id"]
+    work_dir = proc.get("work_dir")
+    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
+    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
+
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    cmd = build_pi_resume_cmd(session_id, model or None, bot_config.api_key or None)
+
+    last_message_id = result.get("last_message_id")
+    env = build_pi_env(bot_config, chat_id, proc.get("trace_id"),
+                       proc.get("topic"), last_message_id)
+
+    await start_detached_pi_ssh(
+        cmd=cmd,
+        prompt=result.get("steer_text", ""),
+        cwd=work_dir,
+        chat_id=chat_id,
+        vm_config=vm_config,
+        env=env or None,
+        images=result.get("steer_images") or None,
+    )
+
+    prev_consumed = proc.get("consumed_steer_ids")
+    if isinstance(prev_consumed, str):
+        try:
+            prev_consumed = json.loads(prev_consumed)
+        except (json.JSONDecodeError, TypeError):
+            prev_consumed = []
+    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
+
+    update_process_offset(
+        chat_id=chat_id,
+        offset=0,
+        last_message_id=last_message_id,
+        session_id=session_id,
+        consumed_steer_ids=all_consumed,
+    )
+    release_lease(chat_id)
+    logger.info("pi steer: restarted chat_id={} session_id={}", chat_id, session_id)
 
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
