@@ -142,3 +142,31 @@ def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
     history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action=action))
     todo.history = history
     return todo_repo.save_todo(user_id, todo)
+
+
+def bulk_update_todos(
+    user_id: int,
+    todo_ids: List[str],
+    *,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    pinned: Optional[bool] = None,
+) -> int:
+    """Apply one or more updates to a batch of todos, reusing the single-todo
+    service functions so each keeps its own history semantics. Missing todo_ids
+    are silently skipped. Returns the count of todos that were updated."""
+    count = 0
+    for todo_id in todo_ids:
+        updated = False
+        if status is not None:
+            if update_status(user_id, todo_id, status) is not None:
+                updated = True
+        if priority is not None:
+            if update_todo(user_id, todo_id, priority=priority) is not None:
+                updated = True
+        if pinned is not None:
+            if pin_todo(user_id, todo_id, pinned) is not None:
+                updated = True
+        if updated:
+            count += 1
+    return count

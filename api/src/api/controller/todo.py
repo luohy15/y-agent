@@ -154,3 +154,23 @@ async def update_status(req: UpdateStatusRequest, request: Request):
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
+
+
+class BulkUpdateRequest(BaseModel):
+    todo_ids: List[str]
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    pinned: Optional[bool] = None
+
+
+@router.post("/bulk_update")
+async def bulk_update(req: BulkUpdateRequest, request: Request):
+    user_id = _get_user_id(request)
+    count = todo_service.bulk_update_todos(
+        user_id,
+        req.todo_ids,
+        status=req.status,
+        priority=req.priority,
+        pinned=req.pinned,
+    )
+    return {"ok": True, "count": count}

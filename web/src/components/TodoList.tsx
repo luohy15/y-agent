@@ -24,6 +24,15 @@ const PAGE_SIZE = 50;
 
 type StatusFilter = "pending" | "active" | "completed" | "all";
 
+const BULK_STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
+const BULK_PRIORITY_OPTIONS = ["high", "medium", "low", "none"] as const;
+const BULK_STATUS_COLOR: Record<string, string> = {
+  pending: "text-sol-base0",
+  active: "text-sol-blue",
+  completed: "text-sol-green",
+  deleted: "text-sol-red",
+};
+
 interface TodoListProps {
   isLoggedIn: boolean;
   onSelectTodo: (todoId: string) => void;
@@ -36,6 +45,9 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
   const [spinning, setSpinning] = useState(false);
   const [readAllBusy, setReadAllBusy] = useState(false);
   const [bulkReadBusy, setBulkReadBusy] = useState(false);
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<{ todo: { todo_id: string; status: string; priority?: string; pinned?: boolean; has_unread?: boolean }; x: number; y: number } | null>(null);
@@ -140,6 +152,40 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
     }
   };
 
+  const bulkUpdate = async (payload: { status?: string; priority?: string; pinned?: boolean }) => {
+    if (bulkActionBusy || selectedTodoIds.size === 0) return;
+    if (payload.status === "deleted" && !window.confirm(`Delete ${selectedTodoIds.size} todos?`)) return;
+    setBulkActionBusy(true);
+    try {
+      const res = await authFetch(`${API}/api/todo/bulk_update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ todo_ids: Array.from(selectedTodoIds), ...payload }),
+      });
+      if (res.ok) {
+        await mutate();
+        exitSelectMode();
+      }
+    } finally {
+      setBulkActionBusy(false);
+      setActionMenuOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) setActionMenuOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setActionMenuOpen(false); };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [actionMenuOpen]);
+
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
@@ -185,6 +231,53 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
               >
                 mark read
               </button>
+              <div ref={actionMenuRef} className="relative">
+                <button
+                  onClick={() => setActionMenuOpen((o) => !o)}
+                  disabled={selectedCount === 0 || bulkActionBusy}
+                  className={`px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${selectedCount === 0 || bulkActionBusy ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"}`}
+                >
+                  actions {"▾"}
+                </button>
+                {actionMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[8rem]">
+                    <div className="px-2 py-0.5 text-[0.55rem] uppercase tracking-wide text-sol-base01">Status</div>
+                    {BULK_STATUS_OPTIONS.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => bulkUpdate({ status: s })}
+                        className={`w-full text-left px-2.5 py-0.5 text-xs hover:bg-sol-base01/30 cursor-pointer ${BULK_STATUS_COLOR[s] || "text-sol-base0"}`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                    <div className="border-t border-sol-base01/30 my-0.5" />
+                    <div className="px-2 py-0.5 text-[0.55rem] uppercase tracking-wide text-sol-base01">Priority</div>
+                    {BULK_PRIORITY_OPTIONS.map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => bulkUpdate({ priority: p })}
+                        className={`w-full text-left px-2.5 py-0.5 text-xs hover:bg-sol-base01/30 cursor-pointer ${priorityColorClass(p)}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                    <div className="border-t border-sol-base01/30 my-0.5" />
+                    <button
+                      onClick={() => bulkUpdate({ pinned: true })}
+                      className="w-full text-left px-2.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base01/30 cursor-pointer"
+                    >
+                      Pin all
+                    </button>
+                    <button
+                      onClick={() => bulkUpdate({ pinned: false })}
+                      className="w-full text-left px-2.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base01/30 cursor-pointer"
+                    >
+                      Unpin all
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedTodoIds(new Set())}
                 disabled={selectedCount === 0}
