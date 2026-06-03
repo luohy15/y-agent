@@ -5,6 +5,7 @@ from .update import bot_update
 from .list import bot_list
 from .get import bot_get
 from .delete import bot_delete
+from .prices import bot_prices
 
 @click.group('bot')
 def bot_group():
@@ -17,3 +18,4 @@ bot_group.add_command(bot_update)
 bot_group.add_command(bot_list)
 bot_group.add_command(bot_get)
 bot_group.add_command(bot_delete)
+bot_group.add_command(bot_prices)
