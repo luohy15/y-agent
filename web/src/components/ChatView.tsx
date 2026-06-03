@@ -24,6 +24,7 @@ interface ChatViewProps {
   onSkillChange?: (skill: string | null) => void;
   onTraceIdChange?: (traceId: string | null) => void;
   onBackendChange?: (backend: string | null) => void;
+  onBotNameChange?: (botName: string | null) => void;
   onComplete?: () => void;
   onOpenFile?: (path: string, line?: number) => void;
   onOpenArtifact?: (type: ArtifactType, spec: string) => void;
@@ -51,7 +52,7 @@ function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
   return filterTrailingEmptyAssistantMessages(allMessages);
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onComplete, onOpenFile, onOpenArtifact, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onBotNameChange, onComplete, onOpenFile, onOpenArtifact, onSelectChat, onSelectTrace }: ChatViewProps) {
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -127,6 +128,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         onSkillChange?.(data.skill ?? null);
         onTraceIdChange?.(data.trace_id ?? null);
         onBackendChange?.(data.backend ?? null);
+        onBotNameChange?.(data.bot_name ?? null);
         if (data.context_window) {
           const input = data.input_tokens || 0;
           const output = data.output_tokens || 0;
