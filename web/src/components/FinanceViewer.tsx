@@ -106,11 +106,30 @@ interface TransactionAmount {
   currency: string;
 }
 
+interface PostingRow {
+  account: string;
+  symbol: string;
+  side: string;
+  quantity: number | null;
+  price: number | null;
+  price_currency: string;
+  amount: number | null;
+  amount_currency: string;
+  cost: number | null;
+  cost_currency: string;
+  commission: number | null;
+  commission_currency: string;
+  payee?: string;
+  narration?: string;
+}
+
 interface TransactionRow {
   transaction_date: string;
   entry_id?: string;
   symbol: string;
   side: string;
+  symbols?: string[];
+  sides?: string[];
   quantity: number | TransactionAmount[] | null;
   price: number | null;
   price_currency: string;
@@ -120,6 +139,8 @@ interface TransactionRow {
   commission_currency: string;
   payee: string;
   narration: string;
+  postings: PostingRow[];
+  source?: string;
 }
 
 interface FinancePriceRow {
@@ -752,7 +773,9 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
   );
 }
 
-type TransactionSortKey = "date" | "symbol" | "side" | "quantity" | "amount";
+type TransactionSortKey = "date" | "type" | "symbol" | "quantity" | "amount";
+type TxnType = "buy" | "sell" | "income" | "fee" | "other";
+type TxnGroupBy = "flat" | "month" | "symbol";
 
 
 function formatTransactionValue(value: number | TransactionAmount[] | null | undefined, currency?: string): ReactNode {
@@ -769,13 +792,92 @@ function formatTransactionValue(value: number | TransactionAmount[] | null | und
   return <>{formatAmount(value)} {currency && <span className="text-sol-base01 text-xs">{currency}</span>}</>;
 }
 
-function transactionSortValue(row: TransactionRow, key: TransactionSortKey): string | number {
+// --- Derived fields (computed client-side from postings[]) ---
+// Classify an entry into a semantic type. Trades are identified by the security
+// leg (Assets:Stock) side; dividend/interest credited to an Income account are
+// income; entries made up only of fee/interest expense legs are fees; the rest
+// (transfers, FX conversions, salary, expenses) are "other".
+function classifyTxnType(row: TransactionRow): TxnType {
+  const postings = row.postings || [];
+  const stockLeg = postings.find((p) => p.account.includes(":Stock") && (p.side === "Buy" || p.side === "Sell"));
+  if (stockLeg) return stockLeg.side === "Buy" ? "buy" : "sell";
+  if (postings.some((p) => (p.side === "Dividend" || p.side === "Interest") && p.account.startsWith("Income"))) return "income";
+  if (postings.length > 0 && postings.every((p) => p.side === "Taxes and fees" || p.account.startsWith("Expenses:Fees") || p.account.startsWith("Expenses:Interest"))) return "fee";
+  return "other";
+}
+
+// Entry-level price = the security leg's per-unit price (entry.price is null).
+function entryPrice(postings: PostingRow[]): TransactionAmount | null {
+  const leg = (postings || []).find((p) => p.price != null && p.account.includes(":Stock"));
+  return leg && leg.price != null ? { amount: leg.price, currency: leg.price_currency } : null;
+}
+
+// Entry-level commission. Real data carries fees as "Taxes and fees" legs
+// (Expenses:Fees) rather than the per-posting commission field (always null
+// here), so sum both representations defensively.
+function entryCommission(postings: PostingRow[]): TransactionAmount | null {
+  let total = 0;
+  let currency = "";
+  for (const p of postings || []) {
+    if (p.commission != null) {
+      total += Math.abs(p.commission);
+      currency = currency || p.commission_currency;
+    } else if (p.side === "Taxes and fees" && p.amount != null) {
+      total += Math.abs(p.amount);
+      currency = currency || p.amount_currency;
+    }
+  }
+  return total !== 0 ? { amount: total, currency } : null;
+}
+
+// Net cash movement per currency = sum of the Assets:Cash legs.
+function entryCashFlows(postings: PostingRow[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of postings || []) {
+    if (p.account.startsWith("Assets:Cash") && p.amount != null) {
+      out[p.amount_currency] = (out[p.amount_currency] || 0) + p.amount;
+    }
+  }
+  return out;
+}
+
+// Primary symbol for grouping: the traded security if any, else first symbol.
+function primarySymbol(row: TransactionRow): string {
+  const stockLeg = (row.postings || []).find((p) => p.account.includes(":Stock") && p.symbol);
+  if (stockLeg) return stockLeg.symbol;
+  if (row.symbols && row.symbols.length) return row.symbols[0];
+  return row.symbol || "—";
+}
+
+function amountsFromMap(m: Record<string, number>): TransactionAmount[] {
+  return Object.entries(m)
+    .filter(([, v]) => Math.abs(v) > 1e-6)
+    .map(([currency, amount]) => ({ amount, currency }));
+}
+
+const TXN_TYPE_META: Record<TxnType, { label: string; cls: string }> = {
+  buy: { label: "Buy", cls: "bg-sol-blue text-sol-base03" },
+  sell: { label: "Sell", cls: "bg-sol-orange text-sol-base03" },
+  income: { label: "Income", cls: "bg-sol-cyan text-sol-base03" },
+  fee: { label: "Fee", cls: "bg-sol-base01 text-sol-base03" },
+  other: { label: "Other", cls: "bg-sol-base01 text-sol-base03" },
+};
+
+function TxnTypeBadge({ type }: { type: TxnType }) {
+  const m = TXN_TYPE_META[type];
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] ${m.cls}`}>{m.label}</span>;
+}
+
+type TypedTxn = { row: TransactionRow; type: TxnType };
+
+function txnSortValue(item: TypedTxn, key: TransactionSortKey): string | number {
+  const { row } = item;
   switch (key) {
     case "date": return row.transaction_date;
+    case "type": return item.type;
     case "symbol": return row.symbol;
-    case "side": return row.side;
-    case "quantity": return Array.isArray(row.quantity) ? row.quantity.reduce((sum, item) => sum + item.amount, 0) : row.quantity ?? 0;
-    case "amount": return Array.isArray(row.amount) ? row.amount.reduce((sum, item) => sum + item.amount, 0) : row.amount ?? 0;
+    case "quantity": return Array.isArray(row.quantity) ? row.quantity.reduce((sum, x) => sum + x.amount, 0) : row.quantity ?? 0;
+    case "amount": return Array.isArray(row.amount) ? row.amount.reduce((sum, x) => sum + x.amount, 0) : row.amount ?? 0;
   }
 }
 
@@ -791,10 +893,133 @@ function TransactionHeader({ label, sortKey, currentKey, dir, onSort, align }: {
   );
 }
 
+function TxnGroupByToggle({ value, onChange }: { value: TxnGroupBy; onChange: (v: TxnGroupBy) => void }) {
+  return (
+    <div className="flex gap-1">
+      {([["flat", "Flat"], ["month", "By month"], ["symbol", "By symbol"]] as const).map(([g, label]) => (
+        <button
+          key={g}
+          onClick={() => onChange(g)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            value === g
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TransactionsSummary({ items }: { items: TypedTxn[] }) {
+  const s = useMemo(() => {
+    let buys = 0, sells = 0, income = 0;
+    const net: Record<string, number> = {};
+    const buyVal: Record<string, number> = {};
+    const sellVal: Record<string, number> = {};
+    const comm: Record<string, number> = {};
+    for (const { row, type } of items) {
+      if (type === "buy") buys++;
+      else if (type === "sell") sells++;
+      else if (type === "income") income++;
+      const cf = entryCashFlows(row.postings || []);
+      for (const [c, v] of Object.entries(cf)) {
+        net[c] = (net[c] || 0) + v;
+        if (type === "buy") buyVal[c] = (buyVal[c] || 0) + v;
+        if (type === "sell") sellVal[c] = (sellVal[c] || 0) + v;
+      }
+      const cm = entryCommission(row.postings || []);
+      if (cm) comm[cm.currency] = (comm[cm.currency] || 0) + cm.amount;
+    }
+    return { count: items.length, buys, sells, income, net, buyVal, sellVal, comm };
+  }, [items]);
+
+  const stat = (label: string, value: ReactNode) => (
+    <div className="min-w-0">
+      <div className="text-sol-base01 text-[10px] uppercase tracking-wide">{label}</div>
+      <div className="text-sol-base1 tabular-nums truncate">{value}</div>
+    </div>
+  );
+  const money = (m: Record<string, number>) => {
+    const arr = amountsFromMap(m);
+    return arr.length ? formatTransactionValue(arr) : "—";
+  };
+
+  return (
+    <div className="rounded border border-sol-base02 bg-sol-base02/40 px-3 py-2 text-xs mb-2 flex flex-wrap gap-x-6 gap-y-2">
+      {stat("Txns", <span className="text-sol-base1 text-sm font-semibold">{s.count}</span>)}
+      {stat("Buys / Sells", <><span className="text-sol-blue">{s.buys}</span> / <span className="text-sol-orange">{s.sells}</span></>)}
+      {stat("Income", <span className="text-sol-cyan">{s.income}</span>)}
+      {stat("Buy value", money(s.buyVal))}
+      {stat("Sell value", money(s.sellVal))}
+      {stat("Net cash", money(s.net))}
+      {stat("Commission", money(s.comm))}
+    </div>
+  );
+}
+
+function PostingsSubtable({ postings }: { postings: PostingRow[] }) {
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-sol-base01 border-b border-sol-base02">
+          <th className="py-0.5 px-2 font-medium text-left">Account</th>
+          <th className="py-0.5 px-2 font-medium text-left">Symbol</th>
+          <th className="py-0.5 px-2 font-medium text-right">Quantity</th>
+          <th className="py-0.5 px-2 font-medium text-right">Price</th>
+          <th className="py-0.5 px-2 font-medium text-right">Amount</th>
+          <th className="py-0.5 px-2 font-medium text-right">Commission</th>
+        </tr>
+      </thead>
+      <tbody>
+        {postings.map((p, i) => (
+          <tr key={i} className="text-sol-base0">
+            <td className="py-0.5 px-2">{p.account}</td>
+            <td className="py-0.5 px-2">{p.symbol}</td>
+            <td className="py-0.5 px-2 text-right tabular-nums">{p.quantity != null ? formatAmount(p.quantity) : "—"}</td>
+            <td className="py-0.5 px-2 text-right tabular-nums">{p.price != null ? <>{formatAmount(p.price)} <span className="text-sol-base01">{p.price_currency}</span></> : "—"}</td>
+            <td className="py-0.5 px-2 text-right tabular-nums">{p.amount != null ? <>{formatAmount(p.amount)} <span className="text-sol-base01">{p.amount_currency}</span></> : "—"}</td>
+            <td className="py-0.5 px-2 text-right tabular-nums">{p.commission != null ? <>{formatAmount(p.commission)} <span className="text-sol-base01">{p.commission_currency}</span></> : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TransactionSubtotalRow({ items }: { items: TypedTxn[] }) {
+  const net: Record<string, number> = {};
+  const comm: Record<string, number> = {};
+  for (const { row } of items) {
+    for (const [c, v] of Object.entries(entryCashFlows(row.postings || []))) net[c] = (net[c] || 0) + v;
+    const cm = entryCommission(row.postings || []);
+    if (cm) comm[cm.currency] = (comm[cm.currency] || 0) + cm.amount;
+  }
+  const netArr = amountsFromMap(net);
+  const commArr = amountsFromMap(comm);
+  return (
+    <tr className="border-t border-sol-base02 font-medium bg-sol-base02/40">
+      <td className="py-1 px-3 text-sol-base1 text-xs" colSpan={5}>Subtotal · {items.length} txns net cash</td>
+      <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{netArr.length ? formatTransactionValue(netArr) : "—"}</td>
+      <td className="py-1 px-3 text-right tabular-nums text-sol-base0">{commArr.length ? formatTransactionValue(commArr) : "—"}</td>
+      <td />
+    </tr>
+  );
+}
+
 function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedAt?: string }) {
   const [sortKey, setSortKey] = useState<TransactionSortKey>(() => (localStorage.getItem("transactions-sort-key") as TransactionSortKey) || "date");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("transactions-sort-dir") as SortDir) || "desc");
   const [symbolFilter, setSymbolFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TxnType | "all">("all");
+  const [groupBy, setGroupBy] = useState<TxnGroupBy>(() => {
+    const v = localStorage.getItem("transactions-group-by");
+    return v === "flat" || v === "month" || v === "symbol" ? v : "month";
+  });
+  const [expanded, setExpanded] = useState<string | null>(null);
+
   const handleSort = (key: TransactionSortKey) => {
     if (key === sortKey) {
       const next = sortDir === "asc" ? "desc" : "asc";
@@ -805,54 +1030,141 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
       localStorage.setItem("transactions-sort-key", key); localStorage.setItem("transactions-sort-dir", next);
     }
   };
-  const sorted = useMemo(() => {
+  const handleGroupBy = (g: TxnGroupBy) => {
+    setGroupBy(g); localStorage.setItem("transactions-group-by", g);
+  };
+
+  const typed = useMemo<TypedTxn[]>(() => rows.map((row) => ({ row, type: classifyTxnType(row) })), [rows]);
+
+  const filtered = useMemo(() => {
     const q = symbolFilter.trim().toUpperCase();
-    const filtered = q ? rows.filter((r) => (r.symbol || "").toUpperCase().includes(q)) : rows;
+    return typed.filter(({ row, type }) => {
+      if (typeFilter !== "all" && type !== typeFilter) return false;
+      if (q && !(row.symbol || "").toUpperCase().includes(q)) return false;
+      return true;
+    });
+  }, [typed, symbolFilter, typeFilter]);
+
+  const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const av = transactionSortValue(a, sortKey);
-      const bv = transactionSortValue(b, sortKey);
+      const av = txnSortValue(a, sortKey);
+      const bv = txnSortValue(b, sortKey);
       const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [rows, sortKey, sortDir, symbolFilter]);
+  }, [filtered, sortKey, sortDir]);
+
+  const groups = useMemo(() => {
+    if (groupBy === "flat") return [{ key: "", label: "", items: sorted }];
+    const map = new Map<string, TypedTxn[]>();
+    for (const it of sorted) {
+      const key = groupBy === "month" ? it.row.transaction_date.slice(0, 7) : primarySymbol(it.row);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(it);
+    }
+    const keys = [...map.keys()].sort((a, b) => groupBy === "month" ? b.localeCompare(a) : a.localeCompare(b));
+    return keys.map((k) => ({
+      key: k,
+      label: groupBy === "month" ? formatPeriodLabel(k) : k,
+      items: map.get(k)!,
+    }));
+  }, [sorted, groupBy]);
+
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
+  const grouped = groupBy !== "flat";
+
   return (
     <div className="mb-4">
-      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
+      <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between gap-2 flex-wrap">
         <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Transactions · synced {formatRelativeTime(syncedAt)}</span>
-        <input
-          type="text"
-          value={symbolFilter}
-          onChange={(e) => setSymbolFilter(e.target.value)}
-          placeholder="Filter symbol"
-          className="w-32 px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
-        />
+        <div className="flex items-center gap-2">
+          <TxnGroupByToggle value={groupBy} onChange={handleGroupBy} />
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as TxnType | "all")}
+            className="px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none cursor-pointer"
+          >
+            <option value="all">All types</option>
+            <option value="buy">Buy</option>
+            <option value="sell">Sell</option>
+            <option value="income">Income</option>
+            <option value="fee">Fee</option>
+            <option value="other">Other</option>
+          </select>
+          <input
+            type="text"
+            value={symbolFilter}
+            onChange={(e) => setSymbolFilter(e.target.value)}
+            placeholder="Filter symbol"
+            className="w-32 px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
+          />
+        </div>
+      </div>
+      <div className="pt-2">
+        <TransactionsSummary items={filtered} />
       </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-sol-base01 text-xs border-b border-sol-base02">
             <TransactionHeader label="Date" sortKey="date" align="left" {...hp} />
+            <TransactionHeader label="Type" sortKey="type" align="left" {...hp} />
             <TransactionHeader label="Symbol" sortKey="symbol" align="left" {...hp} />
-            <TransactionHeader label="Side" sortKey="side" align="left" {...hp} />
             <TransactionHeader label="Quantity" sortKey="quantity" align="right" {...hp} />
             <th className="py-1 px-3 font-medium text-right">Price</th>
             <TransactionHeader label="Amount" sortKey="amount" align="right" {...hp} />
+            <th className="py-1 px-3 font-medium text-right">Commission</th>
             <th className="py-1 px-3 font-medium text-left">Notes</th>
           </tr>
         </thead>
         <tbody>
-          {sorted.map((row, i) => (
-            <tr key={i} className="hover:bg-sol-base02/50">
-              <td className="py-0.5 px-3 text-sol-base0 tabular-nums">{row.transaction_date}</td>
-              <td className="py-0.5 px-3 text-sol-base1">{row.symbol}</td>
-              <td className="py-0.5 px-3 text-sol-base0">{row.side}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.quantity)}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.price, row.price_currency)}</td>
-              <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.amount, row.amount_currency)}</td>
-              <td className="py-0.5 px-3 text-sol-base0 truncate max-w-md">{row.payee || row.narration}</td>
-            </tr>
+          {groups.map((g) => (
+            <Fragment key={g.key || "flat"}>
+              {grouped ? (
+                <tr className="bg-sol-base02/50 border-y border-sol-base02">
+                  <td colSpan={8} className="py-1 px-3 text-sol-base1 text-xs uppercase tracking-wide font-medium">
+                    {g.label} <span className="text-sol-base01 normal-case">· {g.items.length}</span>
+                  </td>
+                </tr>
+              ) : null}
+              {g.items.map((item, i) => {
+                const { row, type } = item;
+                const eid = `${row.entry_id || row.transaction_date}-${i}`;
+                const isExpanded = expanded === eid;
+                const price = entryPrice(row.postings || []);
+                const comm = entryCommission(row.postings || []);
+                const canExpand = (row.postings || []).length > 0;
+                return (
+                  <Fragment key={eid}>
+                    <tr
+                      className={`hover:bg-sol-base02/50 ${canExpand ? "cursor-pointer" : ""}`}
+                      onClick={() => canExpand && setExpanded((c) => c === eid ? null : eid)}
+                    >
+                      <td className="py-0.5 px-3 text-sol-base0 tabular-nums whitespace-nowrap">
+                        <span className="inline-block w-3 text-center text-sol-base01 text-xs">{canExpand ? (isExpanded ? "▼" : "▶") : ""}</span>
+                        <span className="ml-1">{row.transaction_date}</span>
+                      </td>
+                      <td className="py-0.5 px-3"><TxnTypeBadge type={type} /></td>
+                      <td className="py-0.5 px-3 text-sol-base1">{row.symbol}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.quantity)}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{price ? formatTransactionValue(price.amount, price.currency) : "—"}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.amount, row.amount_currency)}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{comm ? formatTransactionValue(comm.amount, comm.currency) : "—"}</td>
+                      <td className="py-0.5 px-3 text-sol-base0 truncate max-w-md">{row.payee || row.narration}</td>
+                    </tr>
+                    {isExpanded ? (
+                      <tr className="border-y border-sol-base02 bg-sol-base03">
+                        <td colSpan={8} className="px-3 py-2">
+                          <PostingsSubtable postings={row.postings || []} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+              {grouped ? <TransactionSubtotalRow items={g.items} /> : null}
+            </Fragment>
           ))}
         </tbody>
       </table>
