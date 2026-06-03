@@ -4,6 +4,7 @@ from tabulate import tabulate
 from yagent.config import config
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
+from .pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
 
 def truncate_text(text, max_length):
     """Truncate text to max_length with ellipsis if needed."""
@@ -42,11 +43,15 @@ def bot_list(verbose: bool = False):
     term_width = shutil.get_terminal_size().columns
     col_widths = {k: max(10, int(term_width * ratio)) for k, ratio in width_ratios.items()}
 
+    # Best-effort OpenRouter prices: fetch the catalog at most once per invocation
+    catalog = fetch_openrouter_catalog()
+
     # Prepare table data with truncated values
     table_data = []
-    headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description", "OpenRouter Config"]
+    headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description", "OpenRouter Config", "Input/1M", "Output/1M"]
 
     for bot_cfg in configs:
+        input_price, output_price = bot_prices_per_1m(bot_cfg, catalog)
         table_data.append([
             truncate_text(bot_cfg.name, col_widths["Name"]),
             truncate_text(bot_cfg.api_key[:8] + "..." if bot_cfg.api_key else "N/A", col_widths["API Key"]),
@@ -54,7 +59,9 @@ def bot_list(verbose: bool = False):
             truncate_text(bot_cfg.base_url, col_widths["Base URL"]),
             truncate_text(bot_cfg.model, col_widths["Model"]),
             truncate_text(bot_cfg.description or "N/A", col_widths["Description"]),
-            "Yes" if bot_cfg.openrouter_config else "No"
+            "Yes" if bot_cfg.openrouter_config else "No",
+            fmt_price(input_price),
+            fmt_price(output_price),
         ])
     click.echo(tabulate(
         table_data,
