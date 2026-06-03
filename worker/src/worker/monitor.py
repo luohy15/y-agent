@@ -658,7 +658,7 @@ async def _restart_pi_with_steer(chat_id: str, proc: dict, result: dict):
     """Restart a steered pi run via `pi --session <session_id>`."""
     from agent.config import resolve_vm_config, resolve_bot_config
     from agent.pi_cli import start_detached_pi_ssh
-    from worker.runner import build_pi_resume_cmd, build_pi_env
+    from worker.runner import build_pi_resume_cmd, build_pi_env, resolve_pi_model_and_provider
 
     session_id = result.get("session_id")
     if not session_id:
@@ -688,7 +688,14 @@ async def _restart_pi_with_steer(chat_id: str, proc: dict, result: dict):
     bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
 
     model = bot_config.model.strip('"').strip() if bot_config.model else None
-    cmd = build_pi_resume_cmd(session_id, model or None, bot_config.api_key or None)
+    api_key = bot_config.api_key or None
+    # Mirror _build_pi_params: a base_url bot resumes via its custom provider
+    # (`y-<bot>/<model>`, auth in models.json) so the resume cmd matches the
+    # original launch and the provider entry is re-written before relaunch.
+    model, models_provider = resolve_pi_model_and_provider(bot_config, model or None)
+    if models_provider:
+        api_key = None
+    cmd = build_pi_resume_cmd(session_id, model or None, api_key)
 
     last_message_id = result.get("last_message_id")
     env = build_pi_env(bot_config, chat_id, proc.get("trace_id"),
@@ -702,6 +709,7 @@ async def _restart_pi_with_steer(chat_id: str, proc: dict, result: dict):
         vm_config=vm_config,
         env=env or None,
         images=result.get("steer_images") or None,
+        models_provider=models_provider,
     )
 
     prev_consumed = proc.get("consumed_steer_ids")

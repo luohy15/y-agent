@@ -2,7 +2,7 @@ import json
 import unittest
 import asyncio
 
-from agent.pi_cli import PiStreamConverter, tail_pi_output
+from agent.pi_cli import PiStreamConverter, tail_pi_output, _write_pi_models_json
 
 
 class _FakeChannel:
@@ -190,6 +190,121 @@ class PiStreamConverterTest(unittest.TestCase):
         self.assertTrue(result["is_done"])
         self.assertEqual(result["status"], "error")
         self.assertTrue(result["result_data"]["is_error"])
+
+
+class _ExecStream:
+    def __init__(self, data=b"", exit_status=0):
+        self._data = data
+        self.channel = type("_Ch", (), {"recv_exit_status": staticmethod(lambda: exit_status)})()
+
+    def read(self):
+        return self._data
+
+
+class _SftpFile:
+    def __init__(self, sink, path):
+        self._sink = sink
+        self._path = path
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def write(self, content):
+        self._sink[self._path] = content
+
+
+class _FakeSftp:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def open(self, path, _mode):
+        return _SftpFile(self._sink, path)
+
+    def close(self):
+        pass
+
+
+class _ModelsJsonClient:
+    """Fake SSH client for _write_pi_models_json: serves $HOME + existing file.
+
+    Emulates real exit codes so the missing-file path is faithful: `existing=None`
+    means the file is absent, so a bare `cat` exits non-zero (which _ssh_exec
+    raises on) unless the command guards it with `|| true`.
+    """
+
+    def __init__(self, home="/home/roy", existing=""):
+        self.home = home
+        self.existing = existing
+        self.writes = {}
+        self.commands = []
+
+    def exec_command(self, cmd):
+        self.commands.append(cmd)
+        exit_status = 0
+        if "$HOME" in cmd:
+            data = self.home.encode()
+        elif cmd.startswith("cat "):
+            if self.existing is None:
+                data = b""
+                if "|| true" not in cmd:
+                    exit_status = 1  # missing file: cat fails unless guarded
+            else:
+                data = self.existing.encode()
+        else:  # mkdir -p / chmod
+            data = b""
+        return None, _ExecStream(data, exit_status), _ExecStream(b"")
+
+    def open_sftp(self):
+        return _FakeSftp(self.writes)
+
+
+class WritePiModelsJsonTest(unittest.TestCase):
+    PROVIDER = {"y-pi": {"baseUrl": "https://gw/openrouter", "api": "anthropic-messages",
+                          "apiKey": "sk-or-x", "models": [{"id": "anthropic/claude-sonnet-4.6"}]}}
+
+    def test_writes_provider_to_home_path(self):
+        client = _ModelsJsonClient(home="/home/roy")
+        _write_pi_models_json(client, self.PROVIDER)
+
+        self.assertIn("/home/roy/.pi/agent/models.json", client.writes)
+        written = json.loads(client.writes["/home/roy/.pi/agent/models.json"])
+        self.assertEqual(written["providers"]["y-pi"]["baseUrl"], "https://gw/openrouter")
+
+    def test_merges_into_existing_providers(self):
+        existing = json.dumps({"providers": {"ollama": {"baseUrl": "http://localhost:11434/v1"}}})
+        client = _ModelsJsonClient(existing=existing)
+        _write_pi_models_json(client, self.PROVIDER)
+
+        written = json.loads(client.writes["/home/roy/.pi/agent/models.json"])
+        self.assertIn("ollama", written["providers"])
+        self.assertIn("y-pi", written["providers"])
+
+    def test_unparseable_existing_is_reset(self):
+        client = _ModelsJsonClient(existing="{ not json")
+        _write_pi_models_json(client, self.PROVIDER)
+
+        written = json.loads(client.writes["/home/roy/.pi/agent/models.json"])
+        self.assertEqual(list(written["providers"]), ["y-pi"])
+
+    def test_missing_file_does_not_raise(self):
+        # A host with no ~/.pi/agent/models.json: cat exits non-zero, so the read
+        # must be guarded (`|| true`) or _ssh_exec raises before the write.
+        client = _ModelsJsonClient(existing=None)
+        _write_pi_models_json(client, self.PROVIDER)
+
+        written = json.loads(client.writes["/home/roy/.pi/agent/models.json"])
+        self.assertEqual(list(written["providers"]), ["y-pi"])
+
+    def test_models_json_is_chmod_600(self):
+        client = _ModelsJsonClient(existing=None)
+        _write_pi_models_json(client, self.PROVIDER)
+
+        self.assertTrue(
+            any("chmod 600" in c and "models.json" in c for c in client.commands)
+        )
 
 
 if __name__ == "__main__":

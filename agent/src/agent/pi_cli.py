@@ -23,7 +23,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _ssh_exec
 from agent.poll_loop import PollLoop
 
 
@@ -198,11 +198,62 @@ def _pi_parse_initial(obj: Dict) -> Optional[str]:
     return None
 
 
-def _pi_spec() -> "DetachBackendSpec":
+def _write_pi_models_json(client, models_provider: Dict[str, dict]) -> None:
+    """Merge custom provider entries into ~/.pi/agent/models.json on the remote host.
+
+    pi reads custom providers (gateways, proxies, self-hosted models) from
+    $PI_CODING_AGENT_DIR/models.json (default ~/.pi/agent/models.json). The merge
+    is keyed by provider name so multiple bots and any hand-written entries
+    coexist; only the providers we own are overwritten on each launch.
+    """
+    home = _ssh_exec(client, 'printf %s "$HOME"').strip()
+    agent_dir = f"{home}/.pi/agent"
+    models_path = f"{agent_dir}/models.json"
+    _ssh_exec(client, f"mkdir -p {_shell_quote(agent_dir)}")
+
+    # `|| true` keeps a missing file from surfacing cat's exit-1 (which _ssh_exec
+    # would otherwise raise on, since 2>/dev/null only suppresses stderr text).
+    existing = _ssh_exec(client, f"cat {_shell_quote(models_path)} 2>/dev/null || true").strip()
+    data = {}
+    if existing:
+        try:
+            data = json.loads(existing)
+        except (ValueError, TypeError):
+            logger.warning("pi_cli: ignoring unparseable models.json on remote host")
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    providers = data.setdefault("providers", {})
+    if not isinstance(providers, dict):
+        providers = {}
+        data["providers"] = providers
+    providers.update(models_provider)
+
+    payload = json.dumps(data, indent=2)
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(models_path, "w") as handle:
+            handle.write(payload)
+    finally:
+        sftp.close()
+
+    # The file holds a plaintext api key, so keep it owner-only.
+    _ssh_exec(client, f"chmod 600 {_shell_quote(models_path)}")
+
+
+def _pi_spec(models_provider: Optional[Dict[str, dict]] = None) -> "DetachBackendSpec":
     from agent.detach import DetachBackendSpec
+
+    setup = None
+    if models_provider:
+        def setup(client, chat_id, prompt, images, _provider=models_provider):
+            _write_pi_models_json(client, _provider)
+
     return DetachBackendSpec(
         build_exec=_pi_build_exec,
         parse_initial=_pi_parse_initial,
+        setup=setup,
     )
 
 
@@ -214,9 +265,14 @@ async def start_detached_pi_ssh(
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
+    models_provider: Optional[Dict[str, dict]] = None,
     ssh_client=None,
 ) -> Optional[str]:
-    """Start pi in a detached tmux session on the remote host."""
+    """Start pi in a detached tmux session on the remote host.
+
+    When `models_provider` is set (bot_config.base_url is configured), a custom
+    provider is merged into the remote ~/.pi/agent/models.json before launch.
+    """
     from agent.detach import _start_detached_tmux
     return await _start_detached_tmux(
         cmd=cmd,
@@ -224,7 +280,7 @@ async def start_detached_pi_ssh(
         cwd=cwd,
         chat_id=chat_id,
         vm_config=vm_config,
-        spec=_pi_spec(),
+        spec=_pi_spec(models_provider),
         env=env,
         images=images,
         ssh_client=ssh_client,

@@ -43,8 +43,11 @@ class PiSteerTest(unittest.IsolatedAsyncioTestCase):
             return "sess-1"
 
         bot_config = Mock()
+        bot_config.name = "pi"
         bot_config.model = "google/gemini-2.5-flash"
         bot_config.api_key = "secret"
+        # Default OpenRouter base_url → v1 passthrough (no custom provider).
+        bot_config.base_url = "https://openrouter.ai/api/v1"
 
         with (
             patch("agent.config.resolve_vm_config", return_value=Mock(name="vm")),
@@ -66,6 +69,42 @@ class PiSteerTest(unittest.IsolatedAsyncioTestCase):
              "--model", "google/gemini-2.5-flash", "--api-key", "secret"],
         )
         self.assertEqual(captured["prompt"], "do more")
+        self.assertIsNone(captured.get("models_provider"))
+
+    async def test_steer_resumes_through_gateway_provider(self):
+        captured = {}
+
+        async def fake_start(**kwargs):
+            captured.update(kwargs)
+            return "sess-1"
+
+        bot_config = Mock()
+        bot_config.name = "pi"
+        bot_config.model = "anthropic/claude-sonnet-4.6"
+        bot_config.api_key = "sk-or-x"
+        bot_config.base_url = "https://gateway.ai.cloudflare.com/v1/acct/luohy15/openrouter"
+
+        with (
+            patch("agent.config.resolve_vm_config", return_value=Mock(name="vm")),
+            patch("agent.config.resolve_bot_config", return_value=bot_config),
+            patch("agent.pi_cli.start_detached_pi_ssh", side_effect=fake_start) as start,
+            patch("worker.monitor.update_process_offset"),
+            patch("worker.monitor.release_lease"),
+        ):
+            await _restart_pi_with_steer(
+                "chat-1",
+                {"user_id": 1, "vm_name": "vm", "work_dir": "/repo", "backend_type": "pi_cli"},
+                {"status": "steer", "steer_text": "do more", "session_id": "sess-1"},
+            )
+
+        start.assert_awaited_once()
+        # Resume must address the custom provider and drop --api-key (auth in models.json).
+        self.assertEqual(
+            captured["cmd"],
+            ["pi", "-p", "--mode", "json", "--session", "sess-1",
+             "--model", "y-pi/anthropic/claude-sonnet-4.6"],
+        )
+        self.assertIn("y-pi", captured["models_provider"])
 
 
 class PiMonitorResumeTest(unittest.IsolatedAsyncioTestCase):
