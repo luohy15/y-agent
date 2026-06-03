@@ -6,8 +6,12 @@ from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 from worker.runner import (
     _build_pi_params,
     build_pi_env,
+    build_pi_models_provider,
     build_pi_resume_cmd,
+    resolve_pi_model_and_provider,
 )
+
+GATEWAY_URL = "https://gateway.ai.cloudflare.com/v1/acct/luohy15/openrouter"
 
 
 def _message(role: str, content: str, msg_id: str) -> Message:
@@ -123,6 +127,89 @@ class PiRunnerTest(unittest.TestCase):
         )
         self.assertTrue(params["resume"])
         self.assertEqual(params["session_id"], "session-1")
+
+
+class PiBaseUrlTest(unittest.TestCase):
+    def test_models_provider_built_from_bot_config(self):
+        name, provider = build_pi_models_provider(
+            BotConfig(name="pi", backend="pi_cli", base_url=GATEWAY_URL,
+                      api_key="sk-or-x", model='"anthropic/claude-sonnet-4.6"')
+        )
+        self.assertEqual(name, "y-pi")
+        self.assertEqual(provider["baseUrl"], GATEWAY_URL)
+        self.assertEqual(provider["api"], "anthropic-messages")
+        self.assertEqual(provider["apiKey"], "sk-or-x")
+        self.assertEqual(provider["models"][0]["id"], "anthropic/claude-sonnet-4.6")
+        self.assertEqual(provider["models"][0]["name"], "anthropic/claude-sonnet-4.6")
+
+    def test_resolve_with_base_url_namespaces_model(self):
+        model, provider = resolve_pi_model_and_provider(
+            BotConfig(name="pi", base_url=GATEWAY_URL, api_key="sk-or-x"),
+            "anthropic/claude-sonnet-4.6",
+        )
+        self.assertEqual(model, "y-pi/anthropic/claude-sonnet-4.6")
+        self.assertIn("y-pi", provider)
+
+    def test_resolve_with_default_base_url_is_passthrough(self):
+        # BotConfig defaults base_url to the stock OpenRouter endpoint; that must
+        # keep the v1 provider-prefix behavior, not register a custom provider.
+        model, provider = resolve_pi_model_and_provider(
+            BotConfig(name="pi"), "google/gemini-2.5-pro"
+        )
+        self.assertEqual(model, "google/gemini-2.5-pro")
+        self.assertIsNone(provider)
+
+    def test_build_params_with_base_url_drops_api_key_flag(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_pi_params(
+                _chat(),
+                "chat-1",
+                1,
+                BotConfig(name="pi", backend="pi_cli", base_url=GATEWAY_URL,
+                          api_key="sk-or-x", model="anthropic/claude-sonnet-4.6"),
+            )
+
+        self.assertEqual(
+            params["cmd"],
+            ["pi", "-p", "--mode", "json", "--model", "y-pi/anthropic/claude-sonnet-4.6"],
+        )
+        self.assertNotIn("--api-key", params["cmd"])
+        self.assertIn("y-pi", params["models_provider"])
+
+    def test_build_params_resume_with_base_url(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_pi_params(
+                _chat(external_id="session-1", work_dir="/repo"),
+                "chat-1",
+                1,
+                BotConfig(name="pi", backend="pi_cli", base_url=GATEWAY_URL,
+                          api_key="sk-or-x", model="anthropic/claude-sonnet-4.6"),
+            )
+
+        self.assertEqual(
+            params["cmd"],
+            ["pi", "-p", "--mode", "json", "--session", "session-1",
+             "--model", "y-pi/anthropic/claude-sonnet-4.6"],
+        )
+        self.assertIn("y-pi", params["models_provider"])
+
+    def test_build_params_without_base_url_unchanged(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_pi_params(
+                _chat(),
+                "chat-1",
+                1,
+                BotConfig(name="pi", backend="pi_cli", model="google/gemini-2.5-pro", api_key="secret"),
+            )
+
+        self.assertEqual(
+            params["cmd"],
+            ["pi", "-p", "--mode", "json", "--model", "google/gemini-2.5-pro", "--api-key", "secret"],
+        )
+        self.assertIsNone(params["models_provider"])
 
 
 if __name__ == "__main__":

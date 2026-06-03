@@ -6,11 +6,18 @@ import re
 from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
-from storage.entity.dto import Message
+from storage.entity.dto import BotConfig, Message
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
+
+
+# Stock OpenRouter endpoint that BotConfig falls back to when base_url is unset.
+# A pi bot left at this default keeps the v1 behavior (provider inferred from the
+# `<provider>/<model>` prefix); only an explicitly-configured custom gateway
+# triggers models.json custom-provider registration.
+DEFAULT_BOT_BASE_URL = BotConfig.__dataclass_fields__["base_url"].default
 
 
 PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
@@ -625,6 +632,64 @@ def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None)
     return cmd
 
 
+def _pi_provider_name(bot_name: str) -> str:
+    """Synthetic, namespaced pi provider name derived from a bot name.
+
+    Prefixed with `y-` so it never collides with pi's built-in providers
+    (anthropic / openrouter / google / ...).
+    """
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "-", bot_name or "bot").strip("-") or "bot"
+    return f"y-{safe}"
+
+
+def build_pi_models_provider(bot_config) -> tuple[str, dict]:
+    """Materialize a pi custom-provider entry from bot_config.base_url.
+
+    pi has no generic per-provider base-url env override, so an OpenAI/Anthropic
+    gateway (like the OpenRouter cloudflare gateway used by deepseek/inline) must
+    be registered as a custom provider in ~/.pi/agent/models.json. This keeps the
+    bot config (base_url + api_key + model) the single source of truth: the worker
+    generates the provider entry and addresses it via `--model <provider>/<model>`.
+
+    Returns (provider_name, provider_dict).
+    """
+    provider_name = _pi_provider_name(bot_config.name)
+    model_id = bot_config.model.strip('"').strip() if bot_config.model else ""
+    provider = {
+        "baseUrl": bot_config.base_url,
+        "api": "anthropic-messages",
+        "apiKey": bot_config.api_key or "",
+        "models": [
+            {
+                "id": model_id,
+                "name": model_id,
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 16384,
+            }
+        ],
+    }
+    return provider_name, provider
+
+
+def resolve_pi_model_and_provider(bot_config, model):
+    """Apply base_url custom-provider routing to a pi model string.
+
+    When a non-default (custom gateway) base_url is configured, the model is
+    namespaced to a synthetic provider (`y-<bot>/<model>`) backed by a models.json
+    entry the worker writes remotely; auth then lives in that entry. A bot left at
+    the stock OpenRouter default keeps the v1 behavior (provider inferred from the
+    model prefix, auth via --api-key). Returns (model, models_provider) where
+    models_provider is None when no custom-provider routing applies.
+    """
+    base_url = bot_config.base_url
+    if base_url and base_url != DEFAULT_BOT_BASE_URL and model:
+        provider_name, provider_dict = build_pi_models_provider(bot_config)
+        return f"{provider_name}/{model}", {provider_name: provider_dict}
+    return model, None
+
+
 def build_pi_env(bot_config, chat_id: str = None, trace_id: str = None,
                  topic: str = None, last_message_id: str = None) -> dict:
     """pi subprocess env: trace/topic vars (auth goes via --api-key on the cmd)."""
@@ -752,6 +817,15 @@ def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str 
     model = model or None
     api_key = bot_config.api_key or None
 
+    # base_url support: pi cannot point an existing provider at a custom gateway
+    # via env, so when a custom (non-default) base_url is configured we register a
+    # provider in ~/.pi/agent/models.json (written remotely before launch) and
+    # address it as `--model <provider>/<model>`. Auth then lives in the provider
+    # entry, so the --api-key flag is dropped to avoid a conflicting credential.
+    model, models_provider = resolve_pi_model_and_provider(bot_config, model)
+    if models_provider:
+        api_key = None
+
     session_id = chat.external_id
     resume = bool(session_id) and chat.work_dir == cwd
 
@@ -785,6 +859,7 @@ def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str 
         "last_message_id": last_message_id,
         "model": model,
         "messages": messages,
+        "models_provider": models_provider,
     }
 
 
@@ -868,6 +943,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             vm_config=params["vm_config"],
             env=params["env"],
             images=params.get("images"),
+            models_provider=params.get("models_provider"),
         )
     else:
         from agent.claude_code import start_detached_ssh
