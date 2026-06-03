@@ -1,6 +1,7 @@
 import click
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
+from .pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
 
 @click.command('get')
 @click.argument('name')
@@ -11,6 +12,8 @@ def bot_get(name):
         click.echo(f"Bot '{name}' not found")
         return
 
+    input_price, output_price = bot_prices_per_1m(config, fetch_openrouter_catalog())
+
     fields = [
         ("Name", config.name),
         ("Backend", config.backend or config.api_type or "N/A"),
@@ -19,6 +22,8 @@ def bot_get(name):
         ("API Key", config.api_key or "N/A"),
         ("Description", config.description or "N/A"),
         ("OpenRouter Config", config.openrouter_config or "N/A"),
+        ("Input/1M", fmt_price(input_price)),
+        ("Output/1M", fmt_price(output_price)),
     ]
     width = max(len(label) for label, _ in fields)
     for label, value in fields:
