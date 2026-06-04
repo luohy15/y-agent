@@ -10,7 +10,7 @@ DEFAULT_OPENROUTER_CONFIG = {
 @dataclass
 class BotConfig:
     name: str
-    base_url: str = "https://openrouter.ai/api/v1"
+    base_url: str = ""
     api_key: str = ""
     api_type: Optional[str] = None
     backend: Optional[str] = None
