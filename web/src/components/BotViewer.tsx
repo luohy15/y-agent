@@ -64,6 +64,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
   const [maxTokens, setMaxTokens] = useState(full.max_tokens ? String(full.max_tokens) : "");
   const [customApiPath, setCustomApiPath] = useState(full.custom_api_path || "");
   const [priceOverride, setPriceOverride] = useState(full.price_override ? String(full.price_override) : "");
+  const [refBotName, setRefBotName] = useState(full.ref_bot_name || "");
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -78,7 +79,8 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
     apiKey !== "" ||
     maxTokens !== (full.max_tokens ? String(full.max_tokens) : "") ||
     customApiPath !== (full.custom_api_path || "") ||
-    priceOverride !== (full.price_override ? String(full.price_override) : "");
+    priceOverride !== (full.price_override ? String(full.price_override) : "") ||
+    refBotName !== (full.ref_bot_name || "");
 
   const handleSave = async () => {
     const body: Record<string, unknown> = { name };
@@ -92,6 +94,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
     if (maxTokens !== (full.max_tokens ? String(full.max_tokens) : "")) body.max_tokens = maxTokens ? Number(maxTokens) : null;
     if (customApiPath !== (full.custom_api_path || "")) body.custom_api_path = customApiPath || null;
     if (priceOverride !== (full.price_override ? String(full.price_override) : "")) body.price_override = priceOverride ? Number(priceOverride) : null;
+    if (refBotName !== (full.ref_bot_name || "")) body.ref_bot_name = refBotName || null;
 
     if (Object.keys(body).length <= 1) return; // only name
     setSaving(true);
@@ -170,6 +173,9 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
 
         <label className="text-sol-base01 pt-1">Price Override</label>
         <input type="number" step="any" value={priceOverride} onChange={(e) => setPriceOverride(e.target.value)} className={inputClass} />
+
+        <label className="text-sol-base01 pt-1">Ref Bot Name</label>
+        <input type="text" value={refBotName} onChange={(e) => setRefBotName(e.target.value)} placeholder="codex" className={inputClass} />
 
         <label className="text-sol-base01 pt-1">Enabled</label>
         <div className="flex items-center gap-2">
@@ -290,6 +296,7 @@ export default function BotViewer() {
       type: form.type || null,
       tier: form.tier || null,
       price_override: form.price_override ? Number(form.price_override) : null,
+      ref_bot_name: form.ref_bot_name.trim() || null,
       ...(form.api_key ? { api_key: form.api_key } : {}),
     };
     try {
@@ -379,6 +386,7 @@ export default function BotViewer() {
                           <span className="text-sol-base1 font-medium">{bot.name}</span>
                           {bot.name === "default" && <span className="text-[0.55rem] px-1 rounded bg-sol-base02 text-sol-base01 shrink-0">def</span>}
                           {bot.has_api_key && <span className="text-[0.55rem] px-1 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
+                          {bot.ref_bot_name && <span className="text-[0.55rem] px-1 rounded bg-sol-blue/15 text-sol-blue shrink-0" title={bot.ref_bot_name}>ref</span>}
                         </span>
                       </td>
                       <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>

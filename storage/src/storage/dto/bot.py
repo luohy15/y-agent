@@ -24,6 +24,7 @@ class BotConfig:
     type: Optional[str] = None
     route_weight: Optional[float] = None
     enabled: bool = True
+    ref_bot_name: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'BotConfig':

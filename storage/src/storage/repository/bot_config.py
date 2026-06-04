@@ -23,6 +23,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         type=entity.type,
         route_weight=entity.route_weight,
         enabled=entity.enabled if entity.enabled is not None else True,
+        ref_bot_name=entity.ref_bot_name,
     )
 
 
@@ -42,6 +43,7 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         type=config.type,
         route_weight=config.route_weight,
         enabled=config.enabled,
+        ref_bot_name=config.ref_bot_name,
     )
     return fields
 

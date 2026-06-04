@@ -22,6 +22,7 @@ class BotConfigRequest(BaseModel):
     tier: Optional[str] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
+    ref_bot_name: Optional[str] = None
 
 
 class UpdateBotConfigRequest(BaseModel):
@@ -36,6 +37,7 @@ class UpdateBotConfigRequest(BaseModel):
     tier: Optional[str] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
+    ref_bot_name: Optional[str] = None
 
 
 class BotNameRequest(BaseModel):
@@ -69,6 +71,7 @@ async def list_bot_configs(request: Request):
                 "type": c.type or "agent",
                 "route_weight": c.route_weight,
                 "enabled": c.enabled,
+                "ref_bot_name": c.ref_bot_name,
             }
         )
     return result
@@ -93,6 +96,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         "type": config.type or "agent",
         "route_weight": config.route_weight,
         "enabled": config.enabled,
+        "ref_bot_name": config.ref_bot_name,
     }
 
 
@@ -114,6 +118,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         tier=req.tier or None,
         type=req.type or None,
         route_weight=req.route_weight,
+        ref_bot_name=req.ref_bot_name or None,
     )
     bot_service.add_config(user_id, config)
     return {"ok": True, "name": name}
@@ -145,6 +150,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         tier=existing.tier if "tier" not in fields_set else (req.tier or None),
         type=existing.type if "type" not in fields_set else (req.type or None),
         route_weight=existing.route_weight if "route_weight" not in fields_set else req.route_weight,
+        ref_bot_name=existing.ref_bot_name if "ref_bot_name" not in fields_set else (req.ref_bot_name or None),
         enabled=existing.enabled,
     )
     bot_service.add_config(user_id, config)

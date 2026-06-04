@@ -12,6 +12,8 @@ from storage.service.user import get_default_user_id
 
 logger = logging.getLogger(__name__)
 
+_MAX_REF_DEPTH = 5
+
 # Phase 0 static skill->tier mapping.
 # Unlisted skills (and *all* new skills) default to tier1 (conservative).
 # tier2 is an explicit allowlist of cheap-safe skills only.
@@ -79,15 +81,55 @@ def tier_of(bot_config: BotConfig) -> str:
     return bot_config.tier or "tier1"
 
 
+def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:
+    """Recursively dereference a ref bot to its target config.
+
+    If bot_config.ref_bot_name is set, resolve it to the target bot config.
+    Returns the original config if ref_bot_name is not set.
+    Raises ValueError on circular refs or max depth exceeded.
+    """
+    if not bot_config.ref_bot_name:
+        return bot_config
+
+    if depth >= _MAX_REF_DEPTH:
+        raise ValueError(
+            f"Max ref depth ({_MAX_REF_DEPTH}) exceeded resolving bot '{bot_config.name}'"
+        )
+
+    visited = visited or set()
+    ref_name = bot_config.ref_bot_name
+    if ref_name in visited:
+        raise ValueError(
+            f"Circular ref detected: {bot_config.name} -> {ref_name} (already visited)"
+        )
+    visited.add(ref_name)
+
+    target = bot_service.get_config(user_id, ref_name)
+    if not target:
+        default_user_id = get_default_user_id()
+        if default_user_id != user_id:
+            target = bot_service.get_config(default_user_id, ref_name)
+    if not target:
+        raise ValueError(
+            f"Ref target bot '{ref_name}' not found (resolving '{bot_config.name}')"
+        )
+
+    return _deref_bot_config(user_id, target, visited, depth + 1)
+
+
 def _bots_for_tier(user_id: int, tier: str) -> List[BotConfig]:
     """Return list of BotConfig for bots matching the tier.
 
     Excludes perplexity backend (px is pin-only, not a pool member).
     Excludes type='model' bots (inline, tldr, etc.) from auto-routing.
+    Excludes ref/pointer bots (a pointer shouldn't be a weighted pool member).
     """
     configs = bot_service.list_configs(user_id)
     bots = []
     for cfg in configs:
+        # Exclude ref/pointer bots from tier pools
+        if cfg.ref_bot_name:
+            continue
         effective = cfg.backend or cfg.api_type
         # Safety: keep perplexity hard-exclusion (belt + suspenders)
         if effective == "perplexity":
@@ -133,7 +175,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
             if default_user_id != user_id:
                 bot_config = _find_bot_config_by_backend(default_user_id, backend, bot_name)
         if bot_config:
-            return bot_config
+            return _deref_bot_config(user_id, bot_config)
 
         logger.warning(
             "No bot config found for user_id=%s bot_name=%s backend=%s; using backend-only fallback",
@@ -170,7 +212,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
             bot_config = bot_service.get_config(default_user_id)
     if not bot_config:
         raise ValueError(f"No bot config found for user_id={user_id}, bot_name={bot_name}")
-    return bot_config
+    return _deref_bot_config(user_id, bot_config)
 
 
 def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
