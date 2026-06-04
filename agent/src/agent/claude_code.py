@@ -418,6 +418,51 @@ def _ssh_exec(client, cmd: str) -> str:
     return output
 
 
+def _no_result_error_message(client, chat_id: str, backend: str) -> str:
+    """Build a precise error message for a tmux session that ended without ever
+    emitting a final result event.
+
+    The detach launcher writes the subprocess exit code to
+    `/tmp/cc-<chat_id>.exit` (`echo $EC > exit_file`). That code tells us *why*
+    the process is gone — e.g. a SIGTERM/SIGKILL from an external reaper or the
+    OOM killer (a common false alarm previously mis-reported as a resume
+    failure) vs. a genuine startup/resume error. Fall back to a generic message
+    when the exit file is missing, empty, or unparseable.
+    """
+    generic = (
+        f"{backend} exited before producing output — likely a session resume "
+        f"failure or startup error."
+    )
+    exit_file = f"/tmp/cc-{chat_id}.exit"
+    try:
+        raw = _ssh_exec(client, f"cat {_shell_quote(exit_file)} 2>/dev/null").strip()
+    except Exception:
+        return generic
+    if not raw:
+        return generic
+    try:
+        code = int(raw)
+    except ValueError:
+        return generic
+
+    if code == 143:
+        return (
+            f"{backend} exited before producing output: terminated by SIGTERM "
+            f"(15) — likely killed by an external reaper/OOM, not a resume failure."
+        )
+    if code == 137:
+        return (
+            f"{backend} exited before producing output: terminated by SIGKILL "
+            f"(9) — likely killed by an external reaper/OOM, not a resume failure."
+        )
+    if code != 0:
+        return (
+            f"{backend} exited before producing output: process exited with code "
+            f"{code} — likely a startup or resume error."
+        )
+    return generic
+
+
 # ---------------------------------------------------------------------------
 # Detached SSH runner (tmux-based, for Lambda timeout resilience)
 # ---------------------------------------------------------------------------
@@ -773,9 +818,10 @@ async def tail_ssh_output(
         status = "completed"
         if result_data is None:
             # tmux session exited without ever emitting a stream-json `result`
-            # event — typically a startup failure (e.g. `claude -p -r <id>` with
-            # a session_id that doesn't exist in the current cwd). Surface a
-            # concrete error so the chat doesn't silently die.
+            # event. This can be a startup/resume failure (e.g. `claude -p -r
+            # <id>` with a session_id that doesn't exist in the current cwd) or
+            # an external SIGTERM/SIGKILL (reaper/OOM). Read the launcher exit
+            # code for a precise message so the chat doesn't silently die.
             logger.warning(
                 "tail_ssh_output: chat_id={} exited with no result event (offset={})",
                 chat_id, current_offset,
@@ -783,7 +829,7 @@ async def tail_ssh_output(
             status = "error"
             result_data = {
                 "is_error": True,
-                "result": "Claude Code exited before producing output — likely a session resume failure or startup error.",
+                "result": _no_result_error_message(client, chat_id, "Claude Code"),
             }
         elif result_data.get("is_error"):
             status = "error"

@@ -22,7 +22,7 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _no_result_error_message
 from agent.poll_loop import PollLoop
 
 JSONValue = Optional[object]
@@ -596,8 +596,9 @@ async def tail_codex_output(
             status = "error"
             result_data = last_error_data
         elif result_data is None:
-            # tmux session exited without ever emitting a turn.completed event —
-            # typically a startup / resume failure. Surface a concrete error so
+            # tmux session exited without ever emitting a turn.completed event.
+            # This can be a startup/resume failure or an external SIGTERM/SIGKILL
+            # (reaper/OOM). Read the launcher exit code for a precise message so
             # the chat doesn't silently die.
             logger.warning(
                 "tail_codex_output: chat_id={} exited with no turn.completed event (offset={})",
@@ -606,7 +607,7 @@ async def tail_codex_output(
             status = "error"
             result_data = {
                 "is_error": True,
-                "result": "Codex exited before producing output — likely a session resume failure or startup error.",
+                "result": _no_result_error_message(client, chat_id, "Codex"),
             }
 
         return {
