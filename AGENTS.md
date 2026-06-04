@@ -325,13 +325,13 @@ These three docs drift fast. Baseline cadence since 2026-04-23:
   user-facing highlights, group under Added / Changed / Fixed / Removed, commit as
   `docs(changelog): weekly update <YYYY-MM-DD>`. A weekly reminder handles the
   trigger.
-- **CLAUDE.md** — update opportunistically when a PR introduces a new entity,
+- **AGENTS.md** — update opportunistically when a PR introduces a new entity,
   controller, CLI subcommand group, or architectural convention. A quarterly audit
   reconciles the "Notable Subsystems", "Data Models", and "API Routes" sections with
   what's actually in `storage/entity/`, `api/controller/`, and `cli/commands/`. Keep
   numbers vague ("see the directory") to avoid stale counts.
 - **README.md** — update when user-visible capability changes (new subsystem, changed
-  install flow). Same quarterly audit window as CLAUDE.md.
+  install flow). Same quarterly audit window as AGENTS.md.
 
 Audit checklist (run quarterly):
 
