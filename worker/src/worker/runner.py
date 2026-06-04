@@ -475,7 +475,14 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
-    bot_config = agent_config.resolve_bot_config(user_id, bot_name, backend=chat.backend or backend)
+    # Phase 0: derive tier from skill. Unlisted skills and no-skill default to tier1.
+    skill_tier = "tier1"
+    if skill:
+        skill_tier = getattr(agent_config, "SKILL_TO_TIER", {}).get(skill) or "tier1"
+
+    bot_config = agent_config.resolve_bot_config(
+        user_id, bot_name, backend=chat.backend or backend, tier=skill_tier,
+    )
     if chat.backend:
         logger.info("Using backend from chat: {}", chat.backend)
     elif backend:

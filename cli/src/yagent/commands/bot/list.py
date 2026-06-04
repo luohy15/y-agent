@@ -48,7 +48,7 @@ def bot_list(verbose: bool = False):
 
     # Prepare table data with truncated values
     table_data = []
-    headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description", "OpenRouter Config", "Input/1M", "Output/1M"]
+    headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description", "OpenRouter Config", "Input/1M", "Output/1M", "Tier"]
 
     for bot_cfg in configs:
         input_price, output_price = bot_prices_per_1m(bot_cfg, catalog)
@@ -62,6 +62,7 @@ def bot_list(verbose: bool = False):
             "Yes" if bot_cfg.openrouter_config else "No",
             fmt_price(input_price),
             fmt_price(output_price),
+            bot_cfg.tier or "tier1",
         ])
     click.echo(tabulate(
         table_data,
