@@ -19,6 +19,20 @@ interface BotConfig {
 type SortKey = "name" | "backend" | "model" | "price_input" | "price_output";
 type SortDir = "asc" | "desc";
 
+const SORT_STORAGE_KEY = "botListSort";
+const SORT_KEYS: SortKey[] = ["name", "backend", "model", "price_input", "price_output"];
+
+// Read the persisted sort state, falling back to Name asc when absent/invalid.
+function loadSort(): { key: SortKey; dir: SortDir } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || "");
+    if (SORT_KEYS.includes(saved?.key) && (saved?.dir === "asc" || saved?.dir === "desc")) {
+      return { key: saved.key, dir: saved.dir };
+    }
+  } catch { /* ignore */ }
+  return { key: "name", dir: "asc" };
+}
+
 // Mirror the Python fmt_price helper: 4 significant figures, "-" when missing.
 function fmtPrice(price?: number | null): string {
   if (price === null || price === undefined) return "-";
@@ -273,8 +287,8 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   const [editing, setEditing] = useState<BotConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(() => loadSort().key);
+  const [sortDir, setSortDir] = useState<SortDir>(() => loadSort().dir);
 
   const { data, error: loadError, isLoading, mutate } = useSWR<BotConfig[]>(
     isLoggedIn ? `${API}/api/bot/list` : null,
@@ -316,6 +330,10 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
       setSortDir("asc");
     }
   };
+
+  useEffect(() => {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ key: sortKey, dir: sortDir }));
+  }, [sortKey, sortDir]);
 
   useEffect(() => {
     if (!form) {
