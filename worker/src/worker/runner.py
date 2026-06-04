@@ -520,10 +520,30 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
                                  post_hooks=post_hooks, trace_id=trace_id, topic=topic)
         return "done"
 
-    await _start_detached(chat, chat_id, user_id, bot_config,
-                           vm_name=vm_name, work_dir=work_dir,
-                           post_hooks=post_hooks, trace_id=trace_id, topic=topic)
-    return "detached"
+    try:
+        await _start_detached(chat, chat_id, user_id, bot_config,
+                               vm_name=vm_name, work_dir=work_dir,
+                               post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+        return "detached"
+    except Exception as e:
+        logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
+        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+        error_text = f"Backend launch failed: {type(e).__name__}: {str(e)}"
+        fresh = await chat_service.get_chat_by_id(chat_id)
+        if fresh:
+            if fresh.running:
+                fresh.running = False
+                error_msg = Message(
+                    id=generate_message_id(),
+                    role="assistant",
+                    content=error_text,
+                    timestamp=get_utc_iso8601_timestamp(),
+                    unix_timestamp=get_unix_timestamp(),
+                )
+                fresh.messages.append(error_msg)
+                await chat_repo.save_chat_by_id(fresh)
+                logger.info("Set running=False and appended error message for chat {} after launch failure", chat_id)
+        raise
 
 
 
@@ -993,10 +1013,28 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
 
     # Register in DynamoDB for monitoring
-    register_process(
-        chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
-        bot_name=bot_config.name, trace_id=trace_id, topic=topic,
-        post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
-        backend_type=effective_backend,
-        initial_msg_count=len(chat.messages),
-    )
+    try:
+        register_process(
+            chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
+            bot_name=bot_config.name, trace_id=trace_id, topic=topic,
+            post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
+            backend_type=effective_backend,
+            initial_msg_count=len(chat.messages),
+        )
+    except Exception as e:
+        logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
+        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+        fresh = await chat_service.get_chat_by_id(chat_id)
+        if fresh and fresh.running:
+            fresh.running = False
+            error_msg = Message(
+                id=generate_message_id(),
+                role="assistant",
+                content=f"Process registration failed: {type(e).__name__}: {str(e)}. The backend session may have started but cannot be monitored.",
+                timestamp=get_utc_iso8601_timestamp(),
+                unix_timestamp=get_unix_timestamp(),
+            )
+            fresh.messages.append(error_msg)
+            from storage.repository import chat as chat_repo
+            await chat_repo.save_chat_by_id(fresh)
+        raise
