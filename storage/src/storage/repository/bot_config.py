@@ -21,7 +21,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         custom_api_path=entity.custom_api_path,
         tier=entity.tier,
         type=entity.type,
-        price_override=entity.price_override,
+        route_weight=entity.route_weight,
         enabled=entity.enabled if entity.enabled is not None else True,
     )
 
@@ -40,7 +40,7 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         custom_api_path=config.custom_api_path,
         tier=config.tier,
         type=config.type,
-        price_override=config.price_override,
+        route_weight=config.route_weight,
         enabled=config.enabled,
     )
     return fields
