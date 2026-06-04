@@ -13,9 +13,13 @@ def truncate_text(text, max_length):
 
 @click.command('list')
 @click.option('--full', '-f', is_flag=True, help='Show all columns (full table)')
-def bot_list(full: bool = False):
+@click.option('--type', '-t', 'filter_type', type=click.Choice(['agent', 'model']), help='Filter by type')
+def bot_list(full: bool = False, filter_type: str | None = None):
     """List all bot configurations (compact by default)."""
     configs = bot_service.list_configs(get_cli_user_id())
+
+    if filter_type:
+        configs = [c for c in configs if (c.type or 'agent') == filter_type]
 
     if not configs:
         click.echo("No bot configurations found")
@@ -56,14 +60,15 @@ def bot_list(full: bool = False):
                 "Yes" if bot_cfg.enabled else "No",
             ])
     else:
-        # Compact: Name, Backend, Model
-        headers = ["Name", "Backend", "Model"]
+        # Compact: Name, Backend, Model, Type
+        headers = ["Name", "Backend", "Model", "Type"]
         table_data = []
         for bot_cfg in configs:
             table_data.append([
                 bot_cfg.name,
                 bot_cfg.backend or bot_cfg.api_type or "N/A",
                 bot_cfg.model or "N/A",
+                bot_cfg.type or "agent",
             ])
 
     click.echo(tabulate(
