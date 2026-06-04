@@ -14,6 +14,7 @@ interface BotConfig {
   has_api_key?: boolean;
   price_input?: number | null;
   price_output?: number | null;
+  enabled?: boolean;
 }
 
 type SortKey = "name" | "backend" | "model" | "price_input" | "price_output";
@@ -396,6 +397,17 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
     }
   };
 
+  const toggleEnabled = async (bot: BotConfig) => {
+    const action = bot.enabled ? "disable" : "enable";
+    try {
+      await apiJson(`/api/bot/${action}`, { name: bot.name });
+      await mutate();
+      onChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const deleteCurrent = async () => {
     if (!editing || busy) return;
     if (!window.confirm(`Delete bot '${editing.name}'?`)) return;
@@ -463,6 +475,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                   <SortHeader label="Model" columnKey="model" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <SortHeader label="In/1M" columnKey="price_input" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
                   <SortHeader label="Out/1M" columnKey="price_output" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
+                  <th className="px-1.5 py-1 w-8" />
                 </tr>
               </thead>
               <tbody>
@@ -483,6 +496,18 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                     <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[10rem] truncate">{bot.model || "-"}</td>
                     <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_input)}</td>
                     <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_output)}</td>
+                    <td className="px-1.5 py-1 text-center">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleEnabled(bot); }}
+                        disabled={bot.name === "default"}
+                        className={`w-3 h-3 rounded-full cursor-pointer border ${
+                          bot.enabled !== false
+                            ? "bg-sol-green/60 border-sol-green"
+                            : "bg-sol-red/40 border-sol-red"
+                        } ${bot.name === "default" ? "opacity-50 cursor-not-allowed" : "hover:scale-110"}`}
+                        title={bot.enabled !== false ? "Enabled — click to disable" : "Disabled — click to enable"}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

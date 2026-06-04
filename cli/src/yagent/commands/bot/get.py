@@ -27,6 +27,7 @@ def bot_get(name):
         ("Tier", config.tier or "tier1"),
         ("Type", config.type or "agent"),
         ("Price Override", config.price_override if config.price_override is not None else "N/A"),
+        ("Enabled", "Yes" if config.enabled else "No"),
     ]
     width = max(len(label) for label, _ in fields)
     for label, value in fields:
