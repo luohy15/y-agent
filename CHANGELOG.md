@@ -13,8 +13,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **pi.dev (pi_cli) agent backend** — added pi.dev as a new agent backend, wired its base URL through the OpenRouter gateway via `models.json`.
+- **Bot config CLI** — added `y bot get <name>` to show a bot's full config and `y bot prices` to live-fetch OpenRouter per-1M prices, with those prices now shown inline in `y bot list` / `y bot get`.
+- **Todo sidebar batch actions** — select mode in the todo sidebar now supports batch pin / status / priority actions.
 
 ### Changed
+- **Finance Transactions page revamp** — reworked the finance Transactions page with an IBKR-inspired layout.
+- **ChatView header** — now shows the bot name before the backend.
 
 ### Fixed
 
