@@ -1,6 +1,11 @@
 """Data Transfer Objects (dataclass DTOs) split by domain."""
 
-from storage.dto.bot import BotConfig, DEFAULT_OPENROUTER_CONFIG
+from storage.dto.bot import (
+    BotConfig,
+    DEFAULT_OPENROUTER_CONFIG,
+    effective_openrouter_config,
+    _throughput_enabled,
+)
 from storage.dto.vm import VmConfig
 from storage.dto.chat import ContentPart, Message, Chat
 from storage.dto.todo import TodoHistoryEntry, Todo
@@ -18,6 +23,7 @@ from storage.dto.user_cookies import UserCookies
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
+    "effective_openrouter_config", "_throughput_enabled",
     "VmConfig",
     "ContentPart", "Message", "Chat",
     "TodoHistoryEntry", "Todo",
