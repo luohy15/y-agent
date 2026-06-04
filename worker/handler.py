@@ -59,6 +59,7 @@ async def _process_record(body: dict) -> str:
         user_id=body.get("user_id"),
         chat_id=chat_id,
         bot_name=body.get("bot_name"),
+        bot_tier=body.get("bot_tier"),
         vm_name=body.get("vm_name"),
         work_dir=body.get("work_dir"),
         post_hooks=body.get("post_hooks"),
