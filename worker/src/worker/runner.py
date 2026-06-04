@@ -480,9 +480,21 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     if skill:
         skill_tier = getattr(agent_config, "SKILL_TO_TIER", {}).get(skill) or "tier1"
 
-    bot_config = agent_config.resolve_bot_config(
-        user_id, bot_name, backend=chat.backend or backend, tier=skill_tier,
-    )
+    # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
+    # migrated) must not crash the core chat chain. On any failure, fall back to
+    # a hand-built default bot so the conversation keeps running.
+    try:
+        bot_config = agent_config.resolve_bot_config(
+            user_id, bot_name, backend=chat.backend or backend, tier=skill_tier,
+        )
+    except Exception as e:
+        fallback_backend = chat.backend or backend or "claude_code"
+        logger.exception(
+            "Bot resolve failed for chat {} (user_id={} bot_name={} backend={}); "
+            "falling back to default bot backend={}: {}",
+            chat_id, user_id, bot_name, chat.backend or backend, fallback_backend, e,
+        )
+        bot_config = BotConfig(name=bot_name or fallback_backend, backend=fallback_backend)
     if chat.backend:
         logger.info("Using backend from chat: {}", chat.backend)
     elif backend:
