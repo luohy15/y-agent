@@ -17,6 +17,9 @@ type SortDir = "asc" | "desc";
 
 type TypeFilter = "all" | "agent" | "model";
 
+const SORT_KEY_STORAGE_KEY = "botViewSortKey";
+const SORT_DIR_STORAGE_KEY = "botViewSortDir";
+
 function botValue(bot: BotConfig, key: SortKey): string | number | null {
   switch (key) {
     case "name": return bot.name;
@@ -40,6 +43,16 @@ const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "price_input", label: "In/1M", align: "right" },
   { key: "price_output", label: "Out/1M", align: "right" },
 ];
+
+function loadSortKey(): SortKey {
+  const saved = localStorage.getItem(SORT_KEY_STORAGE_KEY);
+  return COLUMNS.some((col) => col.key === saved) ? (saved as SortKey) : "name";
+}
+
+function loadSortDir(): SortDir {
+  const saved = localStorage.getItem(SORT_DIR_STORAGE_KEY);
+  return saved === "desc" ? "desc" : "asc";
+}
 
 const COL_COUNT = COLUMNS.length + 1; // +1 for "On" column
 
@@ -212,8 +225,8 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
 export default function BotViewer() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
+  const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
   const [expandedName, setExpandedName] = useState<string | null>(null);
   const [form, setForm] = useState<BotFormState | null>(null);
   const [editing, setEditing] = useState<BotConfig | null>(null);
@@ -270,6 +283,14 @@ export default function BotViewer() {
       setSortDir("asc");
     }
   };
+
+  useEffect(() => {
+    localStorage.setItem(SORT_KEY_STORAGE_KEY, sortKey);
+  }, [sortKey]);
+
+  useEffect(() => {
+    localStorage.setItem(SORT_DIR_STORAGE_KEY, sortDir);
+  }, [sortDir]);
 
   useEffect(() => {
     if (!form) { setBusy(false); setError(null); }
