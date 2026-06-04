@@ -10,8 +10,10 @@ from storage.service.user import get_cli_user_id
 @click.option('--base-url', '-u', default=None, help='Base URL')
 @click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, perplexity, openai)')
 @click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2)')
+@click.option('--type', default=None, help='Type (agent|model, default: agent)')
+@click.option('--price-override', type=float, default=None, help='Price override per 1M tokens')
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
-def bot_add(name, model, api_key, base_url, backend, tier, yes):
+def bot_add(name, model, api_key, base_url, backend, tier, type, price_override, yes):
     """Add a new bot configuration."""
     user_id = get_cli_user_id()
     existing_configs = bot_service.list_configs(user_id)
@@ -24,6 +26,6 @@ def bot_add(name, model, api_key, base_url, backend, tier, yes):
     if base_url is None:
         base_url = default_config.base_url if default_config else None
 
-    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend, tier=tier)
+    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend, tier=tier, type=type, price_override=price_override)
     bot_service.add_config(user_id, bot_config)
     click.echo(f"Bot '{name}' added successfully")
