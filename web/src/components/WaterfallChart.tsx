@@ -12,6 +12,7 @@ export interface TraceChat {
   topic: string;
   skill?: string;
   backend?: string;
+  bot_name?: string;
   segments: Segment[];
   messages?: unknown[];
 }

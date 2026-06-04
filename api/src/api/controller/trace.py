@@ -71,7 +71,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     user_id = _get_user_id(request)
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
-    for chat_id, title, topic, skill, backend, json_content in chats:
+    for chat_id, title, topic, skill, backend, bot_name, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
         result_chats.append({
@@ -80,6 +80,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "topic": topic,
             "skill": skill,
             "backend": backend,
+            "bot_name": bot_name,
             "segments": segments,
             "messages": messages,
         })
@@ -265,7 +266,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
 
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
-    for chat_id, title, topic, skill, backend, json_content in chats:
+    for chat_id, title, topic, skill, backend, bot_name, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
         result_chats.append({
@@ -274,6 +275,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
             "topic": topic,
             "skill": skill,
             "backend": backend,
+            "bot_name": bot_name,
             "segments": segments,
             "messages": _strip_tool_results(messages),
         })
