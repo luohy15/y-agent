@@ -18,6 +18,7 @@ class BotConfigEntity(Base, BaseEntity):
     prompts = Column(JSON, nullable=True)
     max_tokens = Column(Integer, nullable=True)
     custom_api_path = Column(String, nullable=True)
+    tier = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

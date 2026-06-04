@@ -19,6 +19,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         prompts=entity.prompts,
         max_tokens=entity.max_tokens,
         custom_api_path=entity.custom_api_path,
+        tier=entity.tier,
     )
 
 
@@ -34,6 +35,7 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         prompts=config.prompts,
         max_tokens=config.max_tokens,
         custom_api_path=config.custom_api_path,
+        tier=config.tier,
     )
 
 

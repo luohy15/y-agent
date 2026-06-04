@@ -8,8 +8,9 @@ from storage.service.user import get_cli_user_id
 @click.option('--api-key', '-k', default=None, help='API key')
 @click.option('--base-url', '-u', default=None, help='Base URL')
 @click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, perplexity, openai)')
+@click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2)')
 @click.option('--clear-openrouter', is_flag=True, help='Clear the OpenRouter config')
-def bot_update(name, model, api_key, base_url, backend, clear_openrouter):
+def bot_update(name, model, api_key, base_url, backend, tier, clear_openrouter):
     """Update an existing bot configuration."""
     user_id = get_cli_user_id()
     config = bot_service.get_config(user_id, name)
@@ -25,6 +26,8 @@ def bot_update(name, model, api_key, base_url, backend, clear_openrouter):
         config.base_url = base_url
     if backend is not None:
         config.backend = backend
+    if tier is not None:
+        config.tier = tier
     if clear_openrouter:
         config.openrouter_config = None
 

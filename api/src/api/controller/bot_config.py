@@ -19,6 +19,7 @@ class BotConfigRequest(BaseModel):
     description: Optional[str] = None
     max_tokens: Optional[int] = None
     custom_api_path: Optional[str] = None
+    tier: Optional[str] = None
 
 
 class UpdateBotConfigRequest(BaseModel):
@@ -30,6 +31,7 @@ class UpdateBotConfigRequest(BaseModel):
     description: Optional[str] = None
     max_tokens: Optional[int] = None
     custom_api_path: Optional[str] = None
+    tier: Optional[str] = None
 
 
 class BotNameRequest(BaseModel):
@@ -59,6 +61,7 @@ async def list_bot_configs(request: Request):
                 "has_api_key": bool(c.api_key),
                 "price_input": price_input,
                 "price_output": price_output,
+                "tier": c.tier,
             }
         )
     return result
@@ -79,6 +82,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         "max_tokens": config.max_tokens,
         "custom_api_path": config.custom_api_path,
         "has_api_key": bool(config.api_key),
+        "tier": config.tier,
     }
 
 
@@ -97,6 +101,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         description=req.description or None,
         max_tokens=req.max_tokens,
         custom_api_path=req.custom_api_path or None,
+        tier=req.tier or None,
     )
     bot_service.add_config(user_id, config)
     return {"ok": True, "name": name}
@@ -125,6 +130,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         custom_api_path=(
             existing.custom_api_path if "custom_api_path" not in fields_set else (req.custom_api_path or None)
         ),
+        tier=existing.tier if "tier" not in fields_set else (req.tier or None),
     )
     bot_service.add_config(user_id, config)
     return {"ok": True, "name": name}

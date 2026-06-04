@@ -24,6 +24,7 @@ def bot_get(name):
         ("OpenRouter Config", config.openrouter_config or "N/A"),
         ("Input/1M", fmt_price(input_price)),
         ("Output/1M", fmt_price(output_price)),
+        ("Tier", config.tier or "tier1"),
     ]
     width = max(len(label) for label, _ in fields)
     for label, value in fields:
