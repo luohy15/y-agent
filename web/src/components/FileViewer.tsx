@@ -240,11 +240,11 @@ function FrontMatterCard({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: string }[]; onSelect?: () => void }) {
+function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: string; level: number }[]; onSelect?: () => void }) {
   return (
     <ul className="space-y-1">
       {headings.map((h) => (
-        <li key={h.id}>
+        <li key={h.id} className={h.level === 3 ? "pl-3" : ""}>
           <a
             href={`#${h.id}`}
             onClick={(e) => {
@@ -286,7 +286,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const { data: frontMatter, body } = useMemo(() => parseFrontMatter(content ?? ""), [content]);
   const articleRef = useRef<HTMLDivElement | null>(null);
-  const [headings, setHeadings] = useState<{ text: string; id: string }[]>([]);
+  const [headings, setHeadings] = useState<{ text: string; id: string; level: number }[]>([]);
 
   useEffect(() => {
     const article = articleRef.current;
@@ -295,8 +295,8 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
       return;
     }
     const raf = window.requestAnimationFrame(() => {
-      const els = Array.from(article.querySelectorAll<HTMLElement>("h2[id]"));
-      setHeadings(els.map((el) => ({ id: el.id, text: el.textContent || "" })));
+      const els = Array.from(article.querySelectorAll<HTMLElement>("h2[id], h3[id]"));
+      setHeadings(els.map((el) => ({ id: el.id, text: el.textContent || "", level: el.tagName === "H3" ? 3 : 2 })));
     });
     return () => window.cancelAnimationFrame(raf);
   }, [body]);
