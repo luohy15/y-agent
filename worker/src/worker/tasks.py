@@ -10,10 +10,10 @@ from worker.monitor import _monitor_loop
 from worker.runner import run_chat
 
 
-async def _run_chat_with_monitor(chat_id, bot_name, user_id, vm_name, work_dir,
+async def _run_chat_with_monitor(chat_id, bot_name, bot_tier, user_id, vm_name, work_dir,
                                   post_hooks, trace_id, topic, skill, backend):
     result = await run_chat(
-        user_id, chat_id, bot_name=bot_name, vm_name=vm_name, work_dir=work_dir,
+        user_id, chat_id, bot_name=bot_name, bot_tier=bot_tier, vm_name=vm_name, work_dir=work_dir,
         post_hooks=post_hooks, trace_id=trace_id, topic=topic, skill=skill, backend=backend,
     )
     if result in ("detached", "continuation"):
@@ -22,11 +22,11 @@ async def _run_chat_with_monitor(chat_id, bot_name, user_id, vm_name, work_dir,
 
 
 @app.task(name="worker.tasks.process_chat")
-def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None):
+def process_chat(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None):
     """Run the agent loop for a chat."""
     try:
         asyncio.run(_run_chat_with_monitor(
-            chat_id, bot_name, user_id, vm_name, work_dir,
+            chat_id, bot_name, bot_tier, user_id, vm_name, work_dir,
             post_hooks, trace_id, topic, skill, backend,
         ))
         logger.info("Finished chat {}", chat_id)

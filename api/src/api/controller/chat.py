@@ -28,6 +28,7 @@ class CreateChatRequest(BaseModel):
     images: Optional[List[str]] = None
     image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
+    bot_tier: Optional[str] = None
     chat_id: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
@@ -44,6 +45,7 @@ class SendMessageRequest(BaseModel):
     images: Optional[List[str]] = None
     image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
+    bot_tier: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
     post_hooks: Optional[list] = None
@@ -208,7 +210,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat(user_id, chat)
 
-    send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
+    send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
     return CreateChatResponse(chat_id=chat_id)
 
 
@@ -244,7 +246,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     await chat_repo.save_chat_by_id(chat)
 
     if not already_running:
-        send_chat_message(req.chat_id, bot_name=req.bot_name, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
+        send_chat_message(req.chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
 
     return {"ok": True}
 
@@ -529,6 +531,7 @@ class NotifyRequest(BaseModel):
     force_new: Optional[bool] = False
     from_chat_id: Optional[str] = None
     bot_name: Optional[str] = None
+    bot_tier: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):
@@ -653,6 +656,6 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
 
     # Enqueue worker only if not already running
     if not already_running:
-        send_chat_message(chat_id, bot_name=req.bot_name, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill)
+        send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill)
 
     return NotifyResponse(chat_id=chat_id, trace_id=req.trace_id)

@@ -418,7 +418,7 @@ async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
             _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Perplexity runs inline; CLI backends detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -485,12 +485,15 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, vm_name: st
     if skill:
         skill_tier = getattr(agent_config, "SKILL_TO_TIER", {}).get(skill) or "tier1"
 
+    # bot_tier (e.g. --tier cli flag) overrides skill-derived tier.
+    effective_tier = bot_tier or skill_tier
+
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to
     # a hand-built default bot so the conversation keeps running.
     try:
         bot_config = agent_config.resolve_bot_config(
-            user_id, bot_name, backend=chat.backend or backend, tier=skill_tier,
+            user_id, bot_name, backend=chat.backend or backend, tier=effective_tier,
         )
     except Exception as e:
         fallback_backend = chat.backend or backend or "claude_code"

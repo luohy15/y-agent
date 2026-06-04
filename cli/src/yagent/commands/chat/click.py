@@ -48,6 +48,7 @@ def _fire_and_forget(
     from_topic: str,
     from_chat_id: Optional[str],
     bot: Optional[str],
+    bot_tier: Optional[str],
 ):
     """POST a message to /api/chat/notify and print the resulting chat_id."""
     if not from_chat_id:
@@ -74,6 +75,8 @@ def _fire_and_forget(
         payload["from_chat_id"] = from_chat_id
     if bot:
         payload["bot_name"] = bot
+    if bot_tier:
+        payload["bot_tier"] = bot_tier
     try:
         resp = api_request("POST", "/api/chat/notify", json=payload)
         data = resp.json()
@@ -92,6 +95,7 @@ def _interactive(
     chat_id: Optional[str],
     latest: bool,
     bot: Optional[str],
+    bot_tier: Optional[str],
     prompt: Optional[str],
 ):
     """Interactive REPL (or one-off with -p)."""
@@ -115,9 +119,9 @@ def _interactive(
 
     if prompt:
         if chat_id:
-            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": prompt, "bot_name": bot, "work_dir": work_dir})
+            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
         else:
-            resp = api_request("POST", "/api/chat", json={"prompt": prompt, "bot_name": bot, "work_dir": work_dir})
+            resp = api_request("POST", "/api/chat", json={"prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
             chat_id = resp.json()["chat_id"]
 
         _stream_and_handle(chat_id, display_manager, last_index)
@@ -140,9 +144,9 @@ def _interactive(
         sys.stdout.flush()
 
         if chat_id:
-            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": user_input, "bot_name": bot, "work_dir": work_dir})
+            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
         else:
-            resp = api_request("POST", "/api/chat", json={"prompt": user_input, "bot_name": bot, "work_dir": work_dir})
+            resp = api_request("POST", "/api/chat", json={"prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
             chat_id = resp.json()["chat_id"]
 
         last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
@@ -167,6 +171,7 @@ def _interactive(
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
 @click.option('--bot', '-b', default=None, help='Bot name to use (e.g. codex, claude_code, openai)')
+@click.option('--tier', default=None, help='Bot tier for tier-based selection (e.g. tier0, tier1, tier2)')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
 @click.pass_context
 def chat_group(
@@ -184,6 +189,7 @@ def chat_group(
     interactive: bool,
     latest: bool,
     bot: Optional[str],
+    tier: Optional[str],
     prompt: Optional[str],
 ):
     """Chat with AI models.
@@ -228,11 +234,12 @@ def chat_group(
             from_topic=from_topic,
             from_chat_id=from_chat_id,
             bot=bot,
+            bot_tier=tier,
         )
         return
 
     if interactive:
-        _interactive(chat_id=chat_id, latest=latest, bot=bot, prompt=prompt)
+        _interactive(chat_id=chat_id, latest=latest, bot=bot, bot_tier=tier, prompt=prompt)
         return
 
     click.echo("Error: pass -m <message> for fire-and-forget, or -i for the interactive REPL.", err=True)
