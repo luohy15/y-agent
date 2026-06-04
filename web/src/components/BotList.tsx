@@ -12,6 +12,49 @@ interface BotConfig {
   max_tokens?: number | null;
   custom_api_path?: string | null;
   has_api_key?: boolean;
+  price_input?: number | null;
+  price_output?: number | null;
+}
+
+type SortKey = "name" | "backend" | "model" | "price_input" | "price_output";
+type SortDir = "asc" | "desc";
+
+// Mirror the Python fmt_price helper: 4 significant figures, "-" when missing.
+function fmtPrice(price?: number | null): string {
+  if (price === null || price === undefined) return "-";
+  return Number(price.toPrecision(4)).toString();
+}
+
+function botValue(bot: BotConfig, key: SortKey): string | number | null {
+  switch (key) {
+    case "name": return bot.name;
+    case "backend": return bot.backend || "";
+    case "model": return bot.model || "";
+    case "price_input": return bot.price_input ?? null;
+    case "price_output": return bot.price_output ?? null;
+  }
+}
+
+function SortHeader({ label, columnKey, sortKey, sortDir, onSort, className }: {
+  label: string;
+  columnKey: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sortKey === columnKey;
+  return (
+    <th
+      onClick={() => onSort(columnKey)}
+      className={`px-1.5 py-1 font-medium cursor-pointer select-none hover:text-sol-base1 whitespace-nowrap ${className || "text-left"}`}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        {active && <span className="text-[0.55rem]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+      </span>
+    </th>
+  );
 }
 
 interface BotFormState {
@@ -230,6 +273,8 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   const [editing, setEditing] = useState<BotConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const { data, error: loadError, isLoading, mutate } = useSWR<BotConfig[]>(
     isLoggedIn ? `${API}/api/bot/list` : null,
@@ -246,6 +291,31 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
       (b.backend || "").toLowerCase().includes(q),
     );
   }, [bots, query]);
+
+  const sorted = useMemo(() => {
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = botValue(a, sortKey);
+      const bv = botValue(b, sortKey);
+      // Missing values (null price / empty string) always sort last, regardless of direction.
+      const aMissing = av === null || av === "";
+      const bMissing = bv === null || bv === "";
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dirMul;
+      return String(av).localeCompare(String(bv)) * dirMul;
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const onSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
 
   useEffect(() => {
     if (!form) {
@@ -358,7 +428,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
           </svg>
         </button>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-2">
+      <div className="flex-1 min-h-0 overflow-auto p-2">
         {isLoading ? (
           <ListLoading />
         ) : loadError && !data ? (
@@ -366,31 +436,39 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
         ) : filtered.length === 0 ? (
           query ? <p className="text-sol-base01 italic p-2">No matching bots</p> : <ListEmpty label="bots" />
         ) : (
-          <div className="space-y-1">
-            {filtered.map((bot) => (
-              <button
-                key={bot.name}
-                onClick={() => openEdit(bot)}
-                className="w-full text-left flex flex-col gap-1 p-2 rounded border border-transparent hover:border-sol-base01 hover:bg-sol-base02/50 cursor-pointer"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sol-base1 text-xs font-medium truncate min-w-0">{bot.name}</span>
-                  {bot.name === "default" && <span className="text-[0.6rem] px-1.5 py-0.5 rounded bg-sol-base02 text-sol-base01 shrink-0">default</span>}
-                  {bot.has_api_key && <span className="ml-auto text-[0.6rem] px-1.5 py-0.5 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
-                </div>
-                <div className="flex items-center gap-1.5 min-w-0 text-[0.68rem] text-sol-base01 truncate">
-                  <span className="font-mono truncate shrink-0 max-w-[45%]">{bot.model || "no model"}</span>
-                  {(bot.backend || bot.description) && (
-                    <>
-                      <span className="text-sol-base01/60 shrink-0">·</span>
-                      <span className="text-[0.65rem] text-sol-base01/80 truncate min-w-0">
-                        {[bot.backend, bot.description].filter(Boolean).join(" - ")}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[0.65rem] border-collapse">
+              <thead>
+                <tr className="text-sol-base01 border-b border-sol-base02">
+                  <SortHeader label="Name" columnKey="name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortHeader label="Backend" columnKey="backend" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortHeader label="Model" columnKey="model" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortHeader label="In/1M" columnKey="price_input" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
+                  <SortHeader label="Out/1M" columnKey="price_output" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((bot) => (
+                  <tr
+                    key={bot.name}
+                    onClick={() => openEdit(bot)}
+                    className="border-b border-sol-base02/40 hover:bg-sol-base02/50 cursor-pointer"
+                  >
+                    <td className="px-1.5 py-1 max-w-[8rem]">
+                      <span className="inline-flex items-center gap-1 min-w-0">
+                        <span className="text-sol-base1 font-medium truncate">{bot.name}</span>
+                        {bot.name === "default" && <span className="text-[0.55rem] px-1 rounded bg-sol-base02 text-sol-base01 shrink-0">def</span>}
+                        {bot.has_api_key && <span className="text-[0.55rem] px-1 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
                       </span>
-                    </>
-                  )}
-                </div>
-              </button>
-            ))}
+                    </td>
+                    <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>
+                    <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[10rem] truncate">{bot.model || "-"}</td>
+                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_input)}</td>
+                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_output)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

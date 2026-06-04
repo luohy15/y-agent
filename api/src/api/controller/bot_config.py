@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from storage.entity.dto import BotConfig
 from storage.service import bot_config as bot_service
+from storage.service.bot_pricing import bot_prices_per_1m, fetch_openrouter_catalog
 
 router = APIRouter(prefix="/bot")
 
@@ -43,16 +44,24 @@ def _get_user_id(request: Request) -> int:
 async def list_bot_configs(request: Request):
     user_id = _get_user_id(request)
     configs = bot_service.list_configs(user_id)
-    return [
-        {
-            "name": c.name,
-            "backend": c.backend or c.api_type,
-            "model": c.model,
-            "description": c.description,
-            "has_api_key": bool(c.api_key),
-        }
-        for c in configs
-    ]
+    # Best-effort OpenRouter prices: fetch the (TTL-cached) catalog once, never
+    # block the list response if it's unavailable.
+    catalog = fetch_openrouter_catalog()
+    result = []
+    for c in configs:
+        price_input, price_output = bot_prices_per_1m(c, catalog)
+        result.append(
+            {
+                "name": c.name,
+                "backend": c.backend or c.api_type,
+                "model": c.model,
+                "description": c.description,
+                "has_api_key": bool(c.api_key),
+                "price_input": price_input,
+                "price_output": price_output,
+            }
+        )
+    return result
 
 
 @router.get("/config")

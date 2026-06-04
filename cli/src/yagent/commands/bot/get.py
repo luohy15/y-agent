@@ -1,7 +1,7 @@
 import click
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
-from .pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
 
 @click.command('get')
 @click.argument('name')
