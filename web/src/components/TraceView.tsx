@@ -157,18 +157,24 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                   {todoStatus}
                 </span>
               )}
-              {/* Skill+backend badges */}
+              {/* Skill+backend+bot_name badges */}
               {traceChats.length > 0 && (
                 <div className="flex flex-wrap gap-0.5">
                   {[...new Set(traceChats.map((c) => {
-                    const skill = (c.skill && c.skill.trim()) || c.topic;
-                    return c.backend ? `${skill}:${c.backend}` : skill;
+                    const skill = (c.skill && c.skill.trim()) || c.topic || "";
+                    const backend = c.backend || "";
+                    const botName = c.bot_name || "";
+                    if (!skill) return "";
+                    return `${skill}:${backend}:${botName}`;
                   }).filter(Boolean))].map((key) => {
-                    const skill = key.includes(":") ? key.slice(0, key.indexOf(":")) : key;
-                    const backend = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+                    const parts = key.split(":");
+                    const skill = parts[0];
+                    const backend = parts[1] || "";
+                    const botName = parts[2] || "";
+                    const display = [botName, backend].filter(Boolean).join(" · ");
                     return (
                       <span key={key} className={`text-[0.6rem] ${topicBadgeClass(skill)}`}>
-                        {skill}{backend && <span className="ml-0.5 opacity-70">{backend}</span>}
+                        {skill}{display && <span className="ml-0.5 opacity-70">{display}</span>}
                       </span>
                     );
                   })}
