@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
-interface BotConfig {
+export interface BotConfig {
   name: string;
   base_url?: string;
   backend?: string | null;
@@ -14,65 +14,29 @@ interface BotConfig {
   has_api_key?: boolean;
   price_input?: number | null;
   price_output?: number | null;
+  tier?: string | null;
+  type?: string | null;
+  route_weight?: number | null;
   enabled?: boolean;
 }
 
-type SortKey = "name" | "backend" | "model" | "price_input" | "price_output";
-type SortDir = "asc" | "desc";
+type TypeFilter = "agent" | "model";
 
-const SORT_STORAGE_KEY = "botListSort";
-const SORT_KEYS: SortKey[] = ["name", "backend", "model", "price_input", "price_output"];
+const TYPE_FILTER_STORAGE_KEY = "botListTypeFilter";
 
-// Read the persisted sort state, falling back to Name asc when absent/invalid.
-function loadSort(): { key: SortKey; dir: SortDir } {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || "");
-    if (SORT_KEYS.includes(saved?.key) && (saved?.dir === "asc" || saved?.dir === "desc")) {
-      return { key: saved.key, dir: saved.dir };
-    }
-  } catch { /* ignore */ }
-  return { key: "name", dir: "asc" };
+// Read the persisted type filter, defaulting to "agent" when absent/invalid.
+function loadTypeFilter(): TypeFilter {
+  const saved = localStorage.getItem(TYPE_FILTER_STORAGE_KEY);
+  return saved === "model" ? "model" : "agent";
 }
 
 // Mirror the Python fmt_price helper: 4 significant figures, "-" when missing.
-function fmtPrice(price?: number | null): string {
+export function fmtPrice(price?: number | null): string {
   if (price === null || price === undefined) return "-";
   return Number(price.toPrecision(4)).toString();
 }
 
-function botValue(bot: BotConfig, key: SortKey): string | number | null {
-  switch (key) {
-    case "name": return bot.name;
-    case "backend": return bot.backend || "";
-    case "model": return bot.model || "";
-    case "price_input": return bot.price_input ?? null;
-    case "price_output": return bot.price_output ?? null;
-  }
-}
-
-function SortHeader({ label, columnKey, sortKey, sortDir, onSort, className }: {
-  label: string;
-  columnKey: SortKey;
-  sortKey: SortKey;
-  sortDir: SortDir;
-  onSort: (key: SortKey) => void;
-  className?: string;
-}) {
-  const active = sortKey === columnKey;
-  return (
-    <th
-      onClick={() => onSort(columnKey)}
-      className={`px-1.5 py-1 font-medium cursor-pointer select-none hover:text-sol-base1 whitespace-nowrap ${className || "text-left"}`}
-    >
-      <span className="inline-flex items-center gap-0.5">
-        {label}
-        {active && <span className="text-[0.55rem]">{sortDir === "asc" ? "▲" : "▼"}</span>}
-      </span>
-    </th>
-  );
-}
-
-interface BotFormState {
+export interface BotFormState {
   name: string;
   base_url: string;
   api_key: string;
@@ -88,7 +52,7 @@ interface BotListProps {
   onChange?: () => void;
 }
 
-function emptyForm(): BotFormState {
+export function emptyForm(): BotFormState {
   return {
     name: "",
     base_url: "",
@@ -101,7 +65,7 @@ function emptyForm(): BotFormState {
   };
 }
 
-function formFromBot(bot: BotConfig): BotFormState {
+export function formFromBot(bot: BotConfig): BotFormState {
   return {
     name: bot.name,
     base_url: bot.base_url || "",
@@ -114,7 +78,7 @@ function formFromBot(bot: BotConfig): BotFormState {
   };
 }
 
-async function apiJson(path: string, body: unknown) {
+export async function apiJson(path: string, body: unknown) {
   const res = await authFetch(`${API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -131,7 +95,7 @@ async function apiJson(path: string, body: unknown) {
   return res.json();
 }
 
-function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+export function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-sol-base01 text-[0.65rem] uppercase tracking-wide">
@@ -143,7 +107,7 @@ function Field({ label, hint, required, children }: { label: string; hint?: stri
   );
 }
 
-interface BotFormProps {
+export interface BotFormProps {
   form: BotFormState;
   setForm: (form: BotFormState) => void;
   isEdit: boolean;
@@ -155,7 +119,7 @@ interface BotFormProps {
   onDelete?: () => void;
 }
 
-function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave, onCancel, onDelete }: BotFormProps) {
+export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave, onCancel, onDelete }: BotFormProps) {
   const canSave = form.name.trim().length > 0 && !busy;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
@@ -288,8 +252,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   const [editing, setEditing] = useState<BotConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>(() => loadSort().key);
-  const [sortDir, setSortDir] = useState<SortDir>(() => loadSort().dir);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(loadTypeFilter);
 
   const { data, error: loadError, isLoading, mutate } = useSWR<BotConfig[]>(
     isLoggedIn ? `${API}/api/bot/list` : null,
@@ -299,42 +262,20 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   const bots = useMemo(() => data || [], [data]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return bots;
-    return bots.filter((b) =>
-      b.name.toLowerCase().includes(q) ||
-      (b.model || "").toLowerCase().includes(q) ||
-      (b.backend || "").toLowerCase().includes(q),
-    );
-  }, [bots, query]);
-
-  const sorted = useMemo(() => {
-    const dirMul = sortDir === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      const av = botValue(a, sortKey);
-      const bv = botValue(b, sortKey);
-      // Missing values (null price / empty string) always sort last, regardless of direction.
-      const aMissing = av === null || av === "";
-      const bMissing = bv === null || bv === "";
-      if (aMissing && bMissing) return 0;
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dirMul;
-      return String(av).localeCompare(String(bv)) * dirMul;
+    return bots.filter((b) => {
+      if ((b.type || "agent") !== typeFilter) return false;
+      if (!q) return true;
+      return (
+        b.name.toLowerCase().includes(q) ||
+        (b.model || "").toLowerCase().includes(q) ||
+        (b.backend || "").toLowerCase().includes(q)
+      );
     });
-  }, [filtered, sortKey, sortDir]);
-
-  const onSort = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
+  }, [bots, query, typeFilter]);
 
   useEffect(() => {
-    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ key: sortKey, dir: sortDir }));
-  }, [sortKey, sortDir]);
+    localStorage.setItem(TYPE_FILTER_STORAGE_KEY, typeFilter);
+  }, [typeFilter]);
 
   useEffect(() => {
     if (!form) {
@@ -397,17 +338,6 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
     }
   };
 
-  const toggleEnabled = async (bot: BotConfig) => {
-    const action = bot.enabled ? "disable" : "enable";
-    try {
-      await apiJson(`/api/bot/${action}`, { name: bot.name });
-      await mutate();
-      onChange?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const deleteCurrent = async () => {
     if (!editing || busy) return;
     if (!window.confirm(`Delete bot '${editing.name}'?`)) return;
@@ -432,6 +362,21 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="p-2 border-b border-sol-base02 shrink-0 flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0">
+          {(["agent", "model"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setTypeFilter(f)}
+              className={`px-2 py-1 rounded text-xs cursor-pointer ${
+                typeFilter === f
+                  ? "bg-sol-blue text-sol-base03"
+                  : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
         <input
           type="text"
           value={query}
@@ -469,17 +414,14 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-[0.65rem] border-collapse">
               <thead>
-                <tr className="text-sol-base01 border-b border-sol-base02">
-                  <SortHeader label="Name" columnKey="name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <SortHeader label="Backend" columnKey="backend" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <SortHeader label="Model" columnKey="model" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <SortHeader label="In/1M" columnKey="price_input" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
-                  <SortHeader label="Out/1M" columnKey="price_output" sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-right" />
-                  <th className="px-1.5 py-1 w-8" />
+                <tr className="text-sol-base01 border-b border-sol-base02 text-left">
+                  <th className="px-1.5 py-1 font-medium whitespace-nowrap">Name</th>
+                  <th className="px-1.5 py-1 font-medium whitespace-nowrap">Backend</th>
+                  <th className="px-1.5 py-1 font-medium whitespace-nowrap">Model</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((bot) => (
+                {filtered.map((bot) => (
                   <tr
                     key={bot.name}
                     onClick={() => openEdit(bot)}
@@ -494,20 +436,6 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                     </td>
                     <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>
                     <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[10rem] truncate">{bot.model || "-"}</td>
-                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_input)}</td>
-                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_output)}</td>
-                    <td className="px-1.5 py-1 text-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleEnabled(bot); }}
-                        disabled={bot.name === "default"}
-                        className={`w-3 h-3 rounded-full cursor-pointer border ${
-                          bot.enabled !== false
-                            ? "bg-sol-green/60 border-sol-green"
-                            : "bg-sol-red/40 border-sol-red"
-                        } ${bot.name === "default" ? "opacity-50 cursor-not-allowed" : "hover:scale-110"}`}
-                        title={bot.enabled !== false ? "Enabled — click to disable" : "Disabled — click to enable"}
-                      />
-                    </td>
                   </tr>
                 ))}
               </tbody>
