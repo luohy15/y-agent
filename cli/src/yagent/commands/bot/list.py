@@ -4,7 +4,7 @@ from tabulate import tabulate
 from yagent.config import config
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
-from .pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
 
 def truncate_text(text, max_length):
     """Truncate text to max_length with ellipsis if needed."""
