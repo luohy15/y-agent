@@ -2,6 +2,7 @@ import click
 from storage.entity.dto import BotConfig
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
+from agent.pi_models import sync_pi_models
 
 @click.command('add')
 @click.argument('name')
@@ -29,4 +30,5 @@ def bot_add(name, model, api_key, base_url, backend, tier, type, route_weight, r
 
     bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend, tier=tier, type=type, route_weight=route_weight, ref_bot_name=ref_bot_name)
     bot_service.add_config(user_id, bot_config)
+    sync_pi_models(user_id)
     click.echo(f"Bot '{name}' added successfully")

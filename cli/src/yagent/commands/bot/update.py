@@ -1,6 +1,7 @@
 import click
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
+from agent.pi_models import sync_pi_models
 
 @click.command('update')
 @click.argument('name')
@@ -44,4 +45,5 @@ def bot_update(name, model, api_key, base_url, backend, tier, type, route_weight
         config.ref_bot_name = None
 
     bot_service.add_config(user_id, config)
+    sync_pi_models(user_id)
     click.echo(f"Bot '{name}' updated successfully")

@@ -11,6 +11,11 @@ from storage.service import chat as chat_service
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
+from agent.pi_models import (
+    DEFAULT_BOT_BASE_URL,
+    build_pi_models_provider,
+    resolve_pi_model_and_provider,
+)
 
 
 # Stock OpenRouter endpoint that BotConfig falls back to when base_url is unset.
@@ -669,78 +674,6 @@ def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None)
     if api_key:
         cmd.extend(["--api-key", api_key])
     return cmd
-
-
-def _pi_provider_name(bot_name: str) -> str:
-    """Synthetic, namespaced pi provider name derived from a bot name.
-
-    Prefixed with `y-` so it never collides with pi's built-in providers
-    (anthropic / openrouter / google / ...).
-    """
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "-", bot_name or "bot").strip("-") or "bot"
-    return f"y-{safe}"
-
-
-def _apply_throughput_suffix(model_id: str, bot_config) -> str:
-    """Append OpenRouter's `:nitro` throughput shorthand to a pi model id when the
-    bot is throughput-routed. pi sends Anthropic-messages bodies, so the body-level
-    `provider` field can't be injected; `:nitro` is the only lever and rides along
-    in the model slug. Idempotent: never doubles an existing suffix."""
-    if model_id and _throughput_enabled(bot_config) and not model_id.endswith(":nitro"):
-        return f"{model_id}:nitro"
-    return model_id
-
-
-def build_pi_models_provider(bot_config) -> tuple[str, dict]:
-    """Materialize a pi custom-provider entry from bot_config.base_url.
-
-    pi has no generic per-provider base-url env override, so an OpenAI/Anthropic
-    gateway (like the OpenRouter cloudflare gateway used by deepseek/inline) must
-    be registered as a custom provider in ~/.pi/agent/models.json. This keeps the
-    bot config (base_url + api_key + model) the single source of truth: the worker
-    generates the provider entry and addresses it via `--model <provider>/<model>`.
-
-    Returns (provider_name, provider_dict).
-    """
-    provider_name = _pi_provider_name(bot_config.name)
-    model_name = bot_config.model.strip('"').strip() if bot_config.model else ""
-    model_id = _apply_throughput_suffix(model_name, bot_config)
-    provider = {
-        "baseUrl": bot_config.base_url,
-        "api": "anthropic-messages",
-        "apiKey": bot_config.api_key or "",
-        "models": [
-            {
-                "id": model_id,
-                "name": model_name,
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 200000,
-                "maxTokens": 16384,
-            }
-        ],
-    }
-    return provider_name, provider
-
-
-def resolve_pi_model_and_provider(bot_config, model):
-    """Apply base_url custom-provider routing to a pi model string.
-
-    When a non-default (custom gateway) base_url is configured, the model is
-    namespaced to a synthetic provider (`y-<bot>/<model>`) backed by a models.json
-    entry the worker writes remotely; auth then lives in that entry. A bot left at
-    the stock OpenRouter default keeps the v1 behavior (provider inferred from the
-    model prefix, auth via --api-key). Returns (model, models_provider) where
-    models_provider is None when no custom-provider routing applies.
-    """
-    base_url = bot_config.base_url
-    if base_url and base_url != DEFAULT_BOT_BASE_URL and model:
-        provider_name, provider_dict = build_pi_models_provider(bot_config)
-        # Keep the --model reference in sync with the models.json `id` so pi selects
-        # (and forwards) the `:nitro` slug when throughput routing is on.
-        model = _apply_throughput_suffix(model, bot_config)
-        return f"{provider_name}/{model}", {provider_name: provider_dict}
-    return model, None
 
 
 def build_pi_env(bot_config, chat_id: str = None, trace_id: str = None,
