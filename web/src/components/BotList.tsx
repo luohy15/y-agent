@@ -17,6 +17,7 @@ export interface BotConfig {
   tier?: string | null;
   type?: string | null;
   route_weight?: number | null;
+  price_override?: number | null;
   enabled?: boolean;
 }
 
@@ -45,6 +46,9 @@ export interface BotFormState {
   description: string;
   max_tokens: string;
   custom_api_path: string;
+  type: string;
+  tier: string;
+  price_override: string;
 }
 
 interface BotListProps {
@@ -62,6 +66,9 @@ export function emptyForm(): BotFormState {
     description: "",
     max_tokens: "",
     custom_api_path: "",
+    type: "agent",
+    tier: "",
+    price_override: "",
   };
 }
 
@@ -75,6 +82,9 @@ export function formFromBot(bot: BotConfig): BotFormState {
     description: bot.description || "",
     max_tokens: bot.max_tokens ? String(bot.max_tokens) : "",
     custom_api_path: bot.custom_api_path || "",
+    type: bot.type || "agent",
+    tier: bot.tier || "",
+    price_override: bot.price_override ? String(bot.price_override) : "",
   };
 }
 
@@ -167,6 +177,26 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
               className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 font-mono outline-none focus:border-sol-blue"
             />
           </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Type">
+              <select
+                value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              >
+                <option value="agent">agent</option>
+                <option value="model">model</option>
+              </select>
+            </Field>
+            <Field label="Tier">
+              <input
+                type="text"
+                value={form.tier}
+                onChange={(e) => setForm({ ...form, tier: e.target.value })}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              />
+            </Field>
+          </div>
           <Field label="Base URL">
             <input
               type="text"
@@ -194,6 +224,17 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
               />
             </Field>
+            <Field label="Price override">
+              <input
+                type="number"
+                step="any"
+                value={form.price_override}
+                onChange={(e) => setForm({ ...form, price_override: e.target.value })}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <Field label="API path">
               <input
                 type="text"
@@ -323,6 +364,9 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
       description: form.description || null,
       max_tokens: form.max_tokens ? Number(form.max_tokens) : null,
       custom_api_path: form.custom_api_path || null,
+      type: form.type || null,
+      tier: form.tier || null,
+      price_override: form.price_override ? Number(form.price_override) : null,
       ...(!editing || form.api_key ? { api_key: form.api_key } : {}),
     };
     try {
