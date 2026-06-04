@@ -224,13 +224,6 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
               <span className="ml-auto px-1.5 py-0.5 text-[0.6rem] text-sol-base01">
                 {selectedCount} selected
               </span>
-              <button
-                onClick={handleBulkMarkRead}
-                disabled={bulkReadBusy || selectedCount === 0}
-                className={`px-1.5 py-0.5 rounded text-[0.6rem] transition-colors ${bulkReadBusy || selectedCount === 0 ? "bg-sol-base02 text-sol-base01 opacity-60 cursor-default" : "bg-sol-blue text-sol-base03 cursor-pointer"}`}
-              >
-                mark read
-              </button>
               <div ref={actionMenuRef} className="relative">
                 <button
                   onClick={() => setActionMenuOpen((o) => !o)}
@@ -274,6 +267,14 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
                       className="w-full text-left px-2.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base01/30 cursor-pointer"
                     >
                       Unpin all
+                    </button>
+                    <div className="border-t border-sol-base01/30 my-0.5" />
+                    <button
+                      onClick={handleBulkMarkRead}
+                      disabled={bulkReadBusy}
+                      className={`w-full text-left px-2.5 py-0.5 text-xs hover:bg-sol-base01/30 ${bulkReadBusy ? "text-sol-base01 opacity-60 cursor-default" : "text-sol-base0 cursor-pointer"}`}
+                    >
+                      Mark read
                     </button>
                   </div>
                 )}
