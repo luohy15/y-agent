@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Fallback prices for weighting when a bot's OpenRouter price is unknown.
 # Used by tier1/tier2 inverse-square routing. tier0 uses uniform random.
 TIER_FALLBACK_PRICES: Dict[str, float] = {
+    "tier0": 10.0,
     "tier1": 5.0,
     "tier2": 1.0,
 }
@@ -88,6 +89,7 @@ def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> L
     """Return list of (bot_config, input_price) for bots matching the tier.
 
     Excludes perplexity backend (px is pin-only, not a pool member).
+    Excludes type='model' bots (inline, tldr, etc.) from auto-routing.
     Each bot queries its price exactly once.
     """
     if catalog is None:
@@ -96,7 +98,11 @@ def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> L
     bots = []
     for cfg in configs:
         effective = cfg.backend or cfg.api_type
+        # Safety: keep perplexity hard-exclusion (belt + suspenders)
         if effective == "perplexity":
+            continue
+        type_val = getattr(cfg, "type", None) or "agent"
+        if type_val == "model":
             continue
         if tier_of(cfg) == tier:
             input_price, _ = bot_pricing.bot_prices_per_1m(cfg, catalog)
@@ -107,7 +113,8 @@ def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> L
 def _pick_by_weight(bots_and_prices: List[Tuple[BotConfig, Optional[float]]], fallback_price: float) -> Optional[BotConfig]:
     """Weighted random pick from bots by inverse-square-of-price (w = 1/price^2).
 
-    Cheapest bots are heavily favored.  Priceless bots use fallback_price.
+    Cheapest bots are heavily favored.
+    Price priority: price_override > OpenRouter catalog > fallback_price.
     """
     if not bots_and_prices:
         return None
@@ -115,7 +122,12 @@ def _pick_by_weight(bots_and_prices: List[Tuple[BotConfig, Optional[float]]], fa
     weights = []
     choices = []
     for cfg, price in bots_and_prices:
-        effective_price = price if price is not None else fallback_price
+        if getattr(cfg, "price_override", None) is not None:
+            effective_price = cfg.price_override
+        elif price is not None:
+            effective_price = price
+        else:
+            effective_price = fallback_price
         if effective_price <= 0:
             effective_price = fallback_price
         weight = 1.0 / (effective_price ** 2)
@@ -126,7 +138,7 @@ def _pick_by_weight(bots_and_prices: List[Tuple[BotConfig, Optional[float]]], fa
 
 
 def _pick_uniform(bots_and_prices: List[Tuple[BotConfig, Optional[float]]]) -> Optional[BotConfig]:
-    """Uniform random pick (equal weight, used for tier0)."""
+    """Uniform random pick (equal weight, retained but no longer used)."""
     if not bots_and_prices:
         return None
     return random.choice([b[0] for b in bots_and_prices])
@@ -161,11 +173,8 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
         catalog = bot_pricing.fetch_openrouter_catalog()
         bots_and_prices = _bots_for_tier(user_id, tier, catalog)
         if bots_and_prices:
-            if tier == "tier0":
-                selected = _pick_uniform(bots_and_prices)
-            else:
-                fallback = TIER_FALLBACK_PRICES.get(tier, 1.0)
-                selected = _pick_by_weight(bots_and_prices, fallback)
+            fallback = TIER_FALLBACK_PRICES.get(tier, 1.0)
+            selected = _pick_by_weight(bots_and_prices, fallback)
             if selected:
                 return selected
         logger.warning(

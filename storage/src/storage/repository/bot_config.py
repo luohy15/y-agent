@@ -20,6 +20,8 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         max_tokens=entity.max_tokens,
         custom_api_path=entity.custom_api_path,
         tier=entity.tier,
+        type=entity.type,
+        price_override=entity.price_override,
     )
 
 
@@ -36,6 +38,8 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         max_tokens=config.max_tokens,
         custom_api_path=config.custom_api_path,
         tier=config.tier,
+        type=config.type,
+        price_override=config.price_override,
     )
 
 

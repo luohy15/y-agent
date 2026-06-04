@@ -21,6 +21,8 @@ class BotConfig:
     max_tokens: Optional[int] = None
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
+    type: Optional[str] = None
+    price_override: Optional[float] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'BotConfig':

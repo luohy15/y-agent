@@ -94,6 +94,27 @@ class PickByWeightTest(unittest.TestCase):
         _, kwargs = mock_choices.call_args
         self.assertAlmostEqual(kwargs["weights"][0], 1.0 / (3.0 ** 2))
 
+    def test_price_override_priority(self):
+        """price_override > catalog price > fallback"""
+        override_bot = BotConfig(name="override", price_override=2.0)
+        catalog_bot = BotConfig(name="catalog")
+        fallback_bot = BotConfig(name="fallback")
+
+        bots = [(override_bot, None), (catalog_bot, 4.0), (fallback_bot, None)]
+
+        with patch("agent.config.random.choices") as mock_choices:
+            mock_choices.return_value = [override_bot]
+            result = _pick_by_weight(bots, fallback_price=5.0)
+
+        self.assertEqual(result.name, "override")
+        mock_choices.assert_called_once()
+        _, kwargs = mock_choices.call_args
+        weights = kwargs["weights"]
+        # override: 1/2^2 = 0.25, catalog: 1/4^2 = 0.0625, fallback: 1/5^2 = 0.04
+        self.assertAlmostEqual(weights[0], 1.0 / 4.0)
+        self.assertAlmostEqual(weights[1], 1.0 / 16.0)
+        self.assertAlmostEqual(weights[2], 1.0 / 25.0)
+
     def test_empty_list_returns_none(self):
         self.assertIsNone(_pick_by_weight([], 1.0))
 
@@ -216,23 +237,28 @@ class ResolveBotConfigTierTest(unittest.TestCase):
 
         self.assertEqual(config.name, "default")
 
-    def test_tier0_uniform_random(self):
-        a = BotConfig(name="a", tier="tier0")
-        b = BotConfig(name="b", tier="tier0")
-        configs = [a, b]
+    def test_tier0_uses_price_weight(self):
+        cheap = BotConfig(name="codex", tier="tier0", price_override=5.0)
+        expensive = BotConfig(name="claude_code", tier="tier0", price_override=10.0)
+        configs = [cheap, expensive]
 
         with (
             patch("agent.config.bot_service.list_configs", return_value=configs),
             patch("agent.config.bot_pricing.fetch_openrouter_catalog", return_value={"stub": True}),
             patch("agent.config.bot_pricing.bot_prices_per_1m", return_value=(None, None)),
-            patch("agent.config.random.choice") as mock_choice,
+            patch("agent.config.random.choices") as mock_choices,
             patch("agent.config.get_default_user_id", return_value=1),
         ):
-            mock_choice.return_value = a
+            mock_choices.return_value = [cheap]
             config = resolve_bot_config(1, tier="tier0")
 
-        self.assertEqual(config.name, "a")
-        mock_choice.assert_called_once()
+        self.assertEqual(config.name, "codex")
+        mock_choices.assert_called_once()
+        _, kwargs = mock_choices.call_args
+        weights = kwargs["weights"]
+        # 1/5^2 = 0.04 vs 1/10^2 = 0.01, ratio = 4:1
+        self.assertAlmostEqual(weights[0], 1.0 / 25.0)
+        self.assertAlmostEqual(weights[1], 1.0 / 100.0)
 
     def test_tier1_selects_weighted_random(self):
         bot_a = BotConfig(name="bot-a", tier="tier1", base_url="https://openrouter.ai/api/v1", model="a-model")
@@ -318,6 +344,30 @@ class ResolveBotConfigTierTest(unittest.TestCase):
         choices = args[0]
         names = [c.name for c in choices]
         self.assertNotIn("px", names)
+
+    def test_model_bots_excluded_from_tier(self):
+        inline = BotConfig(name="inline", tier="tier1", type="model")
+        tldr = BotConfig(name="tldr", tier="tier1", type="model")
+        agent = BotConfig(name="deepseek", tier="tier1", type="agent")
+        configs = [inline, tldr, agent]
+
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.bot_pricing.fetch_openrouter_catalog", return_value={"stub": True}),
+            patch("agent.config.bot_pricing.bot_prices_per_1m", return_value=(None, None)),
+            patch("agent.config.random.choices") as mock_choices,
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            mock_choices.return_value = [agent]
+            config = resolve_bot_config(1, tier="tier1")
+
+        self.assertEqual(config.name, "deepseek")
+        mock_choices.assert_called_once()
+        args, _ = mock_choices.call_args
+        choices = args[0]
+        names = [c.name for c in choices]
+        self.assertNotIn("inline", names)
+        self.assertNotIn("tldr", names)
 
     def test_without_tier_preserves_default_resolution(self):
         default_config = BotConfig(name="default", backend="codex", model="gpt-5.4")
