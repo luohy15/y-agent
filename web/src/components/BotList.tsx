@@ -19,6 +19,7 @@ export interface BotConfig {
   route_weight?: number | null;
   price_override?: number | null;
   enabled?: boolean;
+  ref_bot_name?: string | null;
 }
 
 type TypeFilter = "agent" | "model";
@@ -49,6 +50,7 @@ export interface BotFormState {
   type: string;
   tier: string;
   price_override: string;
+  ref_bot_name: string;
 }
 
 interface BotListProps {
@@ -69,6 +71,7 @@ export function emptyForm(): BotFormState {
     type: "agent",
     tier: "",
     price_override: "",
+    ref_bot_name: "",
   };
 }
 
@@ -85,6 +88,7 @@ export function formFromBot(bot: BotConfig): BotFormState {
     type: bot.type || "agent",
     tier: bot.tier || "",
     price_override: bot.price_override ? String(bot.price_override) : "",
+    ref_bot_name: bot.ref_bot_name || "",
   };
 }
 
@@ -168,6 +172,15 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
               </select>
             </Field>
           </div>
+          <Field label="Ref Bot Name" hint="Pointer to another bot config (e.g. 'codex'). Leave empty for a real bot.">
+            <input
+              type="text"
+              value={form.ref_bot_name}
+              onChange={(e) => setForm({ ...form, ref_bot_name: e.target.value })}
+              placeholder="codex"
+              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 font-mono outline-none focus:border-sol-blue"
+            />
+          </Field>
           <Field label="Model">
             <input
               type="text"
@@ -367,6 +380,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
       type: form.type || null,
       tier: form.tier || null,
       price_override: form.price_override ? Number(form.price_override) : null,
+      ref_bot_name: form.ref_bot_name.trim() || null,
       ...(!editing || form.api_key ? { api_key: form.api_key } : {}),
     };
     try {
@@ -476,6 +490,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                         <span className="text-sol-base1 font-medium truncate">{bot.name}</span>
                         {bot.name === "default" && <span className="text-[0.55rem] px-1 rounded bg-sol-base02 text-sol-base01 shrink-0">def</span>}
                         {bot.has_api_key && <span className="text-[0.55rem] px-1 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
+                        {bot.ref_bot_name && <span className="text-[0.55rem] px-1 rounded bg-sol-blue/15 text-sol-blue shrink-0" title={bot.ref_bot_name}>ref</span>}
                       </span>
                     </td>
                     <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>

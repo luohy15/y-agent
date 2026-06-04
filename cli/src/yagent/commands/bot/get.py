@@ -27,6 +27,7 @@ def bot_get(name):
         ("Tier", config.tier or "tier1"),
         ("Type", config.type or "agent"),
         ("Route Weight", config.route_weight if config.route_weight is not None else "N/A"),
+        ("Ref", config.ref_bot_name or "N/A"),
         ("Enabled", "Yes" if config.enabled else "No"),
     ]
     width = max(len(label) for label, _ in fields)

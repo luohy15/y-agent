@@ -28,20 +28,21 @@ def bot_list(full: bool = False, filter_type: str | None = None):
     if full:
         # Full table: all columns
         width_ratios = {
-            "Name": 0.18,
-            "API Key": 0.12,
-            "Backend": 0.12,
-            "Base URL": 0.18,
-            "Model": 0.18,
-            "Description": 0.18,
-            "OpenRouter Config": 0.12
+            "Name": 0.15,
+            "API Key": 0.10,
+            "Backend": 0.10,
+            "Base URL": 0.15,
+            "Model": 0.15,
+            "Description": 0.15,
+            "OpenRouter Config": 0.10,
+            "Ref": 0.10,
         }
         term_width = shutil.get_terminal_size().columns
         col_widths = {k: max(10, int(term_width * ratio)) for k, ratio in width_ratios.items()}
         catalog = fetch_openrouter_catalog()
 
         headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description",
-                   "OpenRouter Config", "Input/1M", "Output/1M", "Tier", "Type", "Enabled"]
+                   "OpenRouter Config", "Ref", "Input/1M", "Output/1M", "Tier", "Type", "Enabled"]
         table_data = []
         for bot_cfg in configs:
             input_price, output_price = bot_prices_per_1m(bot_cfg, catalog)
@@ -53,6 +54,7 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 truncate_text(bot_cfg.model, col_widths["Model"]),
                 truncate_text(bot_cfg.description or "N/A", col_widths["Description"]),
                 "Yes" if bot_cfg.openrouter_config else "No",
+                bot_cfg.ref_bot_name or "-",
                 fmt_price(input_price),
                 fmt_price(output_price),
                 bot_cfg.tier or "tier1",
@@ -60,8 +62,8 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 "Yes" if bot_cfg.enabled else "No",
             ])
     else:
-        # Compact: Name, Backend, Model, Type
-        headers = ["Name", "Backend", "Model", "Type"]
+        # Compact: Name, Backend, Model, Type, Ref
+        headers = ["Name", "Backend", "Model", "Type", "Ref"]
         table_data = []
         for bot_cfg in configs:
             table_data.append([
@@ -69,6 +71,7 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 bot_cfg.backend or bot_cfg.api_type or "N/A",
                 bot_cfg.model or "N/A",
                 bot_cfg.type or "agent",
+                bot_cfg.ref_bot_name or "-",
             ])
 
     click.echo(tabulate(

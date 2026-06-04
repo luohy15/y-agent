@@ -12,8 +12,9 @@ from storage.service.user import get_cli_user_id
 @click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2)')
 @click.option('--type', default=None, help='Type (agent|model, default: agent)')
 @click.option('--route-weight', type=float, default=None, help='Route weight for auto-routing (default: 1, 0=paused)')
+@click.option('--ref-bot-name', default=None, help='Ref/pointer to another bot (e.g. codex)')
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
-def bot_add(name, model, api_key, base_url, backend, tier, type, route_weight, yes):
+def bot_add(name, model, api_key, base_url, backend, tier, type, route_weight, ref_bot_name, yes):
     """Add a new bot configuration."""
     user_id = get_cli_user_id()
     existing_configs = bot_service.list_configs(user_id)
@@ -26,6 +27,6 @@ def bot_add(name, model, api_key, base_url, backend, tier, type, route_weight, y
     if base_url is None:
         base_url = default_config.base_url if default_config else None
 
-    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend, tier=tier, type=type, route_weight=route_weight)
+    bot_config = BotConfig(name=name, api_key=api_key, base_url=base_url, model=model, backend=backend, tier=tier, type=type, route_weight=route_weight, ref_bot_name=ref_bot_name)
     bot_service.add_config(user_id, bot_config)
     click.echo(f"Bot '{name}' added successfully")

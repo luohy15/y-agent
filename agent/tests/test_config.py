@@ -461,5 +461,145 @@ class ResolveBotConfigOriginalTest(unittest.TestCase):
         self.assertEqual(config.model, "")
 
 
+class RefBotResolveTest(unittest.TestCase):
+    """Tests for ref/pointer bot dereference."""
+
+    def test_ref_dereference_single_level(self):
+        default = BotConfig(name="default", ref_bot_name="codex")
+        codex = BotConfig(name="codex", backend="codex", model="gpt-5.4")
+
+        def _get_config(uid, name="default"):
+            if name == "default":
+                return default
+            if name == "codex":
+                return codex
+            return None
+
+        with patch("agent.config.bot_service.get_config", side_effect=_get_config):
+            config = resolve_bot_config(1)
+
+        self.assertEqual(config.name, "codex")
+        self.assertEqual(config.backend, "codex")
+        self.assertEqual(config.model, "gpt-5.4")
+
+    def test_ref_dereference_multi_level(self):
+        a = BotConfig(name="a", ref_bot_name="b")
+        b = BotConfig(name="b", ref_bot_name="c")
+        c = BotConfig(name="c", backend="codex", model="gpt-5.4")
+
+        def _get_config(uid, name="default"):
+            mapping = {"a": a, "b": b, "c": c}
+            return mapping.get(name)
+
+        with patch("agent.config.bot_service.get_config", side_effect=_get_config):
+            config = resolve_bot_config(1, bot_name="a")
+
+        self.assertEqual(config.name, "c")
+        self.assertEqual(config.backend, "codex")
+        self.assertEqual(config.model, "gpt-5.4")
+
+    def test_ref_circular_detected(self):
+        a = BotConfig(name="a", ref_bot_name="b")
+        b = BotConfig(name="b", ref_bot_name="a")
+
+        def _get_config(uid, name="default"):
+            mapping = {"a": a, "b": b}
+            return mapping.get(name)
+
+        with patch("agent.config.bot_service.get_config", side_effect=_get_config):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_bot_config(1, bot_name="a")
+            self.assertIn("Circular ref", str(ctx.exception))
+
+    def test_ref_self_loop_detected(self):
+        default = BotConfig(name="default", ref_bot_name="default")
+
+        with patch("agent.config.bot_service.get_config", return_value=default):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_bot_config(1)
+            self.assertIn("Circular ref", str(ctx.exception))
+
+    def test_ref_max_depth_exceeded(self):
+        bots = {f"bot{i}": BotConfig(name=f"bot{i}", ref_bot_name=f"bot{i+1}") for i in range(6)}
+        bots["bot5"] = BotConfig(name="bot5", ref_bot_name="bot6")  # will exceed _MAX_REF_DEPTH=5
+
+        def _get_config(uid, name="default"):
+            return bots.get(name)
+
+        with patch("agent.config.bot_service.get_config", side_effect=_get_config):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_bot_config(1, bot_name="bot0")
+            self.assertIn("Max ref depth", str(ctx.exception))
+
+    def test_ref_bot_excluded_from_tier_pool(self):
+        default = BotConfig(name="default", ref_bot_name="codex", tier="tier1")
+        codex = BotConfig(name="codex", backend="codex", route_weight=1, tier="tier1")
+        configs = [default, codex]
+
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.random.choices") as mock_choices,
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            mock_choices.return_value = [codex]
+            config = resolve_bot_config(1, tier="tier1")
+
+        self.assertEqual(config.name, "codex")
+        args, _ = mock_choices.call_args
+        choices = args[0]
+        names = [c.name for c in choices]
+        self.assertNotIn("default", names)
+        self.assertIn("codex", names)
+
+    def test_ref_bot_pinned_by_name_derefs(self):
+        default = BotConfig(name="default", ref_bot_name="codex")
+        codex = BotConfig(name="codex", backend="codex", model="gpt-5.4", route_weight=1, tier="tier1")
+
+        def _get_config(uid, name="default"):
+            if name == "default":
+                return default
+            if name == "codex":
+                return codex
+            return None
+
+        with patch("agent.config.bot_service.get_config", side_effect=_get_config):
+            config = resolve_bot_config(1, bot_name="default")
+
+        self.assertEqual(config.name, "codex")
+        self.assertEqual(config.backend, "codex")
+
+    def test_ref_backend_pin_derefs(self):
+        # "default" is a ref to "codex", backend pin searches for codex backend
+        default = BotConfig(name="default", ref_bot_name="codex")
+        codex = BotConfig(name="codex", backend="codex", model="gpt-5.4")
+        configs = [default, codex]
+
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            config = resolve_bot_config(1, bot_name="default", backend="codex")
+
+        # _find_bot_config_by_backend finds codex directly (not default)
+        self.assertEqual(config.name, "codex")
+        self.assertEqual(config.backend, "codex")
+
+    def test_ref_target_not_found_raises(self):
+        default = BotConfig(name="default", ref_bot_name="nonexistent")
+
+        def _get_config(uid, name="default"):
+            if name == "default":
+                return default
+            return None
+
+        with (
+            patch("agent.config.bot_service.get_config", side_effect=_get_config),
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_bot_config(1)
+            self.assertIn("not found", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
