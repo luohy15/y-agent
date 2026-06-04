@@ -32,6 +32,28 @@ def process_chat(chat_id: str, bot_name: str = None, user_id: int = None, vm_nam
         logger.info("Finished chat {}", chat_id)
     except Exception as e:
         logger.exception("Chat {} failed: {}", chat_id, e)
+        # Defense-in-depth: if run_chat raised before setting running=False,
+        # the chat would be stuck as running=True. Try to clear it.
+        try:
+            from storage.service import chat as chat_service
+            from storage.repository.chat import _save_chat_by_id_sync
+            from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+            from storage.entity.dto import Message
+            chat = chat_service.get_chat_by_id_sync(chat_id)
+            if chat and chat.running:
+                chat.running = False
+                error_msg = Message(
+                    id=generate_message_id(),
+                    role="assistant",
+                    content=f"Worker process crashed: {type(e).__name__}. The chat service will attempt to recover on the next message.",
+                    timestamp=get_utc_iso8601_timestamp(),
+                    unix_timestamp=get_unix_timestamp(),
+                )
+                chat.messages.append(error_msg)
+                _save_chat_by_id_sync(chat)
+                logger.info("Defense-in-depth: cleared running=True for stuck chat {}", chat_id)
+        except Exception as inner_e:
+            logger.exception("Failed to clear stuck running state for chat {}: {}", chat_id, inner_e)
 
 
 @app.task(name="worker.tasks.trigger_batch_download")
