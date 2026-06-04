@@ -8,6 +8,7 @@ import CalendarViewer from "./CalendarViewer";
 import FinanceViewer from "./FinanceViewer";
 import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
+import BotViewer from "./BotViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView from "./TraceView";
 import LinkList from "./LinkList";
@@ -815,11 +816,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
+  const isBot = !isDiff && !isTrace && activeFileName === "bot.md";
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (!activeFile) return;
-    if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev) return;
+    if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev || isBot) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -850,7 +852,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, isArtifact, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery]);
+  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -930,6 +932,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
       return;
     }
+    if (isBot) {
+      mutate((key) => typeof key === "string" && key.includes("/api/bot/list"));
+      return;
+    }
     // Clear cache entry so useEffect re-fetches
     setCache((prev) => {
       const next = { ...prev };
@@ -940,7 +946,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, isBot, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -1191,6 +1197,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
+          const fileBot = !fileDiff && !fileTrace && fileName === "bot.md";
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
           const fileExt = getExt(fileName);
@@ -1200,7 +1207,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileArtifact || fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileArtifact || fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileBot || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -1248,6 +1255,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <EmailViewer />
               ) : fileDev ? (
                 <DevViewer />
+              ) : fileBot ? (
+                <BotViewer />
               ) : !fileData || fileData.loading ? (
                 <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
               ) : fileData.error ? (

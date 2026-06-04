@@ -762,6 +762,7 @@ export default function App() {
               finance: { path: "finance.bean", label: "Open finance.bean" },
               email: { path: "emails.md", label: "Open emails.md" },
               dev: { path: "dev.md", label: "Open dev.md" },
+              bots: { path: "bot.md", label: "Open bot.md" },
             };
             const panelFile = panelFileMap[sidebarPanel];
             const body =
