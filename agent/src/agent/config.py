@@ -3,23 +3,14 @@
 import logging
 import os
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
-from storage.service import bot_pricing
 from storage.service import vm_config as vm_service
 from storage.service.user import get_default_user_id
 
 logger = logging.getLogger(__name__)
-
-# Fallback prices for weighting when a bot's OpenRouter price is unknown.
-# Used by tier1/tier2 inverse-square routing. tier0 uses uniform random.
-TIER_FALLBACK_PRICES: Dict[str, float] = {
-    "tier0": 10.0,
-    "tier1": 5.0,
-    "tier2": 1.0,
-}
 
 # Phase 0 static skill->tier mapping.
 # Unlisted skills (and *all* new skills) default to tier1 (conservative).
@@ -88,15 +79,12 @@ def tier_of(bot_config: BotConfig) -> str:
     return bot_config.tier or "tier1"
 
 
-def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> List[Tuple[BotConfig, Optional[float]]]:
-    """Return list of (bot_config, input_price) for bots matching the tier.
+def _bots_for_tier(user_id: int, tier: str) -> List[BotConfig]:
+    """Return list of BotConfig for bots matching the tier.
 
     Excludes perplexity backend (px is pin-only, not a pool member).
     Excludes type='model' bots (inline, tldr, etc.) from auto-routing.
-    Each bot queries its price exactly once.
     """
-    if catalog is None:
-        catalog = bot_pricing.fetch_openrouter_catalog()
     configs = bot_service.list_configs(user_id)
     bots = []
     for cfg in configs:
@@ -110,43 +98,30 @@ def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> L
         if not cfg.enabled:
             continue
         if tier_of(cfg) == tier:
-            input_price, _ = bot_pricing.bot_prices_per_1m(cfg, catalog)
-            bots.append((cfg, input_price))
+            bots.append(cfg)
     return bots
 
 
-def _pick_by_weight(bots_and_prices: List[Tuple[BotConfig, Optional[float]]], fallback_price: float) -> Optional[BotConfig]:
-    """Weighted random pick from bots by inverse-square-of-price (w = 1/price^2).
+def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
+    """Weighted random pick from bots by route_weight.
 
-    Cheapest bots are heavily favored.
-    Price priority: price_override > OpenRouter catalog > fallback_price.
+    Probability = route_weight / sum(route_weights) within the tier.
+    Bots with route_weight <= 0 are excluded from auto-routing.
     """
-    if not bots_and_prices:
+    eligible = [(cfg, cfg.route_weight) for cfg in bots if cfg.route_weight and cfg.route_weight > 0]
+    if not eligible:
         return None
-
-    weights = []
-    choices = []
-    for cfg, price in bots_and_prices:
-        if getattr(cfg, "price_override", None) is not None:
-            effective_price = cfg.price_override
-        elif price is not None:
-            effective_price = price
-        else:
-            effective_price = fallback_price
-        if effective_price <= 0:
-            effective_price = fallback_price
-        weight = 1.0 / (effective_price ** 2)
-        weights.append(weight)
-        choices.append(cfg)
-
+    choices, raw_weights = zip(*eligible)
+    total = sum(raw_weights)
+    weights = [w / total for w in raw_weights]
     return random.choices(choices, weights=weights, k=1)[0]
 
 
-def _pick_uniform(bots_and_prices: List[Tuple[BotConfig, Optional[float]]]) -> Optional[BotConfig]:
+def _pick_uniform(bots: List[BotConfig]) -> Optional[BotConfig]:
     """Uniform random pick (equal weight, retained but no longer used)."""
-    if not bots_and_prices:
+    if not bots:
         return None
-    return random.choice([b[0] for b in bots_and_prices])
+    return random.choice(bots)
 
 
 def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
@@ -175,11 +150,9 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
 
     # Priority 3: tier-based selection (only when no explicit pin)
     if not bot_config and not bot_name and tier:
-        catalog = bot_pricing.fetch_openrouter_catalog()
-        bots_and_prices = _bots_for_tier(user_id, tier, catalog)
-        if bots_and_prices:
-            fallback = TIER_FALLBACK_PRICES.get(tier, 1.0)
-            selected = _pick_by_weight(bots_and_prices, fallback)
+        bots = _bots_for_tier(user_id, tier)
+        if bots:
+            selected = _pick_by_weight(bots)
             if selected:
                 return selected
         logger.warning(

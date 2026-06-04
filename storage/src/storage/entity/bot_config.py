@@ -20,7 +20,7 @@ class BotConfigEntity(Base, BaseEntity):
     custom_api_path = Column(String, nullable=True)
     tier = Column(String, nullable=True)
     type = Column(String, nullable=True)
-    price_override = Column(Float, nullable=True)
+    route_weight = Column(Float, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
 
     __table_args__ = (

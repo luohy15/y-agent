@@ -22,7 +22,7 @@ class BotConfig:
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
     type: Optional[str] = None
-    price_override: Optional[float] = None
+    route_weight: Optional[float] = None
     enabled: bool = True
 
     @classmethod

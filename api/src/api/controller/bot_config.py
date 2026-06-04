@@ -21,7 +21,7 @@ class BotConfigRequest(BaseModel):
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
     type: Optional[str] = None
-    price_override: Optional[float] = None
+    route_weight: Optional[float] = None
 
 
 class UpdateBotConfigRequest(BaseModel):
@@ -35,7 +35,7 @@ class UpdateBotConfigRequest(BaseModel):
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
     type: Optional[str] = None
-    price_override: Optional[float] = None
+    route_weight: Optional[float] = None
 
 
 class BotNameRequest(BaseModel):
@@ -67,7 +67,7 @@ async def list_bot_configs(request: Request):
                 "price_output": price_output,
                 "tier": c.tier,
                 "type": c.type or "agent",
-                "price_override": c.price_override,
+                "route_weight": c.route_weight,
                 "enabled": c.enabled,
             }
         )
@@ -91,7 +91,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         "has_api_key": bool(config.api_key),
         "tier": config.tier,
         "type": config.type or "agent",
-        "price_override": config.price_override,
+        "route_weight": config.route_weight,
         "enabled": config.enabled,
     }
 
@@ -113,7 +113,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         custom_api_path=req.custom_api_path or None,
         tier=req.tier or None,
         type=req.type or None,
-        price_override=req.price_override,
+        route_weight=req.route_weight,
     )
     bot_service.add_config(user_id, config)
     return {"ok": True, "name": name}
@@ -144,7 +144,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         ),
         tier=existing.tier if "tier" not in fields_set else (req.tier or None),
         type=existing.type if "type" not in fields_set else (req.type or None),
-        price_override=existing.price_override if "price_override" not in fields_set else req.price_override,
+        route_weight=existing.route_weight if "route_weight" not in fields_set else req.route_weight,
         enabled=existing.enabled,
     )
     bot_service.add_config(user_id, config)

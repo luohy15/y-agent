@@ -10,9 +10,9 @@ from storage.service.user import get_cli_user_id
 @click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, perplexity, openai)')
 @click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2)')
 @click.option('--type', default=None, help='Type (agent|model)')
-@click.option('--price-override', type=float, default=None, help='Price override per 1M tokens')
+@click.option('--route-weight', type=float, default=None, help='Route weight for auto-routing (default: 1, 0=paused)')
 @click.option('--clear-openrouter', is_flag=True, help='Clear the OpenRouter config')
-def bot_update(name, model, api_key, base_url, backend, tier, type, price_override, clear_openrouter):
+def bot_update(name, model, api_key, base_url, backend, tier, type, route_weight, clear_openrouter):
     """Update an existing bot configuration."""
     user_id = get_cli_user_id()
     config = bot_service.get_config(user_id, name)
@@ -32,8 +32,8 @@ def bot_update(name, model, api_key, base_url, backend, tier, type, price_overri
         config.tier = tier
     if type is not None:
         config.type = type
-    if price_override is not None:
-        config.price_override = price_override
+    if route_weight is not None:
+        config.route_weight = route_weight
     if clear_openrouter:
         config.openrouter_config = None
 
