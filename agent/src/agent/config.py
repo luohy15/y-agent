@@ -68,10 +68,13 @@ def _find_bot_config_by_backend(user_id: int, backend: str, bot_name: str = None
 
     for preferred_name in (backend, "default"):
         for config in matches:
-            if config.name == preferred_name:
+            if config.name == preferred_name and config.enabled:
                 return config
 
-    return matches[0] if matches else None
+    for config in matches:
+        if config.enabled:
+            return config
+    return None
 
 
 # --- Tier helpers ---
@@ -103,6 +106,8 @@ def _bots_for_tier(user_id: int, tier: str, catalog: Optional[dict] = None) -> L
             continue
         type_val = getattr(cfg, "type", None) or "agent"
         if type_val == "model":
+            continue
+        if not cfg.enabled:
             continue
         if tier_of(cfg) == tier:
             input_price, _ = bot_pricing.bot_prices_per_1m(cfg, catalog)

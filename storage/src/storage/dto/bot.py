@@ -23,13 +23,20 @@ class BotConfig:
     tier: Optional[str] = None
     type: Optional[str] = None
     price_override: Optional[float] = None
+    enabled: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'BotConfig':
         return cls(**data)
 
     def to_dict(self) -> Dict:
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        result = {}
+        for k, v in asdict(self).items():
+            # enabled is a boolean default True — always include it so the
+            # receiver can tell explicit False from a missing key.
+            if v is not None or k == "enabled":
+                result[k] = v
+        return result
 
 
 def _is_openrouter_routed(bot_config) -> bool:

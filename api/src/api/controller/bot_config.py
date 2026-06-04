@@ -68,6 +68,7 @@ async def list_bot_configs(request: Request):
                 "tier": c.tier,
                 "type": c.type or "agent",
                 "price_override": c.price_override,
+                "enabled": c.enabled,
             }
         )
     return result
@@ -91,6 +92,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         "tier": config.tier,
         "type": config.type or "agent",
         "price_override": config.price_override,
+        "enabled": config.enabled,
     }
 
 
@@ -143,6 +145,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         tier=existing.tier if "tier" not in fields_set else (req.tier or None),
         type=existing.type if "type" not in fields_set else (req.type or None),
         price_override=existing.price_override if "price_override" not in fields_set else req.price_override,
+        enabled=existing.enabled,
     )
     bot_service.add_config(user_id, config)
     return {"ok": True, "name": name}
@@ -157,5 +160,29 @@ async def delete_bot_config(request: Request, req: BotNameRequest):
     if name == "default":
         raise HTTPException(status_code=400, detail="Cannot delete default bot configuration")
     if not bot_service.delete_config(user_id, name):
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return {"ok": True, "name": name}
+
+
+@router.post("/enable")
+async def enable_bot_config(request: Request, req: BotNameRequest):
+    user_id = _get_user_id(request)
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not bot_service.set_enabled(user_id, name, True):
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return {"ok": True, "name": name}
+
+
+@router.post("/disable")
+async def disable_bot_config(request: Request, req: BotNameRequest):
+    user_id = _get_user_id(request)
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if name == "default":
+        raise HTTPException(status_code=400, detail="Cannot disable the default bot configuration")
+    if not bot_service.set_enabled(user_id, name, False):
         raise HTTPException(status_code=404, detail="Bot not found")
     return {"ok": True, "name": name}

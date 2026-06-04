@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Boolean, Float, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
 from .base import Base, BaseEntity
 
 
@@ -21,6 +21,7 @@ class BotConfigEntity(Base, BaseEntity):
     tier = Column(String, nullable=True)
     type = Column(String, nullable=True)
     price_override = Column(Float, nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

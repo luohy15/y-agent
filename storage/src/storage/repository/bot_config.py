@@ -22,11 +22,12 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         tier=entity.tier,
         type=entity.type,
         price_override=entity.price_override,
+        enabled=entity.enabled if entity.enabled is not None else True,
     )
 
 
 def _dto_to_entity_fields(config: BotConfig) -> dict:
-    return dict(
+    fields = dict(
         base_url=config.base_url,
         api_key=config.api_key,
         api_type=None,
@@ -40,7 +41,9 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         tier=config.tier,
         type=config.type,
         price_override=config.price_override,
+        enabled=config.enabled,
     )
+    return fields
 
 
 def list_configs(user_id: int) -> List[BotConfig]:
