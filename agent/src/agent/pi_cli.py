@@ -104,6 +104,12 @@ class PiStreamConverter:
         if event_type == "session":
             self.session_id = obj.get("id") or self.session_id
 
+        elif event_type == "message_start":
+            # Streaming start; final content arrives via message_end.
+            pass
+        elif event_type == "message_update":
+            # Streaming update; final content arrives via message_end.
+            pass
         elif event_type == "message_end":
             message = obj.get("message") or {}
             if message.get("role") != "assistant":
