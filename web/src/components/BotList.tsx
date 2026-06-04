@@ -17,7 +17,6 @@ export interface BotConfig {
   tier?: string | null;
   type?: string | null;
   route_weight?: number | null;
-  price_override?: number | null;
   enabled?: boolean;
   ref_bot_name?: string | null;
 }
@@ -49,7 +48,7 @@ export interface BotFormState {
   custom_api_path: string;
   type: string;
   tier: string;
-  price_override: string;
+  route_weight: string;
   ref_bot_name: string;
 }
 
@@ -70,7 +69,7 @@ export function emptyForm(): BotFormState {
     custom_api_path: "",
     type: "agent",
     tier: "",
-    price_override: "",
+    route_weight: "",
     ref_bot_name: "",
   };
 }
@@ -87,7 +86,7 @@ export function formFromBot(bot: BotConfig): BotFormState {
     custom_api_path: bot.custom_api_path || "",
     type: bot.type || "agent",
     tier: bot.tier || "",
-    price_override: bot.price_override ? String(bot.price_override) : "",
+    route_weight: bot.route_weight ? String(bot.route_weight) : "",
     ref_bot_name: bot.ref_bot_name || "",
   };
 }
@@ -237,12 +236,12 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
               />
             </Field>
-            <Field label="Price override">
+            <Field label="Weight">
               <input
                 type="number"
                 step="any"
-                value={form.price_override}
-                onChange={(e) => setForm({ ...form, price_override: e.target.value })}
+                value={form.route_weight}
+                onChange={(e) => setForm({ ...form, route_weight: e.target.value })}
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
               />
             </Field>
@@ -379,7 +378,7 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
       custom_api_path: form.custom_api_path || null,
       type: form.type || null,
       tier: form.tier || null,
-      price_override: form.price_override ? Number(form.price_override) : null,
+      route_weight: form.route_weight ? Number(form.route_weight) : null,
       ref_bot_name: form.ref_bot_name.trim() || null,
       ...(!editing || form.api_key ? { api_key: form.api_key } : {}),
     };

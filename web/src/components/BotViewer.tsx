@@ -63,7 +63,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
   const [apiKey, setApiKey] = useState("");
   const [maxTokens, setMaxTokens] = useState(full.max_tokens ? String(full.max_tokens) : "");
   const [customApiPath, setCustomApiPath] = useState(full.custom_api_path || "");
-  const [priceOverride, setPriceOverride] = useState(full.price_override ? String(full.price_override) : "");
+  const [routeWeight, setRouteWeight] = useState(full.route_weight ? String(full.route_weight) : "");
   const [refBotName, setRefBotName] = useState(full.ref_bot_name || "");
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -79,7 +79,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
     apiKey !== "" ||
     maxTokens !== (full.max_tokens ? String(full.max_tokens) : "") ||
     customApiPath !== (full.custom_api_path || "") ||
-    priceOverride !== (full.price_override ? String(full.price_override) : "") ||
+    routeWeight !== (full.route_weight ? String(full.route_weight) : "") ||
     refBotName !== (full.ref_bot_name || "");
 
   const handleSave = async () => {
@@ -93,7 +93,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
     if (apiKey) body.api_key = apiKey;
     if (maxTokens !== (full.max_tokens ? String(full.max_tokens) : "")) body.max_tokens = maxTokens ? Number(maxTokens) : null;
     if (customApiPath !== (full.custom_api_path || "")) body.custom_api_path = customApiPath || null;
-    if (priceOverride !== (full.price_override ? String(full.price_override) : "")) body.price_override = priceOverride ? Number(priceOverride) : null;
+    if (routeWeight !== (full.route_weight ? String(full.route_weight) : "")) body.route_weight = routeWeight ? Number(routeWeight) : null;
     if (refBotName !== (full.ref_bot_name || "")) body.ref_bot_name = refBotName || null;
 
     if (Object.keys(body).length <= 1) return; // only name
@@ -171,8 +171,8 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
         <label className="text-sol-base01 pt-1">API Path</label>
         <input type="text" value={customApiPath} onChange={(e) => setCustomApiPath(e.target.value)} placeholder="/chat/completions" className={inputClass} />
 
-        <label className="text-sol-base01 pt-1">Price Override</label>
-        <input type="number" step="any" value={priceOverride} onChange={(e) => setPriceOverride(e.target.value)} className={inputClass} />
+        <label className="text-sol-base01 pt-1">Weight</label>
+        <input type="number" step="any" value={routeWeight} onChange={(e) => setRouteWeight(e.target.value)} className={inputClass} />
 
         <label className="text-sol-base01 pt-1">Ref Bot Name</label>
         <input type="text" value={refBotName} onChange={(e) => setRefBotName(e.target.value)} placeholder="codex" className={inputClass} />
@@ -295,7 +295,7 @@ export default function BotViewer() {
       custom_api_path: form.custom_api_path || null,
       type: form.type || null,
       tier: form.tier || null,
-      price_override: form.price_override ? Number(form.price_override) : null,
+      route_weight: form.route_weight ? Number(form.route_weight) : null,
       ref_bot_name: form.ref_bot_name.trim() || null,
       ...(form.api_key ? { api_key: form.api_key } : {}),
     };
