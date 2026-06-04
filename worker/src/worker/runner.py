@@ -6,7 +6,7 @@ import re
 from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
-from storage.entity.dto import BotConfig, Message
+from storage.entity.dto import BotConfig, Message, _throughput_enabled
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
@@ -642,6 +642,16 @@ def _pi_provider_name(bot_name: str) -> str:
     return f"y-{safe}"
 
 
+def _apply_throughput_suffix(model_id: str, bot_config) -> str:
+    """Append OpenRouter's `:nitro` throughput shorthand to a pi model id when the
+    bot is throughput-routed. pi sends Anthropic-messages bodies, so the body-level
+    `provider` field can't be injected; `:nitro` is the only lever and rides along
+    in the model slug. Idempotent: never doubles an existing suffix."""
+    if model_id and _throughput_enabled(bot_config) and not model_id.endswith(":nitro"):
+        return f"{model_id}:nitro"
+    return model_id
+
+
 def build_pi_models_provider(bot_config) -> tuple[str, dict]:
     """Materialize a pi custom-provider entry from bot_config.base_url.
 
@@ -654,7 +664,8 @@ def build_pi_models_provider(bot_config) -> tuple[str, dict]:
     Returns (provider_name, provider_dict).
     """
     provider_name = _pi_provider_name(bot_config.name)
-    model_id = bot_config.model.strip('"').strip() if bot_config.model else ""
+    model_name = bot_config.model.strip('"').strip() if bot_config.model else ""
+    model_id = _apply_throughput_suffix(model_name, bot_config)
     provider = {
         "baseUrl": bot_config.base_url,
         "api": "anthropic-messages",
@@ -662,7 +673,7 @@ def build_pi_models_provider(bot_config) -> tuple[str, dict]:
         "models": [
             {
                 "id": model_id,
-                "name": model_id,
+                "name": model_name,
                 "reasoning": True,
                 "input": ["text", "image"],
                 "contextWindow": 200000,
@@ -686,6 +697,9 @@ def resolve_pi_model_and_provider(bot_config, model):
     base_url = bot_config.base_url
     if base_url and base_url != DEFAULT_BOT_BASE_URL and model:
         provider_name, provider_dict = build_pi_models_provider(bot_config)
+        # Keep the --model reference in sync with the models.json `id` so pi selects
+        # (and forwards) the `:nitro` slug when throughput routing is on.
+        model = _apply_throughput_suffix(model, bot_config)
         return f"{provider_name}/{model}", {provider_name: provider_dict}
     return model, None
 

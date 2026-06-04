@@ -4,7 +4,7 @@ from typing import Callable, Iterable, Optional
 
 import httpx
 
-from storage.entity.dto import Message
+from storage.entity.dto import Message, effective_openrouter_config
 from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
 
@@ -26,10 +26,10 @@ def _api_path(bot_config) -> str:
 
 
 def _provider_payload(bot_config):
-    openrouter_config = getattr(bot_config, "openrouter_config", None)
-    if not openrouter_config:
+    config = effective_openrouter_config(bot_config)
+    if not config:
         return None
-    return openrouter_config.get("provider", openrouter_config)
+    return config.get("provider", config)
 
 
 def _assistant_message(content: str, model: str) -> Message:

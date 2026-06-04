@@ -139,15 +139,37 @@ class PiBaseUrlTest(unittest.TestCase):
         self.assertEqual(provider["baseUrl"], GATEWAY_URL)
         self.assertEqual(provider["api"], "anthropic-messages")
         self.assertEqual(provider["apiKey"], "sk-or-x")
-        self.assertEqual(provider["models"][0]["id"], "anthropic/claude-sonnet-4.6")
+        # OpenRouter-routed bot with no explicit openrouter_config defaults to
+        # throughput, so the model id carries the `:nitro` shorthand.
+        self.assertTrue(provider["models"][0]["id"].endswith(":nitro"))
+        self.assertEqual(provider["models"][0]["id"], "anthropic/claude-sonnet-4.6:nitro")
         self.assertEqual(provider["models"][0]["name"], "anthropic/claude-sonnet-4.6")
+
+    def test_models_provider_nitro_is_idempotent(self):
+        _, provider = build_pi_models_provider(
+            BotConfig(name="pi", backend="pi_cli", base_url=GATEWAY_URL,
+                      api_key="sk-or-x", model="anthropic/claude-sonnet-4.6:nitro")
+        )
+        # Already-suffixed model id must not gain a second `:nitro`.
+        self.assertEqual(provider["models"][0]["id"], "anthropic/claude-sonnet-4.6:nitro")
+
+    def test_models_provider_no_nitro_when_throughput_disabled(self):
+        # Explicit non-throughput openrouter_config opts out of the `:nitro` slug.
+        _, provider = build_pi_models_provider(
+            BotConfig(name="pi", backend="pi_cli", base_url=GATEWAY_URL,
+                      api_key="sk-or-x", model="anthropic/claude-sonnet-4.6",
+                      openrouter_config={"provider": {"sort": "price"}})
+        )
+        self.assertEqual(provider["models"][0]["id"], "anthropic/claude-sonnet-4.6")
 
     def test_resolve_with_base_url_namespaces_model(self):
         model, provider = resolve_pi_model_and_provider(
             BotConfig(name="pi", base_url=GATEWAY_URL, api_key="sk-or-x"),
             "anthropic/claude-sonnet-4.6",
         )
-        self.assertEqual(model, "y-pi/anthropic/claude-sonnet-4.6")
+        # Throughput default adds `:nitro`, and the --model reference stays in sync
+        # with the models.json id.
+        self.assertEqual(model, "y-pi/anthropic/claude-sonnet-4.6:nitro")
         self.assertIn("y-pi", provider)
 
     def test_resolve_with_default_base_url_is_passthrough(self):
@@ -172,7 +194,7 @@ class PiBaseUrlTest(unittest.TestCase):
 
         self.assertEqual(
             params["cmd"],
-            ["pi", "-p", "--mode", "json", "--model", "y-pi/anthropic/claude-sonnet-4.6"],
+            ["pi", "-p", "--mode", "json", "--model", "y-pi/anthropic/claude-sonnet-4.6:nitro"],
         )
         self.assertNotIn("--api-key", params["cmd"])
         self.assertIn("y-pi", params["models_provider"])
@@ -191,7 +213,7 @@ class PiBaseUrlTest(unittest.TestCase):
         self.assertEqual(
             params["cmd"],
             ["pi", "-p", "--mode", "json", "--session", "session-1",
-             "--model", "y-pi/anthropic/claude-sonnet-4.6"],
+             "--model", "y-pi/anthropic/claude-sonnet-4.6:nitro"],
         )
         self.assertIn("y-pi", params["models_provider"])
 
