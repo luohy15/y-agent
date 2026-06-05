@@ -14,26 +14,32 @@ interface TraceViewProps {
   onPreviewLink?: (activityId: string) => void;
   onOpenFile?: (path: string) => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
+  // Public trace projection: when supplied, TraceView renders read-only from this
+  // injected payload and never self-fetches `/api/trace/chats` or `/api/trace/share/mine`
+  // (both JWT-only). The trace SharePopover + per-note NoteShareButton are hidden, and
+  // note clicks call `onOpenNote` (open as a public FileViewer tab) instead of `onOpenFile`.
+  injectedData?: TraceChatsResponse | null;
+  onOpenNote?: (note: TraceNote) => void;
 }
 
-interface TraceLink {
+export interface TraceLink {
   link_id: string;
   base_url: string;
   title?: string;
-  download_status?: string;
+  download_status?: string | null;
   activity_id?: string;
 }
 
-interface TraceNote {
+export interface TraceNote {
   note_id: string;
   content_key: string;
-  front_matter?: { tags?: string[]; [key: string]: unknown };
+  front_matter?: Record<string, any> | null;
   created_at?: string;
   share_id?: string;
   has_password?: boolean;
 }
 
-interface TraceChatsResponse {
+export interface TraceChatsResponse {
   chats: TraceChat[];
   todo_name: string | null;
   todo_status: string | null;
@@ -84,13 +90,17 @@ function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: strin
   );
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange }: TraceViewProps) {
-  // Fetch chats for selected trace
-  const traceChatsKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
-  const { data: traceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher, { revalidateOnFocus: false });
+export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange, injectedData, onOpenNote }: TraceViewProps) {
+  // Public projection: render read-only from the injected payload, skip all JWT fetches.
+  const publicMode = !!injectedData;
+
+  // Fetch chats for selected trace (authed only; skipped when data is injected)
+  const traceChatsKey = selectedTraceId && isLoggedIn && !publicMode ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
+  const { data: fetchedTraceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher, { revalidateOnFocus: false });
+  const traceData = injectedData ?? fetchedTraceData;
 
   // Fetch current share (if any) for this trace
-  const myShareKey = selectedTraceId && isLoggedIn ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
+  const myShareKey = selectedTraceId && isLoggedIn && !publicMode ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
   const { data: myShare, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
     myShareKey,
     async (url: string) => {
@@ -156,7 +166,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
 
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 p-3">
-      {!selectedTraceId ? (
+      {!selectedTraceId && !publicMode ? (
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
           Select a todo to view details
         </div>
@@ -203,13 +213,13 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
             </div>
             <div className="flex items-center gap-2 mb-1">
               <button
-                onClick={() => navigator.clipboard.writeText(selectedTraceId)}
+                onClick={() => navigator.clipboard.writeText(todoInfo?.todo_id || selectedTraceId || "")}
                 className="inline-flex items-center text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono cursor-pointer"
                 title="Copy todo ID"
               >
-                #{selectedTraceId}
+                #{todoInfo?.todo_id || selectedTraceId}
               </button>
-              <SharePopover
+              {!publicMode && <SharePopover
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
                 buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
@@ -246,7 +256,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                     </div>
                   </div>
                 ) : undefined}
-              />
+              />}
             </div>
 
             {/* Todo detail section */}
@@ -257,8 +267,8 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 setOpen={setTodoDetailOpen}
                 historyOpen={historyOpen}
                 setHistoryOpen={setHistoryOpen}
-                onDirtyChange={onTraceTodoDirtyChange}
-                onSave={async (patch: TodoPatch) => {
+                onDirtyChange={publicMode ? undefined : onTraceTodoDirtyChange}
+                onSave={publicMode ? undefined : async (patch: TodoPatch) => {
                   const res = await authFetch(`${API}/api/todo/update`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -342,28 +352,41 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 </button>
                 {notesOpen && (
                   <div className="px-2 pb-2 space-y-1">
-                    {traceNotes.map((note) => (
+                    {traceNotes.map((note) => {
+                      // Public mode: only notes carrying a `share_id` (S3 snapshot) are
+                      // openable as FileViewer tabs; others are shown but non-openable.
+                      const openable = publicMode ? !!note.share_id : !!onOpenFile;
+                      return (
                       <div
                         key={note.note_id}
-                        className={`bg-sol-base02/50 rounded px-2 py-1 ${onOpenFile ? "cursor-pointer hover:bg-sol-base02" : ""}`}
-                        onClick={() => onOpenFile?.(defaultWorkDir ? `${defaultWorkDir}/${note.content_key}` : note.content_key)}
+                        className={`bg-sol-base02/50 rounded px-2 py-1 ${openable ? "cursor-pointer hover:bg-sol-base02" : ""}`}
+                        onClick={() => {
+                          if (publicMode) {
+                            if (note.share_id) onOpenNote?.(note);
+                          } else {
+                            onOpenFile?.(defaultWorkDir ? `${defaultWorkDir}/${note.content_key}` : note.content_key);
+                          }
+                        }}
                       >
                         <div className="flex items-center gap-1.5">
                           <span className="text-[0.6rem] text-sol-base01 min-w-0 truncate">#{note.note_id}</span>
-                          {note.front_matter?.tags?.map((tag) => (
+                          {note.front_matter?.tags?.map((tag: string) => (
                             <span key={tag} className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded shrink-0">{tag}</span>
                           ))}
-                          <div className="ml-auto shrink-0" onClick={(event) => event.stopPropagation()}>
-                            <NoteShareButton
-                              noteId={note.note_id}
-                              existingShare={note.share_id ? { share_id: note.share_id, has_password: !!note.has_password } : null}
-                              mutateTrace={mutateTrace}
-                            />
-                          </div>
+                          {!publicMode && (
+                            <div className="ml-auto shrink-0" onClick={(event) => event.stopPropagation()}>
+                              <NoteShareButton
+                                noteId={note.note_id}
+                                existingShare={note.share_id ? { share_id: note.share_id, has_password: !!note.has_password } : null}
+                                mutateTrace={mutateTrace}
+                              />
+                            </div>
+                          )}
                         </div>
                         <p className="text-[0.7rem] text-sol-base1 whitespace-pre-wrap mt-0.5">{note.content_key}</p>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
