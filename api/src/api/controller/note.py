@@ -219,16 +219,24 @@ async def create_share(req: CreateShareRequest, request: Request):
     )
 
 
+def revoke_note_share(share) -> None:
+    """Drop a note share's S3 snapshot + DB row. Reusable across controllers
+    (note.py delete_share + trace.py delete_share cascade). Caller checks ownership."""
+    from storage.repository.note_share import delete_by_share_id
+
+    _delete_note_snapshot(share.note_id)
+    delete_by_share_id(share.share_id)
+
+
 @router.delete("/share")
 async def delete_share(request: Request, share_id: str = Query(...)):
-    from storage.repository.note_share import get_by_share_id, delete_by_share_id
+    from storage.repository.note_share import get_by_share_id
 
     user_id = _get_user_id(request)
     share = get_by_share_id(share_id)
     if not share or share.user_id != user_id:
         raise HTTPException(status_code=404, detail="Share not found")
-    _delete_note_snapshot(share.note_id)
-    delete_by_share_id(share_id)
+    revoke_note_share(share)
     return {"deleted": True}
 
 

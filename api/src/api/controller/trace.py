@@ -217,14 +217,30 @@ async def create_share(req: CreateShareRequest, request: Request):
 
 @router.delete("/share")
 async def delete_share(request: Request, share_id: str = Query(...)):
-    """Delete a share link owned by the current user."""
+    """Delete a share link owned by the current user.
+
+    Cascade: also revoke shares for every note associated with this trace's todo,
+    so the public ``/n/<share_id>`` note links never outlive the trace share
+    (authoritative mirror of ``create_share``'s batch note-share). Done server-side
+    rather than in the frontend so unshare is robust regardless of what notes the
+    web client currently has loaded.
+    """
     from storage.repository.trace_share import get_by_share_id, delete_by_share_id
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.note_share import get_by_note_ids
+    from api.controller.note import revoke_note_share
 
     user_id = _get_user_id(request)
     share = get_by_share_id(share_id)
     if not share or share.user_id != user_id:
         raise HTTPException(status_code=404, detail="Share not found")
     delete_by_share_id(share_id)
+
+    note_ids = list_note_relations(user_id, share.trace_id)
+    if note_ids:
+        for note_share in get_by_note_ids(user_id, note_ids):
+            revoke_note_share(note_share)
+
     return {"deleted": True}
 
 
