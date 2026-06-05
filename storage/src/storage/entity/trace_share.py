@@ -10,3 +10,4 @@ class TraceShareEntity(Base, BaseEntity):
     share_id = Column(String, nullable=False, unique=True, index=True)
     trace_id = Column(String, nullable=False)
     password_hash = Column(String, nullable=True)
+    revoked_at = Column(String, nullable=True)

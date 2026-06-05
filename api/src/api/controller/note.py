@@ -220,12 +220,15 @@ async def create_share(req: CreateShareRequest, request: Request):
 
 
 def revoke_note_share(share) -> None:
-    """Drop a note share's S3 snapshot + DB row. Reusable across controllers
-    (note.py delete_share + trace.py delete_share cascade). Caller checks ownership."""
-    from storage.repository.note_share import delete_by_share_id
+    """Soft-revoke a note share: drop its S3 snapshot + flip revoked_at (keeps the
+    random share_id token so reshare reuses the same /n/<id> URL). Reusable across
+    controllers (note.py delete_share + trace.py delete_share cascade). Caller
+    checks ownership."""
+    from storage.repository.note_share import set_revoked
+    from storage.util import get_utc_iso8601_timestamp
 
     _delete_note_snapshot(share.note_id)
-    delete_by_share_id(share.share_id)
+    set_revoked(share.share_id, get_utc_iso8601_timestamp())
 
 
 @router.delete("/share")
@@ -277,7 +280,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
     from storage.repository.note_share import get_by_share_id
 
     share = get_by_share_id(share_id)
-    if not share:
+    if not share or share.revoked_at:
         raise HTTPException(status_code=404, detail="Share not found")
 
     if share.password_hash:

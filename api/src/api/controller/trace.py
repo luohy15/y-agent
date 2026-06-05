@@ -173,7 +173,7 @@ async def create_share(req: CreateShareRequest, request: Request):
     ``note_ids`` keeps the original ``{share_id, password?}`` shape (back-compat).
     """
     from storage import share_password as sp
-    from storage.repository.trace_share import get_by_trace_id, create, set_password_hash
+    from storage.repository.trace_share import get_by_trace_id, create, set_password_hash, set_revoked
 
     user_id = _get_user_id(request)
 
@@ -185,8 +185,10 @@ async def create_share(req: CreateShareRequest, request: Request):
     elif req.password and req.password.strip():
         password_hash = sp.hash_password(req.password)
 
-    existing = get_by_trace_id(user_id, req.trace_id)
+    existing = get_by_trace_id(user_id, req.trace_id, include_revoked=True)
     if existing:
+        if existing.revoked_at is not None:
+            set_revoked(existing.share_id, None)
         if password_hash is not None:
             set_password_hash(existing.share_id, password_hash)
         share_id = existing.share_id
@@ -225,16 +227,17 @@ async def delete_share(request: Request, share_id: str = Query(...)):
     rather than in the frontend so unshare is robust regardless of what notes the
     web client currently has loaded.
     """
-    from storage.repository.trace_share import get_by_share_id, delete_by_share_id
+    from storage.repository.trace_share import get_by_share_id, set_revoked
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note_share import get_by_note_ids
+    from storage.util import get_utc_iso8601_timestamp
     from api.controller.note import revoke_note_share
 
     user_id = _get_user_id(request)
     share = get_by_share_id(share_id)
     if not share or share.user_id != user_id:
         raise HTTPException(status_code=404, detail="Share not found")
-    delete_by_share_id(share_id)
+    set_revoked(share_id, get_utc_iso8601_timestamp())
 
     note_ids = list_note_relations(user_id, share.trace_id)
     if note_ids:
@@ -284,7 +287,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
     from storage import share_password as sp
 
     share = get_by_share_id(share_id)
-    if not share:
+    if not share or share.revoked_at:
         raise HTTPException(status_code=404, detail="Share not found")
 
     if share.password_hash:
