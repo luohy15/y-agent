@@ -292,7 +292,7 @@ function isAbsoluteHttpLink(href: string): boolean {
   return /^https?:\/\//i.test(href);
 }
 
-function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick, publicMode = false }: { content: string; currentFilePath?: string; onOpenFile?: (path: string, line?: number) => void; onExternalLinkClick?: (url: string) => void; publicMode?: boolean }) {
+function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: { content: string; currentFilePath?: string; onOpenFile?: (path: string, line?: number) => void; onExternalLinkClick?: (url: string) => void }) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocCollapsed, setTocCollapsed] = useState(() => localStorage.getItem("markdownTocCollapsed") === "true");
   const { data: frontMatter, body } = useMemo(() => parseFrontMatter(content ?? ""), [content]);
@@ -371,16 +371,15 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
           {body}
         </ReactMarkdown>
       </div>
-      {/* Desktop (lg+): sidebar TOC. Authed = right (nav after content, no order);
-          public = left (order-first pulls it ahead of the content). */}
+      {/* Desktop (lg+): sidebar TOC */}
       {headings.length > 0 && (
-        <nav className={`hidden lg:flex flex-col shrink-0 transition-all duration-200 ${publicMode ? "border-r order-first" : "border-l"} border-sol-base02 ${tocCollapsed ? "w-8" : "w-48"}`}>
+        <nav className={`hidden lg:flex flex-col shrink-0 border-l border-sol-base02 transition-all duration-200 ${tocCollapsed ? "w-8" : "w-48"}`}>
           <button
             onClick={() => setTocCollapsed((v) => { const next = !v; localStorage.setItem("markdownTocCollapsed", String(next)); return next; })}
             className="p-2 text-sol-base01 hover:text-sol-base0 cursor-pointer text-xs shrink-0"
             title={tocCollapsed ? "Expand TOC" : "Collapse TOC"}
           >
-            {publicMode ? (tocCollapsed ? "▶" : "◀") : (tocCollapsed ? "◀" : "▶")}
+            {tocCollapsed ? "◀" : "▶"}
           </button>
           {!tocCollapsed && (
             <div className="overflow-y-auto px-3 pb-3">
@@ -392,7 +391,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
       )}
       {/* Tablet (md to lg): dropdown TOC button */}
       {headings.length > 0 && (
-        <div className={`hidden md:block lg:hidden absolute top-2 ${publicMode ? "left-2" : "right-2"} z-10`}>
+        <div className="hidden md:block lg:hidden absolute top-2 right-2 z-10">
           <button
             onClick={() => setTocOpen((v) => !v)}
             className="w-8 h-8 rounded bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center cursor-pointer hover:bg-sol-base01/30"
@@ -406,7 +405,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
           {tocOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
-              <nav className={`absolute ${publicMode ? "left-0" : "right-0"} top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3`}>
+              <nav className="absolute right-0 top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
                 <div className="text-xs text-sol-base01 mb-2">Contents</div>
                 <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
               </nav>
@@ -419,7 +418,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
         <div className="md:hidden">
           <button
             onClick={() => setTocOpen((v) => !v)}
-            className={`fixed ${publicMode ? "left-4" : "right-4"} bottom-14 z-40 w-10 h-10 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-lg cursor-pointer`}
+            className="fixed right-4 bottom-14 z-40 w-10 h-10 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-lg cursor-pointer"
             title="Table of contents"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -430,7 +429,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
           {tocOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
-              <nav className={`fixed ${publicMode ? "left-4" : "right-4"} bottom-26 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3`}>
+              <nav className="fixed right-4 bottom-26 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
                 <div className="text-xs text-sol-base01 mb-2">Contents</div>
                 <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
               </nav>
@@ -925,7 +924,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
               ) : fileData.error ? (
                 <p className="text-sol-red text-sm p-3">{fileData.error}</p>
               ) : fileData.content !== undefined ? (
-                <MarkdownPreview content={fileData.content} publicMode />
+                <MarkdownPreview content={fileData.content} />
               ) : null}
             </div>
           );
