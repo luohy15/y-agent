@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from api.controller.file import _exec
 from storage.service import note as note_service
 from storage.service import note_todo_relation as relation_service
-from storage.util import generate_id
 
 router = APIRouter(prefix="/note")
 
@@ -174,40 +173,50 @@ async def list_notes(
     return [n.to_dict() for n in notes]
 
 
-@router.post("/share")
-async def create_share(req: CreateShareRequest, request: Request):
-    from storage import share_password as sp
-    from storage.repository.note_share import get_by_note_id, create, set_password_hash
+async def share_note(
+    user_id: int,
+    note_id: str,
+    password: Optional[str] = None,
+    generate_password: bool = False,
+) -> Dict:
+    """Snapshot a note's content to S3 and ensure a note_share row exists.
 
-    user_id = _get_user_id(request)
-    note = note_service.get_note(user_id, req.note_id)
+    Reusable across controllers (note.py create_share + trace.py batch share).
+    Does get_note (ownership check) -> _snapshot_note_content (S3, API concern)
+    -> note_share service (pure DB). Returns {share_id, password?}.
+    """
+    from storage import share_password as sp
+    from storage.service import note_share as note_share_service
+
+    note = note_service.get_note(user_id, note_id)
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    await _snapshot_note_content(user_id, req.note_id, note.content_key)
+    await _snapshot_note_content(user_id, note_id, note.content_key)
 
     generated_password: Optional[str] = None
     password_hash: Optional[str] = None
-    if req.generate_password and not (req.password and req.password.strip()):
+    if generate_password and not (password and password.strip()):
         generated_password = sp.generate_password()
         password_hash = sp.hash_password(generated_password)
-    elif req.password and req.password.strip():
-        password_hash = sp.hash_password(req.password)
+    elif password and password.strip():
+        password_hash = sp.hash_password(password)
 
-    existing = get_by_note_id(user_id, req.note_id)
-    if existing:
-        if password_hash is not None:
-            set_password_hash(existing.share_id, password_hash)
-        resp = {"share_id": existing.share_id}
-        if generated_password is not None:
-            resp["password"] = generated_password
-        return resp
-
-    share_id = generate_id()
-    create(user_id, share_id, req.note_id, password_hash=password_hash)
-    resp = {"share_id": share_id}
+    share_id, _ = note_share_service.ensure_share(user_id, note_id, password_hash=password_hash)
+    resp: Dict = {"share_id": share_id}
     if generated_password is not None:
         resp["password"] = generated_password
     return resp
+
+
+@router.post("/share")
+async def create_share(req: CreateShareRequest, request: Request):
+    user_id = _get_user_id(request)
+    return await share_note(
+        user_id,
+        req.note_id,
+        password=req.password,
+        generate_password=req.generate_password,
+    )
 
 
 @router.delete("/share")

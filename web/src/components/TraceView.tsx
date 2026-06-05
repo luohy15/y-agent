@@ -119,31 +119,25 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   useEffect(() => { setDeselectedNoteIds(new Set()); }, [selectedTraceId]);
   const createTraceShare = async (opts: { password?: string; generate_password?: boolean }) => {
     if (!selectedTraceId) throw new Error("no trace");
+    // Batch-share selected assoc'd notes server-side in one request: the backend
+    // shares each note in public mode (no password), skipping already-shared ones.
+    // Note links surface on the public trace page as bare /n/<share_id>, so a
+    // per-note password would force a second prompt there.
+    const noteIds = (traceNotes ?? [])
+      .filter((n) => !n.share_id && !deselectedNoteIds.has(n.note_id))
+      .map((n) => n.note_id);
     const res = await authFetch(`${API}/api/trace/share`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ trace_id: selectedTraceId, ...opts }),
+      body: JSON.stringify({
+        trace_id: selectedTraceId,
+        ...opts,
+        ...(noteIds.length > 0 ? { note_ids: noteIds } : {}),
+      }),
     });
     if (!res.ok) throw new Error("share failed");
     const result = await res.json();
-    // Batch-share selected assoc'd notes in public mode (no password), skipping
-    // already-shared ones. Note links surface on the public trace page as bare
-    // /n/<share_id>, so a per-note password would force a second prompt there.
-    const notesToShare = (traceNotes ?? []).filter(
-      (n) => !n.share_id && !deselectedNoteIds.has(n.note_id),
-    );
-    if (notesToShare.length > 0) {
-      await Promise.all(
-        notesToShare.map((n) =>
-          authFetch(`${API}/api/note/share`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ note_id: n.note_id }),
-          }),
-        ),
-      );
-      await mutateTrace();
-    }
+    if (noteIds.length > 0) await mutateTrace();
     mutateMyShare();
     return result;
   };
