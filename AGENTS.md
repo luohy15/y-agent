@@ -174,7 +174,8 @@ Grouped by feature area:
 - `App.tsx` — multi-panel layout (sidebar / file viewer / chat / terminal / trace)
 - `components/ChatView.tsx` — SSE-based real-time chat with tool call display, steer,
   context usage tooltip
-- `components/TraceView.tsx`, `ShareTraceView.tsx` — waterfall, share page
+- `components/TraceView.tsx` — waterfall; `PublicTraceApp.tsx` — `/t/:shareId` public
+  read-only projection (snapshot ChatView + injected Note/Link panels + public FileViewer)
 - `components/FileTree.tsx`, `FileViewer.tsx` — lazy tree + edit mode (syntax
   highlighting, line numbers)
 - `components/TodoList.tsx`, `TodoViewer.tsx` — kanban + pagination + pin
