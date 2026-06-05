@@ -235,9 +235,12 @@ interface LinkListProps {
   feedId?: string | null;
   hideFilters?: boolean;
   refreshKey?: number;
+  // Injected-data path (public trace projection): when `items` is supplied the list
+  // renders presentationally with no self-fetch; clicking a row link-outs to the URL.
+  items?: Link[];
 }
 
-export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters, refreshKey }: LinkListProps) {
+export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters, refreshKey, items }: LinkListProps) {
   const [filter, setFilter] = useState<FilterState>(loadFilter);
   const [rangeExpanded, setRangeExpanded] = useState<boolean>(filter.mode === "range");
   const [downloadedOnly, setDownloadedOnly] = useState(() => localStorage.getItem("linkListDownloaded") === "true");
@@ -341,6 +344,51 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
 
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
   const showRangeRow = rangeExpanded || filter.mode === "range";
+
+  // Injected-data path: presentational grouped list fed from a prop (no self-fetch).
+  // Clicking a row opens the original URL in a new tab (link-out).
+  if (items !== undefined) {
+    const injectedGroups = groupByDay(items);
+    return (
+      <div className="flex flex-col h-full text-xs overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-1.5">
+          {injectedGroups.length === 0 ? (
+            <ListEmpty label="links" />
+          ) : (
+            injectedGroups.map(([day, links]) => (
+              <div key={day} className="mb-2">
+                <div className="text-sol-base01 text-[0.6rem] font-medium mb-1 px-1 sticky top-0 bg-sol-base03 py-0.5 z-[5] border-b border-sol-base02">
+                  {formatDayHeader(day)}
+                </div>
+                <div className="space-y-0">
+                  {links.map((link) => (
+                    <div key={link.activity_id} className="flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-sol-base02/50 group">
+                      <span className="text-sol-base01 text-[0.6rem] shrink-0 w-8 text-right">
+                        {linkTime(link) ? formatTime(linkTime(link)!) : ""}
+                      </span>
+                      <img
+                        src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
+                        alt=""
+                        className="w-3.5 h-3.5 shrink-0"
+                        loading="lazy"
+                      />
+                      <button
+                        onClick={() => window.open(link.url, "_blank", "noopener,noreferrer")}
+                        className="text-sol-base0 hover:text-sol-cyan truncate text-[0.7rem] min-w-0 flex-1 text-left cursor-pointer bg-transparent border-0 p-0"
+                        title={`Open original page: ${link.url}`}
+                      >
+                        {link.title || getDomain(link.base_url)}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">

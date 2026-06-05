@@ -17,6 +17,9 @@ interface Note {
   front_matter?: Record<string, any> | null;
   created_at?: string;
   updated_at?: string;
+  // Public trace projection only: a note share_id (S3 snapshot). When absent in the
+  // injected-data path the note is rendered disabled (not openable).
+  share_id?: string;
 }
 
 interface NoteListProps {
@@ -27,6 +30,10 @@ interface NoteListProps {
   todoId?: string | null;
   hideFilters?: boolean;
   refreshKey?: number;
+  // Injected-data path (public trace projection): when `items` is supplied the list
+  // renders presentationally with no self-fetch, and clicks call `onSelectNote`.
+  items?: Note[];
+  onSelectNote?: (note: Note) => void;
 }
 
 type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
@@ -78,7 +85,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
   });
 }
 
-export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters, refreshKey }: NoteListProps) {
+export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters, refreshKey, items, onSelectNote }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
     return saved === "finance" || saved === "skills" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
@@ -289,6 +296,47 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     `px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer ${active ? "bg-sol-blue text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`;
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // Injected-data path: presentational list fed from a prop (no self-fetch).
+  if (items !== undefined) {
+    return (
+      <div className="flex flex-col h-full text-xs overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-1.5">
+          {items.length === 0 ? (
+            <ListEmpty label="notes" />
+          ) : (
+            <div className="space-y-0">
+              {items.map((note) => {
+                const displayName = note.content_key.replace(/^.*\//, "").replace(/\.md$/, "");
+                // No share_id → no S3 snapshot → not openable; render disabled.
+                if (!note.share_id) {
+                  return (
+                    <div
+                      key={note.note_id}
+                      className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded text-sol-base01 text-[0.7rem] cursor-default opacity-60"
+                      title={`${note.content_key} (not shared)`}
+                    >
+                      <span className="truncate flex-1">{displayName}</span>
+                    </div>
+                  );
+                }
+                return (
+                  <button
+                    key={note.note_id}
+                    onClick={() => onSelectNote?.(note)}
+                    className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                    title={note.content_key}
+                  >
+                    <span className="truncate flex-1">{displayName}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (showTodoMode) {
     return (

@@ -51,6 +51,10 @@ interface FileViewerProps {
   onConsumeLine?: (path: string) => void;
   onChatListRefresh?: () => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
+  // Public trace projection: render note tabs keyed by note `share_id`, with content
+  // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
+  mode?: "public";
+  noteMeta?: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
 }
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
@@ -787,7 +791,123 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLi
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange }: FileViewerProps) {
+interface PublicNoteCache {
+  content?: string;
+  loading: boolean;
+  error?: string;
+}
+
+// Public note-tab viewer: tabs keyed by note `share_id`, content from the no-JWT
+// `/api/note/share` endpoint, rendered via MarkdownPreview. No edit/save/import,
+// no binary/raw, no special-views, no /api/file/* fetches.
+function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, noteMeta }: {
+  openFiles: string[];
+  activeFile: string | null;
+  onSelectFile: (path: string) => void;
+  onCloseFile: (path: string) => void;
+  onReorderFiles: (files: string[]) => void;
+  noteMeta: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
+}) {
+  const [cache, setCache] = useState<Record<string, PublicNoteCache>>({});
+  const dragIdx = useRef<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!activeFile) return;
+    if (cache[activeFile] && !cache[activeFile].error) return;
+    setCache((prev) => ({ ...prev, [activeFile]: { loading: true } }));
+    fetch(`${API}/api/note/share?share_id=${encodeURIComponent(activeFile)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(res.status === 401 ? "This note is password-protected" : "Failed to load note");
+        const data = await res.json();
+        setCache((prev) => ({ ...prev, [activeFile]: { content: data.content ?? "", loading: false } }));
+      })
+      .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
+  }, [activeFile, cache]);
+
+  const labelFor = (shareId: string) => {
+    const ck = noteMeta[shareId]?.content_key || shareId;
+    return ck.replace(/^.*\//, "").replace(/\.md$/, "");
+  };
+
+  if (openFiles.length === 0) {
+    return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;
+  }
+
+  return (
+    <div className="flex flex-col h-full border-b border-sol-base02">
+      {/* Tab bar */}
+      <div className="flex items-center bg-sol-base02 shrink-0 overflow-x-auto">
+        {openFiles.map((shareId, i) => (
+          <div
+            key={shareId}
+            draggable
+            onDragStart={(e) => { dragIdx.current = i; e.dataTransfer.effectAllowed = "move"; }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropIdx(i); }}
+            onDragLeave={() => setDropIdx((cur) => cur === i ? null : cur)}
+            onDrop={(e) => {
+              e.preventDefault();
+              const from = dragIdx.current;
+              if (from !== null && from !== i) {
+                const reordered = [...openFiles];
+                const [moved] = reordered.splice(from, 1);
+                reordered.splice(i, 0, moved);
+                onReorderFiles(reordered);
+              }
+              dragIdx.current = null;
+              setDropIdx(null);
+            }}
+            onDragEnd={() => { dragIdx.current = null; setDropIdx(null); }}
+            className={`flex items-center gap-1 px-3 py-1.5 text-sm cursor-pointer shrink-0 border-r border-sol-base03 ${
+              shareId === activeFile ? "bg-sol-base03 text-sol-base1" : "text-sol-base01 hover:text-sol-base1"
+            } ${dropIdx === i ? "border-l-2 border-l-sol-blue" : ""}`}
+            onClick={() => onSelectFile(shareId)}
+            title={noteMeta[shareId]?.content_key || shareId}
+          >
+            <span className="truncate max-w-[150px]">{labelFor(shareId)}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onCloseFile(shareId); }}
+              className="text-sol-base01 hover:text-sol-base1 leading-none ml-1 cursor-pointer"
+            >
+              &times;
+            </button>
+          </div>
+        ))}
+      </div>
+      {/* Breadcrumb */}
+      {activeFile && (
+        <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
+          {getBreadcrumb(noteMeta[activeFile]?.content_key || activeFile).map((part, i, arr) => (
+            <span key={i} className="flex items-center shrink-0">
+              {i > 0 && <span className="mx-1 text-sol-base01">&gt;</span>}
+              <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* Content - render all open notes, show/hide to preserve scroll */}
+      <div className="flex-1 min-h-0 bg-sol-base03 relative">
+        {openFiles.map((shareId) => {
+          const isActive = shareId === activeFile;
+          const fileData = cache[shareId];
+          return (
+            <div key={shareId} className={`absolute inset-0 overflow-auto ${isActive ? "" : "hidden"}`}>
+              {!fileData || fileData.loading ? (
+                <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
+              ) : fileData.error ? (
+                <p className="text-sol-red text-sm p-3">{fileData.error}</p>
+              ) : fileData.content !== undefined ? (
+                <MarkdownPreview content={fileData.content} />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -820,6 +940,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
+    if (mode === "public") return;
     if (!activeFile) return;
     if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev || isBot) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
@@ -852,7 +973,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery]);
+  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery, mode]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -979,6 +1100,19 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       setSaving((prev) => ({ ...prev, [path]: false }));
     }
   }, [isDirty, editContent, vmQuery]);
+
+  if (mode === "public") {
+    return (
+      <PublicFileViewer
+        openFiles={openFiles}
+        activeFile={activeFile}
+        onSelectFile={onSelectFile}
+        onCloseFile={onCloseFile}
+        onReorderFiles={onReorderFiles}
+        noteMeta={noteMeta || {}}
+      />
+    );
+  }
 
   if (openFiles.length === 0) {
     return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;

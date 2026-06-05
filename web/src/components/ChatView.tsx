@@ -30,6 +30,11 @@ interface ChatViewProps {
   onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   onSelectChat?: (chatId: string) => void;
   onSelectTrace?: (traceId: string) => void;
+  // Snapshot / read-only mode (public trace projection): render injected raw messages
+  // with no SSE / no /api/chat/* fetches and no input/steer/stop/share affordances.
+  mode?: "live" | "snapshot";
+  snapshotMessages?: unknown[];
+  onRefresh?: () => void;
 }
 
 function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
@@ -52,7 +57,8 @@ function parseSnapshotMessages(rawMessages: unknown[]): Message[] {
   return filterTrailingEmptyAssistantMessages(allMessages);
 }
 
-export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onBotNameChange, onComplete, onOpenFile, onOpenArtifact, onSelectChat, onSelectTrace }: ChatViewProps) {
+export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, gsiReady, vmName, botName, defaultWorkDir, onWorkDirChange, onTopicChange, onSkillChange, onTraceIdChange, onBackendChange, onBotNameChange, onComplete, onOpenFile, onOpenArtifact, onSelectChat, onSelectTrace, mode = "live", snapshotMessages, onRefresh }: ChatViewProps) {
+  const snapshot = mode === "snapshot";
   const { mutate } = useSWRConfig();
   const [messages, setMessages] = useState<Message[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -115,6 +121,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
 
   // Fetch chat detail (work_dir) when chatId changes or chat completes
   useEffect(() => {
+    if (snapshot) return;
     if (!chatId) return;
     const ac = new AbortController();
     authFetch(`${API}/api/chat/detail?chat_id=${encodeURIComponent(chatId)}`, { signal: ac.signal })
@@ -200,7 +207,16 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     es.addEventListener("error", () => {});
   }, [addMessage, updateToolMessage, mutate]);
 
+  // Snapshot mode: render injected raw messages, no network at all.
   useEffect(() => {
+    if (!snapshot) return;
+    setMessages(parseSnapshotMessages(snapshotMessages || []));
+    setCompleted(true);
+    setSourcesPanel(null);
+  }, [snapshot, snapshotMessages]);
+
+  useEffect(() => {
+    if (snapshot) return;
     if (!chatId) return;
     setMessages([]);
     setCompleted(false);
@@ -445,7 +461,18 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           </button>
         )}
       </div>
-      {!completed && (
+      {snapshot && (
+        <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
+          {processDetailButtons}
+          {onRefresh && (
+            <button onClick={onRefresh} className="inline-flex items-center gap-1 px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30" title="Refresh trace">
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
+          )}
+        </div>
+      )}
+      {!snapshot && !completed && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
           {contextBadge}
@@ -453,7 +480,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red text-sol-base3 rounded text-xs font-semibold cursor-pointer">Stop</button>
         </div>
       )}
-      {(completed || showSteerInput) && (
+      {!snapshot && (completed || showSteerInput) && (
         <ChatInput
           ref={inputRef}
           value={followUp}

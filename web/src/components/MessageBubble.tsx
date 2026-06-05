@@ -1,5 +1,5 @@
 import { Children, isValidElement, useState, useRef, useEffect, type ReactNode } from "react";
-import { API, authFetch } from "../api";
+import { API, authFetch, getToken } from "../api";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
@@ -201,13 +201,18 @@ function MessageImages({ images }: { images?: string[] }) {
     const directEntries: [string, string][] = [];
     const localImages: string[] = [];
 
+    // Local (EC2) images need an authed /api/file/raw fetch. Anonymous viewers (public
+    // trace projection) have no token, so we skip the fetch entirely (graceful-degrade)
+    // to keep the public page off all /api/file/* endpoints. Direct http(s)/CDN srcs
+    // still render.
+    const loggedIn = !!getToken();
     images.forEach((imagePath) => {
       const src = pickImageSrc(imagePath);
       if (src) {
         directEntries.push([imagePath, src]);
       } else if (isS3ImagePath(imagePath)) {
         console.warn(`Skipping unsupported image source: ${imagePath}`);
-      } else {
+      } else if (loggedIn) {
         localImages.push(imagePath);
       }
     });
@@ -234,18 +239,28 @@ function MessageImages({ images }: { images?: string[] }) {
   }, [images]);
 
   if (!images?.length) return null;
+  const loggedIn = !!getToken();
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {images.map((imagePath) => {
         if (isS3ImagePath(imagePath) && !pickImageSrc(imagePath)) return null;
         const url = urls[imagePath];
-        return url ? (
-          <button key={imagePath} type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")} className="block cursor-zoom-in">
-            <img src={url} alt={imagePath.split("/").pop() || "attached image"} className="max-h-64 max-w-full rounded border border-sol-base02 object-contain" />
-          </button>
-        ) : (
-          <div key={imagePath} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02 animate-pulse" />
-        );
+        if (url) {
+          return (
+            <button key={imagePath} type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")} className="block cursor-zoom-in">
+              <img src={url} alt={imagePath.split("/").pop() || "attached image"} className="max-h-64 max-w-full rounded border border-sol-base02 object-contain" />
+            </button>
+          );
+        }
+        // Anonymous viewer + local EC2 image: not fetchable, show a static fallback.
+        if (!loggedIn && !pickImageSrc(imagePath)) {
+          return (
+            <div key={imagePath} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02 flex items-center justify-center text-sol-base01" title={imagePath.split("/").pop() || "image"}>
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+          );
+        }
+        return <div key={imagePath} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02 animate-pulse" />;
       })}
     </div>
   );
