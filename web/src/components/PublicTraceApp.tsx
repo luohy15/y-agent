@@ -52,6 +52,7 @@ export default function PublicTraceApp() {
   const [rightPanel, setRightPanel] = useState<RightPanel>("chats");
   const [rightPanelOpen, setRightPanelOpen] = useState(false); // mobile drawer
   const [shareLabel, setShareLabel] = useState("share");
+  const [idCopied, setIdCopied] = useState(false); // left-rail trace-id chip feedback
 
   const fetchShare = useCallback(async (password?: string) => {
     if (!shareId) return;
@@ -243,6 +244,47 @@ export default function PublicTraceApp() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
+        {/* Left rail (desktop only) — balances the right panel; presentational, all
+            from the existing share payload (no fetch). Hidden on mobile. */}
+        <aside className="hidden md:flex flex-col shrink-0 w-[230px] border-r border-sol-base02 bg-sol-base03 overflow-y-auto">
+          <div className="flex flex-col gap-4 px-4 py-4 flex-1 min-h-0">
+            {/* Brand */}
+            <div>
+              <div className="text-sol-base1 font-semibold text-base leading-tight">y-agent</div>
+              <div className="text-sol-base01 text-xs">shared trace</div>
+            </div>
+            {/* Trace meta: copyable #todo_id chip + status badge */}
+            {(data.todo?.todo_id || data.todo_status) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {data.todo?.todo_id && (
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(data.todo!.todo_id); setIdCopied(true); setTimeout(() => setIdCopied(false), 1500); }}
+                    className={`font-mono text-[0.7rem] px-2 py-0.5 rounded cursor-pointer ${idCopied ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base1"}`}
+                    title="Copy trace id"
+                  >
+                    {idCopied ? "copied!" : `#${data.todo.todo_id}`}
+                  </button>
+                )}
+                {data.todo_status && <span className={`text-[0.6rem] px-1 rounded ${statusBadgeClass(data.todo_status)}`}>{data.todo_status}</span>}
+              </div>
+            )}
+            {/* Optional blurb from the todo description */}
+            {data.todo?.desc && (
+              <p className="text-sol-base01 text-xs leading-snug line-clamp-3">{data.todo.desc}</p>
+            )}
+            {/* Counts row */}
+            <div className="text-sol-base01 text-xs">
+              {data.chats.length} chats · {data.notes?.length ?? 0} notes · {data.links?.length ?? 0} links
+            </div>
+            {/* Bottom: GitHub link + attribution */}
+            <div className="mt-auto flex flex-col gap-1.5">
+              <a href="https://github.com/luohy15/y-agent" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sol-base01 hover:text-sol-base1 text-xs">
+                <GithubIcon /><span>GitHub</span>
+              </a>
+              <span className="text-sol-base01 text-[0.65rem]">powered by y-agent</span>
+            </div>
+          </div>
+        </aside>
         {/* Center column */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Toolbar: mode switcher (left) + mobile right-panel toggle (right) */}
