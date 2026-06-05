@@ -80,6 +80,18 @@ export default function PublicTraceApp() {
     fetchShare(sharePassword).catch((e) => setError(e.message));
   }, [fetchShare, sharePassword]);
 
+  // Ctrl+` toggles the center FileViewer <-> ChatView, matching the authed app.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        setChatHide((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const onSubmitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!passwordInput || verifying) return;
