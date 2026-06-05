@@ -14,14 +14,25 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **pi.dev (pi_cli) agent backend** — added pi.dev as a new agent backend, wired its base URL through the OpenRouter gateway via `models.json`.
-- **Bot config CLI** — added `y bot get <name>` to show a bot's full config and `y bot prices` to live-fetch OpenRouter per-1M prices, with those prices now shown inline in `y bot list` / `y bot get`.
-- **Todo sidebar batch actions** — select mode in the todo sidebar now supports batch pin / status / priority actions.
+- **Bot config CLI** — added `y bot get <name>` to show a bot's full config and `y bot prices` to live-fetch OpenRouter per-1M prices, with those prices now shown inline in `y bot list` / `y bot get`. `y bot list` now defaults to compact columns (name/backend/model) with `--full` for all columns and a `--type` filter.
+- **Multi-tier bot routing** — added 3-tier model-pool routing (tier0 uniform, tier1/tier2 inverse-square price load balancing), an explicit `route_weight` field replacing `price_override`, a bot `type` dimension (agent/model), and a `--tier` flag on `y chat` for tier selection.
+- **Bot enable/disable (2362)** — bots can now be enabled or disabled, with routing and UI support.
+- **Ref/pointer bots** — added a `ref_bot_name` field so a bot can point at another (e.g. default → codex).
+- **Bot table UX** — moved the web bot table into BotViewer with a sortable price table, persisted sort state in localStorage, and OpenRouter providers sorted by throughput.
+- **Trace bot badges** — trace skill badges now show the bot name.
+- **Viewer TOC h3 headings** — file/link viewer TOC now includes h3 headings so TLDR sections get a table of contents.
+- **Todo sidebar batch actions** — select mode in the todo sidebar now supports batch pin / status / priority actions; mark-read folded into the sidebar actions dropdown.
 
 ### Changed
 - **Finance Transactions page revamp** — reworked the finance Transactions page with an IBKR-inspired layout.
 - **ChatView header** — now shows the bot name before the backend.
+- **pi models.json sync on bot CRUD (2377)** — bot create/update/delete now syncs the pi `models.json`, guarded for empty API keys, and `BotConfig.base_url` defaults to an empty string.
+- **Docs migration** — migrated `CLAUDE.md` to `AGENTS.md` with a symlink and updated Maintenance references accordingly.
 
 ### Fixed
+- **Precise no-result error (2405)** — agent now derives a precise "no result" error message from the subprocess exit code.
+- **Chat process error guards** — `run_chat` now guards bot-resolve failures with a fallback to the default bot and wraps all core chat process errors with a `running=False` fallback so a chat never gets stuck running.
+- **pi_cli log noise** — suppressed `message_start` / `message_update` DEBUG logs from the pi_cli backend.
 
 ### Removed
 
