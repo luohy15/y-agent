@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 
 export type ShareMode = "public" | "generate" | "custom";
 
@@ -21,9 +21,10 @@ interface SharePopoverProps {
   existingShare?: ExistingShare | null;
   onRefresh?: () => Promise<unknown>;
   onDelete?: (shareId: string) => Promise<void>;
+  extra?: ReactNode;
 }
 
-export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", existingShare, onRefresh, onDelete }: SharePopoverProps) {
+export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", existingShare, onRefresh, onDelete, extra }: SharePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ShareMode>("public");
   const [customPassword, setCustomPassword] = useState("");
@@ -208,6 +209,7 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
                   className="mt-1 w-full px-2 py-1 bg-sol-base02 text-sol-base1 rounded text-xs outline-none"
                 />
               )}
+              {extra}
               <button
                 onClick={doShare}
                 disabled={busy || (mode === "custom" && !customPassword.trim())}
