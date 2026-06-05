@@ -146,21 +146,10 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
       method: "DELETE",
     });
     if (!res.ok) throw new Error("delete failed");
-    // Symmetric to createTraceShare's batch note-share: revoke the assoc'd note
-    // shares too, so unsharing a trace fully reverts it (and its notes) to private.
-    // Otherwise the public /n/<share_id> links stay live and the trace panel keeps
-    // rendering the notes as shared.
-    const sharedNotes = (traceNotes ?? []).filter((n) => n.share_id);
-    if (sharedNotes.length > 0) {
-      await Promise.all(
-        sharedNotes.map((n) =>
-          authFetch(`${API}/api/note/share?share_id=${encodeURIComponent(n.share_id!)}`, {
-            method: "DELETE",
-          }),
-        ),
-      );
-      await mutateTrace();
-    }
+    // The backend DELETE cascades: it revokes the assoc'd notes' shares too, so the
+    // trace and its notes fully revert to private. Refresh the trace payload to clear
+    // the now-stale share_id badges, then the trace-share state.
+    await mutateTrace();
     mutateMyShare();
   };
   const buildTraceShareUrl = (shareId: string) => `${window.location.origin}/t/${shareId}`;
