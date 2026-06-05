@@ -5,9 +5,13 @@ import ChatView from "./ChatView";
 import FileViewer from "./FileViewer";
 import NoteList from "./NoteList";
 import LinkList, { type Link } from "./LinkList";
-import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import TraceTodoDetail, { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
+import { type TraceChat } from "./WaterfallChart";
+import { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
 import { topicBadgeClass, getTopicColor, statusBadgeClass } from "./badges";
+
+// Reserved special-view tab for the trace.md (todo detail + waterfall + related
+// links/notes), mirroring the authed app's FileViewer trace.md tab.
+const TRACE_TAB = "trace.md";
 
 interface TraceShareResponse {
   chats: TraceChat[];
@@ -38,15 +42,14 @@ export default function PublicTraceApp() {
   const [verifying, setVerifying] = useState(false);
 
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  // chatHide: true → FileViewer (notes) center pane; false → snapshot ChatView pane.
-  const [chatHide, setChatHide] = useState(false);
-  // Open note tabs are keyed by note `share_id`.
-  const [openNotes, setOpenNotes] = useState<string[]>([]);
-  const [activeNote, setActiveNote] = useState<string | null>(null);
+  // chatHide: true → FileViewer (trace.md / note tabs) center pane; false → snapshot
+  // ChatView pane. Default to FileViewer/trace.md, matching the authed app's default.
+  const [chatHide, setChatHide] = useState(true);
+  // FileViewer tabs: the permanent `trace.md` tab plus note tabs keyed by `share_id`.
+  const [openFiles, setOpenFiles] = useState<string[]>([TRACE_TAB]);
+  const [activeFile, setActiveFile] = useState<string>(TRACE_TAB);
   const [rightPanel, setRightPanel] = useState<RightPanel>("chats");
   const [rightPanelOpen, setRightPanelOpen] = useState(false); // mobile drawer
-  const [todoDetailOpen, setTodoDetailOpen] = useState(true);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [shareLabel, setShareLabel] = useState("share");
 
   const fetchShare = useCallback(async (password?: string) => {
@@ -102,19 +105,26 @@ export default function PublicTraceApp() {
   const openNote = useCallback((note: TodoNoteInfo) => {
     // No share_id → no S3 snapshot → not openable (graceful no-op).
     if (!note.share_id) return;
-    setOpenNotes((prev) => prev.includes(note.share_id!) ? prev : [...prev, note.share_id!]);
-    setActiveNote(note.share_id);
+    setOpenFiles((prev) => prev.includes(note.share_id!) ? prev : [...prev, note.share_id!]);
+    setActiveFile(note.share_id);
     setChatHide(true);
     setRightPanelOpen(false);
   }, []);
 
-  const closeNote = useCallback((shareId: string) => {
-    setOpenNotes((prev) => {
-      const idx = prev.indexOf(shareId);
-      const next = prev.filter((s) => s !== shareId);
-      setActiveNote((cur) => cur !== shareId ? cur : (next.length === 0 ? null : next[Math.min(idx, next.length - 1)]));
+  const closeFile = useCallback((file: string) => {
+    if (file === TRACE_TAB) return; // the trace.md tab is permanent
+    setOpenFiles((prev) => {
+      const idx = prev.indexOf(file);
+      const next = prev.filter((s) => s !== file);
+      setActiveFile((cur) => cur !== file ? cur : next[Math.min(idx, next.length - 1)] ?? TRACE_TAB);
       return next;
     });
+  }, []);
+
+  const selectChat = useCallback((chatId: string) => {
+    setSelectedChatId(chatId);
+    setChatHide(false);
+    setRightPanelOpen(false);
   }, []);
 
   if (loading) {
@@ -159,7 +169,6 @@ export default function PublicTraceApp() {
     );
   }
 
-  const todoInfo = data.todo ? { ...data.todo, notes: data.notes ?? [] } : null;
   const selectedChat = data.chats.find((c) => c.chat_id === selectedChatId);
   const skills = [...new Set(data.chats.map((c) => (c.skill && c.skill.trim()) || c.topic).filter(Boolean))];
 
@@ -193,7 +202,7 @@ export default function PublicTraceApp() {
               return (
                 <button
                   key={c.chat_id}
-                  onClick={() => { setSelectedChatId(c.chat_id); setChatHide(false); setRightPanelOpen(false); }}
+                  onClick={() => selectChat(c.chat_id)}
                   className={`w-full text-left text-[0.7rem] px-2 py-1.5 rounded cursor-pointer truncate ${
                     isSelected ? `${topicColor.bg} ${topicColor.text}` : "text-sol-base01 hover:text-sol-base0 hover:bg-sol-base02"
                   }`}
@@ -243,43 +252,23 @@ export default function PublicTraceApp() {
           </div>
           {/* Center two-mode pane */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
-            {/* FileViewer (notes), shown when chatHide */}
+            {/* FileViewer (trace.md + note tabs), shown when chatHide */}
             <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-              {openNotes.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sol-base01 text-sm italic px-4 text-center">
-                  Select a note from the Note panel to open it here.
-                </div>
-              ) : (
-                <FileViewer
-                  mode="public"
-                  openFiles={openNotes}
-                  activeFile={activeNote}
-                  onSelectFile={(s) => setActiveNote(s)}
-                  onCloseFile={closeNote}
-                  onReorderFiles={setOpenNotes}
-                  noteMeta={noteMeta}
-                />
-              )}
+              <FileViewer
+                mode="public"
+                openFiles={openFiles}
+                activeFile={activeFile}
+                onSelectFile={(s) => setActiveFile(s)}
+                onCloseFile={closeFile}
+                onReorderFiles={setOpenFiles}
+                noteMeta={noteMeta}
+                traceData={data}
+                onSelectChat={selectChat}
+                onOpenNote={openNote}
+              />
             </div>
             {/* Snapshot ChatView, shown when !chatHide */}
             <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
-              <div className="shrink-0 max-h-[45%] overflow-y-auto px-4 py-3 border-b border-sol-base02">
-                {todoInfo && (
-                  <TraceTodoDetail
-                    todoInfo={todoInfo}
-                    open={todoDetailOpen}
-                    setOpen={setTodoDetailOpen}
-                    historyOpen={historyOpen}
-                    setHistoryOpen={setHistoryOpen}
-                    onOpenNote={openNote}
-                  />
-                )}
-                {data.chats.length > 0 ? (
-                  <WaterfallChart chats={data.chats} onClickChat={(chatId) => { setSelectedChatId(chatId); setChatHide(false); }} />
-                ) : (
-                  <p className="text-sol-base01 italic text-xs mt-2">No chats found</p>
-                )}
-              </div>
               {selectedChat ? (
                 <ChatView
                   key={selectedChat.chat_id}

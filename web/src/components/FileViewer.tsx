@@ -10,7 +10,7 @@ import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
 import BotViewer from "./BotViewer";
 import DiffViewer from "./DiffViewer";
-import TraceView from "./TraceView";
+import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
 import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
@@ -53,9 +53,15 @@ interface FileViewerProps {
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
   // Public trace projection: render note tabs keyed by note `share_id`, with content
   // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
+  // The reserved `trace.md` tab renders <TraceView> in injected mode from `traceData`.
   mode?: "public";
   noteMeta?: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
+  traceData?: TraceChatsResponse | null;
+  onOpenNote?: (note: TraceNote) => void;
 }
+
+// Reserved share-tab key for the trace.md special-view in the public FileViewer.
+const PUBLIC_TRACE_TAB = "trace.md";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
 const PDF_EXTS = new Set(["pdf"]);
@@ -800,20 +806,23 @@ interface PublicNoteCache {
 // Public note-tab viewer: tabs keyed by note `share_id`, content from the no-JWT
 // `/api/note/share` endpoint, rendered via MarkdownPreview. No edit/save/import,
 // no binary/raw, no special-views, no /api/file/* fetches.
-function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, noteMeta }: {
+function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, noteMeta, traceData, onSelectChat, onOpenNote }: {
   openFiles: string[];
   activeFile: string | null;
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
   noteMeta: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
+  traceData?: TraceChatsResponse | null;
+  onSelectChat?: (chatId: string) => void;
+  onOpenNote?: (note: TraceNote) => void;
 }) {
   const [cache, setCache] = useState<Record<string, PublicNoteCache>>({});
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!activeFile) return;
+    if (!activeFile || activeFile === PUBLIC_TRACE_TAB) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
     setCache((prev) => ({ ...prev, [activeFile]: { loading: true } }));
     fetch(`${API}/api/note/share?share_id=${encodeURIComponent(activeFile)}`)
@@ -826,6 +835,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   }, [activeFile, cache]);
 
   const labelFor = (shareId: string) => {
+    if (shareId === PUBLIC_TRACE_TAB) return "trace";
     const ck = noteMeta[shareId]?.content_key || shareId;
     return ck.replace(/^.*\//, "").replace(/\.md$/, "");
   };
@@ -865,12 +875,14 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
             title={noteMeta[shareId]?.content_key || shareId}
           >
             <span className="truncate max-w-[150px]">{labelFor(shareId)}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onCloseFile(shareId); }}
-              className="text-sol-base01 hover:text-sol-base1 leading-none ml-1 cursor-pointer"
-            >
-              &times;
-            </button>
+            {shareId !== PUBLIC_TRACE_TAB && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onCloseFile(shareId); }}
+                className="text-sol-base01 hover:text-sol-base1 leading-none ml-1 cursor-pointer"
+              >
+                &times;
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -885,10 +897,25 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
           ))}
         </div>
       )}
-      {/* Content - render all open notes, show/hide to preserve scroll */}
+      {/* Content - render all open tabs, show/hide to preserve scroll */}
       <div className="flex-1 min-h-0 bg-sol-base03 relative">
         {openFiles.map((shareId) => {
           const isActive = shareId === activeFile;
+          if (shareId === PUBLIC_TRACE_TAB) {
+            // trace.md special-view: same todo detail + waterfall + related links/notes
+            // as the authed app, rendered read-only from the injected payload.
+            return (
+              <div key={shareId} className={`absolute inset-0 overflow-hidden ${isActive ? "" : "hidden"}`}>
+                <TraceView
+                  isLoggedIn={false}
+                  selectedTraceId={traceData?.todo?.todo_id || ""}
+                  injectedData={traceData}
+                  onSelectChat={onSelectChat}
+                  onOpenNote={onOpenNote}
+                />
+              </div>
+            );
+          }
           const fileData = cache[shareId];
           return (
             <div key={shareId} className={`absolute inset-0 overflow-auto ${isActive ? "" : "hidden"}`}>
@@ -907,7 +934,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -1110,6 +1137,9 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         onCloseFile={onCloseFile}
         onReorderFiles={onReorderFiles}
         noteMeta={noteMeta || {}}
+        traceData={traceData}
+        onSelectChat={onSelectChat}
+        onOpenNote={onOpenNote}
       />
     );
   }
