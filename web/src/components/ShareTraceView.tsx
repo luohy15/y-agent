@@ -7,6 +7,7 @@ import { filterTrailingEmptyAssistantMessages, mergeToolArguments } from "./chat
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, getTopicColor, stripTracePrefix, statusBadgeClass } from "./badges";
 import TraceTodoDetail, { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
+import SharedNote from "./SharedNote";
 
 interface TraceShareResponse {
   chats: TraceChat[];
@@ -92,7 +93,10 @@ function ShareToc({ messages, containerRef }: { messages: Message[]; containerRe
 
 export default function ShareTraceView() {
   const { shareId } = useParams<{ shareId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Active in-place note (the `?note=<shareId>` query param). When set, an overlay
+  // renders the shared note over the trace while the trace DOM stays mounted.
+  const activeNote = searchParams.get("note");
 
   const [data, setData] = useState<TraceShareResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,15 +140,34 @@ export default function ShareTraceView() {
     if (d.chats.length > 0) setSelectedChatId(d.chats[0].chat_id);
   }, [shareId]);
 
+  // Depend only on the password param, not the whole searchParams, so toggling
+  // `?note=` opens/closes the overlay without refetching (and resetting) the trace.
+  const sharePassword = searchParams.get("p") || undefined;
   useEffect(() => {
     if (!shareId) return;
     setLoading(true);
     setError(null);
-    const urlPassword = searchParams.get("p") || undefined;
-    fetchShare(urlPassword)
+    fetchShare(sharePassword)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [shareId, searchParams, fetchShare]);
+  }, [shareId, sharePassword, fetchShare]);
+
+  const openNote = (note: TodoNoteInfo) => {
+    if (!note.share_id) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("note", note.share_id!);
+      return next;
+    });
+  };
+
+  const closeNote = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("note");
+      return next;
+    });
+  };
 
   const onSubmitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -246,8 +269,10 @@ export default function ShareTraceView() {
           )}
         </div>
 
-        {/* Center: todo header + waterfall + messages */}
-        <div ref={scrollRef} className="flex-1 min-w-0 max-w-3xl overflow-y-auto px-4 py-3">
+        {/* Center: todo header + waterfall + messages. The relative wrapper hosts
+            the in-place note overlay; the inner div owns the trace scroll. */}
+        <div className="relative flex-1 min-w-0 max-w-3xl flex flex-col">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
           {/* Todo header */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-1">
@@ -278,6 +303,7 @@ export default function ShareTraceView() {
                 setOpen={setTodoDetailOpen}
                 historyOpen={historyOpen}
                 setHistoryOpen={setHistoryOpen}
+                onOpenNote={openNote}
               />
             )}
 
@@ -293,6 +319,14 @@ export default function ShareTraceView() {
           {selectedMessages.length > 0 && (
             <MessageList messages={selectedMessages} showProgress={showProgress} inline />
           )}
+        </div>
+
+        {/* In-place note overlay: covers the center column, trace stays mounted underneath. */}
+        {activeNote && (
+          <div className="absolute inset-0 z-20 flex flex-col overflow-y-auto bg-sol-base03">
+            <SharedNote shareId={activeNote} onBack={closeNote} />
+          </div>
+        )}
         </div>
 
         {/* Right slot: TOC */}
