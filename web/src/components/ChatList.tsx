@@ -29,11 +29,15 @@ interface ChatListProps {
   hideFilters?: boolean;
   routineId?: string | null;
   onClearRoutineId?: () => void;
+  // Injected-data path (public trace projection): when `items` is supplied and the
+  // viewer is logged out, the list renders presentationally from this prop with no
+  // self-fetch (SWR keys are null when !isLoggedIn), no filters, and no pagination.
+  items?: Chat[];
 }
 
 const PAGE_SIZE = 50;
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId, items }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
@@ -101,6 +105,73 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
     mutate((pages) => pages?.map((page) => page.map((c) => c.chat_id === id ? { ...c, unread: false } : c)), false);
     mutatePinnedManager((dm) => dm && dm.length > 0 && dm[0].chat_id === id ? [{ ...dm[0], unread: false }] : dm, false);
   };
+
+  // Injected-data path (public trace projection): render the same 2-line chat cards
+  // presentationally from `items`, with no filters / pinned-manager / pagination. All
+  // SWR hooks above stay null-keyed when !isLoggedIn, so this issues zero network calls.
+  if (items !== undefined && !isLoggedIn) {
+    return (
+      <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
+        <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+          {items.length === 0 ? (
+            <ListEmpty label="chats" />
+          ) : (
+            items.map((c) => {
+              const sel = c.chat_id === selectedChatId;
+              const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
+              const { date, time } = dt ? formatDateTime(dt) : { date: "", time: "" };
+              const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "");
+              const firstTraceId = c.trace_id;
+              return (
+                <div
+                  key={c.chat_id}
+                  onClick={() => onSelectChat(c.chat_id)}
+                  className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
+                    sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
+                  }`}
+                >
+                  {(firstTraceId || c.chat_id || c.topic) && (
+                    <div className="flex items-center gap-1 mb-0.5">
+                      {firstTraceId && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(firstTraceId); else navigator.clipboard.writeText(firstTraceId); }}
+                          className={`text-[0.55rem] cursor-pointer ${TRACE_BADGE}`}
+                          title="View trace"
+                        >
+                          #{firstTraceId.slice(0, 8)}
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.chat_id); }}
+                        className={`gap-0.5 text-[0.55rem] cursor-pointer ${CHAT_BADGE}`}
+                        title="Copy chat ID"
+                      >
+                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        {c.chat_id.slice(0, 8)}
+                      </button>
+                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
+                      {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    {c.unread && <span className="w-1.5 h-1.5 rounded-full bg-sol-blue shrink-0" />}
+                    {c.status === "running" && (
+                      <svg className="w-3 h-3 text-sol-blue animate-spin shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                    )}
+                    {c.status === "interrupted" && (
+                      <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                    )}
+                    <span className="flex-1 truncate">{displayTitle}</span>
+                    {dt && <span className="text-[0.65rem] sm:text-[0.5rem] text-sol-base01 shrink-0 text-right">{date}<br/>{time}</span>}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">

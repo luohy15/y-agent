@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
 import ChatView from "./ChatView";
+import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
 import NoteList from "./NoteList";
 import LinkList, { type Link } from "./LinkList";
 import { type TraceChat } from "./WaterfallChart";
 import { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
-import { topicBadgeClass, getTopicColor, statusBadgeClass } from "./badges";
+import { topicBadgeClass, statusBadgeClass } from "./badges";
 
 // Reserved special-view tab for the trace.md (todo detail + waterfall + related
 // links/notes), mirroring the authed app's FileViewer trace.md tab.
@@ -192,9 +193,15 @@ export default function PublicTraceApp() {
   const rightPanelBody = (
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex items-center gap-1 px-2 py-1 border-b border-sol-base02 shrink-0">
-        <button onClick={() => setRightPanel("chats")} className={tabBtnClass(rightPanel === "chats")}>Chat</button>
-        <button onClick={() => setRightPanel("notes")} className={tabBtnClass(rightPanel === "notes")}>Note</button>
-        <button onClick={() => setRightPanel("links")} className={tabBtnClass(rightPanel === "links")}>Link</button>
+        <button onClick={() => setRightPanel("chats")} className={tabBtnClass(rightPanel === "chats")} title="Chats">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </button>
+        <button onClick={() => setRightPanel("notes")} className={tabBtnClass(rightPanel === "notes")} title="Notes">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </button>
+        <button onClick={() => setRightPanel("links")} className={tabBtnClass(rightPanel === "links")} title="Links">
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
         <button onClick={handleRefresh} className="ml-auto p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer" title="Refresh trace">
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
@@ -204,27 +211,13 @@ export default function PublicTraceApp() {
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {rightPanel === "chats" ? (
-          <div className="h-full overflow-y-auto p-1.5 space-y-0.5 text-xs">
-            {data.chats.length === 0 ? (
-              <p className="text-sol-base01 italic p-2">No chats</p>
-            ) : data.chats.map((c) => {
-              const topicColor = getTopicColor(c.topic);
-              const isSelected = c.chat_id === selectedChatId;
-              const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "") || c.chat_id.slice(0, 8);
-              return (
-                <button
-                  key={c.chat_id}
-                  onClick={() => selectChat(c.chat_id)}
-                  className={`w-full text-left text-[0.7rem] px-2 py-1.5 rounded cursor-pointer truncate ${
-                    isSelected ? `${topicColor.bg} ${topicColor.text}` : "text-sol-base01 hover:text-sol-base0 hover:bg-sol-base02"
-                  }`}
-                >
-                  <span className="font-medium">{c.topic || "chat"}</span>
-                  <span className="ml-1 opacity-70">{displayTitle}</span>
-                </button>
-              );
-            })}
-          </div>
+          <ChatList
+            isLoggedIn={false}
+            hideFilters
+            items={data.chats}
+            selectedChatId={selectedChatId}
+            onSelectChat={(id) => { if (id) selectChat(id); }}
+          />
         ) : rightPanel === "notes" ? (
           <NoteList
             isLoggedIn={false}
