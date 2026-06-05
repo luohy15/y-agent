@@ -9,7 +9,7 @@ interface ChatTocProps {
 
 export default function ChatToc({ messages, containerRef }: ChatTocProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("chatTocCollapsed") !== "false");
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("chatTocCollapsed") === "true");
   const [hovered, setHovered] = useState(false);
 
   const toggle = () => {
@@ -44,7 +44,7 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
     <>
       {/* Desktop (lg+): sidebar TOC with hover expand + click toggle */}
       <div
-        className={`hidden lg:flex flex-col shrink-0 transition-all duration-200 overflow-hidden border-l border-sol-base02 ${expanded ? "w-48" : "w-8"}`}
+        className={`hidden lg:flex flex-col shrink-0 transition-all duration-200 overflow-hidden border-r border-sol-base02 ${expanded ? "w-48" : "w-8"}`}
         onMouseLeave={() => setHovered(false)}
       >
         {/* Toggle button - visible when expanded */}
@@ -54,7 +54,7 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
             className="px-2 py-1.5 text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer flex items-center gap-1 border-b border-sol-base02 shrink-0"
             title={collapsed ? "Pin TOC open" : "Unpin TOC"}
           >
-            {collapsed ? "▶" : "◀"}
+            {collapsed ? "◀" : "▶"}
           </button>
         )}
         {/* Dots - only when collapsed AND not hovered */}
@@ -89,7 +89,7 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
         )}
       </div>
       {/* Tablet & Mobile (below lg): dropdown TOC button */}
-      <div className="lg:hidden absolute top-2 right-2 z-10">
+      <div className="lg:hidden absolute top-2 left-2 z-10">
         <button
           onClick={() => setDropdownOpen((v) => !v)}
           className="w-8 h-8 rounded bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center cursor-pointer hover:bg-sol-base01/30"
@@ -103,7 +103,7 @@ export default function ChatToc({ messages, containerRef }: ChatTocProps) {
         {dropdownOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-            <nav className="absolute right-0 top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-2">
+            <nav className="absolute left-0 top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-2">
               {userMessages.map((um, i) => (
                 <button
                   key={um.index}
