@@ -447,7 +447,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
         <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} scrollContainerRef={scrollRef} />
-        <ChatToc messages={displayMessages} containerRef={scrollRef} publicMode={snapshot} />
+        <ChatToc messages={displayMessages} containerRef={scrollRef} />
         {sourcesPanel && <SourcesSidebar links={sourcesPanel.links} onClose={() => setSourcesPanel(null)} />}
         {showScrollBottom && (
           <button
