@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
 import ChatView from "./ChatView";
@@ -13,6 +13,10 @@ import { topicBadgeClass, statusBadgeClass } from "./badges";
 // Reserved special-view tab for the trace.md (todo detail + waterfall + related
 // links/notes), mirroring the authed app's FileViewer trace.md tab.
 const TRACE_TAB = "trace.md";
+
+// Per-share localStorage key so the projection's opened files / active tab /
+// mode / selected chat survive a refresh without clobbering other shared traces.
+const storageKey = (id: string) => `publicTrace:${id}`;
 
 interface TraceShareResponse {
   chats: TraceChat[];
@@ -53,6 +57,10 @@ export default function PublicTraceApp() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false); // mobile drawer
   const [shareLabel, setShareLabel] = useState("share");
   const [idCopied, setIdCopied] = useState(false); // left-rail trace-id chip feedback
+  // Tracks which shareId the current view state was hydrated for. Gates the
+  // persistence write effect (never write before hydration / under a new share)
+  // and ensures hydration runs once per shareId.
+  const hydratedShareRef = useRef<string | null>(null);
 
   const fetchShare = useCallback(async (password?: string) => {
     if (!shareId) return;
@@ -67,7 +75,42 @@ export default function PublicTraceApp() {
     setPasswordRequired(false);
     setPasswordError(null);
     setSelectedChatId((prev) => (prev && d.chats.some((c) => c.chat_id === prev)) ? prev : (d.chats[0]?.chat_id ?? null));
+    // Hydrate persisted view state once per shareId, validated against the fresh
+    // payload. Malformed / absent localStorage is ignored (try/catch).
+    if (hydratedShareRef.current !== shareId) {
+      try {
+        const raw = localStorage.getItem(storageKey(shareId));
+        if (raw) {
+          const saved = JSON.parse(raw);
+          const validNoteIds = new Set((d.notes ?? []).map((n) => n.share_id).filter((x): x is string => !!x));
+          // openFiles: always keep TRACE_TAB; plus saved note tabs that still exist.
+          const savedOpen: string[] = Array.isArray(saved.openFiles) ? saved.openFiles : [];
+          const keptNotes = savedOpen.filter((f) => f !== TRACE_TAB && validNoteIds.has(f));
+          const nextOpen = [TRACE_TAB, ...keptNotes];
+          setOpenFiles(nextOpen);
+          // activeFile: restore only if it's TRACE_TAB or a kept note tab; else trace.md.
+          setActiveFile(typeof saved.activeFile === "string" && nextOpen.includes(saved.activeFile) ? saved.activeFile : TRACE_TAB);
+          // chatHide: restore boolean; default true.
+          setChatHide(typeof saved.chatHide === "boolean" ? saved.chatHide : true);
+          // selectedChatId: restore only if it still exists; else keep first-chat default.
+          if (typeof saved.selectedChatId === "string" && d.chats.some((c) => c.chat_id === saved.selectedChatId)) {
+            setSelectedChatId(saved.selectedChatId);
+          }
+        }
+      } catch { /* ignore malformed / absent localStorage */ }
+      hydratedShareRef.current = shareId;
+    }
   }, [shareId]);
+
+  // Persist view state under the per-shareId key whenever it changes. Gated on
+  // hydration having completed for the current shareId so we never write defaults
+  // before restore, nor leak one share's state into another's key.
+  useEffect(() => {
+    if (!shareId || hydratedShareRef.current !== shareId) return;
+    try {
+      localStorage.setItem(storageKey(shareId), JSON.stringify({ openFiles, activeFile, chatHide, selectedChatId }));
+    } catch { /* ignore quota / disabled storage */ }
+  }, [shareId, openFiles, activeFile, chatHide, selectedChatId]);
 
   useEffect(() => {
     if (!shareId) return;
