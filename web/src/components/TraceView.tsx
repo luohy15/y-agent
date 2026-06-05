@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
@@ -113,6 +113,10 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   const [linksOpen, setLinksOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Notes deselected from the batch-share picker (default: none → all selected).
+  const [deselectedNoteIds, setDeselectedNoteIds] = useState<Set<string>>(new Set());
+  // Reset the batch-share selection when switching traces.
+  useEffect(() => { setDeselectedNoteIds(new Set()); }, [selectedTraceId]);
   const createTraceShare = async (opts: { password?: string; generate_password?: boolean }) => {
     if (!selectedTraceId) throw new Error("no trace");
     const res = await authFetch(`${API}/api/trace/share`, {
@@ -122,6 +126,24 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
     });
     if (!res.ok) throw new Error("share failed");
     const result = await res.json();
+    // Batch-share selected assoc'd notes in public mode (no password), skipping
+    // already-shared ones. Note links surface on the public trace page as bare
+    // /n/<share_id>, so a per-note password would force a second prompt there.
+    const notesToShare = (traceNotes ?? []).filter(
+      (n) => !n.share_id && !deselectedNoteIds.has(n.note_id),
+    );
+    if (notesToShare.length > 0) {
+      await Promise.all(
+        notesToShare.map((n) =>
+          authFetch(`${API}/api/note/share`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ note_id: n.note_id }),
+          }),
+        ),
+      );
+      await mutateTrace();
+    }
     mutateMyShare();
     return result;
   };
@@ -196,6 +218,36 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 align="left"
                 existingShare={myShare ?? null}
                 onDelete={deleteTraceShare}
+                extra={traceNotes && traceNotes.length > 0 ? (
+                  <div className="mt-2 pt-2 border-t border-sol-base02">
+                    <div className="text-sol-base01 mb-1">Also share notes</div>
+                    <div className="max-h-32 overflow-y-auto space-y-0.5">
+                      {traceNotes.map((note) => {
+                        const shared = !!note.share_id;
+                        const checked = shared || !deselectedNoteIds.has(note.note_id);
+                        return (
+                          <label key={note.note_id} className="flex items-center gap-2 py-0.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={shared}
+                              onChange={(e) => {
+                                setDeselectedNoteIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.delete(note.note_id);
+                                  else next.add(note.note_id);
+                                  return next;
+                                });
+                              }}
+                            />
+                            <span className="text-sol-base0 font-mono text-[0.65rem] truncate min-w-0">#{note.note_id}</span>
+                            {shared && <span className="ml-auto shrink-0 text-[0.6rem] text-sol-green">shared</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : undefined}
               />
             </div>
 
