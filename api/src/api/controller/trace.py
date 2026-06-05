@@ -161,11 +161,17 @@ class CreateShareRequest(BaseModel):
     trace_id: str
     password: Optional[str] = None
     generate_password: bool = False
+    note_ids: Optional[List[str]] = None
 
 
 @router.post("/share")
 async def create_share(req: CreateShareRequest, request: Request):
-    """Create a shareable link for a trace."""
+    """Create a shareable link for a trace, optionally batch-sharing assoc'd notes.
+
+    When ``note_ids`` is supplied, each note is shared server-side in public mode
+    (no password) best-effort, and the response gains a ``notes`` list. Omitting
+    ``note_ids`` keeps the original ``{share_id, password?}`` shape (back-compat).
+    """
     from storage import share_password as sp
     from storage.repository.trace_share import get_by_trace_id, create, set_password_hash
 
@@ -183,15 +189,29 @@ async def create_share(req: CreateShareRequest, request: Request):
     if existing:
         if password_hash is not None:
             set_password_hash(existing.share_id, password_hash)
-        resp = {"share_id": existing.share_id}
-        if generated_password is not None:
-            resp["password"] = generated_password
-        return resp
-    share_id = generate_id()
-    create(user_id, share_id, req.trace_id, password_hash=password_hash)
+        share_id = existing.share_id
+    else:
+        share_id = generate_id()
+        create(user_id, share_id, req.trace_id, password_hash=password_hash)
+
     resp = {"share_id": share_id}
     if generated_password is not None:
         resp["password"] = generated_password
+
+    if req.note_ids is not None:
+        # Share notes in public mode (no password): the public trace page renders
+        # note links as bare /n/<share_id>, so a per-note password would force a
+        # second prompt there. Best-effort: skip per-note failures.
+        from api.controller.note import share_note
+        shared_notes = []
+        for note_id in req.note_ids:
+            try:
+                note_resp = await share_note(user_id, note_id)
+            except Exception:
+                continue
+            shared_notes.append({"note_id": note_id, "share_id": note_resp["share_id"]})
+        resp["notes"] = shared_notes
+
     return resp
 
 
