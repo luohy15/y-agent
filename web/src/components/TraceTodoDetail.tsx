@@ -55,6 +55,9 @@ interface TraceTodoDetailProps {
   /** Notify parent when the dirty state of the patch buffer flips. Used to put a
    *  navigation guard on todo switches. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** When provided, a plain left-click on a shared-note link calls this instead of
+   *  navigating (the `href`/new-tab still works for cmd-click / right-click). */
+  onOpenNote?: (note: TodoNoteInfo) => void;
 }
 
 const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
@@ -98,6 +101,7 @@ export default function TraceTodoDetail({
   setHistoryOpen,
   onSave,
   onDirtyChange,
+  onOpenNote,
 }: TraceTodoDetailProps) {
   const editable = !!onSave;
   const [patch, setPatch] = useState<TodoPatch>({});
@@ -393,6 +397,13 @@ export default function TraceTodoDetail({
                             href={`/n/${note.share_id}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => {
+                              if (!onOpenNote) return;
+                              // Let cmd/ctrl/shift/middle-click keep their open-in-new-tab behavior.
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                              e.preventDefault();
+                              onOpenNote(note);
+                            }}
                             className="text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all"
                           >
                             {title}
