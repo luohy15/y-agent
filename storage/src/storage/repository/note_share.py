@@ -9,9 +9,12 @@ def get_by_share_id(share_id: str) -> Optional[NoteShareEntity]:
         return session.query(NoteShareEntity).filter_by(share_id=share_id).first()
 
 
-def get_by_note_id(user_id: int, note_id: str) -> Optional[NoteShareEntity]:
+def get_by_note_id(user_id: int, note_id: str, include_revoked: bool = False) -> Optional[NoteShareEntity]:
     with get_db() as session:
-        return session.query(NoteShareEntity).filter_by(user_id=user_id, note_id=note_id).first()
+        query = session.query(NoteShareEntity).filter_by(user_id=user_id, note_id=note_id)
+        if not include_revoked:
+            query = query.filter(NoteShareEntity.revoked_at.is_(None))
+        return query.first()
 
 
 def get_by_note_ids(user_id: int, note_ids: List[str]) -> List[NoteShareEntity]:
@@ -21,6 +24,7 @@ def get_by_note_ids(user_id: int, note_ids: List[str]) -> List[NoteShareEntity]:
         entities = session.query(NoteShareEntity).filter(
             NoteShareEntity.user_id == user_id,
             NoteShareEntity.note_id.in_(note_ids),
+            NoteShareEntity.revoked_at.is_(None),
         ).all()
         for entity in entities:
             session.expunge(entity)
@@ -53,9 +57,19 @@ def delete_by_share_id(share_id: str) -> int:
         return session.query(NoteShareEntity).filter_by(share_id=share_id).delete()
 
 
+def set_revoked(share_id: str, revoked_at: Optional[str]) -> None:
+    with get_db() as session:
+        session.query(NoteShareEntity).filter_by(share_id=share_id).update(
+            {"revoked_at": revoked_at}
+        )
+
+
 def list_by_user(user_id: int) -> List[NoteShareEntity]:
     with get_db() as session:
-        entities = session.query(NoteShareEntity).filter_by(user_id=user_id).order_by(NoteShareEntity.id.desc()).all()
+        entities = session.query(NoteShareEntity).filter(
+            NoteShareEntity.user_id == user_id,
+            NoteShareEntity.revoked_at.is_(None),
+        ).order_by(NoteShareEntity.id.desc()).all()
         for entity in entities:
             session.expunge(entity)
         return entities

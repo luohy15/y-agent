@@ -13,8 +13,10 @@ def ensure_share(user_id: int, note_id: str, password_hash: Optional[str] = None
     password hash if a non-None hash is supplied (keeps an existing password
     untouched when None is passed). Pure DB: no S3/SSH work here.
     """
-    existing = note_share_repo.get_by_note_id(user_id, note_id)
+    existing = note_share_repo.get_by_note_id(user_id, note_id, include_revoked=True)
     if existing:
+        if existing.revoked_at is not None:
+            note_share_repo.set_revoked(existing.share_id, None)
         if password_hash is not None:
             note_share_repo.set_password_hash(existing.share_id, password_hash)
         return existing.share_id, False
