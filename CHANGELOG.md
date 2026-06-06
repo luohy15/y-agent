@@ -22,17 +22,22 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Trace bot badges** — trace skill badges now show the bot name.
 - **Viewer TOC h3 headings** — file/link viewer TOC now includes h3 headings so TLDR sections get a table of contents.
 - **Todo sidebar batch actions** — select mode in the todo sidebar now supports batch pin / status / priority actions; mark-read folded into the sidebar actions dropdown.
+- **Public trace projection (2419)** — rebuilt the public trace share `/t/:shareId` as a read-only projection of the authed app: reuses ChatList + icon tabs in the right sidebar, a left balance rail, a centered todo-title page header, Ctrl+` to toggle FileViewer/ChatView, todo-detail rendered via the trace.md FileViewer view, and view state persisted per shareId.
+- **Batch-share trace notes (2416)** — sharing a trace now batch-shares its associated notes in a single backend call.
+- **Stable share links (2420)** — share links stay stable across unshare/reshare via soft-revoke.
 
 ### Changed
 - **Finance Transactions page revamp** — reworked the finance Transactions page with an IBKR-inspired layout.
 - **ChatView header** — now shows the bot name before the backend.
 - **pi models.json sync on bot CRUD (2377)** — bot create/update/delete now syncs the pi `models.json`, guarded for empty API keys, and `BotConfig.base_url` defaults to an empty string.
 - **Docs migration** — migrated `CLAUDE.md` to `AGENTS.md` with a symlink and updated Maintenance references accordingly.
+- **Unified trace & note shareviews (2417)** — unified trace and note shareviews with an in-place note overlay.
 
 ### Fixed
 - **Precise no-result error (2405)** — agent now derives a precise "no result" error message from the subprocess exit code.
 - **Chat process error guards** — `run_chat` now guards bot-resolve failures with a fallback to the default bot and wraps all core chat process errors with a `running=False` fallback so a chat never gets stuck running.
 - **pi_cli log noise** — suppressed `message_start` / `message_update` DEBUG logs from the pi_cli backend.
+- **Unshare cascade to note shares (2418)** — unsharing a trace now cascades to revoke its associated note shares in the backend.
 
 ### Removed
 
