@@ -251,7 +251,7 @@ function FrontMatterCard({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: string; level: number }[]; onSelect?: () => void }) {
+function MarkdownToc({ headings, articleRef, onSelect }: { headings: { text: string; id: string; level: number }[]; articleRef: React.RefObject<HTMLElement | null>; onSelect?: () => void }) {
   return (
     <ul className="space-y-1">
       {headings.map((h) => (
@@ -260,7 +260,12 @@ function MarkdownToc({ headings, onSelect }: { headings: { text: string; id: str
             href={`#${h.id}`}
             onClick={(e) => {
               e.preventDefault();
-              document.getElementById(h.id)?.scrollIntoView({ block: "start" });
+              // Scope the lookup to this tab's article: FileViewer keeps every open
+              // tab mounted (hidden) to preserve scroll, so a global getElementById
+              // can resolve to a same-slug heading in another (hidden) note tab and
+              // scroll nothing. querySelector within the active article fixes that.
+              const root = articleRef.current ?? document;
+              root.querySelector(`#${CSS.escape(h.id)}`)?.scrollIntoView({ block: "start" });
               onSelect?.();
             }}
             className="text-xs text-sol-base0 hover:text-sol-blue no-underline block truncate cursor-pointer"
@@ -384,7 +389,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
           {!tocCollapsed && (
             <div className="overflow-y-auto px-3 pb-3">
               <div className="text-xs text-sol-base01 mb-2">Contents</div>
-              <MarkdownToc headings={headings} />
+              <MarkdownToc headings={headings} articleRef={articleRef} />
             </div>
           )}
         </nav>
@@ -407,7 +412,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
               <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
               <nav className="absolute right-0 top-10 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
                 <div className="text-xs text-sol-base01 mb-2">Contents</div>
-                <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
+                <MarkdownToc headings={headings} articleRef={articleRef} onSelect={() => setTocOpen(false)} />
               </nav>
             </>
           )}
@@ -431,7 +436,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
               <div className="fixed inset-0 z-40" onClick={() => setTocOpen(false)} />
               <nav className="fixed right-4 bottom-26 z-50 w-56 max-h-64 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-3">
                 <div className="text-xs text-sol-base01 mb-2">Contents</div>
-                <MarkdownToc headings={headings} onSelect={() => setTocOpen(false)} />
+                <MarkdownToc headings={headings} articleRef={articleRef} onSelect={() => setTocOpen(false)} />
               </nav>
             </>
           )}
