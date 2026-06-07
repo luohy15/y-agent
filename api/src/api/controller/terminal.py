@@ -4,14 +4,13 @@ import dataclasses
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from agent.config import resolve_vm_config
-from agent.tools.local_exec import local_exec
-from agent.tools.ssh_exec import ssh_exec
-
 router = APIRouter(prefix="/terminal")
 
 
 async def _run_cmd(vm_config, cmd: list[str], timeout: float = 300) -> str:
+    from agent.tools.local_exec import local_exec
+    from agent.tools.ssh_exec import ssh_exec
+
     work_dir = vm_config.work_dir if vm_config else None
     if not vm_config or not vm_config.api_token:
         return await local_exec(cmd, None, timeout, cwd=work_dir)
@@ -26,6 +25,7 @@ async def run_command(request: Request, vm_name: str = Query(None), work_dir: st
     if not cmd:
         raise HTTPException(status_code=400, detail="Empty command")
 
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)

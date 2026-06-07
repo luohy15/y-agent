@@ -2,8 +2,6 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from agent.config import resolve_vm_config
-from agent.tool_base import Tool
 from storage.service import finance_holding as holding_service
 from storage.service import finance_derived as derived_service
 from storage.service import finance_price as price_service
@@ -17,18 +15,32 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
-class _CmdRunner(Tool):
-    name = "_cmd_runner"
-    description = ""
-    parameters = {}
+# Lazily build the Tool subclass so the agent layer (paramiko/cryptography/boto3)
+# stays out of the API import path until /finance endpoints are actually hit.
+_cmd_runner_cls = None
 
-    async def execute(self, arguments):
-        pass
+
+def _get_cmd_runner_cls():
+    global _cmd_runner_cls
+    if _cmd_runner_cls is None:
+        from agent.tool_base import Tool
+
+        class _CmdRunner(Tool):
+            name = "_cmd_runner"
+            description = ""
+            parameters = {}
+
+            async def execute(self, arguments):
+                pass
+
+        _cmd_runner_cls = _CmdRunner
+    return _cmd_runner_cls
 
 
 async def _exec(user_id: int, cmd: list[str], timeout: float = 30, vm_name: str = None) -> str:
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
-    runner = _CmdRunner(vm_config)
+    runner = _get_cmd_runner_cls()(vm_config)
     try:
         return await runner.run_cmd(cmd, timeout=timeout)
     except Exception as e:

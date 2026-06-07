@@ -13,14 +13,22 @@ from uuid import uuid4
 from fastapi import HTTPException
 from loguru import logger
 
-from agent.ec2_wake import ensure_and_touch_vm
-from agent.ssh_pool import SSHPool
-
 IMAGE_ASSETS_DIR = Path(os.environ.get("Y_AGENT_IMAGE_DIR", "/Users/roy/luohy15/assets/images"))
 _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 _REMOTE_IMAGE_SCHEMES = {"http", "https"}
-_SSH_POOL = SSHPool()
+
+# Lazily build the SSH pool so the agent layer (paramiko/cryptography/boto3)
+# stays out of the API import path until an image actually needs SSH upload.
+_SSH_POOL = None
+
+
+def _get_ssh_pool():
+    global _SSH_POOL
+    if _SSH_POOL is None:
+        from agent.ssh_pool import SSHPool
+        _SSH_POOL = SSHPool()
+    return _SSH_POOL
 
 
 def is_remote_image_reference(image_path: str) -> bool:
@@ -87,8 +95,9 @@ def ssh_put_image_bytes(content: bytes, *, prefix: str, suffix: str, vm_config) 
     sftp = None
 
     try:
+        from agent.ec2_wake import ensure_and_touch_vm
         ensure_and_touch_vm(vm_config)
-        client = _SSH_POOL.get_or_create(vm_config)
+        client = _get_ssh_pool().get_or_create(vm_config)
         client.exec_command(f"mkdir -p {shlex.quote(str(assets_dir))}")
         sftp = client.open_sftp()
         with sftp.open(str(image_path), "wb") as remote_file:
