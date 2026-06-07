@@ -3,7 +3,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from agent.pi_models import sync_pi_models
 from storage.entity.dto import BotConfig
 from storage.service import bot_config as bot_service
 from storage.service.bot_pricing import bot_prices_per_1m, fetch_openrouter_catalog
@@ -122,6 +121,7 @@ async def create_bot_config(request: Request, req: BotConfigRequest):
         ref_bot_name=req.ref_bot_name or None,
     )
     bot_service.add_config(user_id, config)
+    from agent.pi_models import sync_pi_models
     sync_pi_models(user_id)
     return {"ok": True, "name": name}
 
@@ -156,6 +156,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         enabled=existing.enabled,
     )
     bot_service.add_config(user_id, config)
+    from agent.pi_models import sync_pi_models
     sync_pi_models(user_id)
     return {"ok": True, "name": name}
 
@@ -170,6 +171,7 @@ async def delete_bot_config(request: Request, req: BotNameRequest):
         raise HTTPException(status_code=400, detail="Cannot delete default bot configuration")
     if not bot_service.delete_config(user_id, name):
         raise HTTPException(status_code=404, detail="Bot not found")
+    from agent.pi_models import sync_pi_models
     sync_pi_models(user_id)
     return {"ok": True, "name": name}
 

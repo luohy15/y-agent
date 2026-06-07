@@ -7,8 +7,6 @@ from loguru import logger
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from agent.config import resolve_vm_config
-from agent.telegram_delivery import send_telegram_photo_reference
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -88,6 +86,7 @@ def _append_delivered_images(msg, image_paths: List[str]) -> bool:
 
 
 def _resolve_attach_vm_config(user_id: int, chat, vm_name: Optional[str]):
+    from agent.config import resolve_vm_config
     return resolve_vm_config(user_id, vm_name, work_dir=getattr(chat, "work_dir", None))
 
 
@@ -96,6 +95,7 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
         return []
 
     from storage.service.telegram import resolve_target
+    from agent.telegram_delivery import send_telegram_photo_reference
 
     telegram_target = resolve_target(user_id, topic=chat.topic)
     if not telegram_target:
@@ -193,6 +193,7 @@ async def get_chats(
 async def post_create_chat(req: CreateChatRequest, request: Request):
     chat_id = req.chat_id or generate_id()
     user_id = _get_user_id(request)
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=req.work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
@@ -229,6 +230,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         if not work_dir:
             work_dir = chat.work_dir
 
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
     user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
@@ -612,6 +614,7 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
     parts.append(f'to_chat:{chat_id}')
     msg_content = f"[{' '.join(parts)}]\n{req.message}"
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload", vm_config=vm_config)
     user_msg = Message.from_dict(_message_dict("user", msg_content, images))

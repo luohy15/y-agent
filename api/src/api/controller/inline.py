@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.openai_chat import openai_chat_completion
 from storage.entity.dto import Chat, Message
 from storage.service import bot_config as bot_service
 from storage.repository import chat as chat_repo
@@ -82,6 +81,7 @@ async def inline(req: InlineRequest, request: Request) -> InlineResponse:
         f"<instruction>\n{req.instruction}\n</instruction>"
     )
 
+    from agent.openai_chat import openai_chat_completion
     try:
         result, _ = await openai_chat_completion(
             [{"role": "user", "content": user_content}],

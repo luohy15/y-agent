@@ -8,7 +8,6 @@ from loguru import logger
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from agent.config import resolve_vm_config
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
 from storage.service.tg_topic import auto_discover_topic
@@ -87,6 +86,7 @@ async def telegram_send(req: SendMessageRequest, request: Request):
     bot_token, tg_chat_id, thread_id = target
     import asyncio
     if images or image_uploads:
+        from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user_id)
         safe_image_paths = [resolve_send_image_path(image_path) for image_path in images]
         safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload", vm_config=vm_config) for upload in image_uploads)
@@ -130,6 +130,7 @@ async def telegram_webhook(request: Request):
             await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
             return {"ok": True}
         text = message.get("caption", "").strip() or "请看这张图片"
+        from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user.id)
         images = await _download_telegram_photos(message["photo"], vm_config=vm_config)
 

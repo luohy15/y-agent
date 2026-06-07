@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
-from agent.config import resolve_vm_config
 from storage.entity.dto import VmConfig
 from storage.service import vm_config as vm_service
 
@@ -26,6 +25,7 @@ async def list_vm_configs(request: Request):
     user_id = _get_user_id(request)
     configs = vm_service.list_configs(user_id)
     if not configs:
+        from agent.config import resolve_vm_config
         default = resolve_vm_config(user_id)
         configs = [default]
     return [

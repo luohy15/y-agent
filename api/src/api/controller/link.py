@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from api.controller.file import _exec
-from agent.openai_chat import openai_chat_completion
 from storage.service import bot_config as bot_service
 from storage.service import link as link_service
 
@@ -327,6 +326,7 @@ async def _call_tldr_bot(user_id: int, content: str, title: Optional[str], url: 
         "Content:",
         content,
     ])
+    from agent.openai_chat import openai_chat_completion
     try:
         result, _ = await openai_chat_completion(
             [{"role": "user", "content": user_content}],

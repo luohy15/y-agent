@@ -12,9 +12,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from agent.config import resolve_vm_config
-from agent.tool_base import Tool
-
 router = APIRouter(prefix="/file")
 
 
@@ -22,18 +19,33 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
-class _CmdRunner(Tool):
-    name = "_cmd_runner"
-    description = ""
-    parameters = {}
-    async def execute(self, arguments):
-        pass
+# Lazily build the Tool subclass so the agent layer (paramiko/cryptography/boto3)
+# stays out of the API import path until /file endpoints are actually hit.
+_cmd_runner_cls = None
+
+
+def _get_cmd_runner_cls():
+    global _cmd_runner_cls
+    if _cmd_runner_cls is None:
+        from agent.tool_base import Tool
+
+        class _CmdRunner(Tool):
+            name = "_cmd_runner"
+            description = ""
+            parameters = {}
+            async def execute(self, arguments):
+                pass
+
+        _cmd_runner_cls = _CmdRunner
+    return _cmd_runner_cls
+
 
 async def _exec(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None, work_dir: str = None) -> str:
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
-    runner = _CmdRunner(vm_config)
+    runner = _get_cmd_runner_cls()(vm_config)
     return await runner.run_cmd(cmd, timeout=timeout)
 
 
@@ -137,6 +149,7 @@ async def list_skills(request: Request, vm_name: str = Query(None)):
 
 
 async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None, work_dir: str = None) -> bytes:
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
@@ -219,6 +232,7 @@ async def upload_file(
     filename = os.path.basename(file.filename or "upload")
     dest_path = f"{dest_dir}/{filename}"
 
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
@@ -247,6 +261,7 @@ class WriteRequest(BaseModel):
 @router.post("/write")
 async def write_file(request: Request, body: WriteRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
+    from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
