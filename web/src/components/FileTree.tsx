@@ -251,6 +251,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [uploadDialog, setUploadDialog] = useState<{ dir: string } | null>(null);
+  const [overwriteDialog, setOverwriteDialog] = useState<{ files: File[]; destDir: string; names: string[] } | null>(null);
   const dirRefreshMapRef = useRef<DirRefreshMap>(new Map());
   const anchorRef = useRef<string | null>(null);
   const visiblePathsRef = useRef<string[]>([]);
@@ -343,7 +344,7 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const uploadFiles = useCallback(async (files: File[], destDir: string) => {
+  const performUpload = useCallback(async (files: File[], destDir: string) => {
     if (files.length === 0) return;
     setUploading(true);
     try {
@@ -371,6 +372,27 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
     const refresh = dirRefreshMapRef.current.get(destDir) ?? dirRefreshMapRef.current.get(rootPath);
     if (refresh) refresh();
   }, [vmName, workDir, rootPath]);
+
+  const uploadFiles = useCallback(async (files: File[], destDir: string) => {
+    if (files.length === 0) return;
+    // Detect same-name collisions in the target dir before overwriting.
+    let existingNames = new Set<string>();
+    try {
+      const res = await authFetch(`${API}/api/file/list?path=${encodeURIComponent(destDir)}${vmQuery}`);
+      if (res.ok) {
+        const data = await res.json();
+        existingNames = new Set((data.entries as FileEntry[]).map(e => e.name));
+      }
+    } catch {
+      // Target dir may not exist yet (parents created on upload); treat as no collisions.
+    }
+    const collisions = files.filter(f => existingNames.has(f.name)).map(f => f.name);
+    if (collisions.length > 0) {
+      setOverwriteDialog({ files, destDir, names: collisions });
+      return;
+    }
+    await performUpload(files, destDir);
+  }, [vmQuery, performUpload]);
 
   const openUploadDialog = useCallback(() => {
     // Default target dir: last-used → single selected dir → root
@@ -543,6 +565,53 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
                   className="px-3 py-1.5 rounded text-sm bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-blue/40"
                 >
                   Choose files...
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {overwriteDialog && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setOverwriteDialog(null)}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-sol-base02">
+              <div className="text-sol-base1 text-sm font-semibold">Overwrite existing file{overwriteDialog.names.length > 1 ? "s" : ""}?</div>
+              <div className="text-sol-base01 text-xs mt-1">
+                {overwriteDialog.names.length > 1
+                  ? `${overwriteDialog.names.length} files already exist in the target directory and will be replaced:`
+                  : "A file with the same name already exists in the target directory and will be replaced:"}
+              </div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-2">
+              <div className="max-h-40 overflow-y-auto flex flex-col gap-1">
+                {overwriteDialog.names.map((name) => (
+                  <div key={name} className="text-sm text-sol-base1 font-mono truncate">{name}</div>
+                ))}
+              </div>
+              <div className="flex gap-2 justify-end mt-2">
+                <button
+                  onClick={() => setOverwriteDialog(null)}
+                  className="px-3 py-1.5 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const { files, destDir } = overwriteDialog;
+                    setOverwriteDialog(null);
+                    performUpload(files, destDir);
+                  }}
+                  disabled={uploading}
+                  className="px-3 py-1.5 rounded text-sm bg-sol-red/20 text-sol-red hover:bg-sol-red/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-red/40"
+                >
+                  Overwrite
                 </button>
               </div>
             </div>
