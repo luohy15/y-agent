@@ -8,9 +8,10 @@ interface FileSearchDialogProps {
   vmName?: string | null;
   workDir?: string;
   openFiles?: string[];
+  onCloseAll?: () => void;
 }
 
-export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, workDir, openFiles = [] }: FileSearchDialogProps) {
+export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, workDir, openFiles = [], onCloseAll }: FileSearchDialogProps) {
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[]>([]);
@@ -121,7 +122,20 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
         </div>
         {displayList.length > 0 && (
           <div className="max-h-64 overflow-y-auto py-1">
-            {showOpenFiles && <div className="px-3 py-1 text-xs text-sol-base01">Open files</div>}
+            {showOpenFiles && (
+              <div className="flex items-center justify-between px-3 py-1">
+                <span className="text-xs text-sol-base01">Open files</span>
+                {onCloseAll && (
+                  <button
+                    onClick={() => { onCloseAll(); onClose(); }}
+                    className="text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                    title="Close all open files"
+                  >
+                    Close all
+                  </button>
+                )}
+              </div>
+            )}
             {displayList.map((file, i) => (
               <div
                 key={file}

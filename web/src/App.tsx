@@ -255,6 +255,12 @@ export default function App() {
     }
   }, []);
 
+  const handleCloseAllFiles = useCallback(() => {
+    setOpenFiles([]);
+    setActiveFile(null);
+    setPreviewFile(null);
+  }, []);
+
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
@@ -484,9 +490,9 @@ export default function App() {
     {
       id: 'close-all-editors',
       label: 'Close All Editors',
-      execute: () => { setOpenFiles([]); setActiveFile(null); setPreviewFile(null); },
+      execute: handleCloseAllFiles,
     },
-  ], []);
+  ], [handleCloseAllFiles]);
 
   const rightPanelBtnClass = (active: boolean) =>
     `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
@@ -1029,7 +1035,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} />
+      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} onCloseAll={handleCloseAllFiles} />
       <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={commandActions} />
       <LinkActionDialog
         open={!!pendingLinkUrl}
