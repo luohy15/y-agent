@@ -10,6 +10,11 @@ import ShareNoteView from "./components/ShareNoteView";
 import { useAuth } from "./hooks/useAuth";
 import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
+import { API } from "./api";
+
+// Fire-and-forget warm-up ping to trigger Lambda init while the user reads the
+// UI. No auth, ignore the result; swallow errors so it never logs to console.
+fetch(`${API}/api/health`).catch(() => {});
 
 function RootGate() {
   const { isLoggedIn } = useAuth();
