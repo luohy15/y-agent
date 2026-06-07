@@ -348,7 +348,7 @@ export default function MessageList({ messages, running, centered, showProgress,
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-6 py-4 text-xs">
+    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-4 text-xs">
       <div className={innerClass}>{content}</div>
     </div>
   );
