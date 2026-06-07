@@ -247,7 +247,7 @@ async def upload_file(
         # Remote: pipe base64-encoded content through stdin and decode on target
         import shlex
         b64 = base64.b64encode(content).decode("ascii")
-        runner = _CmdRunner(vm_config)
+        runner = _get_cmd_runner_cls()(vm_config)
         await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(dest_path)}"], stdin=b64)
 
     return {"path": dest_path, "size": len(content), "success": True}
@@ -276,7 +276,7 @@ async def write_file(request: Request, body: WriteRequest, vm_name: str = Query(
         # Remote: pipe base64-encoded content through stdin and decode on target
         import shlex
         b64 = base64.b64encode(body.content.encode("utf-8")).decode("ascii")
-        runner = _CmdRunner(vm_config)
+        runner = _get_cmd_runner_cls()(vm_config)
         await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(body.path)}"], stdin=b64)
     return {"path": body.path, "success": True}
 
