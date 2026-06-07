@@ -59,6 +59,14 @@ html {
   max-width: 100%;
 }
 
+/* Wide tables scroll within their own box so they don't push the chat view
+   horizontally (the chat scroll region is overflow-x:hidden). */
+.prose table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 .prose {
   --tw-prose-body: #839496;           /* base0 */
   --tw-prose-headings: #93a1a1;       /* base1 */
