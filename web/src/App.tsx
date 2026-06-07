@@ -736,7 +736,7 @@ export default function App() {
             fixed inset-y-0 left-0 z-30 transform transition-transform duration-200
             md:hidden
             shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-y-auto
-            ${activityBarOpen ? "translate-x-0" : "-translate-x-full"}
+            ${activityBarOpen ? "translate-x-0" : "-translate-x-full hidden"}
           `}
           style={{ width: 200 }}
         >
@@ -756,8 +756,8 @@ export default function App() {
         <div
           className={`
             fixed inset-y-0 left-0 z-30 transform transition-transform duration-200 md:relative md:z-auto shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-hidden max-w-[280px] md:max-w-none
-            ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-            ${desktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full md:hidden"}
+            ${sidebarOpen ? "translate-x-0" : "-translate-x-full hidden"}
+            ${desktopSidebarOpen ? "md:translate-x-0 md:block" : "md:-translate-x-full md:hidden"}
           `}
           style={{ width: sidebarWidth }}
         >
