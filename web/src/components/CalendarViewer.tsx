@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
-import { ListEmpty, ListError, ListLoading } from "./ListStates";
+import { ListError, ListLoading } from "./ListStates";
 
 interface CalendarEvent {
   event_id: string;
@@ -251,10 +251,14 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
         <ListLoading className="p-3" />
       ) : error ? (
         <ListError error={error} className="p-3" />
-      ) : events?.length === 0 ? (
-        <ListEmpty label="events" className="p-3" />
       ) : (
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto" onClick={() => setSelectedEvent(null)}>
+        <div className="flex-1 min-h-0 relative">
+          {(!events || events.length === 0) && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+              <span className="px-2 py-1 rounded bg-sol-base02/80 text-sol-base01">No events this week</span>
+            </div>
+          )}
+          <div ref={scrollRef} className="h-full overflow-auto" onClick={() => setSelectedEvent(null)}>
           {/* Event detail popover */}
           {selectedEvent && (
             <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
@@ -410,6 +414,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                 ))}
               </div>
             </div>
+          </div>
           </div>
         </div>
       )}
