@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.16] - 2026-06-07
+
+### Added
 - **pi.dev (pi_cli) agent backend** — added pi.dev as a new agent backend, wired its base URL through the OpenRouter gateway via `models.json`.
 - **Bot config CLI** — added `y bot get <name>` to show a bot's full config and `y bot prices` to live-fetch OpenRouter per-1M prices, with those prices now shown inline in `y bot list` / `y bot get`. `y bot list` now defaults to compact columns (name/backend/model) with `--full` for all columns and a `--type` filter.
 - **Multi-tier bot routing** — added 3-tier model-pool routing (tier0 uniform, tier1/tier2 inverse-square price load balancing), an explicit `route_weight` field replacing `price_override`, a bot `type` dimension (agent/model), and a `--tier` flag on `y chat` for tier selection.
@@ -25,6 +35,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Public trace projection (2419)** — rebuilt the public trace share `/t/:shareId` as a read-only projection of the authed app: reuses ChatList + icon tabs in the right sidebar, a left balance rail, a centered todo-title page header, Ctrl+` to toggle FileViewer/ChatView, todo-detail rendered via the trace.md FileViewer view, and view state persisted per shareId.
 - **Batch-share trace notes (2416)** — sharing a trace now batch-shares its associated notes in a single backend call.
 - **Stable share links (2420)** — share links stay stable across unshare/reshare via soft-revoke.
+- **Close-all-open-files mobile button (2427)** — added a close-all-open-files action to the mobile top bar.
+- **Upload overwrite confirmation (2435)** — uploading a file with the same name as an existing one now prompts for confirmation before overwriting.
 
 ### Changed
 - **Finance Transactions page revamp** — reworked the finance Transactions page with an IBKR-inspired layout.
@@ -32,12 +44,17 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **pi models.json sync on bot CRUD (2377)** — bot create/update/delete now syncs the pi `models.json`, guarded for empty API keys, and `BotConfig.base_url` defaults to an empty string.
 - **Docs migration** — migrated `CLAUDE.md` to `AGENTS.md` with a symlink and updated Maintenance references accordingly.
 - **Unified trace & note shareviews (2417)** — unified trace and note shareviews with an in-place note overlay.
+- **Lambda API cold-start latency (2423)** — cut API cold-start latency cheaply by lazy-importing the agent layer (after reverting an ineffective API memory bump).
 
 ### Fixed
 - **Precise no-result error (2405)** — agent now derives a precise "no result" error message from the subprocess exit code.
 - **Chat process error guards** — `run_chat` now guards bot-resolve failures with a fallback to the default bot and wraps all core chat process errors with a `running=False` fallback so a chat never gets stuck running.
 - **pi_cli log noise** — suppressed `message_start` / `message_update` DEBUG logs from the pi_cli backend.
 - **Unshare cascade to note shares (2418)** — unsharing a trace now cascades to revoke its associated note shares in the backend.
+- **Mobile chat horizontal swipe lock (2431)** — locked the mobile chat view against horizontal swipe via `overflow-x-hidden`, with wide tables made independently scrollable.
+- **iOS Safari chrome tint drift (2428)** — mobile left drawers are now `display:none` when closed so iOS 26 Safari stops sampling them for chrome bar tint on sidebar toggle.
+- **Share-page TOC scoping (2434)** — share-page TOC heading lookup is now scoped to the active tab's article.
+- **Remote upload/write NameError (2439)** — remote file upload/write now uses `_get_cmd_runner_cls()` to fix a `_CmdRunner` NameError.
 
 ### Removed
 
