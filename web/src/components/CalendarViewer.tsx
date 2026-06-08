@@ -149,13 +149,15 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   const [form, setForm] = useState<EventForm | null>(null);
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Live drag-resize preview state (null when not resizing). `key` encodes the
-  // event + day column so multi-instance events stay isolated.
-  const [resizeState, setResizeState] = useState<
-    { key: string; edge: "top" | "bottom"; newStartMs: number; newEndMs: number } | null
+  // Live drag preview state (null when not dragging). `key` encodes the event +
+  // day column so multi-instance events stay isolated. `mode` is the gesture:
+  // top/bottom border resize, or whole-event move.
+  const [dragState, setDragState] = useState<
+    { key: string; mode: "top" | "bottom" | "move"; newStartMs: number; newEndMs: number } | null
   >(null);
-  // Set true on resize pointerup so the synthetic click that follows is suppressed.
-  const justResizedRef = useRef(false);
+  // Set true on a drag pointerup that actually moved, so the synthetic click that
+  // follows is suppressed (a plain click leaves it unset and still opens read).
+  const justDraggedRef = useRef(false);
 
   const jumpTo = (d: Date) => {
     setSelectedDate(d);
@@ -386,21 +388,82 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
       if (edge === "top") {
         const maxStart = origEndMs - snapMs;
         curStartMs = Math.min(origStartMs + deltaMin * 60000, maxStart);
-        setResizeState({ key, edge, newStartMs: curStartMs, newEndMs: origEndMs });
+        setDragState({ key, mode: edge, newStartMs: curStartMs, newEndMs: origEndMs });
       } else {
         const minEnd = origStartMs + snapMs;
         curEndMs = Math.max(origEndMs + deltaMin * 60000, minEnd);
-        setResizeState({ key, edge, newStartMs: origStartMs, newEndMs: curEndMs });
+        setDragState({ key, mode: edge, newStartMs: origStartMs, newEndMs: curEndMs });
       }
     };
 
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      justResizedRef.current = true;
-      setResizeState(null);
+      justDraggedRef.current = true;
+      setDragState(null);
       const changed = edge === "top" ? curStartMs !== origStartMs : curEndMs !== origEndMs;
       if (changed) persistResize(ev, edge, curStartMs, curEndMs);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // Persist a moved event. Sends both start_time and end_time (duration is
+  // preserved), formatted like saveEdit, then revalidates via SWR.
+  const persistMove = async (ev: CalendarEvent, startMs: number, endMs: number) => {
+    const res = await authFetch(`${API}/api/calendar/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_id: ev.event_id,
+        start_time: fmtLocal(new Date(startMs)),
+        end_time: fmtLocal(new Date(endMs)),
+      }),
+    });
+    if (res.ok) await mutate();
+  };
+
+  // Begin a whole-event body drag-move. Delta-based and duration-preserving:
+  // shift both bounds by the same snapped delta, clamped to keep the block inside
+  // its day column (no cross-midnight). A plain click (no snapped movement) is
+  // left to bubble through to openRead.
+  const startMove = (
+    e: React.PointerEvent,
+    ev: CalendarEvent,
+    key: string,
+    origStartMs: number,
+    origEndMs: number,
+    dayStartMs: number,
+    dayEndMs: number,
+  ) => {
+    e.preventDefault();
+    const anchorY = e.clientY;
+    let curStartMs = origStartMs;
+    let curEndMs = origEndMs;
+    let moved = false;
+    const minDelta = dayStartMs - origStartMs;
+    const maxDelta = dayEndMs - origEndMs;
+
+    const onMove = (me: PointerEvent) => {
+      const deltaMin = Math.round((((me.clientY - anchorY) / HOUR_HEIGHT) * 60) / SNAP_MIN) * SNAP_MIN;
+      // Clamp the delta (not each bound) so the block stays inside the day and
+      // keeps its duration.
+      const deltaMs = Math.min(Math.max(deltaMin * 60000, minDelta), maxDelta);
+      curStartMs = origStartMs + deltaMs;
+      curEndMs = origEndMs + deltaMs;
+      if (deltaMs !== 0) moved = true;
+      setDragState({ key, mode: "move", newStartMs: curStartMs, newEndMs: curEndMs });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setDragState(null);
+      if (moved) {
+        justDraggedRef.current = true;
+        persistMove(ev, curStartMs, curEndMs);
+      }
     };
 
     window.addEventListener("pointermove", onMove);
@@ -641,9 +704,9 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                     className="relative border-r border-sol-base02"
                     onClick={(e) => {
                       e.stopPropagation();
-                      // A resize drag whose synthetic click lands on empty column
-                      // space must not open create; also clears the stale flag.
-                      if (justResizedRef.current) { justResizedRef.current = false; return; }
+                      // A drag whose synthetic click lands on empty column space
+                      // must not open create; also clears the stale flag.
+                      if (justDraggedRef.current) { justDraggedRef.current = false; return; }
                       const rect = e.currentTarget.getBoundingClientRect();
                       const hour = Math.min(23, Math.max(0, Math.floor((e.clientY - rect.top) / HOUR_HEIGHT)));
                       const start = new Date(days[dayIdx]);
@@ -698,9 +761,10 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                         // visible bounds from the dragged ms (clipped to the day).
                         let topHour = startHour;
                         let botHour = endHour;
-                        if (resizeState?.key === key) {
-                          const cs = Math.max(resizeState.newStartMs, dayStart.getTime());
-                          const ce = Math.min(resizeState.newEndMs, dayEnd.getTime());
+                        const dragging = dragState?.key === key;
+                        if (dragging) {
+                          const cs = Math.max(dragState.newStartMs, dayStart.getTime());
+                          const ce = Math.min(dragState.newEndMs, dayEnd.getTime());
                           const csD = new Date(cs);
                           const ceD = new Date(ce);
                           topHour = csD.getHours() + csD.getMinutes() / 60;
@@ -715,35 +779,43 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                         // edge (not clipped to the day boundary on a multi-day span).
                         const showTopHandle = clippedStart.getTime() === evStart.getTime();
                         const showBottomHandle = clippedEnd.getTime() === evEnd.getTime();
+                        // Body move is only offered on events fully contained in
+                        // this day column (both edges are real, not day-clipped).
+                        const canMove = showTopHandle && showBottomHandle;
+                        // In-block label times track the live drag preview, so the
+                        // user sees the resulting range update as they drag.
+                        const dispStart = new Date(dragging ? dragState.newStartMs : evStart.getTime());
+                        const dispEnd = new Date(dragging ? dragState.newEndMs : evEnd.getTime());
                         return (
                           <div
                             key={key}
                             onClickCapture={(e) => {
-                              // Suppress the synthetic click that follows a resize
+                              // Suppress the synthetic click that follows a real
                               // drag so it doesn't open the read popover.
-                              if (justResizedRef.current) {
+                              if (justDraggedRef.current) {
                                 e.stopPropagation();
-                                justResizedRef.current = false;
+                                justDraggedRef.current = false;
                               }
                             }}
                             onClick={(e) => { e.stopPropagation(); openRead(ev); }}
-                            className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden cursor-pointer ${
+                            onPointerDown={canMove ? (e) => startMove(e, ev, key, evStart.getTime(), evEnd.getTime(), dayStart.getTime(), dayEnd.getTime()) : undefined}
+                            className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden ${canMove ? "cursor-move" : "cursor-pointer"} ${
                               getSourceColor(ev.source, sourceColorMap)
                             }`}
                             style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
                             title={ev.summary}
                         >
-                          {(clippedEnd.getTime() - clippedStart.getTime()) < 60 * 60 * 1000 ? (
-                            <div className="truncate font-medium">
-                              {ev.summary} <span className="font-normal text-sol-base03/70">{`${String(evStart.getHours()).padStart(2, "0")}:${String(evStart.getMinutes()).padStart(2, "0")}`}</span>
-                            </div>
-                          ) : (
+                          {dragging || (clippedEnd.getTime() - clippedStart.getTime()) >= 60 * 60 * 1000 ? (
                             <>
                               <div className="truncate font-medium">{ev.summary}</div>
-                              <div className="truncate text-sol-base03/70">
-                                {`${String(evStart.getHours()).padStart(2, "0")}:${String(evStart.getMinutes()).padStart(2, "0")}–${String(evEnd.getHours()).padStart(2, "0")}:${String(evEnd.getMinutes()).padStart(2, "0")}`}
+                              <div className={`truncate ${dragging ? "text-sol-base03" : "text-sol-base03/70"}`}>
+                                {`${String(dispStart.getHours()).padStart(2, "0")}:${String(dispStart.getMinutes()).padStart(2, "0")}–${String(dispEnd.getHours()).padStart(2, "0")}:${String(dispEnd.getMinutes()).padStart(2, "0")}`}
                               </div>
                             </>
+                          ) : (
+                            <div className="truncate font-medium">
+                              {ev.summary} <span className="font-normal text-sol-base03/70">{`${String(dispStart.getHours()).padStart(2, "0")}:${String(dispStart.getMinutes()).padStart(2, "0")}`}</span>
+                            </div>
                           )}
                           {showTopHandle && (
                             <div
