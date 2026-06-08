@@ -2290,6 +2290,10 @@ function sumPeriodValues(values: Record<string, number>): number {
   return Object.values(values).reduce((sum, value) => sum + (value || 0), 0);
 }
 
+// Sentinel sort column for the "Range Σ" total column in the income-statement
+// over-time table.
+const RANGE_SUM_KEY = "__range_sum__";
+
 function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab: ISChartTab, sortColumn: string, sortDir: "asc" | "desc") {
   const metricRows = [
     {
@@ -2305,21 +2309,21 @@ function incomeStatementMetricRows(data: IncomeStatementHistoryItem[], chartTab:
       values: Object.fromEntries(data.map((item) => [item.period, balanceUsdValue(item.expenses)])),
     },
   ];
-  if (chartTab === "net-profit") return metricRows;
-  const rows = metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
-  return rows.sort((a, b) => {
-    const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+  const rows = chartTab === "net-profit" ? metricRows : metricRows.filter((row) => row.metric.toLowerCase() === chartTab);
+  const sortValue = (values: Record<string, number>) =>
+    sortColumn === RANGE_SUM_KEY ? sumPeriodValues(values) : (values[sortColumn] || 0);
+  return [...rows].sort((a, b) => {
+    const delta = sortValue(a.values) - sortValue(b.values);
     return sortDir === "asc" ? delta : -delta;
   });
 }
 
 function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatementHistoryItem[]; chartTab: ISChartTab }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const latestPeriod = data[data.length - 1]?.period || "";
   const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
-  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortColumn, setSortColumn] = useState<string>(RANGE_SUM_KEY);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const effectiveSortColumn = sortColumn === RANGE_SUM_KEY || data.some((item) => item.period === sortColumn) ? sortColumn : RANGE_SUM_KEY;
   const rows = useMemo(() => incomeStatementMetricRows(data, chartTab, effectiveSortColumn, sortDir), [data, chartTab, effectiveSortColumn, sortDir]);
 
   useEffect(() => {
@@ -2358,7 +2362,11 @@ function IncomeStatementHistoryTable({ data, chartTab }: { data: IncomeStatement
                     </button>
                   </th>
                 ))}
-                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
+                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">
+                  <button onClick={() => handleSort(RANGE_SUM_KEY)} className="cursor-pointer hover:text-sol-base0">
+                    Range Σ {effectiveSortColumn === RANGE_SUM_KEY ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
