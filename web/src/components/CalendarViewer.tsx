@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { API, jsonFetcher as fetcher } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListError, ListLoading } from "./ListStates";
 
 interface CalendarEvent {
@@ -75,6 +75,26 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// Format a Date as a `datetime-local` value (YYYY-MM-DDTHH:MM) in browser-local components.
+function fmtLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Prefill a `datetime-local` input from a stored UTC ISO string.
+function toDatetimeLocal(iso: string): string {
+  return fmtLocal(new Date(iso));
+}
+
+interface EventForm {
+  summary: string;
+  start: string; // datetime-local
+  end: string; // datetime-local or ""
+  description: string;
+  all_day: boolean;
+  todo_id: string;
+}
+
 interface LayoutInfo {
   col: number;
   totalCols: number;
@@ -124,6 +144,9 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   });
   const weekStart = useMemo(() => getMonday(selectedDate), [selectedDate.getTime()]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [mode, setMode] = useState<"read" | "edit" | "create">("read");
+  const [form, setForm] = useState<EventForm | null>(null);
+  const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const jumpTo = (d: Date) => {
@@ -140,7 +163,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   const fromDate = toISODate(weekStart);
   const toDate = toISODate(addDays(weekStart, 6));
 
-  const { data: events, isLoading, error } = useSWR<CalendarEvent[]>(
+  const { data: events, isLoading, error, mutate } = useSWR<CalendarEvent[]>(
     `${API}/api/calendar/list?from=${fromDate}&to=${toDate}`,
     fetcher,
   );
@@ -212,13 +235,128 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
     }
   }, [isLoading, todayColIdx]);
 
+  const closePopover = () => {
+    setSelectedEvent(null);
+    setForm(null);
+    setMode("read");
+  };
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelectedEvent(null);
+      if (e.key === "Escape") closePopover();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  const openCreate = (start: Date) => {
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    setSelectedEvent(null);
+    setForm({
+      summary: "",
+      start: fmtLocal(start),
+      end: fmtLocal(end),
+      description: "",
+      all_day: false,
+      todo_id: "",
+    });
+    setMode("create");
+  };
+
+  const openNewDefault = () => {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+    openCreate(start);
+  };
+
+  const openRead = (ev: CalendarEvent) => {
+    setSelectedEvent(ev);
+    setForm(null);
+    setMode("read");
+  };
+
+  const openEdit = (ev: CalendarEvent) => {
+    setSelectedEvent(ev);
+    setForm({
+      summary: ev.summary,
+      start: ev.start_time ? toDatetimeLocal(ev.start_time) : "",
+      end: ev.end_time ? toDatetimeLocal(ev.end_time) : "",
+      description: ev.description || "",
+      all_day: ev.all_day,
+      todo_id: ev.todo_id || "",
+    });
+    setMode("edit");
+  };
+
+  const saveCreate = async () => {
+    if (!form || !form.summary.trim() || !form.start) return;
+    const body: Record<string, unknown> = {
+      summary: form.summary.trim(),
+      start: form.start,
+      description: form.description,
+      all_day: form.all_day,
+    };
+    if (form.end) body.end = form.end;
+    if (form.todo_id.trim()) body.todo_id = form.todo_id.trim();
+    setSaving(true);
+    const res = await authFetch(`${API}/api/calendar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setSaving(false);
+    if (res.ok) {
+      await mutate();
+      closePopover();
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!form || !selectedEvent || !form.summary.trim() || !form.start) return;
+    const ev = selectedEvent;
+    const fields: Record<string, unknown> = { event_id: ev.event_id };
+    if (form.summary.trim() !== ev.summary) fields.summary = form.summary.trim();
+    if (form.start !== (ev.start_time ? toDatetimeLocal(ev.start_time) : "")) {
+      fields.start_time = form.start;
+    }
+    // Only send a non-empty end; clearing end via /update is not supported.
+    const origEnd = ev.end_time ? toDatetimeLocal(ev.end_time) : "";
+    if (form.end && form.end !== origEnd) fields.end_time = form.end;
+    if (form.description !== (ev.description || "")) fields.description = form.description;
+    if (form.todo_id.trim() !== (ev.todo_id || "")) fields.todo_id = form.todo_id.trim();
+    if (Object.keys(fields).length <= 1) {
+      closePopover();
+      return;
+    }
+    setSaving(true);
+    const res = await authFetch(`${API}/api/calendar/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    setSaving(false);
+    if (res.ok) {
+      await mutate();
+      closePopover();
+    }
+  };
+
+  const deleteEvent = async () => {
+    if (!selectedEvent) return;
+    if (!window.confirm(`Delete "${selectedEvent.summary}"?`)) return;
+    setSaving(true);
+    const res = await authFetch(`${API}/api/calendar/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_id: selectedEvent.event_id }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      await mutate();
+      closePopover();
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-sol-base03 text-xs">
@@ -245,6 +383,10 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
           className="px-2 py-0.5 rounded bg-sol-base02 text-sol-base0 border border-sol-base01/30 text-xs cursor-pointer ml-1"
         />
         <span className="text-sol-base1 text-sm font-medium ml-2">{formatWeekLabel(weekStart)}</span>
+        <button
+          onClick={openNewDefault}
+          className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer ml-auto"
+        >+ New</button>
       </div>
 
       {isLoading ? (
@@ -258,9 +400,9 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
               <span className="px-2 py-1 rounded bg-sol-base02/80 text-sol-base01">No events this week</span>
             </div>
           )}
-          <div ref={scrollRef} className="h-full overflow-auto" onClick={() => setSelectedEvent(null)}>
-          {/* Event detail popover */}
-          {selectedEvent && (
+          <div ref={scrollRef} className="h-full overflow-auto" onClick={closePopover}>
+          {/* Event detail popover (read mode) */}
+          {selectedEvent && mode === "read" && (
             <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between">
                 <div>
@@ -285,10 +427,103 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                     >Todo: #{selectedEvent.todo_id}</span>
                   )}
                 </div>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  <button
+                    onClick={() => openEdit(selectedEvent)}
+                    className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
+                  >Edit</button>
+                  <button
+                    onClick={deleteEvent}
+                    disabled={saving}
+                    className="px-2 py-0.5 rounded bg-sol-red/70 text-sol-base03 hover:bg-sol-red cursor-pointer disabled:opacity-50"
+                  >Delete</button>
+                  <button
+                    onClick={closePopover}
+                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
+                  >&times;</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Event form popover (edit / create mode) */}
+          {form && (mode === "edit" || mode === "create") && (
+            <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sol-base1 text-sm font-medium">{mode === "create" ? "New event" : "Edit event"}</span>
                 <button
-                  onClick={() => setSelectedEvent(null)}
-                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer ml-2 text-sm"
+                  onClick={closePopover}
+                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
                 >&times;</button>
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-center">
+                <label className="text-sol-base01">Title</label>
+                <input
+                  value={form.summary}
+                  onChange={(e) => setForm({ ...form, summary: e.target.value })}
+                  placeholder="Summary"
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                />
+                <label className="text-sol-base01">Start</label>
+                <input
+                  type="datetime-local"
+                  value={form.start}
+                  onChange={(e) => setForm({ ...form, start: e.target.value })}
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                />
+                <label className="text-sol-base01">End</label>
+                <input
+                  type="datetime-local"
+                  value={form.end}
+                  onChange={(e) => setForm({ ...form, end: e.target.value })}
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                />
+                <label className="text-sol-base01 self-start pt-1">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={2}
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
+                />
+                <label className="text-sol-base01">Todo</label>
+                <input
+                  value={form.todo_id}
+                  onChange={(e) => setForm({ ...form, todo_id: e.target.value })}
+                  placeholder="todo id (optional)"
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                />
+                {mode === "create" && (
+                  <>
+                    <label className="text-sol-base01">All day</label>
+                    <input
+                      type="checkbox"
+                      checked={form.all_day}
+                      onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+                      className="justify-self-start cursor-pointer"
+                    />
+                  </>
+                )}
+                {mode === "edit" && selectedEvent && (selectedEvent.all_day || selectedEvent.source || selectedEvent.status) && (
+                  <>
+                    <span className="text-sol-base01">Info</span>
+                    <span className="text-sol-base01 text-[11px]">
+                      {selectedEvent.all_day && "all-day "}
+                      {selectedEvent.source && `· ${selectedEvent.source} `}
+                      {selectedEvent.status && `· ${selectedEvent.status}`}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 mt-2">
+                <button
+                  onClick={closePopover}
+                  className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
+                >Cancel</button>
+                <button
+                  onClick={mode === "create" ? saveCreate : saveEdit}
+                  disabled={saving || !form.summary.trim() || !form.start}
+                  className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer disabled:opacity-50"
+                >Save</button>
               </div>
             </div>
           )}
@@ -307,7 +542,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                 {allDayByDay[i].map((ev) => (
                   <div
                     key={ev.event_id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                    onClick={(e) => { e.stopPropagation(); openRead(ev); }}
                     className={`px-1 py-0.5 rounded text-sol-base03 truncate cursor-pointer mb-0.5 border-l-0 text-left ${
                       getSourceColor(ev.source, sourceColorMap)
                     }`}
@@ -336,7 +571,18 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
 
                 {/* Day columns */}
                 {days.map((_, dayIdx) => (
-                  <div key={dayIdx} className="relative border-r border-sol-base02">
+                  <div
+                    key={dayIdx}
+                    className="relative border-r border-sol-base02"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const hour = Math.min(23, Math.max(0, Math.floor((e.clientY - rect.top) / HOUR_HEIGHT)));
+                      const start = new Date(days[dayIdx]);
+                      start.setHours(HOUR_START + hour, 0, 0, 0);
+                      openCreate(start);
+                    }}
+                  >
                     {/* Current time ticker */}
                     {nowTop !== null && dayIdx === todayColIdx && (
                       <div
@@ -387,7 +633,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                         return (
                           <div
                             key={`${ev.event_id}-${dayIdx}`}
-                            onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                            onClick={(e) => { e.stopPropagation(); openRead(ev); }}
                             className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden cursor-pointer ${
                               getSourceColor(ev.source, sourceColorMap)
                             }`}
