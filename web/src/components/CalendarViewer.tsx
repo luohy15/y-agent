@@ -149,6 +149,10 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   const [form, setForm] = useState<EventForm | null>(null);
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timeGridRef = useRef<HTMLDivElement>(null);
+  // Bumped by the Today button to re-trigger the scroll-to-now effect even when
+  // the visible week doesn't change (same-week click).
+  const [scrollSignal, setScrollSignal] = useState(0);
   // Live drag preview state (null when not dragging). `key` encodes the event +
   // day column so multi-instance events stay isolated. `mode` is the gesture:
   // top/bottom border resize, or whole-event move.
@@ -236,14 +240,32 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
     ? ((now.getHours() + now.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT
     : null;
 
-  const hasScrolled = useRef(false);
+  // Scroll the time grid so the current time-of-day is centered in the viewport
+  // (keeps the now-indicator visible instead of resting at midnight/top).
+  const scrollToNow = () => {
+    const el = scrollRef.current;
+    const grid = timeGridRef.current;
+    if (!el) return;
+    const n = new Date();
+    const yInGrid = ((n.getHours() + n.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT;
+    // Offset of the time grid from the top of the scroll container (the sticky
+    // day-header row sits above it and varies with all-day events).
+    const gridOffset = grid
+      ? grid.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+      : 0;
+    el.scrollTop = Math.max(0, gridOffset + yInGrid - el.clientHeight / 2);
+  };
+
+  // Scroll to the current time once today is in view: on initial load, and again
+  // each time the Today button bumps `scrollSignal` (pendingScrollRef gates it so
+  // a single scroll fires per request, after data has loaded for the target week).
+  const pendingScrollRef = useRef(true);
   useEffect(() => {
-    if (!isLoading && scrollRef.current && todayColIdx >= 0 && !hasScrolled.current) {
-      hasScrolled.current = true;
-      const currentHour = new Date().getHours();
-      scrollRef.current.scrollTop = Math.max(0, (currentHour - 1) * HOUR_HEIGHT);
-    }
-  }, [isLoading, todayColIdx]);
+    if (isLoading || !scrollRef.current || todayColIdx < 0) return;
+    if (!pendingScrollRef.current) return;
+    pendingScrollRef.current = false;
+    scrollToNow();
+  }, [isLoading, todayColIdx, scrollSignal]);
 
   const closePopover = () => {
     setSelectedEvent(null);
@@ -495,7 +517,11 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
           className="px-2 py-0.5 rounded bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer"
         >&lt; Prev</button>
         <button
-          onClick={() => jumpTo(new Date())}
+          onClick={() => {
+            pendingScrollRef.current = true;
+            jumpTo(new Date());
+            setScrollSignal((s) => s + 1);
+          }}
           className="px-2 py-0.5 rounded bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer"
         >Today</button>
         <button
@@ -683,7 +709,7 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
 
             {/* Time grid */}
             <div className="col-span-8">
-              <div className="grid grid-cols-[50px_repeat(7,1fr)]" style={{ height: (HOUR_END - HOUR_START) * HOUR_HEIGHT }}>
+              <div ref={timeGridRef} className="grid grid-cols-[50px_repeat(7,1fr)]" style={{ height: (HOUR_END - HOUR_START) * HOUR_HEIGHT }}>
                 {/* Hour labels */}
                 <div className="relative border-r border-sol-base02">
                   {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
