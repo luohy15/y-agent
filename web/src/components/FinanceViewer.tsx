@@ -1748,7 +1748,9 @@ function incomeStatementCategoryPeriodTableRows(data: IncomeStatementCategoriesH
       ])),
     }))
     .sort((a, b) => {
-      const delta = (a.values[sortColumn] || 0) - (b.values[sortColumn] || 0);
+      const aValue = sortColumn === RANGE_SUM_KEY ? sumPeriodValues(a.values) : (a.values[sortColumn] || 0);
+      const bValue = sortColumn === RANGE_SUM_KEY ? sumPeriodValues(b.values) : (b.values[sortColumn] || 0);
+      const delta = aValue - bValue;
       return sortDir === "asc" ? delta : -delta;
     });
 }
@@ -2206,11 +2208,10 @@ function IncomeStatementCategoriesOverTimeChart({ data, categories, kind }: { da
 
 function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data: IncomeStatementCategoriesHistoryItem[]; categories: string[]; kind: "income" | "expenses" }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const latestPeriod = data[data.length - 1]?.period || "";
   const periodKey = useMemo(() => data.map((item) => item.period).join("|"), [data]);
-  const [sortColumn, setSortColumn] = useState(latestPeriod);
+  const [sortColumn, setSortColumn] = useState<string>(RANGE_SUM_KEY);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const effectiveSortColumn = data.some((item) => item.period === sortColumn) ? sortColumn : latestPeriod;
+  const effectiveSortColumn = sortColumn === RANGE_SUM_KEY || data.some((item) => item.period === sortColumn) ? sortColumn : RANGE_SUM_KEY;
   const rows = useMemo(() => incomeStatementCategoryPeriodTableRows(data, categories, kind, effectiveSortColumn, sortDir), [data, categories, kind, effectiveSortColumn, sortDir]);
   const totals = useMemo(() => incomeStatementCategoryPeriodTotals(data, kind), [data, kind]);
   const title = kind === "income" ? "Income history" : "Expenses history";
@@ -2248,7 +2249,11 @@ function IncomeStatementCategoriesPeriodTable({ data, categories, kind }: { data
                     </button>
                   </th>
                 ))}
-                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
+                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">
+                  <button onClick={() => handleSort(RANGE_SUM_KEY)} className="cursor-pointer hover:text-sol-base0">
+                    Range Σ {effectiveSortColumn === RANGE_SUM_KEY ? (sortDir === "desc" ? "↓" : "↑") : ""}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
