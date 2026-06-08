@@ -39,6 +39,7 @@ function getSourceColor(source: string | undefined, map: Map<string, string>): s
 const HOUR_START = 0;
 const HOUR_END = 24;
 const HOUR_HEIGHT = 48; // px per hour
+const SNAP_MIN = 15; // drag-resize snap increment (minutes)
 
 function getMonday(d: Date): Date {
   const day = d.getDay();
@@ -148,6 +149,13 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
   const [form, setForm] = useState<EventForm | null>(null);
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Live drag-resize preview state (null when not resizing). `key` encodes the
+  // event + day column so multi-instance events stay isolated.
+  const [resizeState, setResizeState] = useState<
+    { key: string; edge: "top" | "bottom"; newStartMs: number; newEndMs: number } | null
+  >(null);
+  // Set true on resize pointerup so the synthetic click that follows is suppressed.
+  const justResizedRef = useRef(false);
 
   const jumpTo = (d: Date) => {
     setSelectedDate(d);
@@ -340,6 +348,63 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
       await mutate();
       closePopover();
     }
+  };
+
+  // Persist a resized edge. Sends only the changed field (start_time / end_time),
+  // formatted the same way saveEdit does, then revalidates via SWR.
+  const persistResize = async (ev: CalendarEvent, edge: "top" | "bottom", startMs: number, endMs: number) => {
+    const fields: Record<string, unknown> = { event_id: ev.event_id };
+    if (edge === "top") fields.start_time = fmtLocal(new Date(startMs));
+    else fields.end_time = fmtLocal(new Date(endMs));
+    const res = await authFetch(`${API}/api/calendar/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    if (res.ok) await mutate();
+  };
+
+  // Begin a top/bottom border drag-resize. Delta-based: anchor on pointerdown
+  // clientY, snap to SNAP_MIN, clamp to a 15-min min duration / no edge crossing.
+  const startResize = (
+    e: React.PointerEvent,
+    ev: CalendarEvent,
+    key: string,
+    edge: "top" | "bottom",
+    origStartMs: number,
+    origEndMs: number,
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const anchorY = e.clientY;
+    let curStartMs = origStartMs;
+    let curEndMs = origEndMs;
+    const snapMs = SNAP_MIN * 60000;
+
+    const onMove = (me: PointerEvent) => {
+      const deltaMin = Math.round((((me.clientY - anchorY) / HOUR_HEIGHT) * 60) / SNAP_MIN) * SNAP_MIN;
+      if (edge === "top") {
+        const maxStart = origEndMs - snapMs;
+        curStartMs = Math.min(origStartMs + deltaMin * 60000, maxStart);
+        setResizeState({ key, edge, newStartMs: curStartMs, newEndMs: origEndMs });
+      } else {
+        const minEnd = origStartMs + snapMs;
+        curEndMs = Math.max(origEndMs + deltaMin * 60000, minEnd);
+        setResizeState({ key, edge, newStartMs: origStartMs, newEndMs: curEndMs });
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      justResizedRef.current = true;
+      setResizeState(null);
+      const changed = edge === "top" ? curStartMs !== origStartMs : curEndMs !== origEndMs;
+      if (changed) persistResize(ev, edge, curStartMs, curEndMs);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const deleteEvent = async () => {
@@ -576,6 +641,9 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                     className="relative border-r border-sol-base02"
                     onClick={(e) => {
                       e.stopPropagation();
+                      // A resize drag whose synthetic click lands on empty column
+                      // space must not open create; also clears the stale flag.
+                      if (justResizedRef.current) { justResizedRef.current = false; return; }
                       const rect = e.currentTarget.getBoundingClientRect();
                       const hour = Math.min(23, Math.max(0, Math.floor((e.clientY - rect.top) / HOUR_HEIGHT)));
                       const start = new Date(days[dayIdx]);
@@ -619,20 +687,45 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                         const clippedEnd = evEnd > dayEnd ? dayEnd : evEnd;
                         const startHour = clippedStart.getHours() + clippedStart.getMinutes() / 60;
                         const endHour = clippedEnd.getHours() + clippedEnd.getMinutes() / 60 || 24;
-                        return { ev, evStart, evEnd, clippedStart, clippedEnd, startHour, endHour };
+                        return { ev, evStart, evEnd, clippedStart, clippedEnd, startHour, endHour, dayStart, dayEnd };
                       });
                       const layout = layoutOverlaps(evData.map(d => ({ start: d.startHour, end: d.endHour })));
                       return evData.map((d, idx) => {
-                        const { ev, evStart, evEnd, clippedStart, clippedEnd, startHour, endHour } = d;
+                        const { ev, evStart, evEnd, clippedStart, clippedEnd, startHour, endHour, dayStart, dayEnd } = d;
                         const { col, totalCols } = layout[idx];
-                        const top = Math.max(0, (startHour - HOUR_START)) * HOUR_HEIGHT;
-                        const height = Math.max(HOUR_HEIGHT / 4, (endHour - startHour) * HOUR_HEIGHT - 4);
+                        const key = `${ev.event_id}-${dayIdx}`;
+                        // Live preview: while resizing this block, re-derive the
+                        // visible bounds from the dragged ms (clipped to the day).
+                        let topHour = startHour;
+                        let botHour = endHour;
+                        if (resizeState?.key === key) {
+                          const cs = Math.max(resizeState.newStartMs, dayStart.getTime());
+                          const ce = Math.min(resizeState.newEndMs, dayEnd.getTime());
+                          const csD = new Date(cs);
+                          const ceD = new Date(ce);
+                          topHour = csD.getHours() + csD.getMinutes() / 60;
+                          botHour = ceD.getHours() + ceD.getMinutes() / 60 || 24;
+                        }
+                        const top = Math.max(0, (topHour - HOUR_START)) * HOUR_HEIGHT;
+                        const height = Math.max(HOUR_HEIGHT / 4, (botHour - topHour) * HOUR_HEIGHT - 4);
                         const gap = 2;
                         const widthPct = (100 - gap * totalCols) / totalCols;
                         const leftPct = col * (widthPct + gap);
+                        // Only offer a handle on an edge that is the event's real
+                        // edge (not clipped to the day boundary on a multi-day span).
+                        const showTopHandle = clippedStart.getTime() === evStart.getTime();
+                        const showBottomHandle = clippedEnd.getTime() === evEnd.getTime();
                         return (
                           <div
-                            key={`${ev.event_id}-${dayIdx}`}
+                            key={key}
+                            onClickCapture={(e) => {
+                              // Suppress the synthetic click that follows a resize
+                              // drag so it doesn't open the read popover.
+                              if (justResizedRef.current) {
+                                e.stopPropagation();
+                                justResizedRef.current = false;
+                              }
+                            }}
                             onClick={(e) => { e.stopPropagation(); openRead(ev); }}
                             className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden cursor-pointer ${
                               getSourceColor(ev.source, sourceColorMap)
@@ -651,6 +744,18 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                                 {`${String(evStart.getHours()).padStart(2, "0")}:${String(evStart.getMinutes()).padStart(2, "0")}–${String(evEnd.getHours()).padStart(2, "0")}:${String(evEnd.getMinutes()).padStart(2, "0")}`}
                               </div>
                             </>
+                          )}
+                          {showTopHandle && (
+                            <div
+                              onPointerDown={(e) => startResize(e, ev, key, "top", evStart.getTime(), evEnd.getTime())}
+                              className="absolute left-0 right-0 top-0 h-1.5 cursor-ns-resize hover:bg-sol-base03/30"
+                            />
+                          )}
+                          {showBottomHandle && (
+                            <div
+                              onPointerDown={(e) => startResize(e, ev, key, "bottom", evStart.getTime(), evEnd.getTime())}
+                              className="absolute left-0 right-0 bottom-0 h-1.5 cursor-ns-resize hover:bg-sol-base03/30"
+                            />
                           )}
                           </div>
                         );
