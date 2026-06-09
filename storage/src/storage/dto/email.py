@@ -12,6 +12,7 @@ class Email:
     date: int = 0
     content: Optional[str] = None
     thread_id: Optional[str] = None
+    thread_count: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -29,6 +30,7 @@ class Email:
             date=data.get('date', 0),
             content=data.get('content'),
             thread_id=data.get('thread_id'),
+            thread_count=data.get('thread_count'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -53,6 +55,8 @@ class Email:
             result['content'] = self.content
         if self.thread_id is not None:
             result['thread_id'] = self.thread_id
+        if self.thread_count is not None:
+            result['thread_count'] = self.thread_count
         if self.created_at is not None:
             result['created_at'] = self.created_at
         if self.updated_at is not None:

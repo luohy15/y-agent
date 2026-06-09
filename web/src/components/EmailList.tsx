@@ -13,18 +13,19 @@ interface Email {
   cc_addrs?: string[];
   content?: string;
   thread_id?: string;
+  thread_count?: number;
 }
 
 const LIMIT = 50;
 
 interface EmailListProps {
   isLoggedIn: boolean;
-  selectedEmailId?: string | null;
+  selectedThreadId?: string | null;
   onSelectEmail: (email: Email) => void;
   refreshKey?: number;
 }
 
-export default function EmailList({ isLoggedIn, selectedEmailId, onSelectEmail, refreshKey }: EmailListProps) {
+export default function EmailList({ isLoggedIn, selectedThreadId, onSelectEmail, refreshKey }: EmailListProps) {
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -37,7 +38,7 @@ export default function EmailList({ isLoggedIn, selectedEmailId, onSelectEmail, 
   params.set("limit", String(LIMIT));
   params.set("offset", String(offset));
 
-  const swrKey = isLoggedIn ? `${API}/api/email/list?${params.toString()}` : null;
+  const swrKey = isLoggedIn ? `${API}/api/email/threads?${params.toString()}` : null;
 
   const { data, isLoading, isValidating, error, mutate } = useSWR<Email[]>(swrKey, fetcher, {
     onSuccess: (newData) => {
@@ -113,10 +114,12 @@ export default function EmailList({ isLoggedIn, selectedEmailId, onSelectEmail, 
           <>
             {sortedEmails.map((email) => {
               const snippet = splitOwnAndQuoted(email.content).own.replace(/\n+/g, " ").trim();
-              const active = email.email_id === selectedEmailId;
+              const threadKey = email.thread_id || email.email_id;
+              const active = threadKey === selectedThreadId;
+              const count = email.thread_count || 0;
               return (
                 <button
-                  key={email.email_id}
+                  key={threadKey}
                   onClick={() => onSelectEmail(email)}
                   className={`w-full text-left flex flex-col gap-0.5 px-2 py-1.5 border-b border-sol-base02 cursor-pointer ${active ? "bg-sol-base02" : "hover:bg-sol-base02/50"}`}
                   title={email.subject || email.from_addr}
@@ -125,7 +128,10 @@ export default function EmailList({ isLoggedIn, selectedEmailId, onSelectEmail, 
                     <span className={`truncate flex-1 text-[0.7rem] ${active ? "text-sol-base1" : "text-sol-base0"}`}>{email.from_addr}</span>
                     <span className="shrink-0 text-sol-base01 text-[0.6rem]">{formatEmailDate(email.date)}</span>
                   </div>
-                  <span className={`truncate text-[0.7rem] font-medium ${active ? "text-sol-base1" : "text-sol-base0"}`}>{email.subject || "(no subject)"}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`truncate flex-1 text-[0.7rem] font-medium ${active ? "text-sol-base1" : "text-sol-base0"}`}>{email.subject || "(no subject)"}</span>
+                    {count > 1 && <span className="shrink-0 px-1 rounded-full bg-sol-base01 text-sol-base03 text-[0.55rem] font-medium">{count}</span>}
+                  </div>
                   {snippet && <span className="truncate text-sol-base01 text-[0.65rem]">{snippet}</span>}
                 </button>
               );

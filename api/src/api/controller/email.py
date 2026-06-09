@@ -63,6 +63,32 @@ async def list_emails(
     return [e.to_dict() for e in emails]
 
 
+@router.get("/threads")
+async def list_threads(
+    request: Request,
+    query: Optional[str] = Query(None),
+    limit: int = Query(50),
+    offset: int = Query(0),
+    on: Optional[str] = Query(None),
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = Query(None),
+    created_on: Optional[str] = Query(None),
+    created_from: Optional[str] = Query(None),
+    created_to: Optional[str] = Query(None),
+    updated_on: Optional[str] = Query(None),
+    updated_from: Optional[str] = Query(None),
+    updated_to: Optional[str] = Query(None),
+):
+    user_id = _get_user_id(request)
+    emails = email_service.list_threads(
+        user_id, query=query, limit=limit, offset=offset,
+        on=on, from_=from_, to=to,
+        created_on=created_on, created_from=created_from, created_to=created_to,
+        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+    )
+    return [e.to_dict() for e in emails]
+
+
 @router.get("/thread/{thread_id}")
 async def get_thread(thread_id: str, request: Request):
     user_id = _get_user_id(request)
