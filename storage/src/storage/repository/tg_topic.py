@@ -130,6 +130,24 @@ def find_topic_by_name(user_id: int, topic_name: str) -> Optional[TgTopic]:
         return None
 
 
+def find_user_group_id(user_id: int) -> Optional[int]:
+    """Return the forum group_id of the user's first tg_topic row, or None.
+
+    Used as the General fallback: a user's topics live in a single forum group
+    in practice, so the lowest-id row's group_id identifies that group.
+    """
+    with get_db() as session:
+        row = (
+            session.query(TgTopicEntity)
+            .filter_by(user_id=user_id)
+            .order_by(TgTopicEntity.id.asc())
+            .first()
+        )
+        if row:
+            return row.group_id
+        return None
+
+
 def delete_topic(user_id: int, pk_id: int) -> bool:
     with get_db() as session:
         count = session.query(TgTopicEntity).filter_by(user_id=user_id, id=pk_id).delete()
