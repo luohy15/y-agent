@@ -29,7 +29,7 @@ class TelegramUserImagesTest(unittest.TestCase):
         sftp = Mock()
         ssh_client.open_sftp.return_value = sftp
 
-        with patch("storage.util.send_telegram_photo") as send_photo:
+        with patch("agent.telegram_delivery.send_telegram_photo") as send_photo:
             sent = _send_telegram_photo_reference(
                 "token",
                 "tg-chat",

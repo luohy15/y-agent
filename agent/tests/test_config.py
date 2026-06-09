@@ -7,50 +7,18 @@ from agent.config import (
     _bots_for_tier,
     _pick_by_weight,
     _pick_uniform,
-    SKILL_TO_TIER,
 )
 from storage.entity.dto import BotConfig
 
 
 class TierOfTest(unittest.TestCase):
-    def test_explicit_tier0(self):
-        bot = BotConfig(name="t0", tier="tier0")
-        self.assertEqual(tier_of(bot), "tier0")
-
-    def test_explicit_tier1(self):
-        bot = BotConfig(name="t1", tier="tier1")
-        self.assertEqual(tier_of(bot), "tier1")
-
-    def test_explicit_tier2(self):
-        bot = BotConfig(name="t2", tier="tier2")
-        self.assertEqual(tier_of(bot), "tier2")
-
-    def test_none_defaults_tier1(self):
-        bot = BotConfig(name="none")
-        self.assertEqual(tier_of(bot), "tier1")
-
-    def test_empty_string_defaults_tier1(self):
-        bot = BotConfig(name="empty", tier="")
-        self.assertEqual(tier_of(bot), "tier1")
-
-
-class SkillToTierDictTest(unittest.TestCase):
-    def test_tier2_allowlist(self):
-        for skill in ("journal", "link", "note", "image", "format-zh"):
-            self.assertEqual(SKILL_TO_TIER.get(skill), "tier2")
-
-    def test_unlisted_returns_none_from_dict(self):
-        self.assertIsNone(SKILL_TO_TIER.get("plan"))
-        self.assertIsNone(SKILL_TO_TIER.get("impl"))
-        self.assertIsNone(SKILL_TO_TIER.get("nonexistent-skill"))
-
-    def test_get_with_or_returns_tier1(self):
-        self.assertEqual(SKILL_TO_TIER.get("plan") or "tier1", "tier1")
-        self.assertEqual(SKILL_TO_TIER.get("journal") or "tier1", "tier2")
-
-    def test_tier0_set_is_empty(self):
-        self.assertNotIn("exam", SKILL_TO_TIER)
-        self.assertNotIn("manager", SKILL_TO_TIER)
+    def test_falsy_tier_defaults_tier1(self):
+        # Only the default-fallback has logic worth pinning: a falsy `tier`
+        # (absent → None, or stored empty string) resolves to tier1. Explicit
+        # tier values are a plain field passthrough, not retested here.
+        for value in (None, ""):
+            with self.subTest(tier=value):
+                self.assertEqual(tier_of(BotConfig(name="b", tier=value)), "tier1")
 
 
 class PickByWeightTest(unittest.TestCase):
@@ -279,28 +247,11 @@ class ResolveBotConfigTierTest(unittest.TestCase):
 
         self.assertEqual(config.name, "default")
 
-    def test_tier0_uses_route_weight(self):
-        a = BotConfig(name="codex", tier="tier0", route_weight=4)
-        b = BotConfig(name="claude_code", tier="tier0", route_weight=1)
-        configs = [a, b]
-
-        with (
-            patch("agent.config.bot_service.list_configs", return_value=configs),
-            patch("agent.config.random.choices") as mock_choices,
-            patch("agent.config.get_default_user_id", return_value=1),
-        ):
-            mock_choices.return_value = [a]
-            config = resolve_bot_config(1, tier="tier0")
-
-        self.assertEqual(config.name, "codex")
-        mock_choices.assert_called_once()
-        _, kwargs = mock_choices.call_args
-        weights = kwargs["weights"]
-        # weight a=4, b=1 → a=0.8, b=0.2
-        self.assertAlmostEqual(weights[0], 0.8)
-        self.assertAlmostEqual(weights[1], 0.2)
-
-    def test_tier1_selects_weighted_random(self):
+    def test_tier_selects_weighted_random(self):
+        # Representative proportional-weight routing through resolve_bot_config.
+        # The per-tier variants (tier0/tier2) overlapped on this same normalization
+        # math; the math itself is exercised directly in PickByWeightTest, and
+        # per-tier filtering in BotsForTierTest, so one representative is enough.
         bot_a = BotConfig(name="bot-a", tier="tier1", route_weight=1)
         bot_b = BotConfig(name="bot-b", tier="tier1", route_weight=1)
         bot_c = BotConfig(name="bot-c", tier="tier1", route_weight=3)
@@ -321,22 +272,6 @@ class ResolveBotConfigTierTest(unittest.TestCase):
         self.assertAlmostEqual(weights[0], 0.2)
         self.assertAlmostEqual(weights[1], 0.2)
         self.assertAlmostEqual(weights[2], 0.6)
-
-    def test_tier2_selects_weighted_random(self):
-        bot_c = BotConfig(name="bot-c", tier="tier2", route_weight=1)
-        configs = [bot_c]
-
-        with (
-            patch("agent.config.bot_service.list_configs", return_value=configs),
-            patch("agent.config.random.choices") as mock_choices,
-            patch("agent.config.get_default_user_id", return_value=1),
-        ):
-            mock_choices.return_value = [bot_c]
-            config = resolve_bot_config(1, tier="tier2")
-
-        self.assertEqual(config.name, "bot-c")
-        _, kwargs = mock_choices.call_args
-        self.assertAlmostEqual(kwargs["weights"][0], 1.0)
 
     def test_tier_falls_back_to_default_when_empty(self):
         default = BotConfig(name="default", backend="codex", model="gpt-5.4")

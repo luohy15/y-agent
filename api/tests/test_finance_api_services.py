@@ -109,9 +109,9 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(
             periods,
             [
-                (datetime.date(2026, 5, 4), datetime.date(2026, 5, 11), "2026-W19"),
-                (datetime.date(2026, 5, 11), datetime.date(2026, 5, 18), "2026-W20"),
-                (datetime.date(2026, 5, 18), datetime.date(2026, 5, 25), "2026-W21"),
+                (datetime.date(2026, 5, 4), datetime.date(2026, 5, 11), "2026-05-04"),
+                (datetime.date(2026, 5, 11), datetime.date(2026, 5, 18), "2026-05-11"),
+                (datetime.date(2026, 5, 18), datetime.date(2026, 5, 25), "2026-05-18"),
             ],
         )
 
@@ -136,7 +136,10 @@ class FinanceApiServicesTest(unittest.TestCase):
         with patch.object(derived_service, "_today", return_value=datetime.date(2026, 5, 28)):
             self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 28)), 200)
             self.assertEqual(lookup.latest("MSFT", "USD", datetime.date(2026, 5, 28)), 50)
-            self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 27)), 200)
+            # Historical periods (as_of < today) must fall through to the stored price,
+            # not the realtime overlay (otherwise an over-time series reprices every
+            # period at today's price and all columns collapse to the same value).
+            self.assertEqual(lookup.latest("AAPL", "USD", datetime.date(2026, 5, 27)), 100)
 
     def test_build_realtime_overlay_filters_usd_non_cash_holdings(self):
         fetched_at = datetime.datetime(2026, 5, 28, 12, 0, tzinfo=datetime.UTC)

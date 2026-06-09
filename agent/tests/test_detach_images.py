@@ -37,7 +37,9 @@ class _FakeClient:
             channel = _Channel()
 
             def read(self):
-                return b""
+                # Current detach code probes `test -d <cwd>` before launching tmux;
+                # return "ok" so the work_dir existence check passes.
+                return b"ok"
 
         return None, _Stream(), _Stream()
 

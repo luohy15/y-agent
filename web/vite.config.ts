@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -25,6 +25,11 @@ export default defineConfig({
   plugins: [tailwindcss(), react(), docsContentMiddleware()],
   resolve: {
     dedupe: ["react", "react-dom"],
+  },
+  // Component tests touch `window` (e.g. api.ts reads window.location.origin when
+  // VITE_API_URL is unset, as in CI). Run under jsdom so the DOM globals exist.
+  test: {
+    environment: "jsdom",
   },
   server: {
     port: 5174,
