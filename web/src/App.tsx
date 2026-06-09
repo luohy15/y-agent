@@ -773,7 +773,7 @@ export default function App() {
             const panelFile = panelFileMap[sidebarPanel];
             const body =
               sidebarPanel === "todo" ? (
-                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { requestSelectTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} }).catch(() => {}); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
+                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { requestSelectTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} else { handleOpenFile("trace.md"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
                 <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : sidebarPanel === "notes" ? (
