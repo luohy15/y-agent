@@ -46,9 +46,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
+  const [internalRoutineId, setInternalRoutineId] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
-  const routineId = externalRoutineId || "";
+  const routineId = externalRoutineId || internalRoutineId;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
@@ -95,7 +96,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, routineOnly, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, internalRoutineId, routineOnly, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -103,6 +104,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
     mutate();
     mutatePinnedManager();
   }, [refreshKey, mutate, mutatePinnedManager]);
+
+  // Badge click-to-filter: clicking a chat-row badge sets the matching filter to that
+  // badge's value (clearing any externally-supplied filter first so the internal input
+  // takes over) and lets the reset-pagination effect refetch the filtered list.
+  const filterByTrace = (id: string) => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
+  const filterByTopic = (t: string) => setTopicFilter(t);
+  const filterByRoutine = (id: string) => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(id); };
 
   const handleClick = (id: string) => {
     onSelectChat(id);
@@ -181,9 +189,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       {!hideFilters && (
-        // Filter row inputs: search, trace_id (todo), topic, status. No routine input —
-        // routine_id is set externally via the routineId prop (e.g. RoutineList "Chats"
-        // handoff into the left-side panel) and surfaced below as a clear-pill.
+        // Filter row inputs: search, trace_id (todo), topic, routine, status. routine_id
+        // can be typed directly here or supplied externally via the routineId prop (e.g.
+        // RoutineList "Chats" handoff); either way it renders in the routine input with a
+        // clear button. Row badges also set these filters on click (filterBy* helpers).
         <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
           <div className="flex gap-1.5">
             <input
@@ -240,6 +249,25 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               )}
             </div>
           </div>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Routine ID..."
+              value={routineId}
+              onChange={(e) => setInternalRoutineId(e.target.value)}
+              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              readOnly={!!externalRoutineId}
+            />
+            {(externalRoutineId || internalRoutineId) && (
+              <button
+                onClick={() => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(""); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                title="Clear routine filter"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <div className="flex gap-1 items-center flex-wrap">
             <button
               onClick={() => { const v = statusFilter === "running" ? "" : "running"; setStatusFilter(v); localStorage.setItem("chatStatusFilter", v); }}
@@ -253,15 +281,6 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${routineOnly ? "bg-sol-cyan/30 text-sol-cyan" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
               >
                 routine
-              </button>
-            )}
-            {externalRoutineId && (
-              <button
-                onClick={() => { if (onClearRoutineId) onClearRoutineId(); }}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 cursor-pointer font-mono"
-                title="Clear routine filter"
-              >
-                routine={externalRoutineId.slice(0, 8)} ✕
               </button>
             )}
           </div>
@@ -334,9 +353,9 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(firstTraceId); else navigator.clipboard.writeText(firstTraceId); }}
+                          onClick={(e) => { e.stopPropagation(); filterByTrace(firstTraceId); }}
                           className={`text-[0.55rem] cursor-pointer ${TRACE_BADGE}`}
-                          title="View trace"
+                          title={`Filter by todo ${firstTraceId}`}
                         >
                           #{firstTraceId.slice(0, 8)}
                         </button>
@@ -349,9 +368,25 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
+                      {c.topic && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); filterByTopic(c.topic!); }}
+                          className={`text-[0.55rem] truncate cursor-pointer ${topicBadgeClass(c.topic)}`}
+                          title={`Filter by topic ${c.topic}`}
+                        >
+                          {c.topic}
+                        </button>
+                      )}
                       {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
-                      {c.routine_id && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-cyan/20 text-sol-cyan" title={`routine ${c.routine_id}`}>routine</span>}
+                      {c.routine_id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); filterByRoutine(c.routine_id!); }}
+                          className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-cyan/20 text-sol-cyan cursor-pointer"
+                          title={`Filter by routine ${c.routine_id}`}
+                        >
+                          routine
+                        </button>
+                      )}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
