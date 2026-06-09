@@ -321,6 +321,35 @@ def save_link_rss(
         return _row_to_dto(activity, link), True
 
 
+def save_link_fetch(
+    user_id: int,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+) -> LinkActivity:
+    """Record an interactive `y link fetch` visit.
+
+    Upserts the LinkEntity then always appends a LinkActivityEntity with
+    `source='fetch'` (activity-level only — link-level `source` drives RSS auto-download
+    and is deliberately left untouched). Unlike `save_link`, there is no
+    `(user_id, timestamp)` dedup: each interactive fetch is a genuine visit event.
+    """
+    with get_db() as session:
+        link = _upsert_link(session, url, title, published_at=None)
+        activity = LinkActivityEntity(
+            user_id=user_id,
+            activity_id=generate_long_id(),
+            link_id=link.id,
+            url=url,
+            title=title,
+            timestamp=timestamp,
+            source="fetch",
+        )
+        session.add(activity)
+        session.flush()
+        return _row_to_dto(activity, link)
+
+
 def _batch_generate_long_ids(n: int, existing: Set[str] = set()) -> List[str]:
     """Pre-generate n unique long IDs, avoiding collisions with existing set."""
     ids: List[str] = []

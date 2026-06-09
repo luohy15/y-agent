@@ -39,6 +39,16 @@ def add_link_rss(
     )
 
 
+def add_link_fetch(
+    user_id: int,
+    url: str,
+    title: Optional[str],
+    timestamp: int,
+) -> LinkActivity:
+    """Record an interactive `y link fetch` visit (source='fetch'). Always appends."""
+    return link_repo.save_link_fetch(user_id, url, title, timestamp)
+
+
 def upsert_link_info(
     url: str,
     title: Optional[str] = None,

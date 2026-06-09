@@ -516,6 +516,11 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                           RSS
                         </span>
                       )}
+                      {link.source === "fetch" && (
+                        <span className="shrink-0 px-1 rounded text-[0.55rem] font-medium bg-sol-cyan/20 text-sol-cyan" title="From y link fetch">
+                          fetch
+                        </span>
+                      )}
                       <TldrButton link={link} onGenerated={handleTldrGenerated} />
                       <ExternalLinkButton link={link} />
                       <DownloadButton link={link} onStatusChange={handleDownloadStatusChange} />
