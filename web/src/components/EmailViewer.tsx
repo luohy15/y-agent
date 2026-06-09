@@ -138,8 +138,13 @@ function ExpandedMessage({ email }: { email: Email }) {
 // bubble. Remounted per thread via `key`, so collapse state resets on selection.
 function ThreadView({ emails }: { emails: Email[] }) {
   const ordered = [...emails].sort((a, b) => a.date - b.date);
-  const latestId = ordered[ordered.length - 1].email_id;
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set([latestId]));
+  // Gmail expands both the first and the latest message; only the middle ones
+  // collapse. Threads of 1-2 messages keep everything expanded (nothing to hide).
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() =>
+    ordered.length <= 2
+      ? new Set(ordered.map((e) => e.email_id))
+      : new Set([ordered[0].email_id, ordered[ordered.length - 1].email_id])
+  );
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
 
   const expand = (id: string) => setExpandedIds((prev) => new Set(prev).add(id));
