@@ -86,29 +86,21 @@ class MonitorResumeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update_offset.call_args.kwargs["consumed_steer_ids"], ["steer-1"])
         release_lease.assert_called_once_with("chat-1")
 
-    async def test_cancelled_claude_tail_persists_latest_offset(self):
-        await self._assert_cancelled_tail_persists_offset(
-            "claude_code",
-            "agent.claude_code.tail_ssh_output",
-            "session_id",
-            "session-456",
-        )
-
-    async def test_cancelled_codex_tail_persists_latest_offset(self):
-        await self._assert_cancelled_tail_persists_offset(
-            "codex",
-            "agent.codex.tail_codex_output",
-            "thread_id",
-            "thread-456",
-        )
-
-    async def test_cancelled_gemini_tail_persists_latest_offset(self):
-        await self._assert_cancelled_tail_persists_offset(
-            "gemini_cli",
-            "agent.gemini_cli.tail_gemini_output",
-            "session_id",
-            "gemini-456",
-        )
+    async def test_cancelled_tail_persists_latest_offset_across_backends(self):
+        # Persist-on-cancel is backend-agnostic (_tail_and_process flushes the
+        # latest offset/session on CancelledError); one parameterized case covers
+        # all four backends instead of four copy-pasted methods.
+        cases = [
+            ("claude_code", "agent.claude_code.tail_ssh_output", "session_id", "session-456"),
+            ("codex", "agent.codex.tail_codex_output", "thread_id", "thread-456"),
+            ("gemini_cli", "agent.gemini_cli.tail_gemini_output", "session_id", "gemini-456"),
+            ("pi_cli", "agent.pi_cli.tail_pi_output", "session_id", "pi-456"),
+        ]
+        for backend_type, patch_target, session_key, session_value in cases:
+            with self.subTest(backend=backend_type):
+                await self._assert_cancelled_tail_persists_offset(
+                    backend_type, patch_target, session_key, session_value
+                )
 
     async def test_deadline_pause_preserves_existing_session_id(self):
         result = {
@@ -169,15 +161,25 @@ class ApplyCompletionMetadataResumeTest(unittest.IsolatedAsyncioTestCase):
         )
         return chat
 
-    async def test_apply_completion_metadata_claude_falls_back_to_proc_session_id_on_error(self):
-        chat = await self._apply(
-            "claude_code",
-            {"status": "error", "session_id": None},
-            proc={"session_id": "sid-from-ddb"},
-            result_data={"is_error": True, "result": "failed"},
-        )
-
-        self.assertEqual(chat.external_id, "sid-from-ddb")
+    async def test_apply_completion_metadata_falls_back_to_proc_session_id(self):
+        # Session fallback (result session is None → use the proc/DDB session id)
+        # is the same code for every backend; only the result key (session_id vs
+        # thread_id) and value differ. One parameterized case replaces the four
+        # per-backend copies (claude/codex/gemini/pi).
+        cases = [
+            ("claude_code", {"status": "error", "session_id": None},
+             {"session_id": "sid-from-ddb"}, {"is_error": True, "result": "failed"}, "sid-from-ddb"),
+            ("codex", {"status": "completed", "thread_id": None},
+             {"session_id": "thread-from-ddb"}, None, "thread-from-ddb"),
+            ("gemini_cli", {"status": "completed", "session_id": None},
+             {"session_id": "gemini-from-ddb"}, None, "gemini-from-ddb"),
+            ("pi_cli", {"status": "completed", "session_id": None},
+             {"session_id": "pi-from-ddb"}, None, "pi-from-ddb"),
+        ]
+        for backend_type, result, proc, result_data, expected in cases:
+            with self.subTest(backend=backend_type):
+                chat = await self._apply(backend_type, result, proc=proc, result_data=result_data)
+                self.assertEqual(chat.external_id, expected)
 
     async def test_apply_completion_metadata_claude_prefers_result_session_id_over_proc(self):
         chat = await self._apply(
@@ -200,24 +202,6 @@ class ApplyCompletionMetadataResumeTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(chat.external_id, "sid-old")
-
-    async def test_apply_completion_metadata_codex_falls_back_to_proc_session_id(self):
-        chat = await self._apply(
-            "codex",
-            {"status": "completed", "thread_id": None},
-            proc={"session_id": "thread-from-ddb"},
-        )
-
-        self.assertEqual(chat.external_id, "thread-from-ddb")
-
-    async def test_apply_completion_metadata_gemini_falls_back_to_proc_session_id(self):
-        chat = await self._apply(
-            "gemini_cli",
-            {"status": "completed", "session_id": None},
-            proc={"session_id": "gemini-from-ddb"},
-        )
-
-        self.assertEqual(chat.external_id, "gemini-from-ddb")
 
 
 class ClaudeUsageTest(unittest.TestCase):

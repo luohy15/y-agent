@@ -122,8 +122,9 @@ class TelegramImageStorageTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch("api.util.images.IMAGE_ASSETS_DIR", Path(tmp_dir)):
-                with patch("api.util.images.ensure_and_touch_vm") as ensure_vm:
-                    with patch("api.util.images._SSH_POOL.get_or_create", return_value=client):
+                with patch("agent.ec2_wake.ensure_and_touch_vm") as ensure_vm:
+                    with patch("api.util.images._get_ssh_pool") as get_pool:
+                        get_pool.return_value.get_or_create.return_value = client
                         image_path = images.ssh_put_image_bytes(b"png", prefix="telegram", suffix=".png", vm_config=vm_config)
 
         ensure_vm.assert_called_once_with(vm_config)

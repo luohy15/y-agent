@@ -11,6 +11,14 @@ from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 
 class ChatImagesApiTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # vm_config resolution hits the DB; these tests only exercise local image
+        # handling (base64 upload / existing asset path), so stub it out so the
+        # suite runs without a database (e.g. in CI).
+        patcher = patch("agent.config.resolve_vm_config", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _request(self):
         return SimpleNamespace(state=SimpleNamespace(user_id=123))
 
