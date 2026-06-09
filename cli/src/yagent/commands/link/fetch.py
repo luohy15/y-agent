@@ -28,7 +28,7 @@ from yagent.api_client import api_request
 
 from ._bilibili import bv2av
 from ._oxylabs import fetch_json, fetch_raw, load_cookies_from_chrome
-from ._resolve import normalize_url, resolve_url_ref
+from ._resolve import normalize_url
 from ._youtube import extract_video_id
 
 
@@ -50,15 +50,6 @@ def _write_markdown(content: str) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(content, encoding='utf-8')
     return out_path
-
-
-def _resolve_or_create_link(url: str, title: str | None = None) -> str:
-    resp = api_request("GET", "/api/link/resolve", params={"url": url})
-    resolved = resp.json()
-    if resolved.get("found") and resolved.get("link_id"):
-        return resolved["link_id"]
-    created = api_request("POST", "/api/link", json={"url": url, "title": title}).json()
-    return created["link_id"]
 
 
 def _save_content_meta(url: str, title: str | None) -> dict:
@@ -544,9 +535,18 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
 
     try:
         global CURRENT_LINK_ID, CURRENT_ACTIVITY_ID
-        resolved = None if link_id else resolve_url_ref(url, exit_on_missing=False)
-        CURRENT_LINK_ID = link_id or (resolved.get("link_id") if resolved else None) or _resolve_or_create_link(url)
-        CURRENT_ACTIVITY_ID = activity_id or (resolved.get("activity_id") if resolved else None)
+        if link_id:
+            # Pipeline download path: writing content for an already-recorded link.
+            # Do not record a new visit — leave visit history untouched.
+            CURRENT_LINK_ID = link_id
+            CURRENT_ACTIVITY_ID = activity_id
+        else:
+            # Interactive fetch: record a 'fetch' visit (third visit channel) and
+            # use the returned link_id. Per-activity content path only for query-param
+            # URLs (url != base_url), matching `_content_key` convention.
+            visit = api_request("POST", "/api/link/visit", json={"url": url}).json()
+            CURRENT_LINK_ID = visit["link_id"]
+            CURRENT_ACTIVITY_ID = visit["activity_id"] if url != visit.get("base_url") else None
         out_path = asyncio.run(_run(url, page, lang))
         title = _extract_title(out_path.read_text(encoding='utf-8')) or None
         _save_content_meta(url, title)

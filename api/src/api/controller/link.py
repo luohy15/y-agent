@@ -25,6 +25,11 @@ class CreateLinkRequest(BaseModel):
     timestamp: Optional[int] = None
 
 
+class VisitLinkRequest(BaseModel):
+    url: str
+    title: Optional[str] = None
+
+
 class BatchCreateLinksRequest(BaseModel):
     links: List[CreateLinkRequest]
 
@@ -152,6 +157,15 @@ async def create_link(req: CreateLinkRequest, request: Request):
     user_id = _get_user_id(request)
     link = link_service.add_link(user_id, req.url, title=req.title, timestamp=req.timestamp)
     return link.to_dict()
+
+
+@router.post("/visit")
+async def visit_link(req: VisitLinkRequest, request: Request):
+    """Record an interactive `y link fetch` visit (third visit channel, source='fetch')."""
+    user_id = _get_user_id(request)
+    import time
+    link = link_service.add_link_fetch(user_id, req.url, req.title, int(time.time() * 1000))
+    return {"link_id": link.link_id, "activity_id": link.activity_id, "base_url": link.base_url}
 
 
 @router.post("/batch")
