@@ -11,6 +11,7 @@ silently skipped — fetch failures are owned by stage 1 (`fetch_rss_xml`).
 import asyncio
 import calendar
 import os
+import time
 from typing import Optional
 
 import feedparser
@@ -44,23 +45,33 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
     max_ts = last_item_ts
     added = 0
 
+    # Feed-level fallback for dateless entries: <lastBuildDate>, else now.
+    # Only used for the activity timestamp; published_at stays None and the
+    # fallback is excluded from max_ts so it never advances last_item_ts.
+    feed_ts_struct = parsed.feed.get("updated_parsed")
+    fallback_ts = (
+        int(calendar.timegm(feed_ts_struct) * 1000)
+        if feed_ts_struct else int(time.time() * 1000)
+    )
+
     for entry in parsed.entries:
         url = entry.get("link")
         if not url:
             continue
         ts_ms = _parse_feed_timestamp(entry)
-        if ts_ms is None:
-            continue
+        dated = ts_ms is not None
+        timestamp = ts_ms if dated else fallback_ts
+        published_at = ts_ms if dated else None
 
         title = entry.get("title")
         try:
             _, created = link_service.add_link_rss(
-                user_id, url, title=title, timestamp=ts_ms,
-                published_at=ts_ms, source_feed_id=feed.rss_feed_id,
+                user_id, url, title=title, timestamp=timestamp,
+                published_at=published_at, source_feed_id=feed.rss_feed_id,
             )
             if created:
                 added += 1
-            if ts_ms > max_ts:
+            if dated and ts_ms > max_ts:
                 max_ts = ts_ms
         except Exception:
             logger.exception(
