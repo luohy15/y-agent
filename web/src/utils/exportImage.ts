@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { domToPng } from "modern-screenshot";
 import MessageExportView from "../components/MessageExportView";
 import type { Message } from "../components/MessageList";
-import { buildExportFilename } from "./messageExport";
+import { buildExportFilename, pickImageDelivery } from "./messageExport";
 
 const SOL_BASE03 = "#002b36";
 
@@ -117,4 +117,30 @@ export async function sharePng(blob: Blob, filename = buildExportFilename()): Pr
   } catch {
     return false;
   }
+}
+
+// Resolve current platform signals for the delivery picker. Touch = coarse pointer or a
+// non-zero touch-point count; file-share support requires navigator.share plus a canShare
+// that accepts a PNG file.
+function resolveDeliverySignals(): { canShareFiles: boolean; isTouch: boolean } {
+  const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+  const isTouch =
+    nav.maxTouchPoints > 0 ||
+    (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+  const probe = new File([], "probe.png", { type: "image/png" });
+  const canShareFiles =
+    typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files: [probe] });
+  return { canShareFiles, isTouch };
+}
+
+// Deliver the exported PNG through exactly ONE channel so a desktop never gets both a
+// download dialog and the macOS share sheet. Touch devices that can share files use the
+// share sheet only; desktop downloads only (plus a silent, prompt-free clipboard copy).
+export async function deliverPng(blob: Blob, dataUrl: string, filename = buildExportFilename()): Promise<void> {
+  if (pickImageDelivery(resolveDeliverySignals()) === "share") {
+    await sharePng(blob, filename);
+    return;
+  }
+  downloadPng(dataUrl, filename);
+  await copyPngToClipboard(blob);
 }

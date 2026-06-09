@@ -10,7 +10,7 @@ import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
 import { filterTrailingEmptyAssistantMessages, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
 import { toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
-import { exportMessagesToPng, downloadPng, copyPngToClipboard, sharePng } from "../utils/exportImage";
+import { exportMessagesToPng, deliverPng } from "../utils/exportImage";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -97,9 +97,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     setExporting(true);
     try {
       const { blob, dataUrl } = await exportMessagesToPng(msgs);
-      downloadPng(dataUrl);
-      await copyPngToClipboard(blob);
-      await sharePng(blob);
+      await deliverPng(blob, dataUrl);
       cancelSelect();
     } finally {
       setExporting(false);
