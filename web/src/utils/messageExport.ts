@@ -22,6 +22,14 @@ export function selectMessagesByIndices(messages: Message[], selectedIndices: It
   return out;
 }
 
+// Decide the single image-delivery channel so a desktop never shows both a download
+// dialog and a native share sheet at once. Touch devices that can share files get the
+// share sheet; everything else (desktop) downloads. The caller passes already-resolved
+// platform signals so this stays browser-free and unit-testable.
+export function pickImageDelivery(signals: { canShareFiles: boolean; isTouch: boolean }): "share" | "download" {
+  return signals.canShareFiles && signals.isTouch ? "share" : "download";
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
