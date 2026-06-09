@@ -50,7 +50,7 @@ const EMPTY_FORM: RoutineFormState = {
 
 interface RoutineListProps {
   isLoggedIn: boolean;
-  onShowChats?: (routineId: string) => void;
+  onShowChats?: (routineName: string) => void;
   onShowAllChats?: () => void;
 }
 
@@ -506,7 +506,7 @@ export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }:
                   </button>
                   {onShowChats && (
                     <button
-                      onClick={() => onShowChats(r.routine_id)}
+                      onClick={() => onShowChats(r.name)}
                       className="px-1.5 py-0.5 rounded bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer"
                       title="See chats triggered by this routine"
                     >

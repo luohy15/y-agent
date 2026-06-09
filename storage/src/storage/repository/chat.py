@@ -25,6 +25,7 @@ class ChatSummary:
     skill: str = ""
     trace_id: str = ""
     routine_id: str = ""
+    routine_name: str = ""
     backend: str = ""
     bot_name: str = ""
     created_at_unix: int = 0
@@ -55,8 +56,10 @@ async def list_chats(
     offset: int = 0,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
+    skill: Optional[str] = None,
     status: Optional[str] = None,
     routine_id: Optional[str] = None,
+    routine_name: Optional[str] = None,
     routine_only: Optional[bool] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
@@ -81,8 +84,22 @@ async def list_chats(
             q = q.filter(ChatEntity.trace_id == trace_id)
         if topic:
             q = q.filter(ChatEntity.topic == topic)
+        if skill:
+            q = q.filter(ChatEntity.skill == skill)
+        # Routine name<->id is resolved here: chats only store routine_id, but the UI
+        # filters/displays by the friendlier routine name. Build a per-user id->name
+        # map once, used both to filter (name -> ids) and to annotate each row.
+        from storage.entity.routine import RoutineEntity
+        routine_name_by_id = {
+            r_id: r_name
+            for r_id, r_name in session.query(RoutineEntity.routine_id, RoutineEntity.name)
+            .filter_by(user_id=user_id).all()
+        }
         if routine_id:
             q = q.filter(ChatEntity.routine_id == routine_id)
+        if routine_name:
+            matching_ids = [rid for rid, rname in routine_name_by_id.items() if rname == routine_name]
+            q = q.filter(ChatEntity.routine_id.in_(matching_ids or [""]))
         if routine_only:
             q = q.filter(ChatEntity.routine_id.isnot(None), ChatEntity.routine_id != "")
         if status:
@@ -104,6 +121,7 @@ async def list_chats(
                 skill=row.skill or "",
                 trace_id=row.trace_id or "",
                 routine_id=row.routine_id or "",
+                routine_name=routine_name_by_id.get(row.routine_id or "", ""),
                 backend=row.backend or "",
                 bot_name=row.bot_name or "",
                 status=row.status or "idle",

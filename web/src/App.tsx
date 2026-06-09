@@ -114,7 +114,7 @@ export default function App() {
     setSelectedTraceId(id);
   }, []);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
-  const [chatListRoutineId, setChatListRoutineId] = useState<string | null>(localStorage.getItem("chatListRoutineId") || null);
+  const [chatListRoutineName, setChatListRoutineName] = useState<string | null>(localStorage.getItem("chatListRoutineName") || null);
   const [chatListRoutineOnly, setChatListRoutineOnly] = useState<boolean>(() => localStorage.getItem("chatListRoutineOnly") === "true");
   const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(() => localStorage.getItem("bottomPanelCollapsed") === "true");
   const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
@@ -269,7 +269,7 @@ export default function App() {
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
-  useEffect(() => { if (chatListRoutineId) localStorage.setItem("chatListRoutineId", chatListRoutineId); else localStorage.removeItem("chatListRoutineId"); }, [chatListRoutineId]);
+  useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
   useEffect(() => { localStorage.setItem("chatListRoutineOnly", String(chatListRoutineOnly)); }, [chatListRoutineOnly]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
   useEffect(() => { localStorage.setItem("chatListWidth", String(rightPanelWidth)); }, [rightPanelWidth]);
@@ -779,7 +779,7 @@ export default function App() {
               sidebarPanel === "todo" ? (
                 <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { requestSelectTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} else { handleOpenFile("trace.md"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
-                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineId={chatListRoutineId} onClearRoutineId={() => setChatListRoutineId(null)} routineOnly={chatListRoutineOnly} onToggleRoutineOnly={() => setChatListRoutineOnly((v) => !v)} onClearRoutineOnly={() => setChatListRoutineOnly(false)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineName={chatListRoutineName} onClearRoutineName={() => setChatListRoutineName(null)} routineOnly={chatListRoutineOnly} onToggleRoutineOnly={() => setChatListRoutineOnly((v) => !v)} onClearRoutineOnly={() => setChatListRoutineOnly(false)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : sidebarPanel === "notes" ? (
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
               ) : sidebarPanel === "links" ? (
@@ -797,8 +797,8 @@ export default function App() {
               ) : sidebarPanel === "routine" ? (
                 <RoutineList
                   isLoggedIn={auth.isLoggedIn}
-                  onShowChats={(rid) => {
-                    setChatListRoutineId(rid);
+                  onShowChats={(rname) => {
+                    setChatListRoutineName(rname);
                     setSidebarPanel("chats");
                     if (window.innerWidth < 768) {
                       setSidebarOpen(true);
@@ -807,7 +807,7 @@ export default function App() {
                     }
                   }}
                   onShowAllChats={() => {
-                    setChatListRoutineId(null);
+                    setChatListRoutineName(null);
                     setChatListRoutineOnly(true);
                     setSidebarPanel("chats");
                     if (window.innerWidth < 768) {
@@ -875,7 +875,7 @@ export default function App() {
               </button>
               <div className="w-px h-4 bg-sol-base02 mx-0.5" />
               <button
-                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineId(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
+                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineName(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
                 className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
                 title="New chat"
               >
