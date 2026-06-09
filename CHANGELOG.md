@@ -13,10 +13,15 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Inline calendar event editing (2446)** — CalendarViewer now supports editing, creating, and deleting calendar events inline.
+- **Calendar drag interactions (2450, 2451)** — drag an event's top/bottom border to resize its time range, drag the whole event to move it, with a live time label shown during the drag.
+- **Calendar Today button (2454)** — the Today button now scrolls the time grid to the current hour.
 
 ### Changed
+- **Finance over-time table sorting (2452)** — the income-statement and income/expense category over-time tables now default-sort by range-sum descending.
 
 ### Fixed
+- **Calendar week grid rendering (2445)** — always render the week grid and show the empty state as an in-grid hint instead of replacing the grid.
 
 ### Removed
 
