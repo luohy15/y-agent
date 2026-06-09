@@ -305,9 +305,14 @@ interface MessageListProps {
   onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   inline?: boolean;
+  // Selection mode for "export as image": top-level prose items become clickable
+  // toggles; process summaries are excluded (prose-only export).
+  selectMode?: boolean;
+  selectedIndices?: Set<number>;
+  onToggleSelect?: (index: number) => void;
 }
 
-export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, onOpenArtifact, scrollContainerRef, inline }: MessageListProps) {
+export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, onOpenArtifact, scrollContainerRef, inline, selectMode, selectedIndices, onToggleSelect }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
 
@@ -326,12 +331,27 @@ export default function MessageList({ messages, running, centered, showProgress,
     <>
       {items.map((item) => {
         if (item.type === "process_summary") {
-          return <ProcessSummary key={`ps-${item.index}`} toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} onShowSources={onShowSources} onOpenArtifact={onOpenArtifact} />;
+          return <div key={`ps-${item.index}`} className={selectMode ? "opacity-40 pointer-events-none" : undefined}><ProcessSummary toolCounts={item.toolCounts} assistantCount={item.assistantCount} roundMessages={item.roundMessages} roundStartIndex={item.roundStartIndex} defaultExpanded={showProgress} onOpenFile={onOpenFile} onShowSources={onShowSources} onOpenArtifact={onOpenArtifact} /></div>;
         }
         const isUser = item.message.role === "user";
+        const bubble = <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} links={item.message.links} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, item.index) : undefined} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} />;
+        if (selectMode) {
+          const selected = selectedIndices?.has(item.index) ?? false;
+          return (
+            <div
+              key={item.index}
+              id={isUser ? `user-msg-${item.index}` : undefined}
+              onClick={() => onToggleSelect?.(item.index)}
+              className={`relative cursor-pointer rounded -mx-2 px-2 py-1 transition-colors ${selected ? "bg-sol-cyan/10 ring-1 ring-sol-cyan/50" : "hover:bg-sol-base02/40"}`}
+            >
+              <span className={`absolute right-1 top-1 z-10 inline-flex h-4 w-4 items-center justify-center rounded-full border text-[0.6rem] font-bold ${selected ? "bg-sol-cyan border-sol-cyan text-sol-base03" : "border-sol-base01 text-transparent"}`}>{"✓"}</span>
+              <div className="pointer-events-none">{bubble}</div>
+            </div>
+          );
+        }
         return (
           <div key={item.index} id={isUser ? `user-msg-${item.index}` : undefined}>
-            <MessageBubble role={item.message.role} content={item.message.content} images={item.message.images} links={item.message.links} toolName={item.message.toolName} arguments={item.message.arguments} timestamp={item.message.timestamp} onOpenFile={onOpenFile} onShowSources={onShowSources ? (links) => onShowSources(links, item.index) : undefined} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} />
+            {bubble}
           </div>
         );
       })}

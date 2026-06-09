@@ -9,6 +9,8 @@ import SourcesSidebar from "./SourcesSidebar";
 import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
 import { filterTrailingEmptyAssistantMessages, mergeToolResult, parseRawChatMessage } from "./chatMessageParser";
+import { toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
+import { exportMessagesToPng, downloadPng, copyPngToClipboard, sharePng } from "../utils/exportImage";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -76,8 +78,33 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [showSteerInput, setShowSteerInput] = useState(false);
   const [sourcesPanel, setSourcesPanel] = useState<{ links: CitationLink[]; messageIndex?: number } | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [exporting, setExporting] = useState(false);
   const displayMessages = useMemo(() => filterTrailingEmptyAssistantMessages(messages), [messages]);
   useEffect(() => { if (completed) setShowSteerInput(false); }, [completed]);
+  // Reset selection when switching chats / snapshot payloads.
+  useEffect(() => { setSelectMode(false); setSelectedIndices(new Set()); }, [chatId, snapshotMessages]);
+
+  const startSelect = useCallback(() => { setSelectMode(true); setSelectedIndices(new Set()); }, []);
+  const cancelSelect = useCallback(() => { setSelectMode(false); setSelectedIndices(new Set()); }, []);
+  const toggleSelect = useCallback((index: number) => {
+    setSelectedIndices((prev) => toggleSelection(prev, index));
+  }, []);
+  const exportSelected = useCallback(async () => {
+    const msgs = selectMessagesByIndices(displayMessages, selectedIndices);
+    if (!msgs.length || exporting) return;
+    setExporting(true);
+    try {
+      const { blob, dataUrl } = await exportMessagesToPng(msgs);
+      downloadPng(dataUrl);
+      await copyPngToClipboard(blob);
+      await sharePng(blob);
+      cancelSelect();
+    } finally {
+      setExporting(false);
+    }
+  }, [displayMessages, selectedIndices, exporting, cancelSelect]);
 
   // Track scroll position to show/hide scroll-to-bottom button
   useEffect(() => {
@@ -443,11 +470,34 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     </button>
   );
 
+  const selectImageButton = !selectMode && displayMessages.length > 0 ? (
+    <button
+      onClick={startSelect}
+      className="font-mono cursor-pointer px-2 py-0.5 rounded text-xs sm:text-[0.7rem] font-semibold bg-sol-base02 text-sol-base01 hover:bg-sol-base01/30"
+      title="Export selected messages as image"
+    >
+      image
+    </button>
+  ) : null;
+
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
       <div className="flex-1 flex min-h-0 relative">
-        <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} scrollContainerRef={scrollRef} />
+        <MessageList messages={displayMessages} running={!completed} showProgress={showProgress} onOpenFile={handleOpenFile} onShowSources={(links, messageIndex) => setSourcesPanel({ links, messageIndex })} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} onOpenArtifact={onOpenArtifact} scrollContainerRef={scrollRef} selectMode={selectMode} selectedIndices={selectedIndices} onToggleSelect={toggleSelect} />
         <ChatToc messages={displayMessages} containerRef={scrollRef} />
+        {selectMode && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 rounded-full bg-sol-base02 border border-sol-base01/40 px-4 py-2 shadow-lg text-sm sm:text-xs">
+            <span className="font-mono text-sol-base1 font-semibold">{selectedIndices.size} selected</span>
+            <button
+              onClick={exportSelected}
+              disabled={selectedIndices.size === 0 || exporting}
+              className="px-2.5 py-0.5 bg-sol-cyan text-sol-base03 rounded font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default"
+            >
+              {exporting ? "Exporting…" : "Export image"}
+            </button>
+            <button onClick={cancelSelect} className="px-2.5 py-0.5 bg-sol-base03 text-sol-base1 rounded font-semibold cursor-pointer hover:bg-sol-base01/30">Cancel</button>
+          </div>
+        )}
         {sourcesPanel && <SourcesSidebar links={sourcesPanel.links} onClose={() => setSourcesPanel(null)} />}
         {showScrollBottom && (
           <button
@@ -464,6 +514,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
       {snapshot && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2 flex items-center gap-3 text-sm sm:text-xs select-none">
           {processDetailButtons}
+          {selectImageButton}
           {onRefresh && (
             <button onClick={onRefresh} className="inline-flex items-center gap-1 px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30" title="Refresh trace">
               <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -493,7 +544,8 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           extraButtons={completed ? <>
             {processDetailButtons}
             {contextBadge}
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              {selectImageButton}
               <SharePopover
                 onCreate={createShare}
                 buildUrl={buildShareUrl}
