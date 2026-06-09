@@ -996,7 +996,7 @@ export default function App() {
               md:hidden
               shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden flex flex-col
               max-w-[280px]
-              ${chatListOpen ? "translate-x-0" : "translate-x-full"}
+              ${chatListOpen ? "translate-x-0" : "translate-x-full hidden"}
             `}
             style={{ width: rightPanelWidth }}
           >
