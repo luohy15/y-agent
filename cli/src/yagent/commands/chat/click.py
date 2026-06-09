@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import click
 import httpx
 from typing import Optional
@@ -36,6 +37,70 @@ def _stream_and_handle(chat_id: str, display_manager: DisplayManager, last_index
     return last_index, True
 
 
+def _message_text(msg: dict) -> str:
+    """Extract plain text from a message dict (content may be str or parts list)."""
+    content = msg.get("content")
+    if isinstance(content, list):
+        return "".join(part.get("text", "") for part in content if part.get("type") == "text")
+    return content or ""
+
+
+def _references_block(msg: dict) -> str:
+    """Render a References list when the assistant message carries links (px citations)."""
+    links = msg.get("links")
+    if not links:
+        return ""
+    block = "\n\n**References:**\n"
+    for i, link in enumerate(links, 1):
+        if isinstance(link, dict):
+            url = link.get("url", link.get("link", ""))
+            title = link.get("title", url or f"Reference {i}")
+            block += f"{i}. [{title}]({url})\n"
+        else:
+            block += f"{i}. [{link}]({link})\n"
+    return block
+
+
+def _wait_for_reply(chat_id: str, timeout: int):
+    """Poll the chat snapshot until the assistant reply is ready, then print it.
+
+    Completion predicate (backend-agnostic, mirrors the SSE done event): chat
+    `running == False` and the last message is an assistant message with no
+    `tool_calls`. On timeout or interrupt, fall back to printing the chat_id and a
+    stderr notice, then exit nonzero.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        resp = api_request("GET", "/api/chat/messages/snapshot", params={"chat_id": chat_id})
+        data = resp.json()
+        messages = data.get("messages", [])
+
+        if data.get("interrupted"):
+            last = messages[-1]["data"] if messages else {}
+            text = _message_text(last)
+            if text:
+                click.echo(text)
+            click.echo(f"chat interrupted (chat_id: {chat_id})", err=True)
+            raise SystemExit(1)
+
+        last = messages[-1]["data"] if messages else None
+        if (
+            last is not None
+            and last.get("role") == "assistant"
+            and not last.get("tool_calls")
+            and not data.get("running")
+        ):
+            click.echo(_message_text(last) + _references_block(last))
+            return
+
+        if time.monotonic() >= deadline:
+            click.echo(chat_id)
+            click.echo(f"timed out waiting {timeout}s for reply (chat_id: {chat_id})", err=True)
+            raise SystemExit(1)
+
+        time.sleep(2)
+
+
 def _fire_and_forget(
     message: str,
     images: tuple[str, ...],
@@ -49,8 +114,14 @@ def _fire_and_forget(
     from_chat_id: Optional[str],
     bot: Optional[str],
     bot_tier: Optional[str],
+    wait: bool = False,
+    wait_timeout: int = 300,
 ):
-    """POST a message to /api/chat/notify and print the resulting chat_id."""
+    """POST a message to /api/chat/notify and print the resulting chat_id.
+
+    With ``wait`` set, block until the assistant reply is ready and print its
+    content instead of just the chat_id.
+    """
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
@@ -80,7 +151,10 @@ def _fire_and_forget(
     try:
         resp = api_request("POST", "/api/chat/notify", json=payload)
         data = resp.json()
-        click.echo(data["chat_id"])
+        if wait:
+            _wait_for_reply(data["chat_id"], wait_timeout)
+        else:
+            click.echo(data["chat_id"])
     except httpx.HTTPStatusError as e:
         detail = ""
         try:
@@ -167,6 +241,8 @@ def _interactive(
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--from-topic', default='manager', help='Caller topic name (default: manager)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
+@click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
+@click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
@@ -186,6 +262,8 @@ def chat_group(
     force_new: bool,
     from_topic: str,
     from_chat_id: Optional[str],
+    wait: bool,
+    wait_timeout: int,
     interactive: bool,
     latest: bool,
     bot: Optional[str],
@@ -235,6 +313,8 @@ def chat_group(
             from_chat_id=from_chat_id,
             bot=bot,
             bot_tier=tier,
+            wait=wait,
+            wait_timeout=wait_timeout,
         )
         return
 
