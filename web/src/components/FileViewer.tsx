@@ -37,7 +37,7 @@ interface FileViewerProps {
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
   selectedEntityId?: string | null;
-  selectedEmailId?: string | null;
+  selectedThreadId?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
@@ -940,7 +940,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedEmailId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedThreadId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -1422,7 +1422,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
-                <EmailViewer emailId={selectedEmailId || null} />
+                <EmailViewer threadId={selectedThreadId || null} />
               ) : fileDev ? (
                 <DevViewer />
               ) : fileBot ? (
