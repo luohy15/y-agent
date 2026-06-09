@@ -13,6 +13,7 @@ interface Chat {
   updated_at?: string;
   topic?: string;
   trace_id?: string;
+  routine_id?: string;
   skill?: string;
   status?: string;
   unread?: boolean;
@@ -29,6 +30,9 @@ interface ChatListProps {
   hideFilters?: boolean;
   routineId?: string | null;
   onClearRoutineId?: () => void;
+  routineOnly?: boolean;
+  onToggleRoutineOnly?: () => void;
+  onClearRoutineOnly?: () => void;
   // Injected-data path (public trace projection): when `items` is supplied and the
   // viewer is logged out, the list renders presentationally from this prop with no
   // self-fetch (SWR keys are null when !isLoggedIn), no filters, and no pagination.
@@ -37,7 +41,7 @@ interface ChatListProps {
 
 const PAGE_SIZE = 50;
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId, items }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId, routineOnly, onToggleRoutineOnly, onClearRoutineOnly, items }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
@@ -49,12 +53,13 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
   const routineIdParam = routineId.trim() ? `&routine_id=${encodeURIComponent(routineId.trim())}` : "";
+  const routineOnlyParam = routineOnly ? `&routine_only=true` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${routineIdParam}${statusParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${routineIdParam}${routineOnlyParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -90,7 +95,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, routineOnly, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -242,6 +247,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             >
               running
             </button>
+            {onToggleRoutineOnly && (
+              <button
+                onClick={() => onToggleRoutineOnly()}
+                className={`px-1.5 py-0.5 rounded text-[0.6rem] cursor-pointer transition-colors ${routineOnly ? "bg-sol-cyan/30 text-sol-cyan" : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"}`}
+              >
+                routine
+              </button>
+            )}
             {externalRoutineId && (
               <button
                 onClick={() => { if (onClearRoutineId) onClearRoutineId(); }}
@@ -338,6 +351,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                       </button>
                       {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
                       {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
+                      {c.routine_id && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-cyan/20 text-sol-cyan" title={`routine ${c.routine_id}`}>routine</span>}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">

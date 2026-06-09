@@ -19,8 +19,9 @@ def get_column_widths(weights: dict):
 @click.option('--limit', '-l', default=10, help='Maximum number of chats to show (default: 10)')
 @click.option('--trace-id', default=None, help='Filter chats by trace_id (sorted oldest-first)')
 @click.option('--routine', 'routine_id', default=None, help='Filter chats by routine_id')
+@click.option('--routine-only', is_flag=True, default=False, help='Filter to chats triggered by any routine')
 @time_filter_options
-def list_chats(limit: int, trace_id: str, routine_id: str,
+def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool,
                on, from_, to, created_on, created_from, created_to,
                updated_on, updated_from, updated_to):
     """List chat conversations sorted by update time (newest first).
@@ -32,6 +33,8 @@ def list_chats(limit: int, trace_id: str, routine_id: str,
         params["trace_id"] = trace_id
     if routine_id:
         params["routine_id"] = routine_id
+    if routine_only:
+        params["routine_only"] = True
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
@@ -60,7 +63,7 @@ def list_chats(limit: int, trace_id: str, routine_id: str,
             for chat in chats
         ]
         headers = ["ID", "Topic", "Skill", "Created"]
-    elif routine_id:
+    elif routine_id or routine_only:
         # Routine listing: surface routine_id + topic so the caller can
         # confirm the dispatch target alongside the originating routine.
         weights = {"ID": 2, "Title": 4, "Topic": 2, "Routine": 2, "Updated": 3}

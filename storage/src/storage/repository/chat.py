@@ -57,6 +57,7 @@ async def list_chats(
     topic: Optional[str] = None,
     status: Optional[str] = None,
     routine_id: Optional[str] = None,
+    routine_only: Optional[bool] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -82,6 +83,8 @@ async def list_chats(
             q = q.filter(ChatEntity.topic == topic)
         if routine_id:
             q = q.filter(ChatEntity.routine_id == routine_id)
+        if routine_only:
+            q = q.filter(ChatEntity.routine_id.isnot(None), ChatEntity.routine_id != "")
         if status:
             q = q.filter(ChatEntity.status == status)
         q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)

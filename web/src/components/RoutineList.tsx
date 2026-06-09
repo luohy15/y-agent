@@ -51,6 +51,7 @@ const EMPTY_FORM: RoutineFormState = {
 interface RoutineListProps {
   isLoggedIn: boolean;
   onShowChats?: (routineId: string) => void;
+  onShowAllChats?: () => void;
 }
 
 function targetLabel(r: Routine): string {
@@ -273,7 +274,7 @@ function Field({ label, hint, required, children }: { label: string; hint?: stri
   );
 }
 
-export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProps) {
+export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }: RoutineListProps) {
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>(() => {
     const saved = localStorage.getItem("routineListEnabledFilter") as EnabledFilter | null;
     return saved === "enabled" || saved === "disabled" || saved === "all" ? saved : "all";
@@ -401,9 +402,18 @@ export default function RoutineList({ isLoggedIn, onShowChats }: RoutineListProp
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
         <div className="flex gap-1.5 items-center">
           <span className="text-sol-base01 text-[0.7rem]">Routines</span>
+          {onShowAllChats && (
+            <button
+              onClick={() => onShowAllChats()}
+              className="ml-auto px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-cyan/20 text-sol-cyan hover:bg-sol-cyan/30 transition-colors cursor-pointer"
+              title="View all routine-triggered chats"
+            >
+              All routine chats
+            </button>
+          )}
           <button
             onClick={() => setCreating(true)}
-            className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            className={`${onShowAllChats ? "" : "ml-auto "}px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer`}
             title="New routine"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>

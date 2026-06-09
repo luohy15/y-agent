@@ -150,6 +150,7 @@ async def get_chats(
     topic: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     routine_id: Optional[str] = Query(None),
+    routine_only: Optional[bool] = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     on: Optional[str] = Query(None),
@@ -166,6 +167,7 @@ async def get_chats(
     chats = await chat_service.list_chats(
         user_id, query=query, limit=limit, offset=offset,
         trace_id=trace_id, topic=topic, status=status, routine_id=routine_id,
+        routine_only=routine_only,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
