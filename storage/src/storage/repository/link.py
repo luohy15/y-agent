@@ -76,7 +76,15 @@ def list_links(
         if source_feed_id is not None:
             q = q.filter(LinkActivityEntity.source_feed_id == source_feed_id)
         if source is not None:
-            q = q.filter(LinkActivityEntity.source == source)
+            if source == "sync":
+                # Browser-sync records store source=NULL (not the literal 'sync'),
+                # so '--source sync' must also match legacy NULL rows.
+                q = q.filter(or_(
+                    LinkActivityEntity.source.is_(None),
+                    LinkActivityEntity.source == "sync",
+                ))
+            else:
+                q = q.filter(LinkActivityEntity.source == source)
         q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms")
         q = apply_time_filter(q, LinkActivityEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, LinkActivityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

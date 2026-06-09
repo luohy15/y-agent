@@ -11,9 +11,10 @@ from yagent.time_util import _get_configured_tz
 @click.option('--limit', '-l', default=10000, help='Max raw activities from API')
 @click.option('--todo', '-t', default=None, help='Filter by todo ID')
 @click.option('--downloaded/--not-downloaded', default=None, help='Filter by downloaded status')
+@click.option('--source', default=None, help='Filter by source channel: sync / rss / fetch')
 @click.option('--show-id', is_flag=True, default=False, help='Show activity_id in output')
 def link_list(query, on, from_, to, created_on, created_from, created_to,
-              updated_on, updated_from, updated_to, limit, todo, downloaded, show_id):
+              updated_on, updated_from, updated_to, limit, todo, downloaded, source, show_id):
     """List browser history links. Canonical time field: visit timestamp."""
     params = {"limit": limit}
     if query is not None:
@@ -22,6 +23,8 @@ def link_list(query, on, from_, to, created_on, created_from, created_to,
         params["todo_id"] = todo
     if downloaded is not None:
         params["downloaded"] = "true" if downloaded else "false"
+    if source is not None:
+        params["source"] = source
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
