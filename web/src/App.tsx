@@ -13,6 +13,7 @@ import TerminalView from "./components/TerminalView";
 import TodoList from "./components/TodoList";
 import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
+import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
 import BotList from "./components/BotList";
@@ -88,6 +89,7 @@ export default function App() {
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
   const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(() => localStorage.getItem("selectedEntityId") || null);
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(() => localStorage.getItem("selectedEmailId") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
@@ -149,6 +151,7 @@ export default function App() {
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
   useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
+  useEffect(() => { if (selectedEmailId) localStorage.setItem("selectedEmailId", selectedEmailId); else localStorage.removeItem("selectedEmailId"); }, [selectedEmailId]);
 
   const handleOpenFile = useCallback((path: string, line?: number) => {
     const p = path.replace(/^\.\//, "");
@@ -768,7 +771,6 @@ export default function App() {
               todo: { path: "todo.md", label: "Open todo.md" },
               calendar: { path: "calendar.md", label: "Open calendar.md" },
               finance: { path: "finance.bean", label: "Open finance.bean" },
-              email: { path: "emails.md", label: "Open emails.md" },
               dev: { path: "dev.md", label: "Open dev.md" },
               bots: { path: "bot.md", label: "Open bot.md" },
             };
@@ -782,6 +784,8 @@ export default function App() {
                 <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
               ) : sidebarPanel === "links" ? (
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
+              ) : sidebarPanel === "email" ? (
+                <EmailList isLoggedIn={auth.isLoggedIn} selectedEmailId={selectedEmailId} onSelectEmail={(email) => { setSelectedEmailId(email.email_id); handleOpenFile("email.md"); }} />
               ) : sidebarPanel === "rss" ? (
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
               ) : sidebarPanel === "entity" ? (
@@ -885,7 +889,7 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedEmailId={selectedEmailId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>

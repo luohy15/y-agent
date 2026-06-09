@@ -37,6 +37,7 @@ interface FileViewerProps {
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
   selectedEntityId?: string | null;
+  selectedEmailId?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
@@ -939,7 +940,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedEmailId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -966,7 +967,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
   const isEntityPreview = !isDiff && !isTrace && activeFileName === "entity.md";
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
-  const isEmail = !isDiff && !isTrace && activeFileName.endsWith("emails.md");
+  const isEmail = !isDiff && !isTrace && activeFileName === "email.md";
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
   const isBot = !isDiff && !isTrace && activeFileName === "bot.md";
 
@@ -1364,7 +1365,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
           const fileEntityPreview = !fileDiff && !fileTrace && fileName === "entity.md";
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
-          const fileEmail = !fileDiff && !fileTrace && fileName.endsWith("emails.md");
+          const fileEmail = !fileDiff && !fileTrace && fileName === "email.md";
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
           const fileBot = !fileDiff && !fileTrace && fileName === "bot.md";
           const isActive = filePath === activeFile;
@@ -1421,7 +1422,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (
-                <EmailViewer />
+                <EmailViewer emailId={selectedEmailId || null} />
               ) : fileDev ? (
                 <DevViewer />
               ) : fileBot ? (
