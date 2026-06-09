@@ -41,7 +41,7 @@ export default function MessageExportView({ messages, title, width = 390 }: Mess
         ))}
       </div>
       <div className="border-t border-sol-base02 pt-2 mt-3 text-sol-base01 text-[0.6rem] text-center">
-        y-agent.luohy15.com
+        yovy.app
       </div>
     </div>
   );
