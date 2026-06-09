@@ -14,6 +14,7 @@ interface Chat {
   topic?: string;
   trace_id?: string;
   routine_id?: string;
+  routine_name?: string;
   skill?: string;
   status?: string;
   unread?: boolean;
@@ -28,8 +29,8 @@ interface ChatListProps {
   onClearTraceId?: () => void;
   onSelectTrace?: (traceId: string) => void;
   hideFilters?: boolean;
-  routineId?: string | null;
-  onClearRoutineId?: () => void;
+  routineName?: string | null;
+  onClearRoutineName?: () => void;
   routineOnly?: boolean;
   onToggleRoutineOnly?: () => void;
   onClearRoutineOnly?: () => void;
@@ -41,26 +42,28 @@ interface ChatListProps {
 
 const PAGE_SIZE = 50;
 
-export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineId: externalRoutineId, onClearRoutineId, routineOnly, onToggleRoutineOnly, onClearRoutineOnly, items }: ChatListProps) {
+export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, refreshKey, traceId: externalTraceId, onClearTraceId, onSelectTrace, hideFilters, routineName: externalRoutineName, onClearRoutineName, routineOnly, onToggleRoutineOnly, onClearRoutineOnly, items }: ChatListProps) {
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
-  const [internalRoutineId, setInternalRoutineId] = useState("");
+  const [skillFilter, setSkillFilter] = useState("");
+  const [internalRoutineName, setInternalRoutineName] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
-  const routineId = externalRoutineId || internalRoutineId;
+  const routineName = externalRoutineName || internalRoutineName;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
-  const routineIdParam = routineId.trim() ? `&routine_id=${encodeURIComponent(routineId.trim())}` : "";
+  const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
+  const routineNameParam = routineName.trim() ? `&routine_name=${encodeURIComponent(routineName.trim())}` : "";
   const routineOnlyParam = routineOnly ? `&routine_only=true` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
 
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${routineIdParam}${routineOnlyParam}${statusParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -96,7 +99,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, externalRoutineId, internalRoutineId, routineOnly, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, skillFilter, externalRoutineName, internalRoutineName, routineOnly, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -110,7 +113,8 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // takes over) and lets the reset-pagination effect refetch the filtered list.
   const filterByTrace = (id: string) => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
   const filterByTopic = (t: string) => setTopicFilter(t);
-  const filterByRoutine = (id: string) => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(id); };
+  const filterBySkill = (s: string) => setSkillFilter(s);
+  const filterByRoutine = (name: string) => { if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(name); };
 
   const handleClick = (id: string) => {
     onSelectChat(id);
@@ -249,24 +253,44 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               )}
             </div>
           </div>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Routine ID..."
-              value={routineId}
-              onChange={(e) => setInternalRoutineId(e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
-              readOnly={!!externalRoutineId}
-            />
-            {(externalRoutineId || internalRoutineId) && (
-              <button
-                onClick={() => { if (onClearRoutineId) onClearRoutineId(); setInternalRoutineId(""); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                title="Clear routine filter"
-              >
-                ✕
-              </button>
-            )}
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Routine name..."
+                value={routineName}
+                onChange={(e) => setInternalRoutineName(e.target.value)}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                readOnly={!!externalRoutineName}
+              />
+              {(externalRoutineName || internalRoutineName) && (
+                <button
+                  onClick={() => { if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(""); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                  title="Clear routine filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="relative w-24">
+              <input
+                type="text"
+                placeholder="Skill..."
+                value={skillFilter}
+                onChange={(e) => setSkillFilter(e.target.value)}
+                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              />
+              {skillFilter && (
+                <button
+                  onClick={() => setSkillFilter("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                  title="Clear skill filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex gap-1 items-center flex-wrap">
             <button
@@ -377,14 +401,22 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                           {c.topic}
                         </button>
                       )}
-                      {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
+                      {c.skill && c.skill !== c.topic && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); filterBySkill(c.skill!); }}
+                          className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01 cursor-pointer"
+                          title={`Filter by skill ${c.skill}`}
+                        >
+                          {c.skill}
+                        </button>
+                      )}
                       {c.routine_id && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); filterByRoutine(c.routine_id!); }}
+                          onClick={(e) => { e.stopPropagation(); filterByRoutine(c.routine_name || ""); }}
                           className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-cyan/20 text-sol-cyan cursor-pointer"
-                          title={`Filter by routine ${c.routine_id}`}
+                          title={`Filter by routine ${c.routine_name || c.routine_id}`}
                         >
-                          routine
+                          {c.routine_name || "routine"}
                         </button>
                       )}
                     </div>
