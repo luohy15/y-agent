@@ -39,6 +39,17 @@ export interface TraceNote {
   has_password?: boolean;
 }
 
+export interface TraceCalendarEvent {
+  event_id: string;
+  summary: string;
+  start_time: string;
+  end_time?: string;
+  description?: string;
+  all_day: boolean;
+  status: string;
+  source?: string;
+}
+
 export interface TraceChatsResponse {
   chats: TraceChat[];
   todo_name: string | null;
@@ -46,6 +57,7 @@ export interface TraceChatsResponse {
   todo: TodoInfo | null;
   links?: TraceLink[];
   notes?: TraceNote[];
+  calendar_events?: TraceCalendarEvent[];
 }
 
 function getDomain(url: string): string {
@@ -54,6 +66,20 @@ function getDomain(url: string): string {
   } catch {
     return url;
   }
+}
+
+function formatEventTime(ev: TraceCalendarEvent): string {
+  const start = new Date(ev.start_time);
+  if (ev.all_day) return start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false };
+  const startStr = start.toLocaleString(undefined, opts);
+  if (!ev.end_time) return startStr;
+  const end = new Date(ev.end_time);
+  const sameDay = start.toDateString() === end.toDateString();
+  const endStr = sameDay
+    ? end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })
+    : end.toLocaleString(undefined, opts);
+  return `${startStr} – ${endStr}`;
 }
 
 function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: string; existingShare: ExistingShare | null; mutateTrace: () => Promise<TraceChatsResponse | undefined> }) {
@@ -119,9 +145,11 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   const todoInfo = traceData?.todo;
   const traceLinks = traceData?.links;
   const traceNotes = traceData?.notes;
+  const traceEvents = traceData?.calendar_events;
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
   const [linksOpen, setLinksOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
+  const [eventsOpen, setEventsOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Notes deselected from the batch-share picker (default: none → all selected).
   const [deselectedNoteIds, setDeselectedNoteIds] = useState<Set<string>>(new Set());
@@ -387,6 +415,42 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                       </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Calendar Events */}
+            {traceEvents && traceEvents.length > 0 && (
+              <div className="mt-3 border border-sol-base02 rounded">
+                <button
+                  onClick={() => setEventsOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 px-2 py-1 text-xs text-sol-base01 hover:text-sol-base0 cursor-pointer"
+                >
+                  <span className="text-[0.6rem]">{eventsOpen ? "▼" : "▶"}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  <span className="font-medium text-sol-base0">Calendar Events ({traceEvents.length})</span>
+                </button>
+                {eventsOpen && (
+                  <div className="px-2 pb-2 space-y-1">
+                    {traceEvents.map((ev) => (
+                      <div key={ev.event_id} className="bg-sol-base02/50 rounded px-2 py-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[0.7rem] text-sol-base1 truncate min-w-0 flex-1">{ev.summary}</span>
+                          {ev.source && (
+                            <span className="text-[0.55rem] bg-sol-base02 text-sol-base0 px-1 rounded shrink-0">{ev.source}</span>
+                          )}
+                        </div>
+                        <div className="text-[0.65rem] text-sol-base01 mt-0.5">
+                          {formatEventTime(ev)}{ev.all_day ? " · all-day" : ""}
+                        </div>
+                        {ev.description && (
+                          <p className="text-[0.65rem] text-sol-base0 whitespace-pre-wrap mt-0.5">{ev.description}</p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

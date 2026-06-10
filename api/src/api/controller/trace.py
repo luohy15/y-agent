@@ -136,6 +136,10 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
                 note_data.update(share)
             notes.append(note_data)
 
+    # Fetch associated calendar events (calendar_event.todo_id = trace_id)
+    from storage.repository.calendar_event import list_events as list_calendar_events
+    calendar_events = [e.to_dict() for e in list_calendar_events(user_id, todo_id=trace_id)]
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
@@ -143,6 +147,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
         "todo": todo_info,
         "links": links,
         "notes": notes,
+        "calendar_events": calendar_events,
     }
 
 
@@ -370,6 +375,10 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
                 note_data.update(share)
             notes.append(note_data)
 
+    # Fetch associated calendar events (calendar_event.todo_id = trace_id)
+    from storage.repository.calendar_event import list_events as list_calendar_events
+    calendar_events = [e.to_dict() for e in list_calendar_events(user_id, todo_id=trace_id)]
+
     return {
         "chats": result_chats,
         "todo_name": todo.name if todo else None,
@@ -377,4 +386,5 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         "todo": todo_info,
         "links": links,
         "notes": notes,
+        "calendar_events": calendar_events,
     }
