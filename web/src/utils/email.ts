@@ -14,6 +14,13 @@ export function formatEmailDateTime(ts: number): string {
   return d.toLocaleString(undefined, opts);
 }
 
+// Full timestamp for the recipient-details panel, e.g. "Feb 28, 2026, 3:40 AM"
+// (year always shown, unlike formatEmailDateTime).
+export function formatEmailDateFull(ts: number): string {
+  if (!ts) return "";
+  return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 // Parse a `From:` header value into a display name + bare email. Falls back to the
 // raw string for both fields when there is no `Name <addr>` shape.
 export function parseSender(from: string | undefined): { name: string; email: string } {

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { API, getStoredEmail, jsonFetcher as fetcher } from "../api";
-import { formatEmailDate, formatEmailDateTime, parseSender, splitOwnAndQuoted } from "../utils/email";
+import { formatEmailDate, formatEmailDateFull, formatEmailDateTime, parseSender, splitOwnAndQuoted } from "../utils/email";
 
 interface Email {
   email_id: string;
@@ -81,6 +81,63 @@ function recipientLine(email: Email): string {
   return names.join(", ");
 }
 
+// Gmail-style recipient-details dropdown: a small triangle next to the recipient
+// line that toggles an anchored popover with a label:value metadata table. Only
+// fields already on the Email type are shown; mailed-by is derived from the
+// sender's email domain.
+function RecipientDetails({ email }: { email: Email }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  const domain = parseSender(email.from_addr).email.split("@")[1] || "";
+  const rows: [string, string][] = [["from", email.from_addr]];
+  rows.push(["to", (email.to_addrs || []).join(", ")]);
+  if (email.cc_addrs && email.cc_addrs.length > 0) rows.push(["cc", email.cc_addrs.join(", ")]);
+  rows.push(["date", formatEmailDateFull(email.date)]);
+  rows.push(["subject", email.subject || ""]);
+  if (domain) rows.push(["mailed-by", domain]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen(!open)}
+        title={open ? "Hide details" : "Show details"}
+        className="text-sol-base01 hover:text-sol-base0 cursor-pointer align-middle"
+      >
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-max max-w-[24rem] bg-sol-base02 border border-sol-base01 rounded shadow-lg p-3">
+          <table className="text-xs">
+            <tbody>
+              {rows.map(([label, value]) => (
+                <tr key={label}>
+                  <td className="text-sol-base01 text-right align-top whitespace-nowrap pr-2 py-0.5">{label}:</td>
+                  <td className="text-sol-base0 break-words py-0.5">{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // One-line summary for a collapsed message: avatar + sender + snippet + date (+ star).
 function CollapsedRow({ email, onClick }: { email: Email; onClick: () => void }) {
   const { name, email: addr } = parseSender(email.from_addr);
@@ -137,7 +194,10 @@ function ExpandedMessage({ email }: { email: Email }) {
             </button>
           </div>
           {recipients && (
-            <div className="text-sol-base01 text-xs truncate">to {recipients}</div>
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 text-sol-base01 text-xs truncate">to {recipients}</div>
+              <RecipientDetails email={email} />
+            </div>
           )}
         </div>
       </div>
