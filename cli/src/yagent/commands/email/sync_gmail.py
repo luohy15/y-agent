@@ -3,7 +3,6 @@ import email
 import re
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
-import os
 import click
 from storage.global_config import load_global_config
 
@@ -108,17 +107,8 @@ def _extract_thread_id(fetch_response):
     return None
 
 
-@click.command('sync-gmail')
-@click.option('--limit', '-l', default=100, type=int,
-              help='Max starred emails to fetch (default: 100)')
-@click.option('--batch-size', '-b', default=50, type=int,
-              help='Batch size for API uploads (default: 50)')
-def email_sync_gmail(limit, batch_size):
-    """Sync starred emails and their full threads from Gmail via IMAP."""
-    email_addr = os.environ.get('GMAIL_ADDRESS')
-    password = os.environ.get('GMAIL_APP_PASSWORD')
-    if not email_addr or not password:
-        raise click.ClickException("GMAIL_ADDRESS and GMAIL_APP_PASSWORD must be set in environment or ~/.env")
+def _sync_account(email_addr, password, limit, batch_size):
+    """Sync one account's starred threads via IMAP. Returns count of new emails."""
     click.echo(f"Connecting to Gmail IMAP as {email_addr}...")
 
     imap = imaplib.IMAP4_SSL('imap.gmail.com', 993)
@@ -131,7 +121,7 @@ def email_sync_gmail(limit, batch_size):
         msg_nums = data[0].split()
         if not msg_nums:
             click.echo("No starred emails found.")
-            return
+            return 0
 
         msg_nums = msg_nums[-limit:]
         click.echo(f"Found {len(msg_nums)} starred emails. Fetching thread IDs...")
@@ -176,14 +166,43 @@ def email_sync_gmail(limit, batch_size):
 
     if not emails:
         click.echo("No emails parsed successfully.")
-        return
+        return 0
 
     click.echo(f"Parsed {len(emails)} emails across {len(thread_ids)} threads. Uploading...")
 
     total = 0
     for i in range(0, len(emails), batch_size):
         batch = emails[i:i + batch_size]
-        resp = api_request("POST", "/api/email/batch", json={"emails": batch})
+        resp = api_request("POST", "/api/email/batch", json={"emails": batch, "account": email_addr})
         total += resp.json().get("count", 0)
 
-    click.echo(f"Synced {total} new emails.")
+    click.echo(f"Synced {total} new emails for {email_addr}.")
+    return total
+
+
+@click.command('sync-gmail')
+@click.option('--account', '-a', default=None,
+              help='Sync only this account (default: all registered accounts)')
+@click.option('--limit', '-l', default=100, type=int,
+              help='Max starred emails to fetch per account (default: 100)')
+@click.option('--batch-size', '-b', default=50, type=int,
+              help='Batch size for API uploads (default: 50)')
+def email_sync_gmail(account, limit, batch_size):
+    """Sync starred emails and their full threads from Gmail via IMAP.
+
+    Fans out over all registered accounts (see `y email account list`).
+    """
+    resp = api_request("GET", "/api/email/account/credentials")
+    accounts = resp.json()
+    if account:
+        accounts = [a for a in accounts if a["address"] == account]
+        if not accounts:
+            raise click.ClickException(f"Account {account} is not registered. Run: y email account add")
+    if not accounts:
+        raise click.ClickException("No accounts registered. Run: y email account add <address> <app_password>")
+
+    total = 0
+    for a in accounts:
+        total += _sync_account(a["address"], a["app_password"], limit, batch_size)
+
+    click.echo(f"Synced {total} new emails across {len(accounts)} account(s).")

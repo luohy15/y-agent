@@ -64,6 +64,7 @@ def init_tables():
     import storage.entity.calendar_event  # noqa: F401
     import storage.entity.link  # noqa: F401
     import storage.entity.email  # noqa: F401
+    import storage.entity.email_account  # noqa: F401
     import storage.entity.dev_worktree  # noqa: F401
     import storage.entity.tg_topic  # noqa: F401
     import storage.entity.trace_share  # noqa: F401

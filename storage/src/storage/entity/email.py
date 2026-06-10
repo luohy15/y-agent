@@ -17,8 +17,9 @@ class EmailEntity(Base, BaseEntity):
     date = Column(BigInteger, nullable=False, index=True)
     content = Column(Text, nullable=True)
     thread_id = Column(String, nullable=True, index=True)
+    account = Column(String, nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "email_id"),
-        UniqueConstraint("user_id", "external_id"),
+        UniqueConstraint("user_id", "account", "external_id"),
     )
