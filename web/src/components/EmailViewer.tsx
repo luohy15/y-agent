@@ -103,7 +103,7 @@ function ExpandedMessage({ email }: { email: Email }) {
   const { name, email: addr } = parseSender(email.from_addr);
   const { own, quoted } = splitOwnAndQuoted(email.content);
   return (
-    <div className="py-3 border-b border-sol-base02">
+    <div className="py-3 border-b border-sol-base02 px-1">
       <div className="flex items-start gap-2">
         <Avatar name={name} email={addr} />
         <div className="flex-1 min-w-0">
