@@ -88,8 +88,12 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Finance / Email / Calendar** — DB-backed finance views under `y finance`
   mirror `/api/finance/*` (balance sheet, income statement, holdings,
   transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
-  producer / low-level local view layer. Gmail sync; full-stack calendar events
-  with timezone-aware filtering.
+  producer / low-level local view layer. Multi-account Gmail sync: per-account
+  IMAP app passwords live in the `email_account` table (`y email account
+  add/list/rm`), `y email sync-gmail` fans out over all registered accounts,
+  and `email.account` tags each row with its source address (filterable via
+  `?account=` / `--account` / the EmailList dropdown). Full-stack calendar
+  events with timezone-aware filtering.
 
 ## Agent Runtime
 
@@ -131,7 +135,7 @@ exceptions noted):
   coordination, no service)
 - **Dev / trace**: `dev_worktree`, `trace_share`
 - **Configuration**: `bot_config`, `vm_config`
-- **Email**: `email`
+- **Email**: `email`, `email_account`
 - **Base / DTO**: `base.py`, `dto.py` (Message, BotConfig, VmConfig structures)
 
 ### API Routes (`api/src/api/controller/`)

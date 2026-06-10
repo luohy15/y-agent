@@ -6,15 +6,18 @@ from yagent.time_filter import collect_time_params, time_filter_options
 
 @click.command('list')
 @click.option('--query', '-q', default=None, help='Search by subject, from, or content')
+@click.option('--account', '-a', default=None, help='Filter by connected account address')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max emails to return')
 @click.option('--offset', '-o', default=0, help='Offset for pagination')
-def email_list(query, on, from_, to, created_on, created_from, created_to,
+def email_list(query, account, on, from_, to, created_on, created_from, created_to,
                updated_on, updated_from, updated_to, limit, offset):
     """List emails. Canonical time field: date (received)."""
     params = {"limit": limit, "offset": offset}
     if query is not None:
         params["query"] = query
+    if account is not None:
+        params["account"] = account
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

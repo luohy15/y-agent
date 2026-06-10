@@ -19,6 +19,7 @@ def _row_to_dto(entity: EmailEntity) -> Email:
         date=entity.date,
         content=entity.content,
         thread_id=entity.thread_id,
+        account=entity.account,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -26,8 +27,8 @@ def _row_to_dto(entity: EmailEntity) -> Email:
     )
 
 
-def save_emails_batch(user_id: int, emails: List[dict]) -> int:
-    """Batch insert emails with dedup on external_id. Returns count of emails created."""
+def save_emails_batch(user_id: int, emails: List[dict], account: Optional[str] = None) -> int:
+    """Batch insert emails with dedup on (account, external_id). Returns count of emails created."""
     if not emails:
         return 0
 
@@ -37,6 +38,7 @@ def save_emails_batch(user_id: int, emails: List[dict]) -> int:
         if external_ids:
             existing = session.query(EmailEntity.external_id).filter(
                 EmailEntity.user_id == user_id,
+                EmailEntity.account == account,
                 EmailEntity.external_id.in_(external_ids),
             ).all()
             existing_ids = {row.external_id for row in existing}
@@ -58,6 +60,7 @@ def save_emails_batch(user_id: int, emails: List[dict]) -> int:
                 date=item.get('date', 0),
                 content=item.get('content'),
                 thread_id=item.get('thread_id'),
+                account=account,
             )
             session.add(entity)
             count += 1
@@ -68,6 +71,7 @@ def save_emails_batch(user_id: int, emails: List[dict]) -> int:
 def list_emails(
     user_id: int,
     query: Optional[str] = None,
+    account: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     on: Optional[str] = None,
@@ -82,6 +86,8 @@ def list_emails(
 ) -> List[Email]:
     with get_db() as session:
         q = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
+        if account:
+            q = q.filter(EmailEntity.account == account)
         if query:
             pattern = f"%{query}%"
             q = q.filter(
@@ -100,6 +106,7 @@ def list_emails(
 def list_threads(
     user_id: int,
     query: Optional[str] = None,
+    account: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     on: Optional[str] = None,
@@ -122,6 +129,8 @@ def list_threads(
     with get_db() as session:
         thread_key = func.coalesce(EmailEntity.thread_id, EmailEntity.email_id)
         base = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
+        if account:
+            base = base.filter(EmailEntity.account == account)
         if query:
             pattern = f"%{query}%"
             base = base.filter(
@@ -182,7 +191,7 @@ def get_email(user_id: int, email_id: str) -> Optional[Email]:
         return _row_to_dto(entity)
 
 
-def get_emails_by_thread(user_id: int, thread_id: str) -> List[Email]:
+def get_emails_by_thread(user_id: int, thread_id: str, account: Optional[str] = None) -> List[Email]:
     """Return all emails of a thread, oldest->newest.
 
     Matches ``thread_id == key`` or, for a singleton email with no thread_id, the
@@ -191,7 +200,10 @@ def get_emails_by_thread(user_id: int, thread_id: str) -> List[Email]:
     with get_db() as session:
         q = session.query(EmailEntity).filter(
             EmailEntity.user_id == user_id,
-        ).filter(
+        )
+        if account:
+            q = q.filter(EmailEntity.account == account)
+        q = q.filter(
             (EmailEntity.thread_id == thread_id)
             | ((EmailEntity.thread_id.is_(None)) & (EmailEntity.email_id == thread_id))
         ).order_by(EmailEntity.date.asc())

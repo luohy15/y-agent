@@ -290,11 +290,14 @@ function ThreadView({ emails }: { emails: Email[] }) {
 interface EmailViewerProps {
   threadId?: string | null;
   emailId?: string | null;
+  account?: string | null;
 }
 
-export default function EmailViewer({ threadId, emailId }: EmailViewerProps) {
+export default function EmailViewer({ threadId, emailId, account }: EmailViewerProps) {
   const key = threadId || emailId;
-  const swrKey = key ? `${API}/api/email/thread/${encodeURIComponent(key)}` : null;
+  const swrKey = key
+    ? `${API}/api/email/thread/${encodeURIComponent(key)}${account ? `?account=${encodeURIComponent(account)}` : ""}`
+    : null;
   const { data: emails, isLoading, error } = useSWR<Email[]>(swrKey, fetcher, { revalidateOnFocus: false });
 
   if (!key) {
