@@ -1,6 +1,6 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { API, jsonFetcher as fetcher } from "../api";
+import { API, getStoredEmail, jsonFetcher as fetcher } from "../api";
 import { formatEmailDate, formatEmailDateTime, parseSender, splitOwnAndQuoted } from "../utils/email";
 
 interface Email {
@@ -64,6 +64,23 @@ function snippetOf(email: Email): string {
   return splitOwnAndQuoted(email.content).own.replace(/\n+/g, " ").trim();
 }
 
+// Gmail-style combined to+cc recipient line, e.g. "me, Aria": the logged-in user's
+// own address renders as "me", others as their parsed display name; de-duplicated
+// by bare address across to + cc.
+function recipientLine(email: Email): string {
+  const own = (getStoredEmail() || "").toLowerCase();
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const entry of [...(email.to_addrs || []), ...(email.cc_addrs || [])]) {
+    const { name, email: addr } = parseSender(entry);
+    const key = addr.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    names.push(own && key === own ? "me" : name);
+  }
+  return names.join(", ");
+}
+
 // One-line summary for a collapsed message: avatar + sender + snippet + date (+ star).
 function CollapsedRow({ email, onClick }: { email: Email; onClick: () => void }) {
   const { name, email: addr } = parseSender(email.from_addr);
@@ -98,10 +115,11 @@ function CountBubble({ count, onClick }: { count: number; onClick: () => void })
 }
 
 // A fully expanded message: header (avatar + sender + <email> + date + actions),
-// "to" recipient line, full body, and a trimmed-quoted-content toggle.
+// combined to+cc recipient line, full body, and a trimmed-quoted-content toggle.
 function ExpandedMessage({ email }: { email: Email }) {
   const { name, email: addr } = parseSender(email.from_addr);
   const { own, quoted } = splitOwnAndQuoted(email.content);
+  const recipients = recipientLine(email);
   return (
     <div className="py-3 border-b border-sol-base02 px-1">
       <div className="flex items-start gap-2">
@@ -118,8 +136,8 @@ function ExpandedMessage({ email }: { email: Email }) {
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
             </button>
           </div>
-          {email.to_addrs && email.to_addrs.length > 0 && (
-            <div className="text-sol-base01 text-xs truncate">to {email.to_addrs.join(", ")}</div>
+          {recipients && (
+            <div className="text-sol-base01 text-xs truncate">to {recipients}</div>
           )}
         </div>
       </div>

@@ -4,10 +4,14 @@ export function formatEmailDate(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+// Gmail-style expanded-header timestamp, e.g. "Sat, Feb 28, 3:40 AM"; the year is
+// shown only for messages from a previous year.
 export function formatEmailDateTime(ts: number): string {
   if (!ts) return "";
   const d = new Date(ts);
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleString(undefined, opts);
 }
 
 // Parse a `From:` header value into a display name + bare email. Falls back to the
