@@ -12,6 +12,7 @@ interface TraceViewProps {
   defaultWorkDir?: string;
   onSelectChat?: (chatId: string) => void;
   onPreviewLink?: (activityId: string) => void;
+  onSelectCalendarEvent?: (startTime: string) => void;
   onOpenFile?: (path: string) => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
   // Public trace projection: when supplied, TraceView renders read-only from this
@@ -116,7 +117,7 @@ function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: strin
   );
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onOpenFile, onTraceTodoDirtyChange, injectedData, onOpenNote }: TraceViewProps) {
+export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onSelectCalendarEvent, onOpenFile, onTraceTodoDirtyChange, injectedData, onOpenNote }: TraceViewProps) {
   // Public projection: render read-only from the injected payload, skip all JWT fetches.
   const publicMode = !!injectedData;
 
@@ -436,7 +437,12 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                 {eventsOpen && (
                   <div className="px-2 pb-2 space-y-1">
                     {traceEvents.map((ev) => (
-                      <div key={ev.event_id} className="bg-sol-base02/50 rounded px-2 py-1">
+                      <div
+                        key={ev.event_id}
+                        className={`bg-sol-base02/50 rounded px-2 py-1 ${onSelectCalendarEvent ? "cursor-pointer hover:bg-sol-base02" : ""}`}
+                        onClick={onSelectCalendarEvent ? () => onSelectCalendarEvent(ev.start_time) : undefined}
+                        title={onSelectCalendarEvent ? "Open in calendar" : undefined}
+                      >
                         <div className="flex items-center gap-1.5">
                           <span className="text-[0.7rem] text-sol-base1 truncate min-w-0 flex-1">{ev.summary}</span>
                           {ev.source && (
