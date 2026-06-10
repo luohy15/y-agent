@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { API, getStoredEmail, jsonFetcher as fetcher } from "../api";
-import { formatEmailDate, formatEmailDateFull, formatEmailDateTime, parseSender, splitOwnAndQuoted } from "../utils/email";
+import { emailSnippet, formatEmailDate, formatEmailDateFull, formatEmailDateTime, isHtmlContent, parseSender, sanitizeEmailHtml, splitOwnAndQuoted } from "../utils/email";
 
 interface Email {
   email_id: string;
@@ -60,8 +60,21 @@ function QuotedToggle({ text }: { text: string }) {
   );
 }
 
-function snippetOf(email: Email): string {
-  return splitOwnAndQuoted(email.content).own.replace(/\n+/g, " ").trim();
+// Sanitized HTML email body inside a shadow root, so embedded <style> blocks
+// can't leak class rules into the app document. HTML emails are designed for
+// light backgrounds, so the wrapper forces one regardless of the app theme.
+function HtmlBody({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const root = el.shadowRoot || el.attachShadow({ mode: "open" });
+    root.innerHTML =
+      '<div style="background:#fff;color:#222;padding:12px;border-radius:4px;overflow-x:auto;font-size:14px;line-height:1.5">' +
+      sanitizeEmailHtml(html) +
+      "</div>";
+  }, [html]);
+  return <div ref={ref} />;
 }
 
 // Gmail-style combined to+cc recipient line, e.g. "me, Aria": the logged-in user's
@@ -149,7 +162,7 @@ function CollapsedRow({ email, onClick }: { email: Email; onClick: () => void })
     >
       <Avatar name={name} email={addr} />
       <span className="shrink-0 text-sol-base0 text-sm font-medium max-w-[10rem] truncate">{name}</span>
-      <span className="flex-1 truncate text-sol-base01 text-xs">{snippetOf(email)}</span>
+      <span className="flex-1 truncate text-sol-base01 text-xs">{emailSnippet(email.content)}</span>
       <span className="shrink-0 text-sol-base01 text-xs">{formatEmailDate(email.date)}</span>
       <Star />
     </button>
@@ -203,8 +216,14 @@ function ExpandedMessage({ email }: { email: Email }) {
       </div>
       {email.content && (
         <div className="mt-3">
-          <pre className="text-sol-base0 text-sm whitespace-pre-wrap break-words leading-relaxed">{own}</pre>
-          <QuotedToggle text={quoted} />
+          {isHtmlContent(email.content) ? (
+            <HtmlBody html={email.content} />
+          ) : (
+            <>
+              <pre className="text-sol-base0 text-sm whitespace-pre-wrap break-words leading-relaxed">{own}</pre>
+              <QuotedToggle text={quoted} />
+            </>
+          )}
         </div>
       )}
     </div>

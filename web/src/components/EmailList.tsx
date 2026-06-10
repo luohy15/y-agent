@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
-import { formatEmailDate, splitOwnAndQuoted } from "../utils/email";
+import { emailSnippet, formatEmailDate } from "../utils/email";
 
 interface Email {
   email_id: string;
@@ -113,7 +113,7 @@ export default function EmailList({ isLoggedIn, selectedThreadId, onSelectEmail,
         ) : (
           <>
             {sortedEmails.map((email) => {
-              const snippet = splitOwnAndQuoted(email.content).own.replace(/\n+/g, " ").trim();
+              const snippet = emailSnippet(email.content);
               const threadKey = email.thread_id || email.email_id;
               const active = threadKey === selectedThreadId;
               const count = email.thread_count || 0;

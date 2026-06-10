@@ -1,3 +1,5 @@
+import DOMPurify from "dompurify";
+
 export function formatEmailDate(ts: number): string {
   if (!ts) return "";
   const d = new Date(ts);
@@ -41,4 +43,40 @@ export function splitOwnAndQuoted(s: string | undefined): { own: string; quoted:
   const match = s.search(/^>?\s*On .+wrote:\s*$/m);
   if (match < 0) return { own: s.trim(), quoted: "" };
   return { own: s.slice(0, match).trim(), quoted: s.slice(match).trim() };
+}
+
+// Heuristic for HTML-only email bodies (Gmail sync stores raw HTML in `content`
+// when no text/plain part exists). Only structural tags trigger, so plain text
+// mentioning "<3" or "a < b" stays on the plain-text path.
+export function isHtmlContent(s: string | undefined): boolean {
+  if (!s) return false;
+  return /<(?:!doctype|html|head|body|table|div|p|br|span|a|img|style)[\s/>]/i.test(s);
+}
+
+// XSS-safe HTML for rendering an untrusted email body. DOMPurify defaults strip
+// scripts / event handlers / javascript: URIs; on top of that, forbid embedding
+// and form tags. <style> and http(s) <img> stay allowed so emails look right
+// (Gmail-with-images behavior). WHOLE_DOCUMENT keeps <style> blocks that live in
+// <head> of full HTML documents.
+export function sanitizeEmailHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    WHOLE_DOCUMENT: true,
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "input", "button", "meta", "link", "base"],
+  });
+}
+
+// Plain-text projection of an HTML body for snippets. DOMParser is inert (no
+// script execution, no resource loading), so the raw HTML is safe to parse.
+export function htmlToText(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("style, script, title").forEach((el) => el.remove());
+  return (doc.body?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+// One-line snippet for list rows / collapsed thread rows: own text before the
+// quoted reply chain for plain bodies, tag-stripped text for HTML bodies.
+export function emailSnippet(content: string | undefined): string {
+  if (!content) return "";
+  if (isHtmlContent(content)) return htmlToText(content);
+  return splitOwnAndQuoted(content).own.replace(/\n+/g, " ").trim();
 }
