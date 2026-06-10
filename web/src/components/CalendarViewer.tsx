@@ -136,9 +136,12 @@ const STORAGE_KEY = "calendarViewerDate";
 
 interface CalendarViewerProps {
   onSelectTrace?: (traceId: string) => void;
+  // External navigation target (e.g. TraceView calendar event click). Wrapped in an
+  // object so a fresh identity re-triggers the jump even for the same date.
+  focus?: { date: string } | null;
 }
 
-export default function CalendarViewer({ onSelectTrace }: CalendarViewerProps) {
+export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerProps) {
   const [selectedDate, setSelectedDate] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? new Date(saved + "T00:00:00") : new Date();
@@ -240,14 +243,13 @@ export default function CalendarViewer({ onSelectTrace }: CalendarViewerProps) {
     ? ((now.getHours() + now.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT
     : null;
 
-  // Scroll the time grid so the current time-of-day is centered in the viewport
-  // (keeps the now-indicator visible instead of resting at midnight/top).
-  const scrollToNow = () => {
+  // Scroll the time grid so the given time-of-day is centered in the viewport
+  // (instead of resting at midnight/top).
+  const scrollToTime = (d: Date) => {
     const el = scrollRef.current;
     const grid = timeGridRef.current;
     if (!el) return;
-    const n = new Date();
-    const yInGrid = ((n.getHours() + n.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT;
+    const yInGrid = ((d.getHours() + d.getMinutes() / 60) - HOUR_START) * HOUR_HEIGHT;
     // Offset of the time grid from the top of the scroll container (the sticky
     // day-header row sits above it and varies with all-day events).
     const gridOffset = grid
@@ -255,6 +257,8 @@ export default function CalendarViewer({ onSelectTrace }: CalendarViewerProps) {
       : 0;
     el.scrollTop = Math.max(0, gridOffset + yInGrid - el.clientHeight / 2);
   };
+
+  const scrollToNow = () => scrollToTime(new Date());
 
   // Scroll to the current time once today is in view: on initial load, and again
   // each time the Today button bumps `scrollSignal` (pendingScrollRef gates it so
@@ -266,6 +270,17 @@ export default function CalendarViewer({ onSelectTrace }: CalendarViewerProps) {
     pendingScrollRef.current = false;
     scrollToNow();
   }, [isLoading, todayColIdx, scrollSignal]);
+
+  // External focus request: jump the visible week to the target date and scroll to
+  // its time-of-day (vertical scroll is week-independent, so no need to wait for the
+  // new week's data). Suppresses the initial scroll-to-now so it can't override.
+  useEffect(() => {
+    if (!focus) return;
+    const d = new Date(focus.date);
+    pendingScrollRef.current = false;
+    jumpTo(d);
+    scrollToTime(d);
+  }, [focus]);
 
   const closePopover = () => {
     setSelectedEvent(null);
