@@ -16,12 +16,22 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Inline calendar event editing (2446)** — CalendarViewer now supports editing, creating, and deleting calendar events inline.
 - **Calendar drag interactions (2450, 2451)** — drag an event's top/bottom border to resize its time range, drag the whole event to move it, with a live time label shown during the drag.
 - **Calendar Today button (2454)** — the Today button now scrolls the time grid to the current hour.
+- **Export chat messages as long-image (2487)** — export selected chat messages as a Solarized long-image, with a single delivery channel per platform (desktop download / mobile share sheet) and a yovy.app footer.
+- **Gmail-style email viewing (2489, 2490, 2491)** — two-pane email layout (list in sidebar, single-email detail viewer), thread grouping (list shows thread head + count badge; detail stacks the thread chronologically), and a collapsed conversation view that folds all-but-first/latest messages into one-line rows with click-to-expand.
+- **Chat-list routine & skill filters (2485, 2488)** — filter the chat list by triggering routine (name) and skill, with click-to-filter trace/topic/routine/skill badges, wired end-to-end across storage/API/CLI/web.
+- **Chat-less todo click opens fileview + trace (2467)** — clicking a todo with no chat now switches to the file view and shows its trace.
+- **`y chat --wait/--wait-timeout` (2472)** — generic synchronous one-shot dispatch flags for `y chat`.
+- **`y link` fetch channel + source filter (2460, 2463)** — `y link fetch` is now recorded as a third visit channel (`source=fetch`), and `y link list` gains a `--source` filter (sync/rss/fetch).
+- **CI test workflow (2484)** — added `test.yml` running per-package Python unittest + web vitest on push/PR, with new coverage for trace/notify, CLI dispatch trace-flags, post-hooks, the claude_code stream converter, and telegram webhook routing.
 
 ### Changed
 - **Finance over-time table sorting (2452)** — the income-statement and income/expense category over-time tables now default-sort by range-sum descending.
 
 ### Fixed
 - **Calendar week grid rendering (2445)** — always render the week grid and show the empty state as an in-grid hint instead of replacing the grid.
+- **Telegram General-topic fallback (2471)** — fall back to the forum General topic when a topic has no `tg_topic` binding.
+- **Dateless RSS entries (2462)** — stop dropping dateless RSS entries during stage-2 ingest.
+- **Mobile chat-list drawer tint (2428)** — `display:none` the mobile right chat-list drawer when closed to stop iOS 26 Safari chrome tint sampling.
 
 ### Removed
 
