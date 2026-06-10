@@ -135,10 +135,10 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STORAGE_KEY = "calendarViewerDate";
 
 interface CalendarViewerProps {
-  onOpenFile?: (path: string) => void;
+  onSelectTrace?: (traceId: string) => void;
 }
 
-export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
+export default function CalendarViewer({ onSelectTrace }: CalendarViewerProps) {
   const [selectedDate, setSelectedDate] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? new Date(saved + "T00:00:00") : new Date();
@@ -575,8 +575,8 @@ export default function CalendarViewer({ onOpenFile }: CalendarViewerProps) {
                     <span
                       className="text-sol-green mt-0.5 inline-block ml-2 cursor-pointer hover:underline"
                       onClick={() => {
-                        localStorage.setItem("todoExpandId", selectedEvent.todo_id!);
-                        onOpenFile?.("todo.md");
+                        if (onSelectTrace) onSelectTrace(selectedEvent.todo_id!);
+                        else navigator.clipboard.writeText(selectedEvent.todo_id!);
                       }}
                     >Todo: #{selectedEvent.todo_id}</span>
                   )}
