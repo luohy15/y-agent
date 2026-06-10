@@ -42,6 +42,7 @@ interface FileViewerProps {
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
   onSelectChat?: (chatId: string) => void;
+  onSelectTrace?: (traceId: string) => void;
   onPreviewLink?: (activityId: string) => void;
   onPreviewLinkFull?: (activityId: string, contentKey: string | null) => void;
   onExternalLinkClick?: (url: string) => void;
@@ -940,7 +941,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedThreadId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedThreadId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectTrace, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -1394,7 +1395,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileTodo ? (
                 <TodoViewer viewMode={todoViewMode} onChatListRefresh={onChatListRefresh} />
               ) : fileCalendar ? (
-                <CalendarViewer onOpenFile={onSelectFile} />
+                <CalendarViewer onSelectTrace={onSelectTrace} />
               ) : fileLinkPreview ? (
                 <LinkContentView activityId={selectedLinkId || null} linkId={selectedLinkLinkId || null} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} onExternalLinkClick={onExternalLinkClick} />
               ) : fileLinksMd ? (
