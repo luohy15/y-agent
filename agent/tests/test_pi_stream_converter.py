@@ -20,10 +20,17 @@ class _FakeStream:
 
 
 class _FakeSshClient:
-    def __init__(self, lines):
-        self._lines = lines
+    """Fake SSH client for tail_pi_output: serves the tail stream, plus the
+    `tmux has-session` liveness probe that gates the no-result death report."""
 
-    def exec_command(self, _cmd):
+    def __init__(self, lines, tmux_alive=False):
+        self._lines = lines
+        self._tmux_alive = tmux_alive
+
+    def exec_command(self, cmd):
+        if "tmux has-session" in cmd:
+            data = b"alive\n" if self._tmux_alive else b"dead\n"
+            return None, _ExecStream(data, 0), _ExecStream(b"")
         return None, _FakeStream(self._lines), _FakeStream([])
 
 
@@ -172,7 +179,9 @@ class PiStreamConverterTest(unittest.TestCase):
             "output_tokens": 2,
         })
 
-    def test_exit_without_agent_end_is_error(self):
+    def test_exit_without_agent_end_dead_session_is_error(self):
+        # Stream ends without agent_end AND the tmux session is gone: the turn
+        # really died, so the no-result death path fires.
         lines = [
             json.dumps({"type": "session", "id": "sess-2", "cwd": "/repo"}) + "\n",
             json.dumps({
@@ -184,12 +193,30 @@ class PiStreamConverterTest(unittest.TestCase):
         result = asyncio.run(tail_pi_output(
             chat_id="chat-2",
             vm_config=None,
-            ssh_client=_FakeSshClient(lines),
+            ssh_client=_FakeSshClient(lines, tmux_alive=False),
         ))
 
         self.assertTrue(result["is_done"])
         self.assertEqual(result["status"], "error")
         self.assertTrue(result["result_data"]["is_error"])
+
+    def test_exit_without_agent_end_alive_session_keeps_monitoring(self):
+        # Stream ends without agent_end but the tmux session is still alive
+        # (e.g. transient tail death at a Lambda handoff): resume monitoring
+        # instead of declaring a false death.
+        lines = [
+            json.dumps({"type": "session", "id": "sess-3", "cwd": "/repo"}) + "\n",
+        ]
+
+        result = asyncio.run(tail_pi_output(
+            chat_id="chat-3",
+            vm_config=None,
+            ssh_client=_FakeSshClient(lines, tmux_alive=True),
+        ))
+
+        self.assertFalse(result["is_done"])
+        self.assertEqual(result["status"], "monitoring")
+        self.assertIsNone(result["result_data"])
 
 
 class _ExecStream:
