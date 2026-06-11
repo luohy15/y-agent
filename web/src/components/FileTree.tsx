@@ -251,6 +251,8 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [uploadDialog, setUploadDialog] = useState<{ dir: string } | null>(null);
+  const [newFileDialog, setNewFileDialog] = useState<{ path: string } | null>(null);
+  const [creating, setCreating] = useState(false);
   const [overwriteDialog, setOverwriteDialog] = useState<{ files: File[]; destDir: string; names: string[] } | null>(null);
   const dirRefreshMapRef = useRef<DirRefreshMap>(new Map());
   const anchorRef = useRef<string | null>(null);
@@ -403,6 +405,41 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
     setUploadDialog({ dir: defaultDir });
   }, [rootPath, selectedPaths]);
 
+  const openNewFileDialog = useCallback(() => {
+    // Default parent dir: same heuristic as upload (last-used → single selected dir → root)
+    let defaultDir = lastUploadDirRef.current || rootPath;
+    if (selectedPaths.size === 1) {
+      defaultDir = Array.from(selectedPaths)[0];
+    }
+    setNewFileDialog({ path: `${defaultDir}/` });
+  }, [rootPath, selectedPaths]);
+
+  const createNewFile = useCallback(async (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed || trimmed.endsWith("/")) return;
+    setCreating(true);
+    try {
+      const res = await authFetch(`${API}/api/file/touch${vmQuery ? `?${vmQuery.slice(1)}` : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: trimmed }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        alert(`Create failed for ${trimmed}: ${detail || res.status}`);
+        return;
+      }
+      setNewFileDialog(null);
+      const parentDir = trimmed.includes("/") ? trimmed.substring(0, trimmed.lastIndexOf("/")) : rootPath;
+      lastUploadDirRef.current = parentDir;
+      const refresh = dirRefreshMapRef.current.get(parentDir) ?? dirRefreshMapRef.current.get(rootPath);
+      if (refresh) refresh();
+      onSelectFile?.(trimmed);
+    } finally {
+      setCreating(false);
+    }
+  }, [vmQuery, rootPath, onSelectFile]);
+
   const handleUploadInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
@@ -447,6 +484,16 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
         {workDir && <span className="text-sm sm:text-xs text-sol-base01 truncate flex-1" title={workDir}>{workDir}</span>}
         {!workDir && <span className="flex-1" />}
         <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadInputChange} />
+        <button
+          onClick={openNewFileDialog}
+          disabled={creating}
+          className="text-sol-base01 hover:text-sol-base1 cursor-pointer w-6 h-6 sm:w-4 sm:h-4 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          title="New file"
+        >
+          <svg className="w-5 h-5 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <path fillRule="evenodd" d="M3 1h7l3 3v11H3V1zm4 5h2v3h3v2H9v3H7v-3H4V9h3V6z" />
+          </svg>
+        </button>
         <button
           onClick={openUploadDialog}
           disabled={uploading}
@@ -565,6 +612,55 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
                   className="px-3 py-1.5 rounded text-sm bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-blue/40"
                 >
                   Choose files...
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {newFileDialog && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setNewFileDialog(null)}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-sol-base02">
+              <div className="text-sol-base1 text-sm font-semibold">New file</div>
+              <div className="text-sol-base01 text-xs mt-1">
+                An empty file is created at this path. Creating an existing path leaves the file untouched.
+              </div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-2">
+              <label className="text-xs text-sol-base01">File path</label>
+              <input
+                type="text"
+                autoFocus
+                value={newFileDialog.path}
+                onChange={(e) => setNewFileDialog({ path: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createNewFile(newFileDialog.path);
+                  if (e.key === "Escape") setNewFileDialog(null);
+                }}
+                placeholder={`${rootPath}/new-file.md`}
+                className="px-2 py-1 bg-sol-base02 text-sol-base1 text-sm rounded border border-sol-base01 focus:outline-none focus:border-sol-blue"
+              />
+              <div className="flex gap-2 justify-end mt-2">
+                <button
+                  onClick={() => setNewFileDialog(null)}
+                  className="px-3 py-1.5 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => createNewFile(newFileDialog.path)}
+                  disabled={creating || !newFileDialog.path.trim() || newFileDialog.path.trim().endsWith("/")}
+                  className="px-3 py-1.5 rounded text-sm bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-blue/40"
+                >
+                  Create
                 </button>
               </div>
             </div>
