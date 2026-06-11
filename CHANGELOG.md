@@ -17,7 +17,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Calendar drag interactions (2450, 2451)** — drag an event's top/bottom border to resize its time range, drag the whole event to move it, with a live time label shown during the drag.
 - **Calendar Today button (2454)** — the Today button now scrolls the time grid to the current hour.
 - **Export chat messages as long-image (2487)** — export selected chat messages as a Solarized long-image, with a single delivery channel per platform (desktop download / mobile share sheet) and a yovy.app footer.
-- **Gmail-style email viewing (2489, 2490, 2491)** — two-pane email layout (list in sidebar, single-email detail viewer), thread grouping (list shows thread head + count badge; detail stacks the thread chronologically), and a collapsed conversation view that folds all-but-first/latest messages into one-line rows with click-to-expand.
+- **Gmail-style email viewing (2489, 2490, 2491)** — two-pane email layout (list in sidebar, single-email detail viewer), thread grouping (list shows thread head + count badge; detail stacks the thread chronologically), a collapsed conversation view that folds all-but-first/latest messages into one-line rows with click-to-expand, a recipient-details dropdown (Gmail-style triangle popover with from/to/cc/date/subject/mailed-by metadata), and Gmail-style recipient/date lines ("to me, Aria"; weekday-prefixed dates).
+- **HTML email bodies (2498)** — EmailViewer renders sanitized HTML email bodies in a shadow DOM (DOMPurify, light background), with a unified plain-text snippet for list and collapsed rows.
+- **Multi-account Gmail sync (2499)** — per-account IMAP app passwords in a new `email_account` table, `y email sync-gmail` fans out over all registered accounts, account management via API/CLI/web, and per-account filtering in list views.
+- **Calendar events in trace view (2501)** — trace info API now includes associated calendar events; TraceView renders them in a collapsible Calendar Events section, with click-to-navigate to the calendar panel at the event's date/time.
 - **Chat-list routine & skill filters (2485, 2488)** — filter the chat list by triggering routine (name) and skill, with click-to-filter trace/topic/routine/skill badges, wired end-to-end across storage/API/CLI/web.
 - **Chat-less todo click opens fileview + trace (2467)** — clicking a todo with no chat now switches to the file view and shows its trace.
 - **`y chat --wait/--wait-timeout` (2472)** — generic synchronous one-shot dispatch flags for `y chat`.
@@ -29,6 +32,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 - **Calendar week grid rendering (2445)** — always render the week grid and show the empty state as an in-grid hint instead of replacing the grid.
+- **Calendar event todo-id navigation (2500)** — clicking a calendar event's todo id now navigates to the trace view.
 - **Telegram General-topic fallback (2471)** — fall back to the forum General topic when a topic has no `tg_topic` binding.
 - **Dateless RSS entries (2462)** — stop dropping dateless RSS entries during stage-2 ingest.
 - **Mobile chat-list drawer tint (2428)** — `display:none` the mobile right chat-list drawer when closed to stop iOS 26 Safari chrome tint sampling.
