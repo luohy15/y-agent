@@ -22,7 +22,15 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote, _no_result_error_message
+from agent.claude_code import (
+    parse_stream_line,
+    _parse_ssh_target,
+    _shell_quote,
+    _no_result_error_message,
+    _tmux_session_alive,
+    _pkill_tail_cmd,
+    _build_tail_cmd,
+)
 from agent.poll_loop import PollLoop
 
 JSONValue = Optional[object]
@@ -391,14 +399,10 @@ async def tail_codex_output(
     current_offset = offset
     steer_msgs = []  # list of (text, msg_id, images) collected mid-run
     steer_requested = False
+    stream_error = None
 
     try:
-        tail_cmd = (
-            f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
-            f"(while ! test -f {_shell_quote(exit_file)}; do sleep 2; done; "
-            f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
-            f"wait $TAIL_PID 2>/dev/null"
-        )
+        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset)
 
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
@@ -446,7 +450,7 @@ async def tail_codex_output(
         poll.start()
 
         def _read_lines():
-            nonlocal result_data, last_error_data, current_offset
+            nonlocal result_data, last_error_data, current_offset, stream_error
             try:
                 for raw_line in stdout_ch:
                     if steer_requested:
@@ -471,7 +475,7 @@ async def tail_codex_output(
 
                     if check_deadline_fn and check_deadline_fn():
                         try:
-                            client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                            client.exec_command(_pkill_tail_cmd(chat_id))
                         except Exception:
                             pass
                         stdout_ch.channel.close()
@@ -510,6 +514,7 @@ async def tail_codex_output(
                     return "steer"
                 if not isinstance(e, (OSError, EOFError)):
                     raise
+                stream_error = e
 
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
@@ -554,6 +559,15 @@ async def tail_codex_output(
             except Exception:
                 pass
 
+        # Resolve the no-result outcome while the client is still open: the
+        # tmux liveness check and the exit-code read both need SSH.
+        no_result_session_alive = False
+        no_result_error = None
+        if exit_reason is None and not steer_requested and result_data is None and last_error_data is None:
+            no_result_session_alive = _tmux_session_alive(client, chat_id)
+            if not no_result_session_alive:
+                no_result_error = _no_result_error_message(client, chat_id, "Codex", stream_error)
+
         if owns_client:
             client.close()
 
@@ -596,10 +610,27 @@ async def tail_codex_output(
             status = "error"
             result_data = last_error_data
         elif result_data is None:
+            if no_result_session_alive:
+                # The tail stream ended without a turn.completed event but the
+                # tmux session is still alive: the turn is still running (e.g.
+                # a transient tail death at a Lambda handoff). Resume
+                # monitoring instead of declaring a false death.
+                logger.warning(
+                    "tail_codex_output: chat_id={} no turn.completed event but tmux session alive (offset={}); resuming monitoring",
+                    chat_id, current_offset,
+                )
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "thread_id": converter.thread_id,
+                    "is_done": False,
+                    "result_data": None,
+                    "status": "monitoring",
+                }
             # tmux session exited without ever emitting a turn.completed event.
             # This can be a startup/resume failure or an external SIGTERM/SIGKILL
-            # (reaper/OOM). Read the launcher exit code for a precise message so
-            # the chat doesn't silently die.
+            # (reaper/OOM). The launcher exit code was read above for a precise
+            # message so the chat doesn't silently die.
             logger.warning(
                 "tail_codex_output: chat_id={} exited with no turn.completed event (offset={})",
                 chat_id, current_offset,
@@ -607,7 +638,7 @@ async def tail_codex_output(
             status = "error"
             result_data = {
                 "is_error": True,
-                "result": _no_result_error_message(client, chat_id, "Codex"),
+                "result": no_result_error,
             }
 
         return {
