@@ -18,7 +18,15 @@ from loguru import logger
 
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.claude_code import parse_stream_line, _parse_ssh_target, _shell_quote
+from agent.claude_code import (
+    parse_stream_line,
+    _parse_ssh_target,
+    _shell_quote,
+    _stream_error_suffix,
+    _tmux_session_alive,
+    _pkill_tail_cmd,
+    _build_tail_cmd,
+)
 from agent.poll_loop import PollLoop
 
 
@@ -285,14 +293,10 @@ async def tail_gemini_output(
     current_offset = offset
     steer_msgs = []
     steer_requested = False
+    stream_error = None
 
     try:
-        tail_cmd = (
-            f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
-            f"(while ! test -f {_shell_quote(exit_file)}; do sleep 2; done; "
-            f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
-            f"wait $TAIL_PID 2>/dev/null"
-        )
+        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset)
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
         def _kill_detached():
@@ -337,7 +341,7 @@ async def tail_gemini_output(
         poll.start()
 
         def _read_lines():
-            nonlocal result_data, last_error_data, current_offset
+            nonlocal result_data, last_error_data, current_offset, stream_error
             try:
                 for raw_line in stdout_ch:
                     if steer_requested:
@@ -355,7 +359,7 @@ async def tail_gemini_output(
 
                     if check_deadline_fn and check_deadline_fn():
                         try:
-                            client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                            client.exec_command(_pkill_tail_cmd(chat_id))
                         except Exception:
                             pass
                         stdout_ch.channel.close()
@@ -390,6 +394,7 @@ async def tail_gemini_output(
                     return "steer"
                 if not isinstance(e, (OSError, EOFError)):
                     raise
+                stream_error = e
 
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
@@ -431,6 +436,12 @@ async def tail_gemini_output(
                     steer_requested = True
             except Exception:
                 pass
+
+        # Resolve the no-result outcome while the client is still open: the
+        # tmux liveness check needs SSH.
+        no_result_session_alive = False
+        if exit_reason is None and not steer_requested and result_data is None:
+            no_result_session_alive = _tmux_session_alive(client, chat_id)
 
         if owns_client:
             client.close()
@@ -482,6 +493,23 @@ async def tail_gemini_output(
                 ),
             }
         elif result_data is None:
+            if no_result_session_alive:
+                # The tail stream ended without a result event but the tmux
+                # session is still alive: the turn is still running (e.g. a
+                # transient tail death at a Lambda handoff). Resume monitoring
+                # instead of declaring a false death.
+                logger.warning(
+                    "tail_gemini_output: chat_id={} no result event but tmux session alive (offset={}); resuming monitoring",
+                    chat_id, current_offset,
+                )
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "session_id": converter.session_id,
+                    "is_done": False,
+                    "result_data": None,
+                    "status": "monitoring",
+                }
             logger.warning(
                 "tail_gemini_output: chat_id={} exited with no result event (offset={})",
                 chat_id, current_offset,
@@ -492,7 +520,7 @@ async def tail_gemini_output(
                 "result": (
                     (last_error_data.get("result") if last_error_data else None)
                     or "Gemini CLI exited before producing a result event."
-                ),
+                ) + _stream_error_suffix(stream_error),
             }
         elif converter.usage:
             result_data = {**result_data, "usage": converter.usage}

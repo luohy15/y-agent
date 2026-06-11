@@ -418,7 +418,16 @@ def _ssh_exec(client, cmd: str) -> str:
     return output
 
 
-def _no_result_error_message(client, chat_id: str, backend: str) -> str:
+def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
+    """Format a swallowed tail stream error for inclusion in a no-result error
+    message, so a transient SSH channel failure is distinguishable from a
+    clean process exit."""
+    if stream_error is None:
+        return ""
+    return f" (tail stream error: {type(stream_error).__name__}: {stream_error})"
+
+
+def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None) -> str:
     """Build a precise error message for a tmux session that ended without ever
     emitting a final result event.
 
@@ -429,15 +438,19 @@ def _no_result_error_message(client, chat_id: str, backend: str) -> str:
     failure) vs. a genuine startup/resume error. Fall back to a generic message
     when the exit file is missing, empty, or unparseable.
     """
+    suffix = _stream_error_suffix(stream_error)
     generic = (
         f"{backend} exited before producing output — likely a session resume "
-        f"failure or startup error."
+        f"failure or startup error.{suffix}"
     )
     exit_file = f"/tmp/cc-{chat_id}.exit"
     try:
         raw = _ssh_exec(client, f"cat {_shell_quote(exit_file)} 2>/dev/null").strip()
-    except Exception:
-        return generic
+    except Exception as e:
+        return (
+            f"{backend} exited before producing output: exit status unreadable "
+            f"(ssh error: {type(e).__name__}: {e}).{suffix}"
+        )
     if not raw:
         return generic
     try:
@@ -448,19 +461,69 @@ def _no_result_error_message(client, chat_id: str, backend: str) -> str:
     if code == 143:
         return (
             f"{backend} exited before producing output: terminated by SIGTERM "
-            f"(15) — likely killed by an external reaper/OOM, not a resume failure."
+            f"(15) — likely killed by an external reaper/OOM, not a resume failure.{suffix}"
         )
     if code == 137:
         return (
             f"{backend} exited before producing output: terminated by SIGKILL "
-            f"(9) — likely killed by an external reaper/OOM, not a resume failure."
+            f"(9) — likely killed by an external reaper/OOM, not a resume failure.{suffix}"
         )
     if code != 0:
         return (
             f"{backend} exited before producing output: process exited with code "
-            f"{code} — likely a startup or resume error."
+            f"{code} — likely a startup or resume error.{suffix}"
         )
     return generic
+
+
+def _tmux_session_alive(client, chat_id: str) -> bool:
+    """Return True if the detached tmux session `cc-<chat_id>` still exists.
+
+    Gates the no-result death report: the SSH tail stream can end while the
+    backend process is alive and mid-turn (e.g. a transient disturbance at a
+    Lambda handoff), and a false death report lets the next turn's stale
+    cleanup kill the healthy session. On SSH errors assume alive so the
+    monitor resumes instead of declaring death (HARD_TIMEOUT_SECONDS bounds
+    the retries).
+    """
+    cmd = (
+        f"tmux has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null "
+        f"&& echo alive || echo dead"
+    )
+    try:
+        return _ssh_exec(client, cmd).strip() == "alive"
+    except Exception as e:
+        logger.warning("tmux liveness check failed for chat {}: {}", chat_id, e)
+        return True
+
+
+def _pkill_tail_cmd(chat_id: str) -> str:
+    """Build a pkill that matches only the remote tail readers of the stdout
+    file. The pattern is anchored to the tail cmdline (`tail -n +N -f
+    /tmp/cc-<chat_id>.stdout`): the old unanchored `tail.*cc-<chat_id>.stdout`
+    form also matched the tmux wrapper shell (its cmdline contains the whole
+    `tail ... | <backend> > ....stdout` pipeline), so firing it would kill the
+    live turn.
+    """
+    pattern = f"^tail -n .* -f /tmp/cc-{chat_id}\\.stdout"
+    return f"pkill -f {_shell_quote(pattern)} 2>/dev/null"
+
+
+def _build_tail_cmd(stdout_file: str, exit_file: str, offset: int) -> str:
+    """Build the remote tail + watcher command for tailing a detached turn.
+
+    Tails from `offset`, following until the exit file appears. The watcher
+    probes the tail pid (`kill -0`) each pass and exits as soon as the tail is
+    gone, so killing only the tail (see `_pkill_tail_cmd`) doesn't leave an
+    orphan watcher subshell looping until the exit file appears.
+    """
+    return (
+        f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
+        f"(while ! test -f {_shell_quote(exit_file)}; do "
+        f"kill -0 $TAIL_PID 2>/dev/null || exit; sleep 2; done; "
+        f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
+        f"wait $TAIL_PID 2>/dev/null"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -650,15 +713,11 @@ async def tail_ssh_output(
     session_id = None
     current_offset = offset
     consumed_steer_ids = []
+    stream_error = None
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
-        tail_cmd = (
-            f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
-            f"(while ! test -f {_shell_quote(exit_file)}; do sleep 2; done; "
-            f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
-            f"wait $TAIL_PID 2>/dev/null"
-        )
+        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset)
 
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
@@ -715,7 +774,7 @@ async def tail_ssh_output(
                 pass
 
         def _read_lines():
-            nonlocal result_data, session_id, current_offset
+            nonlocal result_data, session_id, current_offset, stream_error
             try:
                 for raw_line in stdout_ch:
                     if check_interrupted_fn and check_interrupted_fn():
@@ -724,7 +783,7 @@ async def tail_ssh_output(
 
                     if check_deadline_fn and check_deadline_fn():
                         try:
-                            client.exec_command(f"pkill -f 'tail.*cc-{chat_id}.stdout' 2>/dev/null")
+                            client.exec_command(_pkill_tail_cmd(chat_id))
                         except Exception:
                             pass
                         stdout_ch.channel.close()
@@ -756,6 +815,7 @@ async def tail_ssh_output(
                     return "interrupted"
                 if not isinstance(e, (OSError, EOFError)):
                     raise
+                stream_error = e
 
             if check_interrupted_fn and check_interrupted_fn():
                 return "interrupted"
@@ -789,6 +849,15 @@ async def tail_ssh_output(
                 client.close()
             return cancelled_result
 
+        # Resolve the no-result outcome while the client is still open: the
+        # tmux liveness check and the exit-code read both need SSH.
+        no_result_session_alive = False
+        no_result_error = None
+        if exit_reason is None and result_data is None:
+            no_result_session_alive = _tmux_session_alive(client, chat_id)
+            if not no_result_session_alive:
+                no_result_error = _no_result_error_message(client, chat_id, "Claude Code", stream_error)
+
         if owns_client:
             client.close()
 
@@ -817,11 +886,30 @@ async def tail_ssh_output(
         # Process finished normally
         status = "completed"
         if result_data is None:
+            if no_result_session_alive:
+                # The tail stream ended without a `result` event but the tmux
+                # session is still alive: the turn is still running (e.g. a
+                # transient tail death at a Lambda handoff). Resume monitoring
+                # instead of declaring a false death.
+                logger.warning(
+                    "tail_ssh_output: chat_id={} no result event but tmux session alive (offset={}); resuming monitoring",
+                    chat_id, current_offset,
+                )
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "session_id": session_id,
+                    "is_done": False,
+                    "result_data": None,
+                    "status": "monitoring",
+                    "consumed_steer_ids": consumed_steer_ids,
+                }
             # tmux session exited without ever emitting a stream-json `result`
             # event. This can be a startup/resume failure (e.g. `claude -p -r
             # <id>` with a session_id that doesn't exist in the current cwd) or
-            # an external SIGTERM/SIGKILL (reaper/OOM). Read the launcher exit
-            # code for a precise message so the chat doesn't silently die.
+            # an external SIGTERM/SIGKILL (reaper/OOM). The launcher exit code
+            # was read above for a precise message so the chat doesn't
+            # silently die.
             logger.warning(
                 "tail_ssh_output: chat_id={} exited with no result event (offset={})",
                 chat_id, current_offset,
@@ -829,7 +917,7 @@ async def tail_ssh_output(
             status = "error"
             result_data = {
                 "is_error": True,
-                "result": _no_result_error_message(client, chat_id, "Claude Code"),
+                "result": no_result_error,
             }
         elif result_data.get("is_error"):
             status = "error"
