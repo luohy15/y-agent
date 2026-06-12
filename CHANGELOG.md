@@ -26,6 +26,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **`y chat --wait/--wait-timeout` (2472)** — generic synchronous one-shot dispatch flags for `y chat`.
 - **`y link` fetch channel + source filter (2460, 2463)** — `y link fetch` is now recorded as a third visit channel (`source=fetch`), and `y link list` gains a `--source` filter (sync/rss/fetch).
 - **CI test workflow (2484)** — added `test.yml` running per-package Python unittest + web vitest on push/PR, with new coverage for trace/notify, CLI dispatch trace-flags, post-hooks, the claude_code stream converter, and telegram webhook routing.
+- **FileTree new-file button (2505)** — a new-file button next to upload in the FileTree toolbar: enter a path, the file is created via `POST /api/file/touch` and opened in the FileViewer.
 
 ### Changed
 - **Finance over-time table sorting (2452)** — the income-statement and income/expense category over-time tables now default-sort by range-sum descending.
@@ -36,6 +37,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Telegram General-topic fallback (2471)** — fall back to the forum General topic when a topic has no `tg_topic` binding.
 - **Dateless RSS entries (2462)** — stop dropping dateless RSS entries during stage-2 ingest.
 - **Mobile chat-list drawer tint (2428)** — `display:none` the mobile right chat-list drawer when closed to stop iOS 26 Safari chrome tint sampling.
+- **Agent no-result death & stream robustness (2510)** — check tmux session liveness before declaring a detached run dead on no-result, anchor the deadline pkill to the session, make the tail watcher self-terminating, and surface stream errors instead of swallowing them (with updated stream-converter tests).
 
 ### Removed
 
