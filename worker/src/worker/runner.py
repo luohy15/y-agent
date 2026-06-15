@@ -853,6 +853,75 @@ def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str 
 
 
 
+def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for the Claude Code TUI backend.
+
+    Mirrors _build_claude_code_params but targets the interactive TUI: a fresh
+    turn gets a generated `--session-id <uuid>`; a continue uses `--resume <uuid>`.
+    No `--output-format`/`--tools`/`--input-format` (those are `claude -p` only).
+    With no base_url/api_key the launch uses the EC2 subscription login.
+    """
+    import uuid as _uuid
+
+    messages = list(chat.messages)
+    user_prompt, user_images = _latest_user_text_and_images(messages)
+
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    last_message_id = messages[-1].id if messages else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+
+    session_id = chat.external_id
+    resume = bool(session_id) and chat.work_dir == cwd
+
+    if resume and session_id:
+        cmd = ["claude", "--resume", session_id, "--permission-mode", "bypassPermissions"]
+    else:
+        session_id = str(_uuid.uuid4())
+        resume = False
+        cmd = ["claude", "--session-id", session_id, "--permission-mode", "bypassPermissions"]
+
+    if model:
+        cmd.extend(["--model", model])
+    if chat.skill and not resume:
+        cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
+
+    # Env: trace/topic/chat vars, plus ANTHROPIC overrides only when explicitly
+    # configured (a subscription bot leaves both unset to use the EC2 login).
+    env = None
+    api_base_url = bot_config.base_url if bot_config.base_url else None
+    api_key = bot_config.api_key if bot_config.api_key else None
+    if api_base_url or api_key or chat_id or trace_id or topic or last_message_id:
+        env = {}
+        if api_base_url:
+            env["ANTHROPIC_BASE_URL"] = api_base_url
+        if api_key:
+            env["ANTHROPIC_AUTH_TOKEN"] = api_key
+        if chat_id:
+            env["Y_CHAT_ID"] = chat_id
+        if trace_id:
+            env["Y_TRACE_ID"] = trace_id
+        if topic:
+            env["Y_TOPIC"] = topic
+        if last_message_id:
+            env["Y_MESSAGE_ID"] = last_message_id
+
+    return {
+        "prompt": user_prompt,
+        "images": user_images,
+        "cmd": cmd,
+        "env": env,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "session_id": session_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
@@ -880,6 +949,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         params = _build_pi_params(chat, chat_id, user_id, bot_config,
                                   vm_name=vm_name, work_dir=work_dir,
                                   trace_id=trace_id, topic=topic)
+    elif effective_backend == "claude_tui":
+        params = _build_claude_tui_params(chat, chat_id, user_id, bot_config,
+                                          vm_name=vm_name, work_dir=work_dir,
+                                          trace_id=trace_id, topic=topic)
     else:
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
@@ -900,6 +973,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     ensure_and_touch_vm(params["vm_config"])
 
     # Start detached tmux session (backend-specific launcher)
+    tui_initial_offset = 0
     if effective_backend == "codex":
         from agent.codex import start_detached_codex_ssh
         session_id = await start_detached_codex_ssh(
@@ -934,6 +1008,19 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             models_provider=params.get("models_provider"),
         )
+    elif effective_backend == "claude_tui":
+        from agent.claude_tui import start_detached_claude_tui_ssh
+        session_id, tui_initial_offset = await start_detached_claude_tui_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            session_id=params["session_id"],
+            resume=params["resume"],
+            env=params["env"],
+            images=params.get("images"),
+        )
     else:
         from agent.claude_code import start_detached_ssh
         session_id = await start_detached_ssh(
@@ -957,6 +1044,12 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             backend_type=effective_backend,
             initial_msg_count=len(chat.messages),
         )
+        # claude_tui reads the session JSONL by line offset; start past any
+        # pre-existing content (prior turn on resume / launch meta) so the tail
+        # only streams this turn's lines.
+        if effective_backend == "claude_tui" and tui_initial_offset:
+            from worker.process_manager import update_process_offset
+            update_process_offset(chat_id=chat_id, offset=tui_initial_offset, session_id=session_id)
     except Exception as e:
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp

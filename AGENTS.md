@@ -99,10 +99,20 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 The repo no longer contains an in-process agent loop — the worker shells out.
 
-- **Backends** — `agent/src/agent/claude_code.py` (Claude Code) and
-  `agent/src/agent/codex.py` (Codex CLI). `y chat --bot codex|claude_code -m "..."`
+- **Backends** — `agent/src/agent/claude_code.py` (Claude Code), `agent/src/agent/codex.py`
+  (Codex CLI), plus `gemini_cli` / `pi_cli`. `y chat --bot codex|claude_code -m "..."`
   picks one; default is `claude_code`. The chat's `backend` field is persisted and
   displayed.
+- **Claude Code TUI (`claude_tui`)** — `agent/src/agent/claude_tui.py` is a separate,
+  additive backend that drives the *interactive* Claude Code TUI through tmux instead of
+  `claude -p`: the prompt is pasted via tmux bracketed paste and output is poll-read from
+  the session JSONL (`~/.claude/projects/<cwd-dashed>/<uuid>.jsonl`), so it runs on the
+  EC2 subscription login (no base_url / API key) rather than an API budget. Deterministic
+  session id via `--session-id` (fresh) / `--resume` (continue); per-turn `cc-<chat_id>`
+  tmux session; turn completion is the `system/turn_duration` JSONL marker; live steer is
+  a mid-turn paste. The existing `claude -p` path (`claude_code.py`, `detach.py`) is
+  unchanged — `claude_tui` reuses only its pure helpers by import. Opt in via a bot_config
+  with `backend=claude_tui` or `--backend claude_tui`.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
   SSHes in, tails stdout, and streams JSON events back. `agent/ssh_pool.py` reuses SSH
   connections across monitor passes; `agent/ec2_wake.py` auto-wakes the instance.
