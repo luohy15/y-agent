@@ -111,10 +111,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Badge click-to-filter: clicking a chat-row badge sets the matching filter to that
   // badge's value (clearing any externally-supplied filter first so the internal input
   // takes over) and lets the reset-pagination effect refetch the filtered list.
-  const filterByTrace = (id: string) => { if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
-  const filterByTopic = (t: string) => setTopicFilter(t);
-  const filterBySkill = (s: string) => setSkillFilter(s);
-  const filterByRoutine = (name: string) => { if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(name); };
+  // Under hideFilters the filter row (and its clear ✕ buttons) is not rendered, so a
+  // badge-set internal filter would be stuck with no UI to clear it (and would collapse
+  // a trace-bound list to a single topic/skill); make every badge presentational-only
+  // in that mode by no-op'ing the setters.
+  const filterByTrace = (id: string) => { if (hideFilters) return; if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
+  const filterByTopic = (t: string) => { if (hideFilters) return; setTopicFilter(t); };
+  const filterBySkill = (s: string) => { if (hideFilters) return; setSkillFilter(s); };
+  const filterByRoutine = (name: string) => { if (hideFilters) return; if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(name); };
 
   const handleClick = (id: string) => {
     onSelectChat(id);
