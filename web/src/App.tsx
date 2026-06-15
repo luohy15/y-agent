@@ -19,6 +19,7 @@ import EntityList from "./components/EntityList";
 import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
+import ClaudeUsageWidget from "./components/ClaudeUsageWidget";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
@@ -844,6 +845,7 @@ export default function App() {
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {body}
                 </div>
+                <ClaudeUsageWidget isLoggedIn={auth.isLoggedIn} />
               </div>
             );
           })()}

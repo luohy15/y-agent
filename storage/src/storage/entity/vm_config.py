@@ -16,6 +16,7 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
     finance_config = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
+    claude_usage = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),
