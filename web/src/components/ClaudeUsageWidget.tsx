@@ -1,5 +1,6 @@
+import { useState } from "react";
 import useSWR from "swr";
-import { API, jsonFetcher as fetcher } from "../api";
+import { API, authFetch, jsonFetcher as fetcher } from "../api";
 
 // Past this age the cached scrape is treated as stale: the widget dims and the
 // tooltip still shows the last-known "as of HH:MM". Threshold is generous so a
@@ -178,10 +179,11 @@ function UsageBar({
 
 export default function ClaudeUsageWidget({ isLoggedIn }: { isLoggedIn: boolean }) {
   const key = isLoggedIn ? `${API}/api/claude/usage` : null;
-  const { data } = useSWR<UsageBlob>(key, fetcher, {
-    refreshInterval: 60000,
+  const { data, mutate } = useSWR<UsageBlob>(key, fetcher, {
     revalidateOnFocus: false,
   });
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isLoggedIn) return null;
 
@@ -192,16 +194,61 @@ export default function ClaudeUsageWidget({ isLoggedIn }: { isLoggedIn: boolean 
       : false;
   const ts = asOf(data?.scraped_at);
 
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setErrorMsg(null);
+    try {
+      const res = await authFetch(`${API}/api/claude/usage/refresh`, { method: "POST" });
+      if (!res.ok) {
+        throw new Error((await res.text()) || res.statusText || `HTTP ${res.status}`);
+      }
+      const fresh = (await res.json()) as UsageBlob;
+      await mutate(fresh, { revalidate: false });
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="shrink-0 border-t border-sol-base02 px-3 py-2 bg-sol-base03">
-      <div className="mb-1.5 flex items-center justify-between">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="text-[10px] uppercase tracking-wide text-sol-base01">Claude usage</span>
-        {hasData && ts && (
-          <span className={`text-[10px] ${stale ? "text-sol-orange" : "text-sol-base01"}`} title={`Cached scrape from ${data?.scraped_at}`}>
-            {stale ? "stale · " : "as of "}
-            {ts}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {errorMsg ? (
+            <span className="text-[10px] text-sol-red" title={errorMsg}>refresh failed</span>
+          ) : (
+            hasData && ts && (
+              <span className={`text-[10px] ${stale ? "text-sol-orange" : "text-sol-base01"}`} title={`Cached scrape from ${data?.scraped_at}`}>
+                {refreshing ? "refreshing…" : stale ? "stale · " : "as of "}
+                {refreshing ? null : ts}
+              </span>
+            )
+          )}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title={refreshing ? "refreshing…" : "refresh claude usage"}
+            aria-label="refresh claude usage"
+            className="flex h-4 w-4 items-center justify-center rounded text-sol-base01 hover:text-sol-base1 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`}
+            >
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" />
+              <path d="M13.5 2.5v3h-3" />
+            </svg>
+          </button>
+        </div>
       </div>
       {!hasData ? (
         <div className="text-[11px] text-sol-base01">no data</div>
