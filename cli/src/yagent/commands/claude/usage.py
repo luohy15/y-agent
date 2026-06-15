@@ -8,10 +8,12 @@ week all-models / current week Sonnet-only) as a friendly table or, with
 
 import asyncio
 import json
+from datetime import datetime, timezone
 
 import click
 
 from storage.service.user import get_cli_user_id
+from storage.service import vm_config as vm_service
 from agent import config as agent_config
 from agent.claude_usage import read_claude_usage
 
@@ -41,6 +43,16 @@ def usage(user_id: int | None, vm_name: str | None, work_dir: str | None, as_jso
         "source": "claude_tui",
         "raw": result.get("raw", ""),
     }
+
+    # Best-effort write-through to the sidebar cache (vm_config.claude_usage). A
+    # cache-write failure must never break the scrape/alert output.
+    try:
+        cached = dict(envelope)
+        cached.pop("raw", None)
+        cached["scraped_at"] = datetime.now(timezone.utc).isoformat()
+        vm_service.save_claude_usage(target_user_id, vm_config.name, cached)
+    except Exception as exc:
+        click.echo(f"warning: failed to cache claude usage: {exc}", err=True)
 
     if as_json:
         click.echo(json.dumps(envelope))
