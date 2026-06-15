@@ -496,7 +496,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             user_id, bot_name, backend=chat.backend or backend, tier=effective_tier,
         )
     except Exception as e:
-        fallback_backend = chat.backend or backend or "claude_code"
+        fallback_backend = chat.backend or backend or "claude_tui"
         logger.exception(
             "Bot resolve failed for chat {} (user_id={} bot_name={} backend={}); "
             "falling back to default bot backend={}: {}",
@@ -949,14 +949,16 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         params = _build_pi_params(chat, chat_id, user_id, bot_config,
                                   vm_name=vm_name, work_dir=work_dir,
                                   trace_id=trace_id, topic=topic)
-    elif effective_backend == "claude_tui":
-        params = _build_claude_tui_params(chat, chat_id, user_id, bot_config,
-                                          vm_name=vm_name, work_dir=work_dir,
-                                          trace_id=trace_id, topic=topic)
-    else:
+    elif effective_backend == "claude_code":
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
                                             trace_id=trace_id, topic=topic)
+    else:
+        # None / unrecognized backends default to claude_tui (interactive tmux TUI =
+        # subscription usage), not claude -p (programmatic -> dedicated credit pool).
+        params = _build_claude_tui_params(chat, chat_id, user_id, bot_config,
+                                          vm_name=vm_name, work_dir=work_dir,
+                                          trace_id=trace_id, topic=topic)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)
