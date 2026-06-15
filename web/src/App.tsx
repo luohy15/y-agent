@@ -24,6 +24,7 @@ import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 import type { ArtifactType } from "./components/ArtifactView";
+import { shouldShowClaudeUsageWidget } from "./utils/sidebarClaudeUsage";
 
 interface VmConfigItem {
   name: string;
@@ -781,6 +782,7 @@ export default function App() {
               bots: { path: "bot.md", label: "Open bot.md" },
             };
             const panelFile = panelFileMap[sidebarPanel];
+            const showClaudeUsageWidget = shouldShowClaudeUsageWidget(sidebarPanel);
             const body =
               sidebarPanel === "todo" ? (
                 <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { requestSelectTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} else { handleOpenFile("trace.md"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
@@ -845,7 +847,7 @@ export default function App() {
                 <div className="flex-1 min-h-0 overflow-hidden">
                   {body}
                 </div>
-                <ClaudeUsageWidget isLoggedIn={auth.isLoggedIn} />
+                {showClaudeUsageWidget && <ClaudeUsageWidget isLoggedIn={auth.isLoggedIn} />}
               </div>
             );
           })()}
