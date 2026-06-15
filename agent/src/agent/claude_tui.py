@@ -51,6 +51,12 @@ POLL_INTERVAL_SECONDS = 2
 READY_TIMEOUT_SECONDS = 90
 # Footer that the TUI shows once it is idle and ready for input.
 READY_FOOTER = "bypass permissions on"
+# Footer suffix shown while the submitted turn is still running.
+RUNNING_FOOTER_MARKER = "esc to interrupt"
+# Guard against the brief post-submit window before the running footer appears.
+IDLE_GUARD_SECONDS = 10
+# Sustained (static JSONL offset + idle footer) window before finalizing.
+IDLE_FINALIZE_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +280,11 @@ def _capture_pane(client, chat_id: str) -> str:
         return _ssh_exec(client, f"tmux capture-pane -p -t {_shell_quote(_session(chat_id))} 2>/dev/null")
     except Exception:
         return ""
+
+
+def _footer_is_idle(pane: str) -> bool:
+    lower = pane.lower()
+    return READY_FOOTER in lower and RUNNING_FOOTER_MARKER not in lower
 
 
 def _send_keys(client, chat_id: str, *keys: str) -> None:
@@ -504,6 +515,10 @@ async def tail_claude_tui_output(
     consumed_steer_ids: List[str] = []
     stream_error: Optional[Exception] = None
     done = False
+    emitted_any = False
+    tail_start = time.monotonic()
+    last_seen_offset = current_offset
+    quiescent_since: Optional[float] = None
 
     # Live steer + interrupt run in the shared poll thread.
     def _on_steer(text, msg_id, images=None):
@@ -544,6 +559,15 @@ async def tail_claude_tui_output(
             stream_error = e
             return None
 
+    def _emit_messages(messages: List[Message]) -> None:
+        nonlocal emitted_any
+        if not messages:
+            return
+        emitted_any = True
+        for msg in messages:
+            if message_callback:
+                message_callback(msg)
+
     def _drain() -> None:
         """Synchronous read+convert pass (runs in the executor)."""
         nonlocal current_offset, safe_offset, done
@@ -557,15 +581,11 @@ async def tail_claude_tui_output(
             obj = parse_stream_line(line)
             if obj and _is_turn_done(obj):
                 # Flush the final assistant group, then mark the turn complete.
-                for msg in converter.flush():
-                    if message_callback:
-                        message_callback(msg)
+                _emit_messages(converter.flush())
                 safe_offset = current_offset
                 done = True
                 continue
-            for msg in converter.process_line(line):
-                if message_callback:
-                    message_callback(msg)
+            _emit_messages(converter.process_line(line))
             if not converter.has_pending:
                 safe_offset = current_offset
 
@@ -593,6 +613,28 @@ async def tail_claude_tui_output(
                 if not _tmux_session_alive(client, chat_id):
                     status = "no_result"
                     break
+
+                now = time.monotonic()
+                advanced = current_offset > last_seen_offset
+                if advanced:
+                    quiescent_since = None
+                elif now - tail_start >= IDLE_GUARD_SECONDS:
+                    pane = _capture_pane(client, chat_id)
+                    if _footer_is_idle(pane):
+                        if quiescent_since is None:
+                            quiescent_since = now
+                        elif now - quiescent_since >= IDLE_FINALIZE_SECONDS:
+                            status = "stuck_finalize"
+                            logger.warning(
+                                "claude_tui: idle-footer stuck finalize for chat_id={} offset={}",
+                                chat_id,
+                                current_offset,
+                            )
+                            _tui_kill(client, chat_id)
+                            break
+                    else:
+                        quiescent_since = None
+                last_seen_offset = current_offset
 
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
         except asyncio.CancelledError:
@@ -653,6 +695,39 @@ async def tail_claude_tui_output(
                     "result": (
                         "Claude Code TUI exited before completing the turn "
                         f"(no turn_duration marker).{_stream_error_suffix(stream_error)}"
+                    ),
+                },
+                "status": "error",
+                "consumed_steer_ids": consumed_steer_ids,
+            }
+
+        if status == "stuck_finalize":
+            _emit_messages(converter.flush())
+            safe_offset = current_offset
+            if emitted_any or converter.usage:
+                result_data = {"is_error": False}
+                if converter.usage:
+                    result_data["usage"] = converter.usage
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "session_id": converter.session_id or session_id,
+                    "is_done": True,
+                    "result_data": result_data,
+                    "status": "completed",
+                    "consumed_steer_ids": consumed_steer_ids,
+                }
+            return {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "session_id": converter.session_id or session_id,
+                "is_done": True,
+                "result_data": {
+                    "is_error": True,
+                    "result": (
+                        "Claude Code TUI went idle without producing output for this turn "
+                        f"(no turn_duration marker); finalized after {IDLE_FINALIZE_SECONDS}s. "
+                        "Resend or continue."
                     ),
                 },
                 "status": "error",
