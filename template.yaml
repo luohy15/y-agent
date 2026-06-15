@@ -343,6 +343,11 @@ Resources:
           Properties:
             Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
+        CheckClaudeStatusSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Input: '{"action": "check_claude_status"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations
