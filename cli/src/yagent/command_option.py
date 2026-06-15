@@ -23,6 +23,7 @@ from yagent.commands.rss.click import rss_group
 from yagent.commands.trace.click import trace_group
 from yagent.commands.telegram.click import telegram_group
 from yagent.commands.cookies.click import cookies_group
+from yagent.commands.claude.click import claude_group
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(context_settings=CONTEXT_SETTINGS)
@@ -55,3 +56,4 @@ cli.add_command(rss_group)
 cli.add_command(trace_group)
 cli.add_command(telegram_group)
 cli.add_command(cookies_group)
+cli.add_command(claude_group)
