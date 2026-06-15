@@ -10,8 +10,8 @@ then dismisses and kills the session. No LLM turn is fired and the probe costs
 nothing.
 
 This is a NEW, self-contained read path. It reuses only the pure low-level tmux
-helpers from `claude_tui` (`_session` / `_capture_pane` / `_send_keys` /
-`_wait_ready` / `_tui_kill`) and `_with_ssh_client` / `_ssh_exec` / `_shell_quote`.
+helpers from `claude_tui` (`_session` / `_send_keys` / `_wait_ready` /
+`_tui_kill`) and `_with_ssh_client` / `_ssh_exec` / `_shell_quote`.
 It deliberately does NOT call `start_detached_claude_tui_ssh` (which pastes a
 prompt and would trigger a real LLM turn) and does NOT touch the `claude -p`
 path.
@@ -29,7 +29,6 @@ from agent.claude_code import _shell_quote, _ssh_exec
 from agent.detach import _with_ssh_client
 from agent.claude_tui import (
     READY_TIMEOUT_SECONDS,
-    _capture_pane,
     _prompt_file,
     _send_keys,
     _session,
@@ -158,8 +157,15 @@ async def read_claude_usage(
             inner_parts.append("exec " + " ".join(_shell_quote(c) for c in cmd))
             inner = " ".join(inner_parts)
 
+            # Tall pane: the `/usage` overlay renders the windows block
+            # (`Current session` / `Current week`) at the TOP followed by a
+            # `What's contributing` breakdown + footer. With a short pane the
+            # whole dialog exceeds the viewport and the windows block scrolls
+            # off the top, so `capture-pane -p` (visible region only) grabs just
+            # the lower section. Give the TUI plenty of rows so the entire
+            # overlay fits and the windows block stays in the captured region.
             tmux_cmd = (
-                f"tmux new-session -d -s {_shell_quote(session_name)} -x 220 -y 50 "
+                f"tmux new-session -d -s {_shell_quote(session_name)} -x 220 -y 80 "
                 + (f"-c {_shell_quote(cwd)} " if cwd else "")
                 + _shell_quote(inner)
             )
@@ -177,9 +183,16 @@ async def read_claude_usage(
             _send_keys(client, chat_id, "Enter")
 
             # Poll until the overlay renders (a window label + a `% used` line).
+            # The full overlay is taller than the pane, so the windows block
+            # (`Current session` / `Current week`) scrolls off the top into
+            # tmux scrollback while the visible region shows only the lower
+            # `What's contributing` breakdown + footer. Capture the whole
+            # scrollback (`-S -`) so the windows block is always included.
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                pane = _capture_pane(client, chat_id)
+                pane = _ssh_exec(
+                    client, f"tmux capture-pane -p -S - -t {target} 2>/dev/null"
+                )
                 if "Current session" in pane and "% used" in pane:
                     break
                 await asyncio.sleep(1)
