@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.17] - 2026-06-14
+
+### Added
 - **Inline calendar event editing (2446)** — CalendarViewer now supports editing, creating, and deleting calendar events inline.
 - **Calendar drag interactions (2450, 2451)** — drag an event's top/bottom border to resize its time range, drag the whole event to move it, with a live time label shown during the drag.
 - **Calendar Today button (2454)** — the Today button now scrolls the time grid to the current hour.
