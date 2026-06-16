@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
+import remarkStripComments from "../utils/remarkStripComments";
 import DocsSidebar, { type DocsItem } from "./DocsSidebar";
 import DocsToc, { type TocItem } from "./DocsToc";
 
@@ -232,7 +233,7 @@ export default function DocsView() {
               className="prose prose-sm prose-invert max-w-[720px] text-sol-base0 prose-headings:text-sol-base1 prose-a:text-sol-cyan prose-strong:text-sol-base1 prose-code:text-sol-yellow prose-code:before:content-none prose-code:after:content-none prose-pre:bg-sol-base02 prose-pre:text-sol-base0"
             >
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkStripComments]}
                 rehypePlugins={[rehypeSlug]}
                 components={markdownComponents}
               >

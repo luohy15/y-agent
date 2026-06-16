@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
+import remarkStripComments from "../utils/remarkStripComments";
 import { API } from "../api";
 import DocsToc, { type TocItem } from "./DocsToc";
 
@@ -195,7 +196,7 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
             </div>
           )}
           <article ref={articleRef} className="prose prose-invert max-w-none prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkStripComments]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
           </article>
         </div>
 
