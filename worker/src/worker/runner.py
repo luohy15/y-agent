@@ -28,6 +28,9 @@ DEFAULT_BOT_BASE_URL = BotConfig.__dataclass_fields__["base_url"].default
 PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
 OPENAI_ALLOWED_ROLES = {"system", "user", "assistant"}
 
+# Fixed built-in tool subset shared by the `claude -p` and `claude_tui` launches.
+CLAUDE_TOOLS_ALLOWLIST = "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,Write"
+
 ARTIFACT_FENCE_RE = re.compile(
     r"```(?P<lang>mermaid|vega-lite|artifact-svg)[^\n`]*\n.*?```",
     re.IGNORECASE | re.DOTALL,
@@ -574,9 +577,9 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     # Build cmd
     if resume and session_id:
-        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "-r", session_id, "--permission-mode", "bypassPermissions", "--tools", "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,Write"]
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "-r", session_id, "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST]
     else:
-        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--tools", "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,Write"]
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST]
         session_id = None
 
     if model:
@@ -858,7 +861,9 @@ def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_na
 
     Mirrors _build_claude_code_params but targets the interactive TUI: a fresh
     turn gets a generated `--session-id <uuid>`; a continue uses `--resume <uuid>`.
-    No `--output-format`/`--tools`/`--input-format` (those are `claude -p` only).
+    No `--output-format`/`--input-format` (those are `claude -p` only). Shares the
+    `--tools <CLAUDE_TOOLS_ALLOWLIST>` built-in subset with `-p`, plus
+    `--strict-mcp-config` to disallow all MCP servers (no `--mcp-config` supplied).
     With no base_url/api_key the launch uses the EC2 subscription login.
     """
     import uuid as _uuid
@@ -876,11 +881,11 @@ def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_na
     resume = bool(session_id) and chat.work_dir == cwd
 
     if resume and session_id:
-        cmd = ["claude", "--resume", session_id, "--permission-mode", "bypassPermissions"]
+        cmd = ["claude", "--resume", session_id, "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST, "--strict-mcp-config"]
     else:
         session_id = str(_uuid.uuid4())
         resume = False
-        cmd = ["claude", "--session-id", session_id, "--permission-mode", "bypassPermissions"]
+        cmd = ["claude", "--session-id", session_id, "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST, "--strict-mcp-config"]
 
     if model:
         cmd.extend(["--model", model])
