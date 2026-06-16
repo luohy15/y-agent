@@ -13,10 +13,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **claude_tui backend (2514)** — new tmux-backed Claude Code TUI backend that drives the interactive `claude` TUI on EC2 over the subscription login (no `base_url` / API key), parallel to the existing `claude -p` path.
+- **Claude limit-window usage in sidebar (2524)** — bot-panel sidebar footer shows 5h session and weekly limit-window usage progress bars with reset countdowns, refreshed on demand.
+- **Claude `/usage` scrape (2515)** — `y claude usage` CLI plus a `claude-usage-check` alert skill that scrapes the claude_tui `/usage` TUI for current limit-window usage and notifies via Telegram above a threshold.
+- **Claude status RSS monitor (2529)** — worker monitor that polls Claude's status RSS feed and pushes Telegram notifications on new incidents.
 
 ### Changed
+- **Claude usage shown only for bot panel** — limit-window usage progress bars are scoped to the bot panel sidebar instead of rendering globally.
 
 ### Fixed
+- **claude_tui idle-turn finalization** — stuck idle turns in claude_tui sessions now finalize instead of hanging.
+- **claude_tui default backend fallback (2518)** — worker default agent backend now falls back to `claude_tui` instead of `claude -p`.
+- **claude_tui `/usage` scrape scrollback (2515)** — capture full tmux scrollback so the windows block is reliably read.
+- **ChatList badge filter guard (2517)** — badge filters no-op under `hideFilters` so the trace sidebar can't get stuck on one topic.
 
 ### Removed
 
