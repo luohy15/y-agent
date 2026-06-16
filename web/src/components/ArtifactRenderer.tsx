@@ -15,11 +15,25 @@ function artifactLabel(type: ArtifactType): string {
 }
 
 function sanitizeSvg(svg: string): string {
+  // Two non-obvious rules keep mermaid diagrams from rendering as an empty box:
+  //
+  // 1. No custom ALLOWED_URI_REGEXP. DOMPurify URI-validates every attribute that
+  //    isn't in its URI-safe allowlist, so a narrow regexp rejects the values of
+  //    geometry attributes (transform, viewBox, d, points, x/y, width/height…) and
+  //    collapses the whole diagram to the origin. The default regexp still blocks
+  //    javascript:/external schemes.
+  // 2. Allow <foreignObject> + the html profile. mermaid 11 renders flowchart NODE
+  //    labels as HTML inside <foreignObject> even with flowchart.htmlLabels:false
+  //    (forcing it truly off makes node labels render empty), so forbidding it drops
+  //    every node label. DOMPurify still sanitizes that embedded HTML (script tags,
+  //    on* handlers, javascript: URIs are stripped), and href/xlink:href/src are
+  //    forbidden below, so the label HTML stays inert.
   return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    FORBID_TAGS: ["script", "foreignObject", "iframe", "object", "embed"],
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    ADD_TAGS: ["foreignObject"],
+    HTML_INTEGRATION_POINTS: { foreignobject: true },
+    FORBID_TAGS: ["script", "iframe", "object", "embed"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "src", "href", "xlink:href"],
-    ALLOWED_URI_REGEXP: /^(?:(?:data:image\/(?:png|gif|jpeg|webp);base64,)|#)/i,
   });
 }
 
@@ -65,7 +79,6 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
             securityLevel: "strict",
             theme: "dark",
             suppressErrorRendering: true,
-            flowchart: { htmlLabels: false },
           });
           await mermaid.parse(spec);
           const { svg } = await mermaid.render(renderId, spec);
