@@ -3,12 +3,13 @@
 // the REAL panel components against seeded fixtures, so the captured PNGs match
 // production styling exactly (no reimplementation). Each panel sits in a
 // fixed-size wrapper tagged `data-screenshot=<name>` for Playwright to target.
-import { installFetchMock } from "../showcase/fixtures";
+import { installFetchMock, CHAT_MESSAGES_FIXTURE } from "../showcase/fixtures";
 import TodoList from "./TodoList";
 import TraceView from "./TraceView";
 import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import FinanceViewer from "./FinanceViewer";
+import ChatView from "./ChatView";
 
 // Install the fetch mock + force deterministic panel state before any panel
 // mounts and fires its SWR fetch. Runs once when this lazy chunk is imported.
@@ -78,6 +79,19 @@ export default function ScreenshotShowcase() {
 
         <PanelFrame name="finance" title="finance · FinanceViewer" width={900} height={760}>
           <FinanceViewer />
+        </PanelFrame>
+
+        <PanelFrame name="chat" title="chat · ChatView (snapshot)" width={560} height={680}>
+          {/* ChatView's root is `flex-1 flex flex-col`, so it needs a flex-column
+              parent of known height to fill the fixed panel frame. */}
+          <div className="flex flex-col h-full w-full">
+            <ChatView
+              mode="snapshot"
+              isLoggedIn={false}
+              chatId="showcase-chat"
+              snapshotMessages={CHAT_MESSAGES_FIXTURE}
+            />
+          </div>
         </PanelFrame>
       </div>
     </div>

@@ -10,8 +10,9 @@ order: 2
 
 ## Showcased capabilities
 
-These four are the ones worth seeing first — each has a dedicated walkthrough (and a screenshot) in [getting-started.md](getting-started.md).
+These five are the ones worth seeing first — each has a dedicated walkthrough (and a screenshot) in [getting-started.md](getting-started.md).
 
+- **Chat** — the core agent surface: every task is a conversation that streams in real time with inline, collapsible tool calls. Assistant prose can carry **inline artifacts** (charts / diagrams / SVG that render directly in the thread), and any messages can be exported to a phone-friendly PNG or the whole chat shared as a read-only link.
 - **Todo & Trace** — first-class todos (full-stack CRUD, kanban, pagination, pin, search, status history) where the todo's public ID *is* the `trace_id`. Every chat dispatched under a todo carries that id, and the **TraceView** waterfall stitches the whole cross-skill call chain into one tree. Traces are shareable as a public read-only page (optionally password-protected).
 - **Note** — structured notes with a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos. Journals (daily log), Pages (topic state), and plan / requirement / decision context all live here.
 - **Link** — a browsable link archive: Chrome history / bookmark sync, on-demand fetch of Twitter / X, Bilibili, WeChat, and generic pages into markdown, TLDR summaries, and in-app markdown preview.
@@ -23,7 +24,7 @@ Every activity-bar panel in the web GUI:
 
 - **Todo** — kanban + list, pin, pagination, search, history. *(showcased)*
 - **Notes** — Journals + Pages + structured notes. *(showcased)*
-- **Chats** — every chat in reverse-chronological order; click to stream history via SSE; new / clear / share / trace actions.
+- **Chats** — every chat in reverse-chronological order; click to stream history via SSE; new / clear / share / trace actions. *(showcased)*
 - **Links** — the link archive. *(showcased)*
 - **RSS** — feed subscriptions with a two-stage scrape pipeline (admin schedules → worker scrapes feed XML → downloader fetches each item); per-item content on S3.
 - **Entities** — knowledge-graph nodes (person / product / org / project). Each entity has a backing note and can be associated with other notes and RSS feeds.
