@@ -2,6 +2,7 @@ import { Children, isValidElement, useState, useRef, useEffect, type ReactNode }
 import { API, authFetch, getToken } from "../api";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkStripComments from "../utils/remarkStripComments";
 import { PatchDiff } from "@pierre/diffs/react";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
 import { parseLocalFileReference } from "../utils/localFileLinks";
@@ -633,7 +634,7 @@ export default function MessageBubble({ role, content, images, links, toolName, 
       {!dimmed && <TimestampLine timestamp={timestamp} />}
       <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkStripComments]}
           urlTransform={(url) => url.startsWith("cite://") ? url : defaultUrlTransform(url)}
           components={{
             pre({ children, node }) {

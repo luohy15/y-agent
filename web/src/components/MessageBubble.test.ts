@@ -109,3 +109,21 @@ describe("citation chips", () => {
     expect(html).not.toContain("Legacy source [1]");
   });
 });
+
+describe("html comment stripping", () => {
+  it("hides standalone and inline HTML comments in assistant markdown", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(MessageBubble, {
+        role: "assistant",
+        content: "Visible line\n\n<!-- SCREENSHOT: chat -->\n\ninline <!-- hide me --> tail",
+      }),
+    );
+
+    expect(html).toContain("Visible line");
+    expect(html).toContain("inline");
+    expect(html).toContain("tail");
+    expect(html).not.toContain("SCREENSHOT");
+    expect(html).not.toContain("hide me");
+    expect(html).not.toContain("--&gt;");
+  });
+});
