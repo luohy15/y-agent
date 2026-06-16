@@ -48,9 +48,16 @@ Defaults work for most cases, but you can override per chat:
 - **Skill**: pick a specialized skill (e.g. `dev`, `plan`, `impl`) instead of the default `manager`. The skill defines what tools and prompts the agent loads.
 - **VM** / **work_dir**: which EC2 instance and project directory to run in. Most users have one VM and a default work_dir, so this is set-and-forget.
 
-## The four showcased capabilities
+## The five showcased capabilities
 
-Most of y-agent's value lives in four panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
+Most of y-agent's value lives in five panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
+
+### Chat
+
+Every task is a conversation, and the **Chat** panel is where you watch it happen. Assistant turns stream in real time with inline, collapsible tool calls, and assistant prose can carry **inline artifacts** — charts, diagrams, and sanitized SVG render directly in the thread instead of as plain code blocks. Select any messages to export them as a phone-friendly PNG, or share the whole chat as a read-only link.
+
+<!-- SCREENSHOT: chat -->
+![Chat](https://cdn.luohy15.com/y-agent/docs/chat.png)
 
 ### Todo & Trace
 

@@ -435,6 +435,99 @@ export const BALANCE_SHEET_FIXTURE = {
   source: "cache" as const,
 };
 
+// --- /showcase chat panel: snapshot raw messages ------------------------------
+// Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
+// uses to project mock chat messages). Snapshot mode short-circuits every
+// /api/chat/* request and renders these raw messages directly, so the chat panel
+// needs NO entry in installFetchMock below. The shape matches a real chat
+// snapshot row: a user prompt, an assistant turn with prose + a real tool call,
+// then a final assistant message with prose + an inline rendered artifact
+// (mermaid) — exercising the chat surface end to end.
+
+const CHAT_VEGA_SPEC = JSON.stringify(
+  {
+    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+    description: "Mock fixture rows per showcased panel.",
+    width: 360,
+    height: 200,
+    background: "transparent",
+    data: {
+      values: [
+        { panel: "todo", rows: 10 },
+        { panel: "trace", rows: 5 },
+        { panel: "note", rows: 5 },
+        { panel: "link", rows: 8 },
+        { panel: "finance", rows: 7 },
+        { panel: "chat", rows: 4 },
+      ],
+    },
+    mark: { type: "bar", cornerRadiusEnd: 3, color: "#2aa198" },
+    encoding: {
+      x: { field: "panel", type: "nominal", sort: null, axis: { labelAngle: 0, title: null, labelColor: "#93a1a1" } },
+      y: { field: "rows", type: "quantitative", title: "fixture rows", axis: { titleColor: "#93a1a1", labelColor: "#93a1a1" } },
+    },
+  },
+);
+
+const CHAT_ASSISTANT_FINAL = [
+  "Concretely, each showcased panel is backed by a small seeded fixture — here's the row count per panel:",
+  "",
+  "```vega-lite",
+  CHAT_VEGA_SPEC,
+  "```",
+  "",
+  "Every panel runs its **real** `authFetch` path against that seeded JSON, so no component is reimplemented and the screenshots match production exactly.",
+].join("\n");
+
+const CHAT_TOOL_RESULT = [
+  "export function installFetchMock(): void {",
+  "  if (installed) return;",
+  "  installed = true;",
+  "  const realFetch = window.fetch.bind(window);",
+  "  window.fetch = (input, init) => {",
+  "    const fixture = matchFixture(urlOf(input));",
+  "    if (fixture !== undefined) return Promise.resolve(jsonResponse(fixture));",
+  "    return realFetch(input, init);",
+  "  };",
+  "}",
+].join("\n");
+
+export const CHAT_MESSAGES_FIXTURE = [
+  {
+    role: "user",
+    content:
+      "How does the /showcase route feed mock data into the real panels without touching the production components?",
+    timestamp: isoDaysAgo(0, -30 * MIN),
+  },
+  {
+    role: "assistant",
+    content:
+      "Good question. Before any panel mounts, the route overrides `window.fetch` with a URL-keyed mock. Every panel's real `authFetch` → `jsonFetcher` path then resolves to seeded fixtures instead of the backend. Let me pull up the fixture module to show the wiring.",
+    tool_calls: [
+      {
+        id: "call_showcase_1",
+        function: {
+          name: "file_read",
+          arguments: JSON.stringify({ path: "web/src/showcase/fixtures.ts", offset: 482, limit: 12 }),
+        },
+      },
+    ],
+    timestamp: isoDaysAgo(0, -29 * MIN),
+  },
+  {
+    role: "tool",
+    tool_call_id: "call_showcase_1",
+    tool: "file_read",
+    content: CHAT_TOOL_RESULT,
+    timestamp: isoDaysAgo(0, -29 * MIN),
+  },
+  {
+    role: "assistant",
+    content: CHAT_ASSISTANT_FINAL,
+    timestamp: isoDaysAgo(0, -28 * MIN),
+  },
+];
+
 // --- fetch mock ---------------------------------------------------------------
 
 function jsonResponse(body: unknown): Response {

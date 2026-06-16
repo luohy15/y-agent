@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..");
 const OUT_DIR = "/Users/roy/luohy15/assets/images";
 const PORT = Number(process.env.SHOWCASE_PORT || 5191);
-const NAMES = ["todo", "trace", "note", "link", "finance"];
+const NAMES = ["todo", "trace", "note", "link", "finance", "chat"];
 
 function startServer() {
   // Run vite directly (skip the `predev` docs build; the showcase needs no docs).
@@ -80,6 +80,13 @@ async function main() {
       await page.locator(`[data-screenshot="${name}"]`).waitFor({ state: "visible", timeout: 30_000 });
     }
     await page.waitForLoadState("networkidle").catch(() => {});
+    // The chat panel renders an inline artifact (mermaid) that lazy-loads its
+    // chunk and rasterizes async — wait for the rendered SVG before settling.
+    await page
+      .locator('[data-screenshot="chat"] .artifact-renderer svg')
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .catch(() => {});
     await page.waitForTimeout(2000);
 
     for (const name of NAMES) {
