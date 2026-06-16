@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router";
 import { SWRConfig } from "swr";
@@ -11,6 +12,9 @@ import { useAuth } from "./hooks/useAuth";
 import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
 import { API } from "./api";
+
+// Lazy, unauthenticated route used only by the doc-screenshot pipeline.
+const ScreenshotShowcase = lazy(() => import("./components/ScreenshotShowcase"));
 
 // Fire-and-forget warm-up ping to trigger Lambda init while the user reads the
 // UI. No auth, ignore the result; swallow errors so it never logs to console.
@@ -33,6 +37,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/share/:shareId" element={<ShareView />} />
         <Route path="/t/:shareId" element={<PublicTraceApp />} />
         <Route path="/n/:shareId" element={<ShareNoteView />} />
+        <Route path="/showcase" element={<Suspense fallback={null}><ScreenshotShowcase /></Suspense>} />
         <Route path="/trace/:traceId" element={<App />} />
         <Route path="/*" element={<App />} />
       </Routes>
