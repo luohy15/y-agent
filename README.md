@@ -55,16 +55,15 @@ A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so [
 
 ## Docs
 
-Two paths, depending on whether you want to run your own instance:
+Two paths, split by whether you run the server or just use one. Each page opens with a `client` or `server` tag so you always know which side you're on.
 
-**Use the hosted instance** — `y login` against `yovy.app` and go.
+**Client — use a hosted instance** (`y login` against `yovy.app` and go; no infra needed):
 
-- [docs/cli.md](docs/cli.md) — install the CLI, sign in, common commands.
-- [docs/getting-started.md](docs/getting-started.md) — what the web UI looks like after sign-in.
-- [docs/capabilities.md](docs/capabilities.md) — what subsystems ship in a running deployment.
-- `y cookies sync` uploads local browser cookies for remote link fetchers such as YouTube.
+- [docs/getting-started.md](docs/getting-started.md) — the web GUI after sign-in, built around the four showcased capabilities (todo & trace, note, link, finance).
+- [docs/cli.md](docs/cli.md) — install the CLI, sign in, every command group.
+- [docs/capabilities.md](docs/capabilities.md) — client + server reference: what a running deployment ships.
 
-**Self-host** — run the API + worker yourself.
+**Server — self-host** (you run the API + worker yourself):
 
 - [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
 

@@ -6,7 +6,7 @@ order: 1
 
 # Getting Started
 
-This page walks through what y-agent looks like after you sign in. It assumes a deployed instance (e.g. `yovy.app`) — installing your own copy is in [self-host.md](self-host.md).
+**Client page.** This walks through the web GUI of a *hosted* y-agent instance (e.g. `yovy.app`) after you sign in — no infra to run. Installing your own server is the separate [self-host.md](self-host.md).
 
 ## Sign in
 
@@ -48,7 +48,11 @@ Defaults work for most cases, but you can override per chat:
 - **Skill**: pick a specialized skill (e.g. `dev`, `plan`, `impl`) instead of the default `manager`. The skill defines what tools and prompts the agent loads.
 - **VM** / **work_dir**: which EC2 instance and project directory to run in. Most users have one VM and a default work_dir, so this is set-and-forget.
 
-## Todos
+## The four showcased capabilities
+
+Most of y-agent's value lives in four panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
+
+### Todo & Trace
 
 Todos are first-class. The agent reads, creates, and updates them via the `y todo` CLI; you do the same from the **Todo** sidebar panel or the kanban view.
 
@@ -57,18 +61,47 @@ Todos are first-class. The agent reads, creates, and updates them via the `y tod
 - **Pin** — a star icon on each card; pinned todos float to the top.
 - **History** — every status change is logged so you can see when you started / finished.
 
-Todos can be linked to **notes** (plan / requirement / decision context), **links** (web pages, articles, X / Bilibili / WeChat), and a **trace_id** (which is just the todo's public ID — every chat dispatched under that todo carries the same trace_id, and the TraceView stitches them into a tree).
+<!-- SCREENSHOT: todo -->
+![Todo kanban](https://cdn.luohy15.com/y-agent/docs/todo.png)
 
-## Switching between chats
+The todo's **public ID is its `trace_id`**. Every chat dispatched under that todo carries the same trace_id, and the **TraceView** stitches them into a tree — the trace icon next to a chat opens the waterfall, where every cross-skill `y chat` call shows up as a row. Share the trace as a public read-only URL (optional password) to walk someone through a debugging session. See [a real one](https://yovy.app/t/6fc5c4).
 
-The **Chats** panel lists all chats in reverse-chronological order. Click any to load it; the message history streams in via SSE so it's instant even for long chats.
+<!-- SCREENSHOT: trace -->
+![TraceView waterfall](https://cdn.luohy15.com/y-agent/docs/trace.png)
 
-A few shortcuts:
+Todos can also be linked to **notes** (plan / requirement / decision context) and **links** (web pages, articles, X / Bilibili / WeChat).
 
-- **New chat**: + button at the top of the chat panel, or send a message with no chat selected.
-- **Clear**: the trash icon resets the selection without deleting the chat.
-- **Share**: the share button creates a public read-only URL (with optional password). Useful for showing a coworker a debugging session.
-- **Trace view**: the trace icon next to a chat opens the waterfall — every cross-skill `y chat` call shows up as a row.
+### Note
+
+The **Notes** panel holds Journals (daily log), Pages (topic state), and structured notes. A note is a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos — so a plan / requirement / decision attaches to the task it belongs to. Import with `y note import pages/plan-foo.md`, or write one from chat and `y assoc note ... --todo <id>`.
+
+<!-- SCREENSHOT: note -->
+![Notes panel](https://cdn.luohy15.com/y-agent/docs/note.png)
+
+### Link
+
+The **Links** panel is a browsable archive. `y link sync-chrome` pulls in browser history; `y link fetch <url>` renders Twitter / X, Bilibili, WeChat, and generic pages into markdown; `y link tldr <id>` produces a summary. Click any link to preview its markdown in the main area.
+
+<!-- SCREENSHOT: link -->
+![Links panel](https://cdn.luohy15.com/y-agent/docs/link.png)
+
+### Finance
+
+The **Finance** panel renders a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress as charts. The same views are available from `y finance balance-sheet` / `holdings` / `fire-progress` and mirror `/api/finance/*`; `y finance beancount` is the ledger-side producer.
+
+<!-- SCREENSHOT: finance -->
+![Finance view](https://cdn.luohy15.com/y-agent/docs/finance.png)
+
+## More panels
+
+The activity bar carries several lighter-weight subsystems:
+
+- **Chats** — all chats in reverse-chronological order; click to stream history via SSE. New chat: the + button or sending with no chat selected. Clear (trash icon) resets the selection without deleting.
+- **Entities** — knowledge-graph nodes (person / product / org / project). Each has a backing note and can be associated with other notes and RSS feeds; `y entity import` promotes a page into a node.
+- **RSS** — subscribe to feeds; a two-stage pipeline scrapes feed XML and fetches each item's content. Add with `y rss add <url>` or `import-opml`.
+- **Email** — multi-account Gmail sync (`y email sync-gmail`) for lightweight inbox review; filter by source account.
+- **Calendar** — timezone-aware events with a current-time ticker; import an ICS with `y calendar import file.ics`.
+- **Bots** — manage backend configs (Claude Code / Codex / Gemini CLI): add, enable/disable, set model + API key, then pick one per chat or per routine.
 
 ## Files
 
