@@ -577,9 +577,9 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     # Build cmd
     if resume and session_id:
-        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "-r", session_id, "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST]
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "-r", session_id, "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST, "--strict-mcp-config"]
     else:
-        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST]
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "--tools", CLAUDE_TOOLS_ALLOWLIST, "--strict-mcp-config"]
         session_id = None
 
     if model:
