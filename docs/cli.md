@@ -6,7 +6,7 @@ order: 2
 
 # Use via CLI
 
-This page is for using a hosted y-agent instance (e.g. `yovy.app`) from your terminal. You don't need to run the API or worker yourself — `y login` authenticates against an existing instance and the CLI talks to it over HTTPS. If you want to run your own instance, see [self-host.md](self-host.md).
+**Client page.** This covers the client-side `y` CLI driving a *hosted* y-agent instance (e.g. `yovy.app`) from your terminal. You don't need to run the API or worker yourself — `y login` authenticates against an existing instance and the CLI talks to it over HTTPS. Running your own server is a separate concern; see [self-host.md](self-host.md).
 
 ## Install the CLI
 
@@ -92,7 +92,58 @@ y finance beancount snapshot
 y finance beancount update-market-data
 ```
 
-`y --help` lists every subcommand group; each group has its own `--help` for details.
+## All command groups
+
+`y --help` lists every group; each has its own `--help`. The full set:
+
+| Group | What it does |
+|-------|--------------|
+| `chat` | Dispatch a message to a topic / skill / chat-id (fire-and-forget); `-i` for the REPL |
+| `todo` | Tasks: add / list / update / activate / finish; the public id doubles as the trace id |
+| `note` | Structured notes (`content_key` + front-matter); import / list / get |
+| `entity` | Knowledge-graph nodes; `import` a page, `import-link`, `list`, `get` |
+| `assoc` / `unassoc` | Link or unlink notes / links to a todo |
+| `calendar` | Events: `import` an ICS, list, CRUD |
+| `reminder` | Time-based reminders delivered via Telegram |
+| `routine` | Cron-style auto-fired chats: add / list / enable / disable / run |
+| `link` | Link archive: `fetch`, `get`, `list`, `sync-chrome`, `tldr`, `import-page` |
+| `rss` | Feeds: `add`, `list`, `update`, `import-opml`, remove / restore |
+| `email` | Gmail: `sync-gmail`, `list`, `get`, multi-account `account add/list/rm` |
+| `finance` | DB-backed views (balance-sheet / holdings / …); `beancount` is the ledger producer |
+| `image` | `generate` (Gemini/OpenAI), `splice`, `tinify` (TinyPNG) |
+| `pdf` | `parse` a PDF into Markdown |
+| `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |
+| `bot` | Manage backend configs (Claude Code / Codex / Gemini CLI): add / enable / disable / update |
+| `trace` | `share` / `unshare` a trace as a public read-only page |
+| `claude` | `usage` — scrape Claude Code 5h + weekly limit-window usage |
+| `dev` | Worktree lifecycle: `wt add` / `wt rm` / `commit` |
+| `telegram` | Send a Telegram message via the API |
+| `init` / `login` / `logout` | Config bootstrap + auth against the hosted instance |
+
+A few more snippets:
+
+```bash
+# Links — sync history, fetch a page to markdown, get a TLDR
+y link sync-chrome
+y link fetch https://example.com/article
+y link tldr <link_id>
+
+# RSS / Email
+y rss add https://example.com/feed.xml
+y email sync-gmail
+
+# Entities + association to a todo
+y entity import pages/some-product.md
+y assoc note pages/plan-foo.md --todo <todo_id>
+
+# Image + PDF helpers
+y image tinify shot.png
+y pdf parse paper.pdf
+
+# Trace share + Claude usage
+y trace share <trace_id>
+y claude usage
+```
 
 ## Where to next
 

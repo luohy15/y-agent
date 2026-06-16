@@ -6,7 +6,7 @@ order: 3
 
 # Self-host
 
-This page is for running your own y-agent API + worker, either locally for development or deployed to AWS. If you only want to use the CLI against an existing instance like `yovy.app`, you don't need any of this — see [cli.md](cli.md) instead.
+**Server page.** This is the server side: you run the API + worker yourself, either locally for development or deployed to AWS. If you only want to use a hosted instance like `yovy.app` from the CLI or web GUI, you don't need any of this — see [cli.md](cli.md) and [getting-started.md](getting-started.md) instead.
 
 ## Prerequisites
 
