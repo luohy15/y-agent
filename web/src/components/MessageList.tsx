@@ -315,12 +315,31 @@ interface MessageListProps {
 export default function MessageList({ messages, running, centered, showProgress, onOpenFile, onShowSources, onSelectChat, onSelectTrace, onOpenArtifact, scrollContainerRef, inline, selectMode, selectedIndices, onToggleSelect }: MessageListProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const containerRef = scrollContainerRef || internalRef;
+  // Whether the view is pinned to the bottom. Only auto-scroll while pinned so a
+  // manual scroll-up is never yanked back down.
+  const atBottomRef = useRef(true);
 
   useEffect(() => {
     if (inline) return;
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
+    const el = containerRef.current;
+    if (!el) return;
+    const stick = () => { if (atBottomRef.current) el.scrollTop = el.scrollHeight; };
+    const onScroll = () => {
+      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Re-stick when async content (mermaid/vega/images) changes the content
+    // height after the message has already been laid out. Without this, a late
+    // render grows the content below a scroll position that was measured while
+    // the artifact was still collapsed, stranding the view near the top.
+    const inner = el.firstElementChild;
+    const ro = inner ? new ResizeObserver(stick) : null;
+    if (inner && ro) ro.observe(inner);
+    stick();
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro?.disconnect();
+    };
   }, [messages, containerRef, inline]);
 
   const items = filterLevel0(messages);

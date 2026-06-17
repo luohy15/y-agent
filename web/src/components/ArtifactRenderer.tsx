@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 
 export type ArtifactType = "mermaid" | "vega-lite" | "artifact-svg";
@@ -7,6 +7,19 @@ interface ArtifactRendererProps {
   type: ArtifactType;
   spec: string;
 }
+
+// Module-level cache of already-rendered artifact HTML, keyed by type+spec.
+// Rendering is async (dynamic import + mermaid/vega), so without a cache every
+// remount of a bubble (which happens on each streamed chunk, since the displayed
+// "last assistant" message index advances) collapses the container back to the
+// loading placeholder until the async render finishes. That transient height
+// collapse makes MessageList's scroll-to-bottom measure a too-small scrollHeight
+// and strands the view near the top. Caching lets a remount restore the rendered
+// SVG synchronously (in a layout effect, before paint), so the height never
+// collapses and scroll stays put.
+const renderCache = new Map<string, string>();
+
+let artifactSeq = 0;
 
 function artifactLabel(type: ArtifactType): string {
   if (type === "vega-lite") return "chart";
@@ -51,14 +64,28 @@ function ArtifactError({ type, error, spec }: { type: ArtifactType; error: strin
 
 export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const cacheKey = `${type}:${spec}`;
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    () => (renderCache.has(cacheKey) ? "ready" : "loading"),
+  );
   const [error, setError] = useState<string | null>(null);
-  const renderId = useMemo(() => `artifact-${type}-${Math.random().toString(36).slice(2)}`, [type, spec]);
+  const renderId = useMemo(() => `artifact-${type}-${artifactSeq++}`, [type, spec]);
 
-  useEffect(() => {
+  // Layout effect (runs before paint, child-before-parent) so a cached restore
+  // is in place before MessageList's scroll-to-bottom reads scrollHeight.
+  useLayoutEffect(() => {
     let cancelled = false;
     const container = containerRef.current;
     if (!container) return;
+
+    // Cache hit: restore synchronously, no async gap, no height collapse.
+    const cached = renderCache.get(cacheKey);
+    if (cached !== undefined) {
+      container.innerHTML = cached;
+      setStatus("ready");
+      setError(null);
+      return;
+    }
 
     container.innerHTML = "";
     setStatus("loading");
@@ -67,7 +94,9 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
     async function renderArtifact() {
       try {
         if (type === "artifact-svg") {
-          container.innerHTML = sanitizeSvg(spec);
+          const html = sanitizeSvg(spec);
+          container.innerHTML = html;
+          renderCache.set(cacheKey, html);
           setStatus("ready");
           return;
         }
@@ -83,7 +112,9 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
           await mermaid.parse(spec);
           const { svg } = await mermaid.render(renderId, spec);
           if (cancelled) return;
-          container.innerHTML = sanitizeSvg(svg);
+          const html = sanitizeSvg(svg);
+          container.innerHTML = html;
+          renderCache.set(cacheKey, html);
           setStatus("ready");
           return;
         }
@@ -94,7 +125,9 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
           actions: { export: false, source: false, compiled: false, editor: false },
           renderer: "svg",
         });
-        if (!cancelled) setStatus("ready");
+        if (cancelled) return;
+        renderCache.set(cacheKey, container.innerHTML);
+        setStatus("ready");
       } catch (err) {
         if (cancelled) return;
         container.innerHTML = "";
@@ -107,9 +140,8 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
 
     return () => {
       cancelled = true;
-      container.innerHTML = "";
     };
-  }, [renderId, spec, type]);
+  }, [renderId, spec, type, cacheKey]);
 
   if (status === "error") {
     return <ArtifactError type={type} error={error || "unknown error"} spec={spec} />;
