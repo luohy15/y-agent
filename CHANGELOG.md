@@ -17,11 +17,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Claude limit-window usage in sidebar (2524)** — bot-panel sidebar footer shows 5h session and weekly limit-window usage progress bars with reset countdowns, refreshed on demand.
 - **Claude `/usage` scrape (2515)** — `y claude usage` CLI plus a `claude-usage-check` alert skill that scrapes the claude_tui `/usage` TUI for current limit-window usage and notifies via Telegram above a threshold.
 - **Claude status RSS monitor (2529)** — worker monitor that polls Claude's status RSS feed and pushes Telegram notifications on new incidents.
+- **Auto-generated showcase screenshots (2541)** — `/showcase` skill generates panel screenshots via Playwright, with chat added as a 6th showcased capability.
 
 ### Changed
 - **Claude usage shown only for bot panel** — limit-window usage progress bars are scoped to the bot panel sidebar instead of rendering globally.
+- **MCP disabled on agent launch (2549, 2550)** — both the `claude -p` and claude_tui launch paths now disable MCP (`--strict-mcp-config`), and claude_tui launches are restricted to a tool allowlist.
+- **Docs refresh (2541)** — capabilities / CLI / getting-started docs refreshed with a clearer client-vs-server framing.
 
 ### Fixed
+- **Mermaid artifact rendering (2551)** — mermaid artifacts no longer render as an empty box (relaxed the over-strict `sanitizeSvg` DOMPurify config), and scroll jitter is fixed via `scrollbar-gutter: stable` on the chat scroll container.
+- **HTML comments in markdown** — HTML comments are now hidden when rendering markdown.
 - **claude_tui idle-turn finalization** — stuck idle turns in claude_tui sessions now finalize instead of hanging.
 - **claude_tui default backend fallback (2518)** — worker default agent backend now falls back to `claude_tui` instead of `claude -p`.
 - **claude_tui `/usage` scrape scrollback (2515)** — capture full tmux scrollback so the windows block is reliably read.
