@@ -25,7 +25,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Docs refresh (2541)** — capabilities / CLI / getting-started docs refreshed with a clearer client-vs-server framing.
 
 ### Fixed
-- **Mermaid artifact rendering (2551)** — mermaid artifacts no longer render as an empty box (relaxed the over-strict `sanitizeSvg` DOMPurify config), and scroll jitter is fixed via `scrollbar-gutter: stable` on the chat scroll container.
+- **Mermaid artifact rendering (2551)** — mermaid artifacts no longer render as an empty box (relaxed the over-strict `sanitizeSvg` DOMPurify config), and scroll jitter / snap-to-top is fixed via `scrollbar-gutter: stable`, a render-once cache, and a stick-to-bottom guard on the chat scroll container.
 - **HTML comments in markdown** — HTML comments are now hidden when rendering markdown.
 - **claude_tui idle-turn finalization** — stuck idle turns in claude_tui sessions now finalize instead of hanging.
 - **claude_tui default backend fallback (2518)** — worker default agent backend now falls back to `claude_tui` instead of `claude -p`.
