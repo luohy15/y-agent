@@ -5,7 +5,8 @@ import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 export interface BotConfig {
   name: string;
-  base_url?: string;
+  base_url?: string | null;
+  api_key_masked?: string | null;
   backend?: string | null;
   model?: string | null;
   description?: string | null;
@@ -475,6 +476,8 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                   <th className="px-1.5 py-1 font-medium whitespace-nowrap">Name</th>
                   <th className="px-1.5 py-1 font-medium whitespace-nowrap">Backend</th>
                   <th className="px-1.5 py-1 font-medium whitespace-nowrap">Model</th>
+                  <th className="px-1.5 py-1 font-medium whitespace-nowrap">Base URL</th>
+                  <th className="px-1.5 py-1 font-medium whitespace-nowrap">API Key</th>
                 </tr>
               </thead>
               <tbody>
@@ -494,6 +497,8 @@ export default function BotList({ isLoggedIn, onChange }: BotListProps) {
                     </td>
                     <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>
                     <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[10rem] truncate">{bot.model || "-"}</td>
+                    <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[10rem] truncate" title={bot.base_url || ""}>{bot.base_url || "-"}</td>
+                    <td className="px-1.5 py-1 font-mono text-sol-base01 max-w-[8rem] truncate" title={bot.api_key_masked || ""}>{bot.api_key_masked || "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -169,14 +169,19 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
         <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className={inputClass} />
 
         <label className="text-sol-base01 pt-1">API Key</label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          autoComplete="new-password"
-          placeholder={full.has_api_key ? "Stored. Leave blank to keep." : "Not set"}
-          className={inputClass}
-        />
+        <div className="flex flex-col gap-1">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            autoComplete="new-password"
+            placeholder={full.has_api_key ? "Stored. Leave blank to keep." : "Not set"}
+            className={inputClass}
+          />
+          {full.api_key_masked && !apiKey && (
+            <span className="text-[0.65rem] text-sol-base01/70 font-mono">Current: {full.api_key_masked}</span>
+          )}
+        </div>
 
         <label className="text-sol-base01 pt-1">Max Tokens</label>
         <input type="number" min="1" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} className={inputClass} />
