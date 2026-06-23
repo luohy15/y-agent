@@ -228,6 +228,26 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
     return map;
   }, [events]);
 
+  // Optimistic preview: while the create modal is open, render the in-progress
+  // event on the grid immediately (before the add is persisted). Timed only;
+  // tracks the form's start/end live.
+  const previewEvent = useMemo<CalendarEvent | null>(() => {
+    if (mode !== "create" || !form || form.all_day || !form.start) return null;
+    const start = new Date(form.start);
+    if (isNaN(start.getTime())) return null;
+    const end = form.end ? new Date(form.end) : new Date(start.getTime() + 60 * 60 * 1000);
+    if (isNaN(end.getTime()) || end <= start) return null;
+    return {
+      event_id: "__preview__",
+      summary: form.summary.trim() || "(New event)",
+      start_time: form.start,
+      end_time: form.end || fmtLocal(end),
+      description: "",
+      all_day: false,
+      status: "preview",
+    };
+  }, [mode, form]);
+
   const today = new Date();
   const [now, setNow] = useState(() => new Date());
 
@@ -570,133 +590,6 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
             </div>
           )}
           <div ref={scrollRef} className="h-full overflow-auto" onClick={closePopover}>
-          {/* Event detail popover (read mode) */}
-          {selectedEvent && mode === "read" && (
-            <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sol-base1 text-sm font-medium">{selectedEvent.summary}</div>
-                  <div className="text-sol-base01 mt-0.5">
-                    {new Date(selectedEvent.start_time).toLocaleString()}
-                    {selectedEvent.end_time && ` – ${new Date(selectedEvent.end_time).toLocaleString()}`}
-                  </div>
-                  {selectedEvent.description && (
-                    <p className="text-sol-base0 mt-1 whitespace-pre-wrap">{selectedEvent.description}</p>
-                  )}
-                  {selectedEvent.source && (
-                    <span className="text-sol-cyan mt-0.5 inline-block">Source: {selectedEvent.source}</span>
-                  )}
-                  {selectedEvent.todo_id && (
-                    <span
-                      className="text-sol-green mt-0.5 inline-block ml-2 cursor-pointer hover:underline"
-                      onClick={() => {
-                        if (onSelectTrace) onSelectTrace(selectedEvent.todo_id!);
-                        else navigator.clipboard.writeText(selectedEvent.todo_id!);
-                      }}
-                    >Todo: #{selectedEvent.todo_id}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 ml-2 shrink-0">
-                  <button
-                    onClick={() => openEdit(selectedEvent)}
-                    className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
-                  >Edit</button>
-                  <button
-                    onClick={deleteEvent}
-                    disabled={saving}
-                    className="px-2 py-0.5 rounded bg-sol-red/70 text-sol-base03 hover:bg-sol-red cursor-pointer disabled:opacity-50"
-                  >Delete</button>
-                  <button
-                    onClick={closePopover}
-                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
-                  >&times;</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Event form popover (edit / create mode) */}
-          {form && (mode === "edit" || mode === "create") && (
-            <div className="sticky top-0 z-20 bg-sol-base02 border-b border-sol-base01/30 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sol-base1 text-sm font-medium">{mode === "create" ? "New event" : "Edit event"}</span>
-                <button
-                  onClick={closePopover}
-                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
-                >&times;</button>
-              </div>
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-center">
-                <label className="text-sol-base01">Title</label>
-                <input
-                  value={form.summary}
-                  onChange={(e) => setForm({ ...form, summary: e.target.value })}
-                  placeholder="Summary"
-                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                />
-                <label className="text-sol-base01">Start</label>
-                <input
-                  type="datetime-local"
-                  value={form.start}
-                  onChange={(e) => setForm({ ...form, start: e.target.value })}
-                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                />
-                <label className="text-sol-base01">End</label>
-                <input
-                  type="datetime-local"
-                  value={form.end}
-                  onChange={(e) => setForm({ ...form, end: e.target.value })}
-                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                />
-                <label className="text-sol-base01 self-start pt-1">Description</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={2}
-                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
-                />
-                <label className="text-sol-base01">Todo</label>
-                <input
-                  value={form.todo_id}
-                  onChange={(e) => setForm({ ...form, todo_id: e.target.value })}
-                  placeholder="todo id (optional)"
-                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                />
-                {mode === "create" && (
-                  <>
-                    <label className="text-sol-base01">All day</label>
-                    <input
-                      type="checkbox"
-                      checked={form.all_day}
-                      onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
-                      className="justify-self-start cursor-pointer"
-                    />
-                  </>
-                )}
-                {mode === "edit" && selectedEvent && (selectedEvent.all_day || selectedEvent.source || selectedEvent.status) && (
-                  <>
-                    <span className="text-sol-base01">Info</span>
-                    <span className="text-sol-base01 text-[11px]">
-                      {selectedEvent.all_day && "all-day "}
-                      {selectedEvent.source && `· ${selectedEvent.source} `}
-                      {selectedEvent.status && `· ${selectedEvent.status}`}
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center justify-end gap-2 mt-2">
-                <button
-                  onClick={closePopover}
-                  className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
-                >Cancel</button>
-                <button
-                  onClick={mode === "create" ? saveCreate : saveEdit}
-                  disabled={saving || !form.summary.trim() || !form.start}
-                  className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer disabled:opacity-50"
-                >Save</button>
-              </div>
-            </div>
-          )}
-
           <div className="grid grid-cols-[50px_repeat(7,1fr)]">
             {/* Day headers */}
             <div className="border-b border-r border-sol-base02 sticky top-0 z-10 bg-sol-base03" />
@@ -742,7 +635,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                 {days.map((_, dayIdx) => (
                   <div
                     key={dayIdx}
-                    className="relative border-r border-sol-base02"
+                    className="relative border-r border-sol-base02 cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       // A drag whose synthetic click lands on empty column space
@@ -784,7 +677,19 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                     ))}
                     {/* Events */}
                     {(() => {
-                      const evData = timedByDay[dayIdx].map((ev) => {
+                      // Include the optimistic create preview in this day's column
+                      // when it overlaps the day.
+                      const dayTimed = [...timedByDay[dayIdx]];
+                      if (previewEvent) {
+                        const pStart = new Date(previewEvent.start_time);
+                        const pEnd = previewEvent.end_time ? new Date(previewEvent.end_time) : pStart;
+                        const dStart = new Date(days[dayIdx]);
+                        dStart.setHours(0, 0, 0, 0);
+                        const dEnd = new Date(days[dayIdx]);
+                        dEnd.setHours(24, 0, 0, 0);
+                        if (pStart < dEnd && pEnd > dStart) dayTimed.push(previewEvent);
+                      }
+                      const evData = dayTimed.map((ev) => {
                         const evStart = new Date(ev.start_time);
                         const evEnd = ev.end_time ? new Date(ev.end_time) : new Date(evStart.getTime() + 60 * 60 * 1000);
                         const dayStart = new Date(days[dayIdx]);
@@ -802,6 +707,9 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                         const { ev, evStart, evEnd, clippedStart, clippedEnd, startHour, endHour, dayStart, dayEnd } = d;
                         const { col, totalCols } = layout[idx];
                         const key = `${ev.event_id}-${dayIdx}`;
+                        // Optimistic create preview block: non-interactive, styled
+                        // distinctly (dashed accent), no drag/read handlers.
+                        const isPreview = ev.event_id === "__preview__";
                         // Live preview: while resizing this block, re-derive the
                         // visible bounds from the dragged ms (clipped to the day).
                         let topHour = startHour;
@@ -826,7 +734,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                         const showBottomHandle = clippedEnd.getTime() === evEnd.getTime();
                         // Body move is only offered on events fully contained in
                         // this day column (both edges are real, not day-clipped).
-                        const canMove = showTopHandle && showBottomHandle;
+                        const canMove = !isPreview && showTopHandle && showBottomHandle;
                         // In-block label times track the live drag preview, so the
                         // user sees the resulting range update as they drag.
                         const dispStart = new Date(dragging ? dragState.newStartMs : evStart.getTime());
@@ -842,10 +750,12 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                                 justDraggedRef.current = false;
                               }
                             }}
-                            onClick={(e) => { e.stopPropagation(); openRead(ev); }}
+                            onClick={isPreview ? undefined : (e) => { e.stopPropagation(); openRead(ev); }}
                             onPointerDown={canMove ? (e) => startMove(e, ev, key, evStart.getTime(), evEnd.getTime(), dayStart.getTime(), dayEnd.getTime()) : undefined}
-                            className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden ${canMove ? "cursor-move" : "cursor-pointer"} ${
-                              getSourceColor(ev.source, sourceColorMap)
+                            className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden ${
+                              isPreview
+                                ? "bg-sol-blue/60 ring-2 ring-sol-blue ring-inset border border-dashed border-sol-base1/50 pointer-events-none z-20"
+                                : `${canMove ? "cursor-move" : "cursor-pointer"} ${getSourceColor(ev.source, sourceColorMap)}`
                             }`}
                             style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
                             title={ev.summary}
@@ -862,13 +772,13 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                               {ev.summary} <span className="font-normal text-sol-base03/70">{`${String(dispStart.getHours()).padStart(2, "0")}:${String(dispStart.getMinutes()).padStart(2, "0")}`}</span>
                             </div>
                           )}
-                          {showTopHandle && (
+                          {!isPreview && showTopHandle && (
                             <div
                               onPointerDown={(e) => startResize(e, ev, key, "top", evStart.getTime(), evEnd.getTime())}
                               className="absolute left-0 right-0 top-0 h-1.5 cursor-ns-resize hover:bg-sol-base03/30"
                             />
                           )}
-                          {showBottomHandle && (
+                          {!isPreview && showBottomHandle && (
                             <div
                               onPointerDown={(e) => startResize(e, ev, key, "bottom", evStart.getTime(), evEnd.getTime())}
                               className="absolute left-0 right-0 bottom-0 h-1.5 cursor-ns-resize hover:bg-sol-base03/30"
@@ -883,6 +793,143 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
               </div>
             </div>
           </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event detail / form modal */}
+      {((selectedEvent && mode === "read") || (form && (mode === "edit" || mode === "create"))) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={closePopover}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {selectedEvent && mode === "read" ? (
+              <div className="px-4 py-3">
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0">
+                    <div className="text-sol-base1 text-sm font-medium">{selectedEvent.summary}</div>
+                    <div className="text-sol-base01 mt-0.5">
+                      {new Date(selectedEvent.start_time).toLocaleString()}
+                      {selectedEvent.end_time && ` – ${new Date(selectedEvent.end_time).toLocaleString()}`}
+                    </div>
+                    {selectedEvent.description && (
+                      <p className="text-sol-base0 mt-1 whitespace-pre-wrap">{selectedEvent.description}</p>
+                    )}
+                    {selectedEvent.source && (
+                      <span className="text-sol-cyan mt-0.5 inline-block">Source: {selectedEvent.source}</span>
+                    )}
+                    {selectedEvent.todo_id && (
+                      <span
+                        className="text-sol-green mt-0.5 inline-block ml-2 cursor-pointer hover:underline"
+                        onClick={() => {
+                          if (onSelectTrace) onSelectTrace(selectedEvent.todo_id!);
+                          else navigator.clipboard.writeText(selectedEvent.todo_id!);
+                        }}
+                      >Todo: #{selectedEvent.todo_id}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <button
+                      onClick={() => openEdit(selectedEvent)}
+                      className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
+                    >Edit</button>
+                    <button
+                      onClick={deleteEvent}
+                      disabled={saving}
+                      className="px-2 py-0.5 rounded bg-sol-red/70 text-sol-base03 hover:bg-sol-red cursor-pointer disabled:opacity-50"
+                    >Delete</button>
+                    <button
+                      onClick={closePopover}
+                      className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
+                    >&times;</button>
+                  </div>
+                </div>
+              </div>
+            ) : form && (
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-sol-base1 text-sm font-medium">{mode === "create" ? "New event" : "Edit event"}</span>
+                  <button
+                    onClick={closePopover}
+                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
+                  >&times;</button>
+                </div>
+                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-center">
+                  <label className="text-sol-base01">Title</label>
+                  <input
+                    value={form.summary}
+                    onChange={(e) => setForm({ ...form, summary: e.target.value })}
+                    placeholder="Summary"
+                    autoFocus
+                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                  />
+                  <label className="text-sol-base01">Start</label>
+                  <input
+                    type="datetime-local"
+                    value={form.start}
+                    onChange={(e) => setForm({ ...form, start: e.target.value })}
+                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                  />
+                  <label className="text-sol-base01">End</label>
+                  <input
+                    type="datetime-local"
+                    value={form.end}
+                    onChange={(e) => setForm({ ...form, end: e.target.value })}
+                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                  />
+                  <label className="text-sol-base01 self-start pt-1">Description</label>
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    rows={2}
+                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
+                  />
+                  <label className="text-sol-base01">Todo</label>
+                  <input
+                    value={form.todo_id}
+                    onChange={(e) => setForm({ ...form, todo_id: e.target.value })}
+                    placeholder="todo id (optional)"
+                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                  />
+                  {mode === "create" && (
+                    <>
+                      <label className="text-sol-base01">All day</label>
+                      <input
+                        type="checkbox"
+                        checked={form.all_day}
+                        onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+                        className="justify-self-start cursor-pointer"
+                      />
+                    </>
+                  )}
+                  {mode === "edit" && selectedEvent && (selectedEvent.all_day || selectedEvent.source || selectedEvent.status) && (
+                    <>
+                      <span className="text-sol-base01">Info</span>
+                      <span className="text-sol-base01 text-[11px]">
+                        {selectedEvent.all_day && "all-day "}
+                        {selectedEvent.source && `· ${selectedEvent.source} `}
+                        {selectedEvent.status && `· ${selectedEvent.status}`}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center justify-end gap-2 mt-2">
+                  <button
+                    onClick={closePopover}
+                    className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
+                  >Cancel</button>
+                  <button
+                    onClick={mode === "create" ? saveCreate : saveEdit}
+                    disabled={saving || !form.summary.trim() || !form.start}
+                    className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer disabled:opacity-50"
+                  >Save</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
