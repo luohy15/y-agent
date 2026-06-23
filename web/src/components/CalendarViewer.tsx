@@ -87,6 +87,25 @@ function toDatetimeLocal(iso: string): string {
   return fmtLocal(new Date(iso));
 }
 
+// 30-minute time slots (00:00 … 23:30) for the Google-Calendar-style quick
+// time-picker dropdown.
+const TIME_OPTIONS: string[] = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2);
+  return `${String(h).padStart(2, "0")}:${i % 2 === 0 ? "00" : "30"}`;
+});
+
+// Split / recombine a `datetime-local` value (YYYY-MM-DDTHH:MM) so the date
+// picker and the 30-min time dropdown can each edit one half.
+function localDate(local: string): string {
+  return local ? local.slice(0, 10) : "";
+}
+function localTime(local: string): string {
+  return local ? local.slice(11, 16) : "";
+}
+function combineLocal(date: string, time: string): string {
+  return date ? `${date}T${time || "00:00"}` : "";
+}
+
 interface EventForm {
   summary: string;
   start: string; // datetime-local
@@ -148,7 +167,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
   });
   const weekStart = useMemo(() => getMonday(selectedDate), [selectedDate.getTime()]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [mode, setMode] = useState<"read" | "edit" | "create">("read");
+  const [mode, setMode] = useState<"edit" | "create">("edit");
   const [form, setForm] = useState<EventForm | null>(null);
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -305,7 +324,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
   const closePopover = () => {
     setSelectedEvent(null);
     setForm(null);
-    setMode("read");
+    setMode("edit");
   };
 
   useEffect(() => {
@@ -335,12 +354,6 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
     start.setMinutes(0, 0, 0);
     start.setHours(start.getHours() + 1);
     openCreate(start);
-  };
-
-  const openRead = (ev: CalendarEvent) => {
-    setSelectedEvent(ev);
-    setForm(null);
-    setMode("read");
   };
 
   const openEdit = (ev: CalendarEvent) => {
@@ -484,7 +497,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
   // Begin a whole-event body drag-move. Delta-based and duration-preserving:
   // shift both bounds by the same snapped delta, clamped to keep the block inside
   // its day column (no cross-midnight). A plain click (no snapped movement) is
-  // left to bubble through to openRead.
+  // left to bubble through to openEdit.
   const startMove = (
     e: React.PointerEvent,
     ev: CalendarEvent,
@@ -604,7 +617,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                 {allDayByDay[i].map((ev) => (
                   <div
                     key={ev.event_id}
-                    onClick={(e) => { e.stopPropagation(); openRead(ev); }}
+                    onClick={(e) => { e.stopPropagation(); openEdit(ev); }}
                     className={`px-1 py-0.5 rounded text-sol-base03 truncate cursor-pointer mb-0.5 border-l-0 text-left ${
                       getSourceColor(ev.source, sourceColorMap)
                     }`}
@@ -744,13 +757,13 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                             key={key}
                             onClickCapture={(e) => {
                               // Suppress the synthetic click that follows a real
-                              // drag so it doesn't open the read popover.
+                              // drag so it doesn't open the edit form.
                               if (justDraggedRef.current) {
                                 e.stopPropagation();
                                 justDraggedRef.current = false;
                               }
                             }}
-                            onClick={isPreview ? undefined : (e) => { e.stopPropagation(); openRead(ev); }}
+                            onClick={isPreview ? undefined : (e) => { e.stopPropagation(); openEdit(ev); }}
                             onPointerDown={canMove ? (e) => startMove(e, ev, key, evStart.getTime(), evEnd.getTime(), dayStart.getTime(), dayEnd.getTime()) : undefined}
                             className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden ${
                               isPreview
@@ -797,8 +810,8 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
         </div>
       )}
 
-      {/* Event detail / form modal */}
-      {((selectedEvent && mode === "read") || (form && (mode === "edit" || mode === "create"))) && (
+      {/* Event view / edit / add modal — one shared form across all three modes */}
+      {form && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           onClick={closePopover}
@@ -807,129 +820,141 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
             className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {selectedEvent && mode === "read" ? (
-              <div className="px-4 py-3">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sol-base1 text-sm font-medium">{selectedEvent.summary}</div>
-                    <div className="text-sol-base01 mt-0.5">
-                      {new Date(selectedEvent.start_time).toLocaleString()}
-                      {selectedEvent.end_time && ` – ${new Date(selectedEvent.end_time).toLocaleString()}`}
-                    </div>
-                    {selectedEvent.description && (
-                      <p className="text-sol-base0 mt-1 whitespace-pre-wrap">{selectedEvent.description}</p>
-                    )}
-                    {selectedEvent.source && (
-                      <span className="text-sol-cyan mt-0.5 inline-block">Source: {selectedEvent.source}</span>
-                    )}
-                    {selectedEvent.todo_id && (
-                      <span
-                        className="text-sol-green mt-0.5 inline-block ml-2 cursor-pointer hover:underline"
-                        onClick={() => {
-                          if (onSelectTrace) onSelectTrace(selectedEvent.todo_id!);
-                          else navigator.clipboard.writeText(selectedEvent.todo_id!);
-                        }}
-                      >Todo: #{selectedEvent.todo_id}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
-                    <button
-                      onClick={() => openEdit(selectedEvent)}
-                      className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
-                    >Edit</button>
-                    <button
-                      onClick={deleteEvent}
-                      disabled={saving}
-                      className="px-2 py-0.5 rounded bg-sol-red/70 text-sol-base03 hover:bg-sol-red cursor-pointer disabled:opacity-50"
-                    >Delete</button>
-                    <button
-                      onClick={closePopover}
-                      className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
-                    >&times;</button>
-                  </div>
-                </div>
+            <div className="px-4 py-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sol-base1 text-sm font-medium">{mode === "create" ? "New event" : "Event"}</span>
+                <button
+                  onClick={closePopover}
+                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
+                >&times;</button>
               </div>
-            ) : form && (
-              <div className="px-4 py-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sol-base1 text-sm font-medium">{mode === "create" ? "New event" : "Edit event"}</span>
-                  <button
-                    onClick={closePopover}
-                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm"
-                  >&times;</button>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-center">
+                <label className="text-sol-base01">Title</label>
+                <input
+                  value={form.summary}
+                  onChange={(e) => setForm({ ...form, summary: e.target.value })}
+                  placeholder="Summary"
+                  autoFocus
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                />
+                <label className="text-sol-base01">Start</label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="date"
+                    value={localDate(form.start)}
+                    onChange={(e) => setForm({ ...form, start: combineLocal(e.target.value, localTime(form.start)) })}
+                    className="bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue cursor-pointer"
+                  />
+                  {!form.all_day && (
+                    <select
+                      value={localTime(form.start)}
+                      onChange={(e) => setForm({ ...form, start: combineLocal(localDate(form.start), e.target.value) })}
+                      className="bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue cursor-pointer"
+                    >
+                      {localTime(form.start) && !TIME_OPTIONS.includes(localTime(form.start)) && (
+                        <option value={localTime(form.start)}>{localTime(form.start)}</option>
+                      )}
+                      {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
                 </div>
-                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-center">
-                  <label className="text-sol-base01">Title</label>
-                  <input
-                    value={form.summary}
-                    onChange={(e) => setForm({ ...form, summary: e.target.value })}
-                    placeholder="Summary"
-                    autoFocus
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                  />
-                  <label className="text-sol-base01">Start</label>
-                  <input
-                    type="datetime-local"
-                    value={form.start}
-                    onChange={(e) => setForm({ ...form, start: e.target.value })}
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                  />
-                  <label className="text-sol-base01">End</label>
-                  <input
-                    type="datetime-local"
-                    value={form.end}
-                    onChange={(e) => setForm({ ...form, end: e.target.value })}
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
-                  />
-                  <label className="text-sol-base01 self-start pt-1">Description</label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    rows={2}
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
-                  />
-                  <label className="text-sol-base01">Todo</label>
+                <label className="text-sol-base01">End</label>
+                {(() => {
+                  // End date falls back to the start's date so picking only an end
+                  // time still yields a complete value.
+                  const endDate = localDate(form.end) || localDate(form.start);
+                  return (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setForm({ ...form, end: e.target.value ? combineLocal(e.target.value, localTime(form.end)) : "" })}
+                        className="bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue cursor-pointer"
+                      />
+                      {!form.all_day && (
+                        <select
+                          value={localTime(form.end)}
+                          onChange={(e) => setForm({ ...form, end: e.target.value ? combineLocal(endDate, e.target.value) : "" })}
+                          className="bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue cursor-pointer"
+                        >
+                          <option value="">--:--</option>
+                          {localTime(form.end) && !TIME_OPTIONS.includes(localTime(form.end)) && (
+                            <option value={localTime(form.end)}>{localTime(form.end)}</option>
+                          )}
+                          {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  );
+                })()}
+                <label className="text-sol-base01 self-start pt-1">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={2}
+                  className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue resize-none"
+                />
+                <label className="text-sol-base01">Todo</label>
+                <div className="flex gap-1.5 items-center">
                   <input
                     value={form.todo_id}
                     onChange={(e) => setForm({ ...form, todo_id: e.target.value })}
                     placeholder="todo id (optional)"
-                    className="w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
+                    className="flex-1 bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue"
                   />
-                  {mode === "create" && (
-                    <>
-                      <label className="text-sol-base01">All day</label>
-                      <input
-                        type="checkbox"
-                        checked={form.all_day}
-                        onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
-                        className="justify-self-start cursor-pointer"
-                      />
-                    </>
-                  )}
-                  {mode === "edit" && selectedEvent && (selectedEvent.all_day || selectedEvent.source || selectedEvent.status) && (
-                    <>
-                      <span className="text-sol-base01">Info</span>
-                      <span className="text-sol-base01 text-[11px]">
-                        {selectedEvent.all_day && "all-day "}
-                        {selectedEvent.source && `· ${selectedEvent.source} `}
-                        {selectedEvent.status && `· ${selectedEvent.status}`}
-                      </span>
-                    </>
+                  {mode === "edit" && form.todo_id.trim() && (
+                    <button
+                      onClick={() => {
+                        const tid = form.todo_id.trim();
+                        if (onSelectTrace) onSelectTrace(tid);
+                        else navigator.clipboard.writeText(tid);
+                      }}
+                      title="Open trace"
+                      className="text-sol-green hover:underline cursor-pointer shrink-0 px-1"
+                    >↗</button>
                   )}
                 </div>
-                <div className="flex items-center justify-end gap-2 mt-2">
-                  <button
-                    onClick={closePopover}
-                    className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer"
-                  >Cancel</button>
-                  <button
-                    onClick={mode === "create" ? saveCreate : saveEdit}
-                    disabled={saving || !form.summary.trim() || !form.start}
-                    className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer disabled:opacity-50"
-                  >Save</button>
-                </div>
+                {mode === "create" && (
+                  <>
+                    <label className="text-sol-base01">All day</label>
+                    <input
+                      type="checkbox"
+                      checked={form.all_day}
+                      onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+                      className="justify-self-start cursor-pointer"
+                    />
+                  </>
+                )}
+                {mode === "edit" && selectedEvent && (selectedEvent.all_day || selectedEvent.source || selectedEvent.status) && (
+                  <>
+                    <span className="text-sol-base01">Info</span>
+                    <span className="text-sol-base01 text-[11px]">
+                      {selectedEvent.all_day && "all-day "}
+                      {selectedEvent.source && `· ${selectedEvent.source} `}
+                      {selectedEvent.status && `· ${selectedEvent.status}`}
+                    </span>
+                  </>
+                )}
               </div>
-            )}
+              <div className="flex items-center gap-2 mt-2">
+                {mode === "edit" && (
+                  <button
+                    onClick={deleteEvent}
+                    disabled={saving}
+                    className="px-2 py-0.5 rounded bg-sol-red/70 text-sol-base03 hover:bg-sol-red cursor-pointer disabled:opacity-50"
+                  >Delete</button>
+                )}
+                <button
+                  onClick={closePopover}
+                  className="px-2 py-0.5 rounded bg-sol-base01/30 text-sol-base0 hover:text-sol-base1 cursor-pointer ml-auto"
+                >Cancel</button>
+                <button
+                  onClick={mode === "create" ? saveCreate : saveEdit}
+                  disabled={saving || !form.summary.trim() || !form.start}
+                  className="px-2 py-0.5 rounded bg-sol-blue/80 text-sol-base03 hover:bg-sol-blue cursor-pointer disabled:opacity-50"
+                >Save</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
