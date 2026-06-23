@@ -145,14 +145,18 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/file/list?${financeParams.toString()}` : null;
   const skillsKey = isLoggedIn && tab === "skills" ? `${API}/api/file/skills?${skillsParams.toString()}` : null;
 
-  const { data: journalsData, isLoading: journalsLoading, isValidating: journalsValidating, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
-  const { data: pagesData, isLoading: pagesLoading, isValidating: pagesValidating, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
-  const { data: blogData, isLoading: blogLoading, isValidating: blogValidating, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
-  const { data: financeData, isLoading: financeLoading, isValidating: financeValidating, error: financeError, mutate: mutateFinance } = useSWR<{ path: string; entries: FileEntry[] }>(financeKey, fetcher, { revalidateOnFocus: false });
-  const { data: skillsData, isLoading: skillsLoading, isValidating: skillsValidating, error: skillsError, mutate: mutateSkills } = useSWR<{ skills: SkillEntry[] }>(skillsKey, fetcher, { revalidateOnFocus: false });
+  // NOTE: gate the loading UI on `isLoading` only (true solely on first load /
+  // empty-cache tab switch), never on `isValidating`. SWR keeps stale data during
+  // background revalidation, so the list stays rendered and updates in place instead
+  // of flashing the loading spinner on every note open (e.g. the pages touch→mutate).
+  const { data: journalsData, isLoading: journalsLoading, error: journalsError, mutate: mutateJournals } = useSWR<{ path: string; entries: FileEntry[] }>(journalsKey, fetcher, { revalidateOnFocus: false });
+  const { data: pagesData, isLoading: pagesLoading, error: pagesError, mutate: mutatePages } = useSWR<{ path: string; entries: FileEntry[] }>(pagesKey, fetcher, { revalidateOnFocus: false });
+  const { data: blogData, isLoading: blogLoading, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
+  const { data: financeData, isLoading: financeLoading, error: financeError, mutate: mutateFinance } = useSWR<{ path: string; entries: FileEntry[] }>(financeKey, fetcher, { revalidateOnFocus: false });
+  const { data: skillsData, isLoading: skillsLoading, error: skillsError, mutate: mutateSkills } = useSWR<{ skills: SkillEntry[] }>(skillsKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
-  const { data: todoNotes, isLoading: todoNotesLoading, isValidating: todoNotesValidating, error: todoNotesError, mutate: mutateTodoNotes } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
+  const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError, mutate: mutateTodoNotes } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
 
   const [spinning, setSpinning] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -346,7 +350,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <p className="text-sol-base01 italic p-2">Sign in to view notes</p>
           ) : !todoId ? (
             <p className="text-sol-base01 italic p-2">Select a todo to view notes</p>
-          ) : todoNotesLoading || todoNotesValidating ? (
+          ) : todoNotesLoading ? (
             <ListLoading />
           ) : todoNotesError && !todoNotes ? (
             <ListError error={todoNotesError} />
@@ -490,7 +494,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view notes</p>
         ) : tab === "finance" ? (
-          financeLoading || financeValidating ? (
+          financeLoading ? (
             <ListLoading />
           ) : financeError && !financeData ? (
             <ListError error={financeError} />
@@ -514,7 +518,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             </div>
           )
         ) : tab === "skills" ? (
-          skillsLoading || skillsValidating ? (
+          skillsLoading ? (
             <ListLoading />
           ) : skillsError && !skillsData ? (
             <ListError error={skillsError} />
@@ -540,7 +544,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             </div>
           )
         ) : tab === "journals" ? (
-          journalsLoading || journalsValidating ? (
+          journalsLoading ? (
             <ListLoading />
           ) : journalsError && !journalsData ? (
             <ListError error={journalsError} />
@@ -575,7 +579,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             ))
           )
         ) : tab === "pages" ? (
-          pagesLoading || pagesValidating ? (
+          pagesLoading ? (
             <ListLoading />
           ) : pagesError && !pagesData ? (
             <ListError error={pagesError} />
@@ -610,7 +614,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             </div>
           )
         ) : (
-          blogLoading || blogValidating ? (
+          blogLoading ? (
             <p className="text-sol-base01 italic p-2">Loading...</p>
           ) : blogError && !blogData ? (
             <p className="text-sol-red p-2">Error loading blog</p>
