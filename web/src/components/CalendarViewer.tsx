@@ -752,6 +752,21 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                       const hour = Math.min(23, Math.max(0, Math.floor((e.clientY - rect.top) / HOUR_HEIGHT)));
                       const start = new Date(days[dayIdx]);
                       start.setHours(HOUR_START + hour, 0, 0, 0);
+                      // If an existing timed event covers the candidate start
+                      // instant, snap the new start to that event's end. Repeat
+                      // to advance past chained back-to-back events.
+                      let snapped = true;
+                      while (snapped) {
+                        snapped = false;
+                        for (const ev of timedByDay[dayIdx]) {
+                          const evStart = new Date(ev.start_time);
+                          const evEnd = ev.end_time ? new Date(ev.end_time) : new Date(evStart.getTime() + 60 * 60 * 1000);
+                          if (evStart <= start && start < evEnd) {
+                            start.setTime(evEnd.getTime());
+                            snapped = true;
+                          }
+                        }
+                      }
                       openCreate(start);
                     }}
                   >
