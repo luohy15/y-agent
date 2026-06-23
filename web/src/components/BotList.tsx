@@ -168,6 +168,7 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
                 <option value="codex">codex</option>
                 <option value="claude_code">claude_code</option>
                 <option value="gemini">gemini</option>
+                <option value="pi_cli">pi_cli</option>
                 <option value="openai">openai</option>
               </select>
             </Field>
