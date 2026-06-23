@@ -48,6 +48,15 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
+def _mask_api_key(api_key: Optional[str]) -> Optional[str]:
+    """Return a masked preview of an api_key (first 8 + last 4 chars), or None if unset."""
+    if not api_key:
+        return None
+    if len(api_key) <= 12:
+        return "*" * len(api_key)
+    return f"{api_key[:8]}...{api_key[-4:]}"
+
+
 @router.get("/list")
 async def list_bot_configs(request: Request):
     user_id = _get_user_id(request)
@@ -63,6 +72,8 @@ async def list_bot_configs(request: Request):
                 "name": c.name,
                 "backend": c.backend or c.api_type,
                 "model": c.model,
+                "base_url": c.base_url or None,
+                "api_key_masked": _mask_api_key(c.api_key),
                 "description": c.description,
                 "has_api_key": bool(c.api_key),
                 "price_input": price_input,
@@ -86,6 +97,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
     return {
         "name": config.name,
         "base_url": config.base_url,
+        "api_key_masked": _mask_api_key(config.api_key),
         "backend": config.backend or config.api_type,
         "model": config.model,
         "description": config.description,
