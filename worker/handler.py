@@ -36,6 +36,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "check_claude_status":
         from worker.steps.check_claude_status import handle_check_claude_status
         return asyncio.run(handle_check_claude_status())
+    if action == "sync_model_usage":
+        from worker.steps.sync_model_usage import handle_sync_model_usage
+        return asyncio.run(handle_sync_model_usage())
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 
