@@ -559,7 +559,6 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
 
   const deleteEvent = async () => {
     if (!selectedEvent) return;
-    if (!window.confirm(`Delete "${selectedEvent.summary}"?`)) return;
     setSaving(true);
     const res = await authFetch(`${API}/api/calendar/delete`, {
       method: "POST",
