@@ -418,7 +418,8 @@ def balance_sheet(user_id: int, vm_name: str, time_filter: str, history: bool, g
     lookup = None
     if convert_to:
         all_totals = _sum_rows(rows)
-        lookup = _price_lookup_for_roots(user_id, vm_name, all_totals, (assets_root, liabilities_root), convert_to, end_date - datetime.timedelta(days=1))
+        overlay = _build_realtime_overlay(user_id)[0] if _should_build_realtime_overlay(convert_to, end_date) else {}
+        lookup = _price_lookup_for_roots(user_id, vm_name, all_totals, (assets_root, liabilities_root), convert_to, end_date - datetime.timedelta(days=1), overlay=overlay)
     for _p_start, period_end, label in period_boundaries(start_date, end_date, granularity):
         while row_index < len(dated_rows) and dated_rows[row_index][0] < period_end:
             _add_posting_total(totals, dated_rows[row_index][1])
