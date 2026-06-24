@@ -17,8 +17,8 @@ from storage.service import finance_transaction as transaction_service
 
 TIME_RANGE_ALIASES = {
     "ytd": "year to day",
-    "mtd": "month to day-1",
-    "qtd": "quarter to day-1",
+    "mtd": "month to day",
+    "qtd": "quarter to day",
     "1m": "day-30 to day-1",
     "3m": "day-90 to day-1",
     "1y": "day-365 to day-1",
