@@ -78,7 +78,6 @@ add_param "TelegramWebhookSecret" "TELEGRAM_WEBHOOK_SECRET"
 add_param "OxylabsUsername" "OXYLABS_USERNAME"
 add_param "OxylabsPassword" "OXYLABS_PASSWORD"
 add_param "AlphaVantageApiKey" "ALPHAVANTAGE_API_KEY"
-add_param "OpenRouterProvisioningKey" "OPENROUTER_PROVISIONING_KEY"
 
 # ============================================================================
 # SAM Deploy

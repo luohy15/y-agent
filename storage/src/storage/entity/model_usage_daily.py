@@ -17,7 +17,7 @@ class ModelUsageDailyEntity(Base, BaseEntity):
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
     usage_date = Column(Date, nullable=False)
     # --- generic dimensions ---
-    source = Column(String, nullable=False)              # 'crs' | 'openrouter' (the spend pipe)
+    source = Column(String, nullable=False)              # 'crs' (the spend pipe)
     provider = Column(String, nullable=False, default="")  # model vendor: 'anthropic'|'openai'|... ('' if unknown)
     model = Column(String, nullable=False, default="*")     # specific model id; '*' = all-models aggregate
     scope = Column(String, nullable=False, default="aggregate")  # 'account' | 'aggregate'
