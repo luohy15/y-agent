@@ -29,13 +29,5 @@ def update_last_up_by_id(config_id: int, last_up: int) -> None:
     vm_repo.update_last_up_by_id(config_id, last_up)
 
 
-def get_claude_usage(user_id: int, name: str = "default") -> Optional[dict]:
-    return vm_repo.get_claude_usage(user_id, name)
-
-
-def save_claude_usage(user_id: int, name: str, blob: dict) -> bool:
-    return vm_repo.save_claude_usage(user_id, name, blob)
-
-
 def delete_config(user_id: int, name: str = "default") -> bool:
     return vm_repo.delete_config(user_id, name)

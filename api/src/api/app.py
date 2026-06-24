@@ -44,7 +44,6 @@ from api.controller.entity_rss_relation import router as entity_rss_relation_rou
 from api.controller.entity_link_relation import router as entity_link_relation_router
 from api.controller.user_preference import router as user_preference_router
 from api.controller.cookies import router as cookies_router
-from api.controller.claude import router as claude_router
 from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
 from api.middleware.auth import AuthMiddleware
@@ -88,7 +87,6 @@ api_router.include_router(entity_rss_relation_router)
 api_router.include_router(entity_link_relation_router)
 api_router.include_router(user_preference_router)
 api_router.include_router(cookies_router)
-api_router.include_router(claude_router)
 api_router.include_router(inline_router)
 api_router.include_router(health_router)
 app.include_router(api_router)
