@@ -785,7 +785,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                             className={`absolute rounded px-1 py-0.5 text-sol-base03 overflow-hidden ${
                               isPreview
                                 ? "bg-sol-blue/60 ring-2 ring-sol-blue ring-inset border border-dashed border-sol-base1/50 pointer-events-none z-20"
-                                : `${canMove ? "cursor-move" : "cursor-pointer"} ${getSourceColor(ev.source, sourceColorMap)}`
+                                : `cursor-pointer ${getSourceColor(ev.source, sourceColorMap)}`
                             }`}
                             style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
                             title={ev.summary}
