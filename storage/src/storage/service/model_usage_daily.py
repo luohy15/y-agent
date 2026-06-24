@@ -1,16 +1,14 @@
 """Provider-generic daily LLM usage: per-source pulls into one upsert table.
 
-Two sources in scope:
+One source in scope:
 - CRS (claude-relay-service): POST {origin}/apiStats/api/user-model-stats with the
   cr_ relay key (from bot_config 'claude_code'), period='daily' -> today's per-model
-  tokens + real cost. Today-only (no history in the response); we pull daily.
-- OpenRouter: GET /api/v1/activity with a provisioning/management key (config var
-  OPENROUTER_PROVISIONING_KEY) -> per-day x per-model rows with tokens + real cost.
-  The ordinary sk-or-v1 key is 403 on /activity, so the provisioning key is required.
+  tokens + real cost. Today-only (no history in the response); we pull daily. The
+  generic per-model capture covers any vendor routed through CRS (incl. OpenRouter).
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -26,8 +24,6 @@ _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120 Safari/537.36"
 )
-
-_OPENROUTER_ACTIVITY_URL = "https://openrouter.ai/api/v1/activity"
 
 
 # --- thin storage passthroughs ---------------------------------------------
@@ -135,84 +131,12 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
     return {"source": "crs", "status": "ok", "rows": n, "date": usage_date}
 
 
-# --- OpenRouter pull --------------------------------------------------------
-
-def _openrouter_key() -> str | None:
-    key = os.getenv("OPENROUTER_PROVISIONING_KEY")
-    return key.strip() if key and key.strip() else None
-
-
-def sync_openrouter(user_id: int, days: int | None = None, synced_at: str | None = None) -> dict:
-    """Pull per-day per-model usage from OpenRouter /api/v1/activity (requires a
-    provisioning key) and upsert as source='openrouter' rows. When `days` is set,
-    keep only rows on or after (today_utc - days + 1)."""
-    key = _openrouter_key()
-    if not key:
-        return {
-            "source": "openrouter",
-            "status": "skip",
-            "reason": "OPENROUTER_PROVISIONING_KEY not configured",
-            "rows": 0,
-        }
-
-    try:
-        resp = httpx.get(
-            _OPENROUTER_ACTIVITY_URL,
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        logger.exception("sync_openrouter: fetch failed: {}", e)
-        return {"source": "openrouter", "status": "error", "reason": str(e), "rows": 0}
-
-    cutoff = None
-    if days and days > 0:
-        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
-
-    rows: list[dict] = []
-    for item in payload.get("data") or []:
-        usage_date = item.get("date")
-        if not usage_date:
-            continue
-        if cutoff and usage_date < cutoff:
-            continue
-        model = item.get("model") or "*"
-        prompt = int(item.get("prompt_tokens") or 0)
-        completion = int(item.get("completion_tokens") or 0)
-        reasoning = int(item.get("reasoning_tokens") or 0)
-        rows.append({
-            "usage_date": usage_date,
-            "source": "openrouter",
-            "provider": _derive_provider(model),
-            "model": model,
-            "scope": "aggregate",
-            "scope_id": "",
-            "scope_name": item.get("provider_name") or "",
-            "input_tokens": prompt,
-            "output_tokens": completion,
-            "cache_create_tokens": 0,
-            "cache_read_tokens": 0,
-            "all_tokens": prompt + completion + reasoning,
-            "requests": int(item.get("requests") or 0),
-            "cost": float(item.get("usage") or 0.0),
-            "cost_basis": "real",
-        })
-
-    n = upsert_daily(user_id, rows, synced_at)
-    logger.info("sync_openrouter: upserted {} rows", n)
-    return {"source": "openrouter", "status": "ok", "rows": n}
-
-
 # --- orchestration ----------------------------------------------------------
 
-def sync(user_id: int, source: str | None = None, days: int | None = None) -> dict:
-    """Run the enabled source pulls. `source` filters to one of crs|openrouter."""
+def sync(user_id: int, source: str | None = None) -> dict:
+    """Run the enabled source pulls. `source` filters to one of crs."""
     synced_at = get_utc_iso8601_timestamp()
     results = []
     if source in (None, "crs"):
         results.append(sync_crs(user_id, synced_at))
-    if source in (None, "openrouter"):
-        results.append(sync_openrouter(user_id, days=days, synced_at=synced_at))
     return {"status": "ok", "results": results}

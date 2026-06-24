@@ -83,12 +83,6 @@ Parameters:
     NoEcho: true
     Default: ""
 
-  OpenRouterProvisioningKey:
-    Type: String
-    Description: OpenRouter provisioning/management key for GET /api/v1/activity (model_usage_daily sync). Empty => OpenRouter sync skips.
-    NoEcho: true
-    Default: ""
-
 Conditions:
   IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -322,7 +316,6 @@ Resources:
           Y_AGENT_TIMEZONE: Asia/Shanghai
           OXYLABS_USERNAME: !Ref OxylabsUsername
           OXYLABS_PASSWORD: !Ref OxylabsPassword
-          OPENROUTER_PROVISIONING_KEY: !Ref OpenRouterProvisioningKey
           CRAWLER_RATE_LIMIT: "10"
       Layers:
         - !Ref StorageLayer
@@ -357,7 +350,7 @@ Resources:
             Input: '{"action": "check_claude_status"}'
         SyncModelUsageSchedule:
           # 15:50 UTC = 23:50 UTC+8: capture the near-complete CRS day (today-only,
-          # rolls at the CRS app-TZ midnight) plus OpenRouter's finalized prior days.
+          # rolls at the CRS app-TZ midnight).
           Type: Schedule
           Properties:
             Schedule: cron(50 15 * * ? *)
