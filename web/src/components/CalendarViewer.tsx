@@ -422,6 +422,23 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
     }
   };
 
+  // cmd+s (macOS) / ctrl+s (Win/Linux) saves the open event form, like Google
+  // Calendar, and suppresses the browser's save-page dialog. Mirrors the Save
+  // button's disabled guard. Re-binds when the captured state changes.
+  useEffect(() => {
+    if (!form) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (saving || !form.summary.trim() || !form.start) return;
+        if (mode === "create") saveCreate();
+        else saveEdit();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [form, saving, mode, selectedEvent]);
+
   // Persist a resized edge. Sends only the changed field (start_time / end_time),
   // formatted the same way saveEdit does, then revalidates via SWR.
   const persistResize = async (ev: CalendarEvent, edge: "top" | "bottom", startMs: number, endMs: number) => {
