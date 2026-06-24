@@ -648,7 +648,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                 {days.map((_, dayIdx) => (
                   <div
                     key={dayIdx}
-                    className="relative border-r border-sol-base02 cursor-pointer"
+                    className="relative border-r border-sol-base02"
                     onClick={(e) => {
                       e.stopPropagation();
                       // A drag whose synthetic click lands on empty column space
