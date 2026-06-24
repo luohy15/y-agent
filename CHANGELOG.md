@@ -18,6 +18,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Claude `/usage` scrape (2515)** — `y claude usage` CLI plus a `claude-usage-check` alert skill that scrapes the claude_tui `/usage` TUI for current limit-window usage and notifies via Telegram above a threshold.
 - **Claude status RSS monitor (2529)** — worker monitor that polls Claude's status RSS feed and pushes Telegram notifications on new incidents.
 - **Auto-generated showcase screenshots (2541)** — `/showcase` skill generates panel screenshots via Playwright, with chat added as a 6th showcased capability.
+- **Calendar event view / add in web (2572)** — CalendarViewer surfaces a shared view/edit/add form with a 30-minute time-picker dropdown, in-modal event view/add, pointer cursor, and an optimistic preview while saving.
+- **Bot credentials in web panel (2567)** — bot list and detail views surface each bot's `base_url` plus a masked `api_key`.
 
 ### Changed
 - **Claude usage shown only for bot panel** — limit-window usage progress bars are scoped to the bot panel sidebar instead of rendering globally.
@@ -31,6 +33,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **claude_tui default backend fallback (2518)** — worker default agent backend now falls back to `claude_tui` instead of `claude -p`.
 - **claude_tui `/usage` scrape scrollback (2515)** — capture full tmux scrollback so the windows block is reliably read.
 - **ChatList badge filter guard (2517)** — badge filters no-op under `hideFilters` so the trace sidebar can't get stuck on one topic.
+- **Calendar click-to-add slot (2570)** — click-to-add now uses a Google-Calendar-style 30-minute slot anchored at the cursor, snapping the start past any overlapping event in the clicked hour while still allowing overlap.
+- **Note list flicker on open (2573)** — opening a note no longer flickers the list; the loading UI is gated on `isLoading` only.
+- **pi_cli backend option (2568)** — `pi_cli` is now selectable in the bot list and detail backend selector.
 
 ### Removed
 
