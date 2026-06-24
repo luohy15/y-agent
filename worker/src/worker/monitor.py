@@ -576,7 +576,7 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
     """
     from agent.config import resolve_vm_config, resolve_bot_config
     from agent.codex import start_detached_codex_ssh
-    from worker.runner import build_codex_resume_cmd, build_codex_env
+    from worker.runner import build_codex_resume_cmd, build_codex_env, build_codex_provider_args
 
     thread_id = result.get("thread_id")
     if not thread_id:
@@ -594,6 +594,9 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
 
     model = bot_config.model.strip('"').strip() if bot_config.model else None
     cmd = build_codex_resume_cmd(thread_id, model or None)
+    # Keep the per-bot relay override on steer restarts; without it the resumed
+    # run drops the -c provider flags and reverts to the host config.toml crs.
+    cmd.extend(build_codex_provider_args(bot_config))
 
     last_message_id = result.get("last_message_id")
     env = build_codex_env(bot_config, chat_id, proc.get("trace_id"),
