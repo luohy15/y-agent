@@ -85,24 +85,6 @@ def update_last_up_by_id(config_id: int, last_up: int) -> None:
             session.flush()
 
 
-def get_claude_usage(user_id: int, name: str = "default") -> Optional[dict]:
-    with get_db() as session:
-        row = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).first()
-        if row and row.claude_usage:
-            return dict(row.claude_usage)
-        return None
-
-
-def save_claude_usage(user_id: int, name: str, blob: dict) -> bool:
-    with get_db() as session:
-        row = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).first()
-        if not row:
-            return False
-        row.claude_usage = blob
-        session.flush()
-        return True
-
-
 def delete_config(user_id: int, name: str = "default") -> bool:
     with get_db() as session:
         count = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).delete()
