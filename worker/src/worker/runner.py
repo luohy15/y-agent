@@ -630,6 +630,43 @@ def build_codex_resume_cmd(thread_id: str, model: str = None) -> list:
     return cmd
 
 
+def build_codex_provider_args(bot_config) -> list:
+    """Per-invocation codex `-c` flags that point codex at the bot's own relay.
+
+    Returns ``[]`` when ``bot_config.base_url`` is empty (fallback to the host
+    ``~/.codex/config.toml`` crs provider), preserving every existing codex bot
+    with no config change. When ``base_url`` is set, returns the 5 ``-c`` flag
+    pairs that define + select a custom ``y-codex`` provider, beating the host
+    config. The API key rides on ``OPENAI_API_KEY`` (exported by
+    ``build_codex_env``) via ``env_key`` and is sent as ``Authorization: Bearer``,
+    so it never lands on the command line. If ``api_key`` is empty we skip the
+    injection (and warn), since the provider would have no credential.
+
+    NOTE on the base_url convention: codex treats ``base_url`` as a prefix and
+    appends the wire path (``/responses`` for ``wire_api="responses"``). So a
+    codex bot's ``base_url`` must be the crs-style prefix (e.g.
+    ``https://cc1.yovy.app/openai``), NOT a full endpoint and NOT the claude
+    ``ANTHROPIC_BASE_URL`` messages-root semantics.
+    """
+    base_url = (bot_config.base_url or "").strip()
+    if not base_url:
+        return []
+    if not (bot_config.api_key or "").strip():
+        logger.warning(
+            "codex bot {} has base_url but empty api_key; skipping provider injection "
+            "(falling back to host config.toml)",
+            getattr(bot_config, "name", "?"),
+        )
+        return []
+    return [
+        "-c", 'model_provider="y-codex"',
+        "-c", 'model_providers.y-codex.name="y-codex"',
+        "-c", f'model_providers.y-codex.base_url="{base_url}"',
+        "-c", 'model_providers.y-codex.wire_api="responses"',
+        "-c", 'model_providers.y-codex.env_key="OPENAI_API_KEY"',
+    ]
+
+
 def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
                     topic: str = None, last_message_id: str = None) -> dict:
     """Codex subprocess env: OpenAI auth + trace/topic vars (mirrors claude_code env)."""
@@ -714,12 +751,17 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     thread_id = chat.external_id
     resume = bool(thread_id) and chat.work_dir == cwd
 
+    # Per-bot relay override: [] when base_url empty -> host config.toml fallback.
+    provider_args = build_codex_provider_args(bot_config)
+
     # Build cmd (resume subcommand doesn't support -C)
     if resume and thread_id:
         cmd = build_codex_resume_cmd(thread_id, model)
+        cmd.extend(provider_args)
     else:
         cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
         thread_id = None
+        cmd.extend(provider_args)
         if cwd:
             cmd.extend(["-C", cwd])
         if model:
