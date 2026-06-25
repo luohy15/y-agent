@@ -228,7 +228,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             self._transaction("entry-3", 0, "USD", "Debt", -20, "USD", account="Liabilities:Card", transaction_date="2026-02-10"),
         ]
 
-        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(price_service, "list_for_pairs", return_value=[self._price("HKD", "USD", "2026-01-01", 0.1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
+        with self._finance_config(), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(price_service, "list_for_pairs", return_value=[self._price("HKD", "USD", "2026-01-01", 0.1)]) as list_for_pairs, patch.object(price_service, "latest_pair") as latest_pair:
             result = derived_service.balance_sheet(123, "", "2026", True, "monthly", "USD")
 
         self.assertEqual([item["period"] for item in result.data[:3]], ["2026-01", "2026-02", "2026-03"])
