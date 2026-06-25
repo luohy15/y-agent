@@ -1,5 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 import {
@@ -18,10 +21,16 @@ type SortDir = "asc" | "desc";
 type TypeFilter = "all" | "agent" | "model";
 
 type ViewMode = "config" | "usage";
-type UsageWindow = "today" | "7d" | "30d";
+// Usage sub-view: Live = today's per-model snapshot; Over-time = historical chart + table.
+type UsageMode = "live" | "over-time";
+type Granularity = "daily" | "weekly" | "monthly";
+type UsageMetric = "tokens" | "cost" | "requests";
+type UsageRange = "30D" | "90D" | "1Y" | "ALL";
 
 const SORT_KEY_STORAGE_KEY = "botViewSortKey";
 const SORT_DIR_STORAGE_KEY = "botViewSortDir";
+const USAGE_MODE_STORAGE_KEY = "botUsageMode";
+const USAGE_GRANULARITY_STORAGE_KEY = "botUsageGranularity";
 
 // One per-model daily usage row from GET /api/usage/model-daily (source=crs).
 interface ModelUsageRow {
@@ -72,12 +81,72 @@ function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-// from_date query for the window; today needs none (API defaults to today-today).
-function windowFromDate(w: UsageWindow): string | null {
-  if (w === "today") return null;
-  const d = new Date();
-  d.setDate(d.getDate() - (w === "7d" ? 6 : 29));
+// --- Over-time helpers (local copies; FinanceViewer keeps the originals private) ---
+
+// Solarized dark palette (local copy of FinanceViewer's SOL).
+const SOL = {
+  base03: "#002b36",
+  base02: "#073642",
+  base01: "#586e75",
+  base0: "#839496",
+  base1: "#93a1a1",
+  blue: "#268bd2",
+  red: "#dc322f",
+  green: "#859900",
+  yellow: "#b58900",
+  cyan: "#2aa198",
+  magenta: "#d33682",
+  violet: "#6c71c4",
+  orange: "#cb4b16",
+};
+
+// One color per stacked model series (+ Other).
+const MODEL_COLORS = [SOL.blue, SOL.green, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.yellow, SOL.red];
+
+// Local copy of FinanceViewer.formatPeriodLabel: YYYY-MM-DD -> "Mon D, YYYY", YYYY-MM -> "Mon YYYY".
+function formatPeriodLabel(period: string, fullYear = true): string {
+  const [year, month, day] = period.split("-");
+  if (!month) return year;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthLabel = months[parseInt(month, 10) - 1];
+  if (day) return fullYear ? `${monthLabel} ${parseInt(day, 10)}, ${year}` : `${monthLabel} ${parseInt(day, 10)} '${year.slice(2)}`;
+  return `${monthLabel} ${fullYear ? year : year.slice(2)}`;
+}
+
+// Monday (ISO week start) of the week containing dateStr, as YYYY-MM-DD.
+function mondayOf(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
   return localDateStr(d);
+}
+
+// Bucket a daily row's usage_date into a period key for the granularity.
+function periodKeyFor(usageDate: string, granularity: Granularity): string {
+  if (granularity === "weekly") return mondayOf(usageDate);
+  if (granularity === "monthly") return usageDate.slice(0, 7);
+  return usageDate; // daily
+}
+
+// Selected metric's value for a single daily row.
+function metricValue(row: ModelUsageRow, metric: UsageMetric): number {
+  if (metric === "cost") return row.cost || 0;
+  if (metric === "requests") return row.requests || 0;
+  return row.all_tokens || 0; // tokens
+}
+
+function formatMetric(v: number, metric: UsageMetric): string {
+  return metric === "cost" ? fmtCost(v) : fmtNum(v);
+}
+
+// from_date + limit for the over-time range. ALL omits from_date and passes a large limit
+// so wide ranges (many models x many days) are not truncated by the default 1000.
+function rangeQuery(range: UsageRange): { fromDate: string | null; limit: number | null } {
+  if (range === "ALL") return { fromDate: null, limit: 100000 };
+  const days = range === "30D" ? 29 : range === "90D" ? 89 : 364;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return { fromDate: localDateStr(d), limit: null };
 }
 
 // Sum per-model rows (multi-day windows return one row per (model, date)).
@@ -354,16 +423,196 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
   );
 }
 
-// Per-model usage table (second "view" on the bot page). source=crs only.
-function UsageTable({ usageWindow }: { usageWindow: UsageWindow }) {
-  const fromDate = windowFromDate(usageWindow);
+// Top-7 models by total metric across the range + "Other" (max-significance ordering,
+// mirroring FinanceViewer.buildPositionSeries).
+function buildModelSeries(rows: ModelUsageRow[], metric: UsageMetric): string[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) totals.set(r.model, (totals.get(r.model) || 0) + metricValue(r, metric));
+  const ordered = [...totals.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const top = ordered.slice(0, 7).map(([model]) => model);
+  const rest = ordered.slice(7);
+  return rest.length ? [...top, "Other"] : top;
+}
+
+// Sorted unique period keys present in the rows for the granularity.
+function buildPeriods(rows: ModelUsageRow[], granularity: Granularity): string[] {
+  const set = new Set<string>();
+  for (const r of rows) set.add(periodKeyFor(r.usage_date, granularity));
+  return [...set].sort();
+}
+
+// period -> model -> summed metric value.
+function bucketByPeriodModel(rows: ModelUsageRow[], granularity: Granularity, metric: UsageMetric): Map<string, Map<string, number>> {
+  const byPeriod = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const pk = periodKeyFor(r.usage_date, granularity);
+    let models = byPeriod.get(pk);
+    if (!models) { models = new Map(); byPeriod.set(pk, models); }
+    models.set(r.model, (models.get(r.model) || 0) + metricValue(r, metric));
+  }
+  return byPeriod;
+}
+
+// One chart object per period: { period, rawPeriod, <model>: value, …, Other, Total }.
+function usageChartRows(byPeriod: Map<string, Map<string, number>>, models: string[], periods: string[]) {
+  const named = new Set(models.filter((m) => m !== "Other"));
+  return periods.map((pk) => {
+    const modelMap = byPeriod.get(pk) || new Map<string, number>();
+    const row: Record<string, string | number> = { period: formatPeriodLabel(pk), rawPeriod: pk };
+    let total = 0;
+    for (const v of modelMap.values()) total += v;
+    for (const model of models) {
+      if (model === "Other") continue;
+      row[model] = modelMap.get(model) || 0;
+    }
+    if (models.includes("Other")) {
+      let other = 0;
+      for (const [model, v] of modelMap) if (!named.has(model)) other += v;
+      row.Other = other;
+    }
+    row.Total = total;
+    return row;
+  });
+}
+
+// One table row per model (top-7 + Other): per-period values + range-sum total.
+function usageTableRows(byPeriod: Map<string, Map<string, number>>, models: string[], periods: string[]) {
+  const named = new Set(models.filter((m) => m !== "Other"));
+  return models.map((model) => {
+    const values: Record<string, number> = {};
+    let sum = 0;
+    for (const pk of periods) {
+      const modelMap = byPeriod.get(pk) || new Map<string, number>();
+      let v = 0;
+      if (model === "Other") {
+        for (const [mm, mv] of modelMap) if (!named.has(mm)) v += mv;
+      } else {
+        v = modelMap.get(model) || 0;
+      }
+      values[pk] = v;
+      sum += v;
+    }
+    return { model, values, sum };
+  });
+}
+
+// Stacked-bar tooltip (local minimal copy of FinanceViewer's ExpensesOverTimeTooltip).
+function UsageChartTooltip({ active, payload, label, metric }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string; payload?: any }>;
+  label?: string;
+  metric: UsageMetric;
+}) {
+  if (!active || !payload?.length) return null;
+  const rawPeriod = payload[0]?.payload?.rawPeriod;
+  const totalValue = Number(payload[0]?.payload?.Total || 0);
+  const rows = payload.filter((p) => Number(p.value || 0) > 0).sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div style={{ color: SOL.base1 }} className="mb-1">{rawPeriod ? formatPeriodLabel(rawPeriod) : label}</div>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: SOL.base1 }} />
+        <span style={{ color: SOL.base1, fontWeight: 500 }}>Total: {formatMetric(totalValue, metric)}</span>
+      </div>
+      {rows.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span style={{ color: SOL.base0 }}>{p.name}: {formatMetric(p.value, metric)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Over-time view: stacked chart of one metric per period + per-model x period table.
+function UsageOverTimeView({ granularity, metric, range }: { granularity: Granularity; metric: UsageMetric; range: UsageRange }) {
+  const { fromDate, limit } = rangeQuery(range);
+  const params = new URLSearchParams();
+  if (fromDate) params.set("from_date", fromDate);
+  if (limit != null) params.set("limit", String(limit));
+  const qs = params.toString();
   const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
-    `${API}/api/usage/model-daily${fromDate ? `?from_date=${encodeURIComponent(fromDate)}` : ""}`,
+    `${API}/api/usage/model-daily${qs ? `?${qs}` : ""}`,
+    fetcher,
+  );
+
+  const rows = useMemo(() => data || [], [data]);
+  const models = useMemo(() => buildModelSeries(rows, metric), [rows, metric]);
+  const periods = useMemo(() => buildPeriods(rows, granularity), [rows, granularity]);
+  const byPeriod = useMemo(() => bucketByPeriodModel(rows, granularity, metric), [rows, granularity, metric]);
+  const chartRows = useMemo(() => usageChartRows(byPeriod, models, periods), [byPeriod, models, periods]);
+  const tableRows = useMemo(() => usageTableRows(byPeriod, models, periods), [byPeriod, models, periods]);
+
+  if (isLoading) return <ListLoading />;
+  if (error && !data) return <ListError error={error} />;
+  if (rows.length === 0) return <ListEmpty label="usage" />;
+
+  return (
+    <div className="px-3 pt-2 flex flex-col gap-3">
+      <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+        <div className="mb-2">
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+            {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} over time
+          </div>
+          <div className="text-sol-base01 text-[10px]">Stacked by model (top 7 + Other), source=crs</div>
+        </div>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={chartRows} margin={{ top: 16, right: 20, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
+            <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => metric === "cost" ? `$${(v / 1000).toFixed(0)}k` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+            <Tooltip content={<UsageChartTooltip metric={metric} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            {models.map((model, index) => (
+              <Bar key={model} dataKey={model} stackId="usage" fill={MODEL_COLORS[index % MODEL_COLORS.length]} isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+        <div className="border-b border-sol-base02 px-3 py-2">
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+            {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} history
+          </div>
+          <div className="text-sol-base01 text-[10px]">Rows are models; columns are periods</div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
+                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Model</th>
+                {periods.map((pk) => (
+                  <th key={pk} className="text-right font-normal py-1 px-3 whitespace-nowrap">{formatPeriodLabel(pk, false)}</th>
+                ))}
+                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map((row) => (
+                <tr key={row.model} className="hover:bg-sol-base02/50">
+                  <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 font-mono text-sol-base0 whitespace-nowrap">{row.model}</td>
+                  {periods.map((pk) => (
+                    <td key={pk} className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatMetric(row.values[pk] || 0, metric)}</td>
+                  ))}
+                  <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatMetric(row.sum, metric)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Per-model usage table for Live mode: today's snapshot (source=crs only).
+function UsageTable() {
+  const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
+    `${API}/api/usage/model-daily`,
     fetcher,
   );
 
   const rows = useMemo(() => aggregateByModel(data || []), [data]);
-  const multiDay = usageWindow !== "today";
 
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
@@ -399,11 +648,6 @@ function UsageTable({ usageWindow }: { usageWindow: UsageWindow }) {
           ))}
         </tbody>
       </table>
-      {multiDay && (
-        <p className="text-[0.65rem] text-sol-base01/70 mt-1.5 px-1.5">
-          Aggregated per model over the selected window (one row per model).
-        </p>
-      )}
     </div>
   );
 }
@@ -411,7 +655,15 @@ function UsageTable({ usageWindow }: { usageWindow: UsageWindow }) {
 export default function BotViewer() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("config");
-  const [usageWindow, setUsageWindow] = useState<UsageWindow>("today");
+  const [usageMode, setUsageMode] = useState<UsageMode>(
+    () => (localStorage.getItem(USAGE_MODE_STORAGE_KEY) === "over-time" ? "over-time" : "live"),
+  );
+  const [granularity, setGranularity] = useState<Granularity>(() => {
+    const saved = localStorage.getItem(USAGE_GRANULARITY_STORAGE_KEY);
+    return saved === "weekly" || saved === "monthly" ? saved : "daily";
+  });
+  const [usageMetric, setUsageMetric] = useState<UsageMetric>("tokens");
+  const [usageRange, setUsageRange] = useState<UsageRange>("30D");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
   const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
@@ -479,6 +731,14 @@ export default function BotViewer() {
   useEffect(() => {
     localStorage.setItem(SORT_DIR_STORAGE_KEY, sortDir);
   }, [sortDir]);
+
+  useEffect(() => {
+    localStorage.setItem(USAGE_MODE_STORAGE_KEY, usageMode);
+  }, [usageMode]);
+
+  useEffect(() => {
+    localStorage.setItem(USAGE_GRANULARITY_STORAGE_KEY, granularity);
+  }, [granularity]);
 
   useEffect(() => {
     if (!form) { setBusy(false); setError(null); }
@@ -574,26 +834,81 @@ export default function BotViewer() {
             </button>
           </>
         ) : (
-          <div className="flex items-center gap-1">
-            {(["today", "7d", "30d"] as const).map((w) => (
-              <button
-                key={w}
-                onClick={() => setUsageWindow(w)}
-                className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
-                  usageWindow === w
-                    ? "bg-sol-blue text-sol-base03"
-                    : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
-                }`}
-              >
-                {w === "today" ? "Today" : w}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1">
+              {([["live", "Live"], ["over-time", "Over time"]] as const).map(([m, label]) => (
+                <button
+                  key={m}
+                  onClick={() => setUsageMode(m)}
+                  className={`px-2 py-1 rounded text-xs cursor-pointer ${
+                    usageMode === m
+                      ? "bg-sol-blue text-sol-base03"
+                      : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {usageMode === "over-time" && (
+              <>
+                <div className="flex items-center gap-1">
+                  {([["daily", "D"], ["weekly", "W"], ["monthly", "M"]] as const).map(([g, label]) => (
+                    <button
+                      key={g}
+                      onClick={() => setGranularity(g)}
+                      className={`px-1.5 py-1 rounded text-[10px] cursor-pointer ${
+                        granularity === g
+                          ? "bg-sol-blue text-sol-base03"
+                          : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
+                    <button
+                      key={m}
+                      onClick={() => setUsageMetric(m)}
+                      className={`px-2 py-1 rounded text-xs cursor-pointer ${
+                        usageMetric === m
+                          ? "bg-sol-blue text-sol-base03"
+                          : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  {(["30D", "90D", "1Y", "ALL"] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setUsageRange(r)}
+                      className={`px-1.5 py-1 rounded text-[10px] cursor-pointer ${
+                        usageRange === r
+                          ? "bg-sol-blue text-sol-base03"
+                          : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
       <div className="flex-1 min-h-0 overflow-auto" onClick={(e) => { if (expandedName && !(e.target as HTMLElement).closest('[data-bot-card]')) setExpandedName(null); }}>
         {view === "usage" ? (
-          <UsageTable usageWindow={usageWindow} />
+          usageMode === "over-time" ? (
+            <UsageOverTimeView granularity={granularity} metric={usageMetric} range={usageRange} />
+          ) : (
+            <UsageTable />
+          )
         ) : isLoading ? (
           <ListLoading />
         ) : loadError && !data ? (
