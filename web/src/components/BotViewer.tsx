@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -607,15 +607,15 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
   if (rows.length === 0) return <ListEmpty label="usage" />;
 
   return (
-    <div className="px-3 pt-2 flex flex-col gap-3">
-      <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+    <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
+      <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
         <div className="mb-2">
           <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
             {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} over time
           </div>
           <div className="text-sol-base01 text-[10px]">Stacked by model (top 7 + Other), source=crs</div>
         </div>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={210}>
           <BarChart data={chartRows} margin={{ top: 16, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
@@ -629,22 +629,22 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
 
-      <div className="rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
-        <div className="border-b border-sol-base02 px-3 py-2">
+      <div className="flex-1 min-h-0 flex flex-col rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
+        <div className="shrink-0 border-b border-sol-base02 px-3 py-2">
           <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
             {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} history
           </div>
           <div className="text-sol-base01 text-[10px]">Rows are models; columns are periods</div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="flex-1 min-h-0 overflow-auto">
           <table className="min-w-full text-xs">
             <thead>
-              <tr className="text-sol-base01 border-b border-sol-base02 bg-sol-base02/50">
-                <th className="sticky left-0 z-10 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Model</th>
+              <tr className="text-sol-base01 border-b border-sol-base02">
+                <th className="sticky left-0 top-0 z-20 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Model</th>
                 {periods.map((pk) => (
-                  <th key={pk} className="text-right font-normal py-1 px-3 whitespace-nowrap">{formatPeriodLabel(pk, false)}</th>
+                  <th key={pk} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap">{formatPeriodLabel(pk, false)}</th>
                 ))}
-                <th className="text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
+                <th className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
               </tr>
             </thead>
             <tbody>
@@ -657,12 +657,12 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatMetric(row.sum, metric)}</td>
                 </tr>
               ))}
-              <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
-                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Total</td>
+              <tr className="font-medium">
+                <td className="sticky left-0 bottom-0 z-20 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap border-t border-sol-base02">Total</td>
                 {periods.map((pk) => (
-                  <td key={pk} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatMetric(columnTotals.totals[pk] || 0, metric)}</td>
+                  <td key={pk} className="sticky bottom-0 z-10 bg-sol-base02 py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-t border-sol-base02">{formatMetric(columnTotals.totals[pk] || 0, metric)}</td>
                 ))}
-                <td className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatMetric(columnTotals.grand, metric)}</td>
+                <td className="sticky bottom-0 z-10 bg-sol-base02 py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-t border-sol-base02">{formatMetric(columnTotals.grand, metric)}</td>
               </tr>
             </tbody>
           </table>
@@ -684,6 +684,15 @@ function buildModelPie(rows: ModelUsageAgg[], metric: UsageMetric): PieSlice[] {
   const rest = ordered.slice(7);
   if (rest.length) return [...top, { model: "Other", value: rest.reduce((s, x) => s + x.value, 0) }];
   return top;
+}
+
+// On-slice label (mirrors FinanceViewer.HoldingsPieChart): show the model name + %
+// directly on the slice, but only for slices >= 4% share so small ones don't clutter.
+// labelLine={false} keeps it tight; full detail stays on the hover tooltip.
+function renderPieLabel(props: { percent?: number; payload?: { model?: string } }): string {
+  const pct = props.percent ?? 0;
+  if (pct < 0.04) return "";
+  return `${props.payload?.model ?? ""} ${(pct * 100).toFixed(0)}%`;
 }
 
 // Pie-slice tooltip: model name + formatted metric value + % share of the total.
@@ -714,7 +723,7 @@ function UsagePieTooltip({ active, payload, metric, total }: {
 function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m: UsageMetric) => void }) {
   return (
     <div className="flex justify-center gap-1 mt-1">
-      {([["requests", "Requests"], ["tokens", "Tokens"], ["cost", "Cost"]] as const).map(([m, label]) => (
+      {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
         <button
           key={m}
           onClick={() => onChange(m)}
@@ -748,6 +757,13 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
 
   const rows = useMemo(() => aggregateByModel(data || []), [data]);
 
+  // Table rows follow the pie: sort by the selected metric descending so the table
+  // order matches the slices (aggregateByModel only pre-sorts by all_tokens).
+  const sortedRows = useMemo(
+    () => [...rows].sort((a, b) => aggMetricValue(b, metric) - aggMetricValue(a, metric)),
+    [rows, metric],
+  );
+
   // Single donut: each model's share of the selected metric (top-7 + Other).
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
   const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
@@ -772,8 +788,8 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   if (rows.length === 0) return <ListEmpty label="usage" />;
 
   return (
-    <div className="px-3 pt-2 flex flex-col gap-3">
-      <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+    <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
+      <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
         <div className="mb-2">
           <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
             {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
@@ -783,61 +799,59 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={90} innerRadius={48} stroke={SOL.base03} isAnimationActive={false}>
+          <ResponsiveContainer width="100%" height={210}>
+            <PieChart margin={{ top: 8, right: 60, left: 60, bottom: 8 }}>
+              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={80} innerRadius={42} stroke={SOL.base03} isAnimationActive={false} label={renderPieLabel} labelLine={false}>
                 {pieData.map((d, i) => (
                   <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                formatter={(v) => <span style={{ color: SOL.base0, fontSize: 11 }}>{v}</span>}
-              />
             </PieChart>
           </ResponsiveContainer>
         )}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
-            <th className="py-1 px-1.5">Model</th>
-            <th className="py-1 px-1.5">Provider</th>
-            <th className="py-1 px-1.5 text-right">Tokens</th>
-            <th className="py-1 px-1.5 text-right">Cost</th>
-            <th className="py-1 px-1.5 text-right">Requests</th>
-            <th className="py-1 px-1.5 text-right">Input</th>
-            <th className="py-1 px-1.5 text-right">Output</th>
-            <th className="py-1 px-1.5 text-right">Cache (cr/rd)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
-              <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
-              <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.input_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.output_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead className="sticky top-0 z-10">
+            <tr className="text-sol-base01 text-left text-xs bg-sol-base03 border-b border-sol-base02">
+              <th className="py-1 px-1.5 bg-sol-base03">Model</th>
+              <th className="py-1 px-1.5 bg-sol-base03">Provider</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Tokens</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Cost</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Requests</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Input</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Output</th>
+              <th className="py-1 px-1.5 text-right bg-sol-base03">Cache (cr/rd)</th>
             </tr>
-          ))}
-          <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
-            <td className="px-1.5 py-1 text-sol-base1">Total</td>
-            <td className="px-1.5 py-1 text-sol-base01"></td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.all_tokens)}</td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCost(totals.cost)}</td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtNum(totals.requests)}</td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.input_tokens)}</td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.output_tokens)}</td>
-            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.cache_create_tokens)}/{fmtCompact(totals.cache_read_tokens)}</td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sortedRows.map((r) => (
+              <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
+                <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
+                <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.input_tokens)}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.output_tokens)}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
+              </tr>
+            ))}
+            <tr className="font-medium">
+              <td className="sticky bottom-0 px-1.5 py-1 text-sol-base1 bg-sol-base02 border-t border-sol-base02">Total</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-sol-base01 bg-sol-base02 border-t border-sol-base02"></td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.all_tokens)}</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCost(totals.cost)}</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtNum(totals.requests)}</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.input_tokens)}</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.output_tokens)}</td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.cache_create_tokens)}/{fmtCompact(totals.cache_read_tokens)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
