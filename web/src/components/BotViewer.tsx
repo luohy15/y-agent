@@ -29,8 +29,10 @@ type UsageRange = "30D" | "90D" | "1Y" | "ALL";
 
 const SORT_KEY_STORAGE_KEY = "botViewSortKey";
 const SORT_DIR_STORAGE_KEY = "botViewSortDir";
+const VIEW_STORAGE_KEY = "botView";
 const USAGE_MODE_STORAGE_KEY = "botUsageMode";
 const USAGE_GRANULARITY_STORAGE_KEY = "botUsageGranularity";
+const USAGE_LIVE_TIME_STORAGE_KEY = "botUsageLiveTime";
 
 // One per-model daily usage row from GET /api/usage/model-daily (source=crs).
 interface ModelUsageRow {
@@ -139,14 +141,46 @@ function formatMetric(v: number, metric: UsageMetric): string {
   return metric === "cost" ? fmtCost(v) : fmtNum(v);
 }
 
-// from_date + limit for the over-time range. ALL omits from_date and passes a large limit
-// so wide ranges (many models x many days) are not truncated by the default 1000.
+// from_date + limit for the over-time range. ALL passes an early explicit from_date
+// (the server defaults a missing from_date to today, which would collapse ALL to
+// today-only) plus a large limit so wide ranges (many models x many days) aren't
+// truncated by the default 1000.
 function rangeQuery(range: UsageRange): { fromDate: string | null; limit: number | null } {
-  if (range === "ALL") return { fromDate: null, limit: 100000 };
+  if (range === "ALL") return { fromDate: "2020-01-01", limit: 100000 };
   const days = range === "30D" ? 29 : range === "90D" ? 89 : 364;
   const d = new Date();
   d.setDate(d.getDate() - days);
   return { fromDate: localDateStr(d), limit: null };
+}
+
+// Resolve a free-text Live time expression into a usage-endpoint query window.
+// Mirrors FinanceViewer's Income Statement time input UX; supported tokens are a
+// focused subset because the usage endpoint only takes from_date/to_date (finance's
+// Fava grammar is server-side). Supported: empty/"today", "week", "month"/"mtd",
+// "year"/"ytd", "all", a bare "YYYY", or "YYYY-MM". Unknown input falls back to today.
+function parseUsageTime(value: string): { fromDate: string | null; toDate: string | null; limit: number | null } {
+  const v = value.trim().toLowerCase();
+  const today = new Date();
+  const todayStr = localDateStr(today);
+  if (v === "" || v === "today" || v === "day") return { fromDate: null, toDate: null, limit: null };
+  if (v === "all") return { fromDate: "2000-01-01", toDate: todayStr, limit: 100000 };
+  if (v === "week") return { fromDate: mondayOf(todayStr), toDate: todayStr, limit: null };
+  if (v === "month" || v === "mtd") {
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { fromDate: localDateStr(first), toDate: todayStr, limit: null };
+  }
+  if (v === "year" || v === "ytd") {
+    const first = new Date(today.getFullYear(), 0, 1);
+    return { fromDate: localDateStr(first), toDate: todayStr, limit: null };
+  }
+  const yearMatch = /^(\d{4})$/.exec(v);
+  if (yearMatch) return { fromDate: `${yearMatch[1]}-01-01`, toDate: `${yearMatch[1]}-12-31`, limit: 100000 };
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(v);
+  if (monthMatch) {
+    const last = new Date(Number(monthMatch[1]), Number(monthMatch[2]), 0); // day 0 of next month = last day of this month
+    return { fromDate: `${monthMatch[1]}-${monthMatch[2]}-01`, toDate: localDateStr(last), limit: null };
+  }
+  return { fromDate: null, toDate: null, limit: null }; // unknown -> today
 }
 
 // Sum per-model rows (multi-day windows return one row per (model, date)).
@@ -605,10 +639,17 @@ function UsageOverTimeView({ granularity, metric, range }: { granularity: Granul
   );
 }
 
-// Per-model usage table for Live mode: today's snapshot (source=crs only).
-function UsageTable() {
+// Per-model usage snapshot for Live mode: aggregates daily rows over the selected
+// time range (source=crs only). Defaults to today when no range is given.
+function UsageTable({ time }: { time: string }) {
+  const { fromDate, toDate, limit } = parseUsageTime(time);
+  const params = new URLSearchParams();
+  if (fromDate) params.set("from_date", fromDate);
+  if (toDate) params.set("to_date", toDate);
+  if (limit != null) params.set("limit", String(limit));
+  const qs = params.toString();
   const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
-    `${API}/api/usage/model-daily`,
+    `${API}/api/usage/model-daily${qs ? `?${qs}` : ""}`,
     fetcher,
   );
 
@@ -654,7 +695,18 @@ function UsageTable() {
 
 export default function BotViewer() {
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<ViewMode>("config");
+  const [view, setView] = useState<ViewMode>(
+    () => (localStorage.getItem(VIEW_STORAGE_KEY) === "usage" ? "usage" : "config"),
+  );
+  // Live usage time range (free-text, committed on Enter/blur — mirrors FinanceViewer's
+  // Income Statement time input). `liveTimeInput` is the editing buffer; `liveTime` drives the query.
+  const [liveTimeInput, setLiveTimeInput] = useState(() => localStorage.getItem(USAGE_LIVE_TIME_STORAGE_KEY) || "today");
+  const [liveTime, setLiveTime] = useState(() => localStorage.getItem(USAGE_LIVE_TIME_STORAGE_KEY) || "today");
+  const commitLiveTime = () => {
+    const v = liveTimeInput.trim();
+    setLiveTime(v);
+    localStorage.setItem(USAGE_LIVE_TIME_STORAGE_KEY, v);
+  };
   const [usageMode, setUsageMode] = useState<UsageMode>(
     () => (localStorage.getItem(USAGE_MODE_STORAGE_KEY) === "over-time" ? "over-time" : "live"),
   );
@@ -731,6 +783,10 @@ export default function BotViewer() {
   useEffect(() => {
     localStorage.setItem(SORT_DIR_STORAGE_KEY, sortDir);
   }, [sortDir]);
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  }, [view]);
 
   useEffect(() => {
     localStorage.setItem(USAGE_MODE_STORAGE_KEY, usageMode);
@@ -850,6 +906,17 @@ export default function BotViewer() {
                 </button>
               ))}
             </div>
+            {usageMode === "live" && (
+              <input
+                type="text"
+                value={liveTimeInput}
+                onChange={(e) => setLiveTimeInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitLiveTime(); }}
+                onBlur={commitLiveTime}
+                placeholder="today, week, month, year, all, 2024, 2024-05"
+                className="px-2 py-1 rounded text-xs w-56 bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
+              />
+            )}
             {usageMode === "over-time" && (
               <>
                 <div className="flex items-center gap-1">
@@ -907,7 +974,7 @@ export default function BotViewer() {
           usageMode === "over-time" ? (
             <UsageOverTimeView granularity={granularity} metric={usageMetric} range={usageRange} />
           ) : (
-            <UsageTable />
+            <UsageTable time={liveTime} />
           )
         ) : isLoading ? (
           <ListLoading />
