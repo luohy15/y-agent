@@ -705,10 +705,47 @@ function UsagePieTooltip({ active, payload, metric, total }: {
   );
 }
 
+// Live mode shows one pie per metric side by side (no toggle).
+const LIVE_PIE_METRICS: { metric: UsageMetric; label: string }[] = [
+  { metric: "requests", label: "Requests" },
+  { metric: "tokens", label: "Tokens" },
+  { metric: "cost", label: "Cost" },
+];
+
+// One donut pie for a single metric: each model's share (top-7 + Other), with a
+// compact title + legend matching the Solarized chart scale.
+function ModelMetricPie({ rows, metric, label }: { rows: ModelUsageAgg[]; metric: UsageMetric; label: string }) {
+  const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
+  const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
+  return (
+    <div className="flex flex-col">
+      <div className="text-sol-base1 text-[11px] font-medium uppercase tracking-wide text-center mb-1">{label}</div>
+      {pieData.length === 0 ? (
+        <div className="text-[10px] text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <PieChart>
+            <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={70} innerRadius={36} stroke={SOL.base03} isAnimationActive={false}>
+              {pieData.map((d, i) => (
+                <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
+            <Legend
+              wrapperStyle={{ fontSize: 10 }}
+              formatter={(v) => <span style={{ color: SOL.base0, fontSize: 10 }}>{v}</span>}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 // Per-model usage snapshot for Live mode: aggregates daily rows over the selected
-// time range (source=crs only). Defaults to today when no range is given. A pie
-// (driven by the shared Requests/Tokens/Cost toggle) sits above the per-model table.
-function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
+// time range (source=crs only). Defaults to today when no range is given. Three
+// pies (Requests / Tokens / Cost), one per metric, sit above the per-model table.
+function UsageTable({ time }: { time: string }) {
   const { fromDate, toDate, limit } = parseUsageTime(time);
   const params = new URLSearchParams();
   if (fromDate) params.set("from_date", fromDate);
@@ -721,8 +758,6 @@ function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
   );
 
   const rows = useMemo(() => aggregateByModel(data || []), [data]);
-  const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
-  const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
   // Per-column totals: sum each numeric column across all model rows.
   const totals = useMemo(() => rows.reduce(
@@ -747,26 +782,14 @@ function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
     <div className="px-3 pt-2 flex flex-col gap-3">
       <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
         <div className="mb-2">
-          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
-            {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
-          </div>
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">Usage by model</div>
           <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
         </div>
-        {pieData.length === 0 ? (
-          <div className="text-xs text-sol-base01/70 italic">No {metric} recorded in this range</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={100} innerRadius={50} stroke={SOL.base03} isAnimationActive={false}>
-                {pieData.map((d, i) => (
-                  <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
-              <Legend formatter={(v) => <span style={{ color: SOL.base0 }}>{v}</span>} />
-            </PieChart>
-          </ResponsiveContainer>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {LIVE_PIE_METRICS.map(({ metric, label }) => (
+            <ModelMetricPie key={metric} rows={rows} metric={metric} label={label} />
+          ))}
+        </div>
       </div>
       <table className="w-full text-xs border-collapse">
         <thead>
@@ -1081,7 +1104,7 @@ export default function BotViewer() {
           </div>
         )}
         </div>
-        {view === "usage" && (
+        {view === "usage" && usageMode === "over-time" && (
           <div className="flex justify-center gap-1">
             {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
               <button
@@ -1104,7 +1127,7 @@ export default function BotViewer() {
           usageMode === "over-time" ? (
             <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} />
           ) : (
-            <UsageTable time={usageTime} metric={usageMetric} />
+            <UsageTable time={usageTime} />
           )
         ) : isLoading ? (
           <ListLoading />
