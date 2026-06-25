@@ -11,7 +11,7 @@ One source in scope:
 """
 
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -165,6 +165,132 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
     n = upsert_daily(user_id, rows, synced_at)
     logger.info("sync_crs: {} keys -> upserted {} aggregate rows for {}", len(targets), n, usage_date)
     return {"source": "crs", "status": "ok", "rows": n, "date": usage_date}
+
+
+# --- CRS admin client (one-shot historical backfill) -----------------------
+#
+# The public per-key user-model-stats endpoint is today-only, so dated history
+# is only reachable through the admin model-stats route (global daily buckets by
+# date). These helpers are used ONLY by the manual `backfill_crs` one-shot —
+# admin creds never live in the deployed worker.
+
+def _crs_config_block() -> dict:
+    """The optional [crs] table in ~/.y-agent/config.toml (nested tables are not
+    loaded into env by global_config, so read it directly)."""
+    path = os.path.join(os.path.expanduser("~/.y-agent"), "config.toml")
+    if not os.path.exists(path):
+        return {}
+    import tomllib
+    with open(path, "rb") as f:
+        return tomllib.load(f).get("crs") or {}
+
+
+def _crs_admin_creds() -> tuple[str, str]:
+    """Admin username/password from env, falling back to the [crs] config block."""
+    user = os.getenv("CRS_ADMIN_USERNAME")
+    pw = os.getenv("CRS_ADMIN_PASSWORD")
+    if not (user and pw):
+        block = _crs_config_block()
+        user = user or block.get("admin_username")
+        pw = pw or block.get("admin_password")
+    if not (user and pw):
+        raise RuntimeError(
+            "CRS admin creds missing: set CRS_ADMIN_USERNAME/CRS_ADMIN_PASSWORD or a "
+            "[crs] block (admin_username/admin_password) in ~/.y-agent/config.toml"
+        )
+    return user, pw
+
+
+def crs_admin_login(origin: str, username: str, password: str) -> str:
+    """POST {origin}/web/auth/login -> 24h admin session token (discard after use)."""
+    resp = httpx.post(
+        f"{origin}/web/auth/login",
+        json={"username": username, "password": password},
+        headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    token = resp.json().get("token")
+    if not token:
+        raise RuntimeError("CRS admin login returned no token")
+    return token
+
+
+def crs_admin_get(origin: str, path: str, token: str) -> dict:
+    """GET an admin endpoint with the session token (Bearer)."""
+    resp = httpx.get(
+        f"{origin}{path}",
+        headers={"Authorization": f"Bearer {token}", "User-Agent": _BROWSER_UA},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _crs_origin(user_id: int) -> str:
+    """Admin-endpoint origin: the user's first CRS bot_config origin, else cc1."""
+    targets = _crs_targets(user_id)
+    return targets[0][0] if targets else "https://cc1.yovy.app"
+
+
+def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> dict:
+    """One-shot historical backfill via the CRS admin routes (manual, not the
+    recurring worker). For each day in [today-days, yesterday] call
+    GET /admin/model-stats?startDate=D&endDate=D and write scope='aggregate'/
+    scope_id='' rows — the SAME shape as the go-forward daily sync, so re-running
+    (or overlapping a go-forward day) upserts in place. Today is left to the
+    go-forward sync (cap at yesterday). Only the dated daily window (~32d, the
+    CRS daily-bucket TTL) is recoverable; older history has expired in Redis.
+
+    Idempotent: every row reuses the existing unique key, so a re-run leaves the
+    row count and values unchanged."""
+    synced_at = synced_at or get_utc_iso8601_timestamp()
+    username, password = _crs_admin_creds()
+    origin = _crs_origin(user_id)
+    token = crs_admin_login(origin, username, password)
+
+    result: dict = {"source": "crs", "status": "ok", "origin": origin, "daily_rows": 0, "days": []}
+
+    # dated daily window [today-days, yesterday] (caps at yesterday so the
+    # go-forward sync keeps ownership of the in-progress day).
+    today = date.fromisoformat(_local_today())
+    daily_total = 0
+    for i in range(days, 0, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        data = crs_admin_get(origin, f"/admin/model-stats?startDate={d}&endDate={d}", token)
+        items = data.get("data") or []
+        if not items:
+            continue
+        rows = []
+        for item in items:
+            model = item.get("model") or "*"
+            costs = item.get("costs") or {}
+            rows.append({
+                "usage_date": d,
+                "source": "crs",
+                "provider": _derive_provider(model),
+                "model": model,
+                "scope": "aggregate",
+                "scope_id": "",
+                "scope_name": "",
+                "cost_basis": "real",
+                "input_tokens": int(item.get("inputTokens") or 0),
+                "output_tokens": int(item.get("outputTokens") or 0),
+                "cache_create_tokens": int(item.get("cacheCreateTokens") or 0),
+                "cache_read_tokens": int(item.get("cacheReadTokens") or 0),
+                "all_tokens": int(item.get("allTokens") or 0),
+                "requests": int(item.get("requests") or 0),
+                "cost": float(costs.get("total") or 0.0),
+            })
+        daily_total += upsert_daily(user_id, rows, synced_at)
+        result["days"].append({"date": d, "rows": len(rows)})
+    result["daily_rows"] = daily_total
+
+    logger.info(
+        "backfill_crs: {} dated days ({} rows) from {}",
+        len(result["days"]), result["daily_rows"], origin,
+    )
+    return result
 
 
 # --- orchestration ----------------------------------------------------------
