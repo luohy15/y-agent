@@ -1,10 +1,13 @@
 """Provider-generic daily LLM usage: per-source pulls into one upsert table.
 
 One source in scope:
-- CRS (claude-relay-service): POST {origin}/apiStats/api/user-model-stats with the
-  cr_ relay key (from bot_config 'claude_code'), period='daily' -> today's per-model
-  tokens + real cost. Today-only (no history in the response); we pull daily. The
-  generic per-model capture covers any vendor routed through CRS (incl. OpenRouter).
+- CRS (claude-relay-service): POST {origin}/apiStats/api/user-model-stats with each
+  distinct cr_ relay key referenced by the user's bot_configs, period='daily' ->
+  today's per-model tokens + real cost. The endpoint is strictly per-key, so we
+  enumerate every distinct key and SUM per model to reconstruct the global per-model
+  aggregate (cc1 is a single-user relay, so the sum equals CRS's own
+  usage:model:daily:* global). Stored as scope='aggregate' rows (key enumeration is an
+  invisible impl detail — no per-key rows). Today-only (no history); we pull daily.
 """
 
 import os
@@ -80,54 +83,87 @@ def _local_today() -> str:
 
 # --- CRS pull ---------------------------------------------------------------
 
+def _crs_targets(user_id: int) -> list[tuple[str, str]]:
+    """Distinct CRS (origin, api_key) pairs across the user's bot_configs.
+
+    Enumerates every cr_ key referenced by a bot_config and dedups by
+    (origin, api_key) so a key shared by multiple bots (e.g. the subscription key
+    used by claude_code + codex) is queried once. Self-maintaining: a new bot
+    repointed to CRS is auto-discovered with no code change here. Enumeration is an
+    invisible impl detail — the results are summed into one global aggregate."""
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str]] = []
+    for c in bot_config_service.list_configs(user_id):
+        ak = c.api_key or ""
+        if not ak.startswith("cr_"):
+            continue
+        parts = urlsplit(c.base_url or "https://cc1.yovy.app/api")
+        origin = f"{parts.scheme or 'https'}://{parts.netloc}"
+        target = (origin, ak)
+        if target in seen:
+            continue
+        seen.add(target)
+        out.append(target)
+    return out
+
+
+def _fetch_crs_key(origin: str, api_key: str) -> list[dict]:
+    """Today's per-model items for one CRS key (raises on transport/HTTP error)."""
+    resp = httpx.post(
+        f"{origin}/apiStats/api/user-model-stats",
+        json={"apiKey": api_key, "period": "daily"},
+        headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json().get("data") or []
+
+
 def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
-    """Pull today's per-model usage from CRS and upsert as source='crs' rows."""
-    config = bot_config_service.get_config(user_id, name="claude_code")
-    if not config or not config.api_key:
-        return {"source": "crs", "status": "skip", "reason": "no claude_code bot api_key", "rows": 0}
+    """Pull today's per-model usage across all distinct CRS keys, SUM per model, and
+    upsert as global source='crs' scope='aggregate' rows (one row per model)."""
+    targets = _crs_targets(user_id)
+    if not targets:
+        return {"source": "crs", "status": "skip", "reason": "no cr_ keys in bot_configs", "rows": 0}
 
-    parts = urlsplit(config.base_url or "https://cc1.yovy.app/api")
-    origin = f"{parts.scheme or 'https'}://{parts.netloc}"
-    url = f"{origin}/apiStats/api/user-model-stats"
-
-    try:
-        resp = httpx.post(
-            url,
-            json={"apiKey": config.api_key, "period": "daily"},
-            headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        logger.exception("sync_crs: fetch failed: {}", e)
-        return {"source": "crs", "status": "error", "reason": str(e), "rows": 0}
+    # model -> summed totals across every distinct key (the global per-model aggregate).
+    agg: dict[str, dict] = {}
+    for origin, api_key in targets:
+        try:
+            items = _fetch_crs_key(origin, api_key)
+        except Exception as e:
+            logger.exception("sync_crs: fetch failed for a key: {}", e)
+            return {"source": "crs", "status": "error", "reason": str(e), "rows": 0}
+        for item in items:
+            model = item.get("model") or "*"
+            costs = item.get("costs") or {}
+            row = agg.setdefault(model, {
+                "input_tokens": 0, "output_tokens": 0, "cache_create_tokens": 0,
+                "cache_read_tokens": 0, "all_tokens": 0, "requests": 0, "cost": 0.0,
+            })
+            row["input_tokens"] += item.get("inputTokens") or 0
+            row["output_tokens"] += item.get("outputTokens") or 0
+            row["cache_create_tokens"] += item.get("cacheCreateTokens") or 0
+            row["cache_read_tokens"] += item.get("cacheReadTokens") or 0
+            row["all_tokens"] += item.get("allTokens") or 0
+            row["requests"] += item.get("requests") or 0
+            row["cost"] += costs.get("real", costs.get("total", 0.0)) or 0.0
 
     usage_date = _local_today()
-    rows: list[dict] = []
-    for item in payload.get("data") or []:
-        model = item.get("model") or "*"
-        costs = item.get("costs") or {}
-        rows.append({
-            "usage_date": usage_date,
-            "source": "crs",
-            "provider": _derive_provider(model),
-            "model": model,
-            "scope": "aggregate",
-            "scope_id": "",
-            "scope_name": "",
-            "input_tokens": item.get("inputTokens") or 0,
-            "output_tokens": item.get("outputTokens") or 0,
-            "cache_create_tokens": item.get("cacheCreateTokens") or 0,
-            "cache_read_tokens": item.get("cacheReadTokens") or 0,
-            "all_tokens": item.get("allTokens") or 0,
-            "requests": item.get("requests") or 0,
-            "cost": costs.get("real", costs.get("total", 0.0)) or 0.0,
-            "cost_basis": "real",
-        })
+    rows = [{
+        "usage_date": usage_date,
+        "source": "crs",
+        "provider": _derive_provider(model),
+        "model": model,
+        "scope": "aggregate",
+        "scope_id": "",
+        "scope_name": "",
+        "cost_basis": "real",
+        **totals,
+    } for model, totals in agg.items()]
 
     n = upsert_daily(user_id, rows, synced_at)
-    logger.info("sync_crs: upserted {} rows for {}", n, usage_date)
+    logger.info("sync_crs: {} keys -> upserted {} aggregate rows for {}", len(targets), n, usage_date)
     return {"source": "crs", "status": "ok", "rows": n, "date": usage_date}
 
 
