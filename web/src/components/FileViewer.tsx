@@ -81,18 +81,20 @@ function getFileName(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
-function downloadAsMarkdown(filename: string, content: string) {
-  const base = filename.replace(/\.md$/i, "");
-  const safe = (base || "download").replace(/[\\/:*?"<>|]/g, "_");
-  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+// Download a file preserving its original name/extension. Pass `blobUrl` for
+// binary files (images/PDFs) or `content` for text; one of the two is used.
+function downloadFile(filename: string, source: { content?: string | null; blobUrl?: string }) {
+  const safe = (filename || "download").replace(/[\\/:*?"<>|]/g, "_");
+  const url = source.blobUrl ?? URL.createObjectURL(
+    new Blob([source.content ?? ""], { type: "application/octet-stream" })
+  );
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${safe}.md`;
+  a.download = safe;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  if (!source.blobUrl) URL.revokeObjectURL(url);
 }
 
 function getBreadcrumb(path: string): string[] {
@@ -1253,7 +1255,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               : `link-${selectedLinkId || selectedLinkLinkId}`;
             return (
               <button
-                onClick={() => downloadAsMarkdown(nameSource, linkContent)}
+                onClick={() => downloadFile(`${nameSource.replace(/\.md$/i, "")}.md`, { content: linkContent })}
                 className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
                 title="Download as Markdown"
               >
@@ -1303,14 +1305,23 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && (() => {
-            const content = editContent[activeFile] ?? cache[activeFile]?.content;
-            if (content === undefined) return null;
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (() => {
+            const fileData = cache[activeFile];
+            if (!fileData) return null;
+            // Binary files (images/PDFs) load into blobUrl with no text content;
+            // text files into content. Download from whichever is present.
+            const source = fileData.blobUrl
+              ? { blobUrl: fileData.blobUrl }
+              : (() => {
+                  const content = editContent[activeFile] ?? fileData.content;
+                  return content === undefined ? null : { content };
+                })();
+            if (!source) return null;
             return (
               <button
-                onClick={() => downloadAsMarkdown(getFileName(activeFile), content)}
+                onClick={() => downloadFile(getFileName(activeFile), source)}
                 className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
-                title="Download as Markdown"
+                title="Download"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
