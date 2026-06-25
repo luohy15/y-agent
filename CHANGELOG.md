@@ -14,15 +14,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **claude_tui backend (2514)** — new tmux-backed Claude Code TUI backend that drives the interactive `claude` TUI on EC2 over the subscription login (no `base_url` / API key), parallel to the existing `claude -p` path.
-- **Claude limit-window usage in sidebar (2524)** — bot-panel sidebar footer shows 5h session and weekly limit-window usage progress bars with reset countdowns, refreshed on demand.
 - **Claude `/usage` scrape (2515)** — `y claude usage` CLI plus a `claude-usage-check` alert skill that scrapes the claude_tui `/usage` TUI for current limit-window usage and notifies via Telegram above a threshold.
+- **Daily Claude usage persistence (2588)** — daily Claude (CRS) limit-window usage is persisted into a `model_usage_daily` table.
+- **Codex per-bot credentials (2590)** — the codex backend honors per-bot `base_url` / `api_key` via `-c` provider injection.
+- **Calendar editor save hotkey (2585)** — cmd+s / ctrl+s saves in the calendar event editor.
 - **Claude status RSS monitor (2529)** — worker monitor that polls Claude's status RSS feed and pushes Telegram notifications on new incidents.
 - **Auto-generated showcase screenshots (2541)** — `/showcase` skill generates panel screenshots via Playwright, with chat added as a 6th showcased capability.
 - **Calendar event view / add in web (2572)** — CalendarViewer surfaces a shared view/edit/add form with a 30-minute time-picker dropdown, in-modal event view/add, pointer cursor, and an optimistic preview while saving.
 - **Bot credentials in web panel (2567)** — bot list and detail views surface each bot's `base_url` plus a masked `api_key`.
 
 ### Changed
-- **Claude usage shown only for bot panel** — limit-window usage progress bars are scoped to the bot panel sidebar instead of rendering globally.
 - **MCP disabled on agent launch (2549, 2550)** — both the `claude -p` and claude_tui launch paths now disable MCP (`--strict-mcp-config`), and claude_tui launches are restricted to a tool allowlist.
 - **Docs refresh (2541)** — capabilities / CLI / getting-started docs refreshed with a clearer client-vs-server framing.
 
@@ -36,6 +37,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Calendar click-to-add slot (2570)** — click-to-add now uses a Google-Calendar-style 30-minute slot anchored at the cursor, snapping the start past any overlapping event in the clicked hour while still allowing overlap.
 - **Note list flicker on open (2573)** — opening a note no longer flickers the list; the loading UI is gated on `isLoading` only.
 - **pi_cli backend option (2568)** — `pi_cli` is now selectable in the bot list and detail backend selector.
+- **Finance to-date semantics (2592)** — YTD / MTD / QTD ranges now include today so same-day entries show, and the net-worth-over-time chart applies the realtime overlay so the current period matches the table.
+- **Calendar editor delete confirmation (2586)** — deleting an event from the editor no longer happens without confirmation.
 
 ### Removed
 
