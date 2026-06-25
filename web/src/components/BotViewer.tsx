@@ -25,14 +25,14 @@ type ViewMode = "config" | "usage";
 type UsageMode = "live" | "over-time";
 type Granularity = "daily" | "weekly" | "monthly";
 type UsageMetric = "tokens" | "cost" | "requests";
-type UsageRange = "30D" | "90D" | "1Y" | "ALL";
 
 const SORT_KEY_STORAGE_KEY = "botViewSortKey";
 const SORT_DIR_STORAGE_KEY = "botViewSortDir";
 const VIEW_STORAGE_KEY = "botView";
 const USAGE_MODE_STORAGE_KEY = "botUsageMode";
 const USAGE_GRANULARITY_STORAGE_KEY = "botUsageGranularity";
-const USAGE_LIVE_TIME_STORAGE_KEY = "botUsageLiveTime";
+// Shared free-text time range for both Live and Over-time (mirrors finance Income tab).
+const USAGE_TIME_STORAGE_KEY = "botUsageLiveTime";
 
 // One per-model daily usage row from GET /api/usage/model-daily (source=crs).
 interface ModelUsageRow {
@@ -154,23 +154,12 @@ function formatMetric(v: number, metric: UsageMetric): string {
   return fmtNum(v); // requests are small ints
 }
 
-// from_date + limit for the over-time range. ALL passes an early explicit from_date
-// (the server defaults a missing from_date to today, which would collapse ALL to
-// today-only) plus a large limit so wide ranges (many models x many days) aren't
-// truncated by the default 1000.
-function rangeQuery(range: UsageRange): { fromDate: string | null; limit: number | null } {
-  if (range === "ALL") return { fromDate: "2020-01-01", limit: 100000 };
-  const days = range === "30D" ? 29 : range === "90D" ? 89 : 364;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return { fromDate: localDateStr(d), limit: null };
-}
-
-// Resolve a free-text Live time expression into a usage-endpoint query window.
-// Mirrors FinanceViewer's Income Statement time input UX; supported tokens are a
-// focused subset because the usage endpoint only takes from_date/to_date (finance's
-// Fava grammar is server-side). Supported: empty/"today", "week", "month"/"mtd",
-// "year"/"ytd", "all", a bare "YYYY", or "YYYY-MM". Unknown input falls back to today.
+// Resolve a free-text usage time expression into a usage-endpoint query window.
+// Shared by Live and Over-time (mirrors FinanceViewer's Income Statement time input UX);
+// supported tokens are a focused subset because the usage endpoint only takes
+// from_date/to_date (finance's Fava grammar is server-side). Supported: empty/"today",
+// "week", "month"/"mtd", "year"/"ytd", "all", a bare "YYYY", or "YYYY-MM". Unknown input
+// falls back to today.
 function parseUsageTime(value: string): { fromDate: string | null; toDate: string | null; limit: number | null } {
   const v = value.trim().toLowerCase();
   const today = new Date();
@@ -572,10 +561,11 @@ function UsageChartTooltip({ active, payload, label, metric }: {
 }
 
 // Over-time view: stacked chart of one metric per period + per-model x period table.
-function UsageOverTimeView({ granularity, metric, range }: { granularity: Granularity; metric: UsageMetric; range: UsageRange }) {
-  const { fromDate, limit } = rangeQuery(range);
+function UsageOverTimeView({ granularity, metric, time }: { granularity: Granularity; metric: UsageMetric; time: string }) {
+  const { fromDate, toDate, limit } = parseUsageTime(time);
   const params = new URLSearchParams();
   if (fromDate) params.set("from_date", fromDate);
+  if (toDate) params.set("to_date", toDate);
   if (limit != null) params.set("limit", String(limit));
   const qs = params.toString();
   const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
@@ -730,14 +720,15 @@ export default function BotViewer() {
   const [view, setView] = useState<ViewMode>(
     () => (localStorage.getItem(VIEW_STORAGE_KEY) === "usage" ? "usage" : "config"),
   );
-  // Live usage time range (free-text, committed on Enter/blur — mirrors FinanceViewer's
-  // Income Statement time input). `liveTimeInput` is the editing buffer; `liveTime` drives the query.
-  const [liveTimeInput, setLiveTimeInput] = useState(() => localStorage.getItem(USAGE_LIVE_TIME_STORAGE_KEY) || "today");
-  const [liveTime, setLiveTime] = useState(() => localStorage.getItem(USAGE_LIVE_TIME_STORAGE_KEY) || "today");
-  const commitLiveTime = () => {
-    const v = liveTimeInput.trim();
-    setLiveTime(v);
-    localStorage.setItem(USAGE_LIVE_TIME_STORAGE_KEY, v);
+  // Shared usage time range (free-text, committed on Enter/blur — mirrors FinanceViewer's
+  // Income Statement time input). Drives both Live and Over-time. `usageTimeInput` is the
+  // editing buffer; `usageTime` drives the query.
+  const [usageTimeInput, setUsageTimeInput] = useState(() => localStorage.getItem(USAGE_TIME_STORAGE_KEY) || "today");
+  const [usageTime, setUsageTime] = useState(() => localStorage.getItem(USAGE_TIME_STORAGE_KEY) || "today");
+  const commitUsageTime = () => {
+    const v = usageTimeInput.trim();
+    setUsageTime(v);
+    localStorage.setItem(USAGE_TIME_STORAGE_KEY, v);
   };
   const [usageMode, setUsageMode] = useState<UsageMode>(
     () => (localStorage.getItem(USAGE_MODE_STORAGE_KEY) === "over-time" ? "over-time" : "live"),
@@ -747,7 +738,6 @@ export default function BotViewer() {
     return saved === "weekly" || saved === "monthly" ? saved : "daily";
   });
   const [usageMetric, setUsageMetric] = useState<UsageMetric>("tokens");
-  const [usageRange, setUsageRange] = useState<UsageRange>("30D");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
   const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
@@ -941,7 +931,7 @@ export default function BotViewer() {
             </button>
           </>
         ) : (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap ml-auto">
             <button
               onClick={() => void refreshUsage()}
               disabled={refreshingUsage}
@@ -967,56 +957,37 @@ export default function BotViewer() {
                 </button>
               ))}
             </div>
-            {usageMode === "live" && (
-              <input
-                type="text"
-                value={liveTimeInput}
-                onChange={(e) => setLiveTimeInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") commitLiveTime(); }}
-                onBlur={commitLiveTime}
-                placeholder="today, week, month, year, all, 2024, 2024-05"
-                className="px-2 py-1 rounded text-xs w-56 bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
-              />
-            )}
+            <input
+              type="text"
+              value={usageTimeInput}
+              onChange={(e) => setUsageTimeInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitUsageTime(); }}
+              onBlur={commitUsageTime}
+              placeholder="today, week, month, year, all, 2024, 2024-05"
+              className="px-2 py-1 rounded text-xs w-56 bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
+            />
             {usageMode === "over-time" && (
-              <>
-                <div className="flex items-center gap-1">
-                  {([["daily", "D"], ["weekly", "W"], ["monthly", "M"]] as const).map(([g, label]) => (
-                    <button
-                      key={g}
-                      onClick={() => setGranularity(g)}
-                      className={`px-1.5 py-1 rounded text-[10px] cursor-pointer ${
-                        granularity === g
-                          ? "bg-sol-blue text-sol-base03"
-                          : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1">
-                  {(["30D", "90D", "1Y", "ALL"] as const).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setUsageRange(r)}
-                      className={`px-1.5 py-1 rounded text-[10px] cursor-pointer ${
-                        usageRange === r
-                          ? "bg-sol-blue text-sol-base03"
-                          : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <div className="flex items-center gap-1">
+                {([["daily", "D"], ["weekly", "W"], ["monthly", "M"]] as const).map(([g, label]) => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularity(g)}
+                    className={`px-1.5 py-1 rounded text-[10px] cursor-pointer ${
+                      granularity === g
+                        ? "bg-sol-blue text-sol-base03"
+                        : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
         </div>
         {view === "usage" && usageMode === "over-time" && (
-          <div className="flex items-center gap-1">
+          <div className="flex justify-center gap-1">
             {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
               <button
                 key={m}
@@ -1036,9 +1007,9 @@ export default function BotViewer() {
       <div className="flex-1 min-h-0 overflow-auto" onClick={(e) => { if (expandedName && !(e.target as HTMLElement).closest('[data-bot-card]')) setExpandedName(null); }}>
         {view === "usage" ? (
           usageMode === "over-time" ? (
-            <UsageOverTimeView granularity={granularity} metric={usageMetric} range={usageRange} />
+            <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} />
           ) : (
-            <UsageTable time={liveTime} />
+            <UsageTable time={usageTime} />
           )
         ) : isLoading ? (
           <ListLoading />
