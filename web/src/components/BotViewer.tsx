@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -709,15 +709,6 @@ function buildModelPie(rows: ModelUsageAgg[], metric: UsageMetric): PieSlice[] {
   return top;
 }
 
-// On-slice label (mirrors FinanceViewer.HoldingsPieChart): show the model name + %
-// directly on the slice, but only for slices >= 4% share so small ones don't clutter.
-// labelLine={false} keeps it tight; full detail stays on the hover tooltip.
-function renderPieLabel(props: { percent?: number; payload?: { model?: string } }): string {
-  const pct = props.percent ?? 0;
-  if (pct < 0.04) return "";
-  return `${props.payload?.model ?? ""} ${(pct * 100).toFixed(0)}%`;
-}
-
 // Pie-slice tooltip: model name + formatted metric value + % share of the total.
 function UsagePieTooltip({ active, payload, metric, total }: {
   active?: boolean;
@@ -851,6 +842,18 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
+      <div className="shrink-0 grid grid-cols-3 gap-2">
+        {([
+          ["Tokens", formatMetric(totals.all_tokens, "tokens"), "text-sol-blue"],
+          ["Cost", formatMetric(totals.cost, "cost"), "text-sol-green"],
+          ["Requests", formatMetric(totals.requests, "requests"), "text-sol-base1"],
+        ] as const).map(([label, value, color]) => (
+          <div key={label} className="bg-sol-base02/50 rounded p-2.5 border border-sol-base02">
+            <div className="text-sol-base01 text-[10px] uppercase tracking-wide mb-1">{label}</div>
+            <div className={`text-base font-medium tabular-nums ${color}`}>{value}</div>
+          </div>
+        ))}
+      </div>
       <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
         <div className="mb-2">
           <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
@@ -861,14 +864,22 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
         ) : (
-          <ResponsiveContainer width="100%" height={210}>
-            <PieChart margin={{ top: 8, right: 60, left: 60, bottom: 8 }}>
-              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={80} innerRadius={42} stroke={SOL.base03} isAnimationActive={false} label={renderPieLabel} labelLine={false}>
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={70} innerRadius={36} stroke={SOL.base03} isAnimationActive={false}>
                 {pieData.map((d, i) => (
                   <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
+              <Legend
+                layout="horizontal"
+                verticalAlign="bottom"
+                align="center"
+                iconType="circle"
+                wrapperStyle={{ fontSize: 10 }}
+                formatter={(value) => <span style={{ color: SOL.base0 }}>{value}</span>}
+              />
             </PieChart>
           </ResponsiveContainer>
         )}
