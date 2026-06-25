@@ -724,6 +724,21 @@ function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
   const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
+  // Per-column totals: sum each numeric column across all model rows.
+  const totals = useMemo(() => rows.reduce(
+    (t, r) => {
+      t.all_tokens += r.all_tokens;
+      t.cost += r.cost;
+      t.requests += r.requests;
+      t.input_tokens += r.input_tokens;
+      t.output_tokens += r.output_tokens;
+      t.cache_create_tokens += r.cache_create_tokens;
+      t.cache_read_tokens += r.cache_read_tokens;
+      return t;
+    },
+    { all_tokens: 0, cost: 0, requests: 0, input_tokens: 0, output_tokens: 0, cache_create_tokens: 0, cache_read_tokens: 0 },
+  ), [rows]);
+
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
@@ -758,12 +773,12 @@ function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
           <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
             <th className="py-1 px-1.5">Model</th>
             <th className="py-1 px-1.5">Provider</th>
+            <th className="py-1 px-1.5 text-right">Tokens</th>
+            <th className="py-1 px-1.5 text-right">Cost</th>
             <th className="py-1 px-1.5 text-right">Requests</th>
             <th className="py-1 px-1.5 text-right">Input</th>
             <th className="py-1 px-1.5 text-right">Output</th>
             <th className="py-1 px-1.5 text-right">Cache (cr/rd)</th>
-            <th className="py-1 px-1.5 text-right">Total tokens</th>
-            <th className="py-1 px-1.5 text-right">Cost</th>
           </tr>
         </thead>
         <tbody>
@@ -771,14 +786,24 @@ function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
             <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
               <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
               <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.input_tokens)}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.output_tokens)}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
             </tr>
           ))}
+          <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+            <td className="px-1.5 py-1 text-sol-base1">Total</td>
+            <td className="px-1.5 py-1 text-sol-base01"></td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.all_tokens)}</td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCost(totals.cost)}</td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtNum(totals.requests)}</td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.input_tokens)}</td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.output_tokens)}</td>
+            <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(totals.cache_create_tokens)}/{fmtCompact(totals.cache_read_tokens)}</td>
+          </tr>
         </tbody>
       </table>
     </div>
