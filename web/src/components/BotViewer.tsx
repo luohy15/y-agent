@@ -32,8 +32,10 @@ const SORT_DIR_STORAGE_KEY = "botViewSortDir";
 const VIEW_STORAGE_KEY = "botView";
 const USAGE_MODE_STORAGE_KEY = "botUsageMode";
 const USAGE_GRANULARITY_STORAGE_KEY = "botUsageGranularity";
-// Shared free-text time range for both Live and Over-time (mirrors finance Income tab).
-const USAGE_TIME_STORAGE_KEY = "botUsageLiveTime";
+// Free-text time range (mirrors finance Income tab). Live and Over-time each keep their
+// own independent value: Live mostly views today, Over-time mostly views week/month.
+const USAGE_LIVE_TIME_STORAGE_KEY = "botUsageLiveTime";
+const USAGE_OVER_TIME_STORAGE_KEY = "botUsageOverTime";
 
 // One per-model daily usage row from GET /api/usage/model-daily (source=crs).
 interface ModelUsageRow {
@@ -838,19 +840,32 @@ export default function BotViewer() {
   const [view, setView] = useState<ViewMode>(
     () => (localStorage.getItem(VIEW_STORAGE_KEY) === "usage" ? "usage" : "config"),
   );
-  // Shared usage time range (free-text, committed on Enter/blur — mirrors FinanceViewer's
-  // Income Statement time input). Drives both Live and Over-time. `usageTimeInput` is the
-  // editing buffer; `usageTime` drives the query.
-  const [usageTimeInput, setUsageTimeInput] = useState(() => localStorage.getItem(USAGE_TIME_STORAGE_KEY) || "today");
-  const [usageTime, setUsageTime] = useState(() => localStorage.getItem(USAGE_TIME_STORAGE_KEY) || "today");
-  const commitUsageTime = () => {
-    const v = usageTimeInput.trim();
-    setUsageTime(v);
-    localStorage.setItem(USAGE_TIME_STORAGE_KEY, v);
-  };
   const [usageMode, setUsageMode] = useState<UsageMode>(
     () => (localStorage.getItem(USAGE_MODE_STORAGE_KEY) === "over-time" ? "over-time" : "live"),
   );
+  // Independent free-text time ranges (committed on Enter/blur — mirrors FinanceViewer's
+  // Income Statement time input). Live and Over-time each persist their own value; the single
+  // input below edits/reads whichever mode is active. `usageTimeInput` is the editing buffer;
+  // `usageTime` (the active mode's committed value) drives the query.
+  const [liveTime, setLiveTime] = useState(() => localStorage.getItem(USAGE_LIVE_TIME_STORAGE_KEY) || "today");
+  const [overTime, setOverTime] = useState(() => localStorage.getItem(USAGE_OVER_TIME_STORAGE_KEY) || "month");
+  const usageTime = usageMode === "over-time" ? overTime : liveTime;
+  const [usageTimeInput, setUsageTimeInput] = useState(usageTime);
+  // Recall the active mode's stored value into the input buffer when the mode switches.
+  useEffect(() => {
+    setUsageTimeInput(usageMode === "over-time" ? overTime : liveTime);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usageMode]);
+  const commitUsageTime = () => {
+    const v = usageTimeInput.trim();
+    if (usageMode === "over-time") {
+      setOverTime(v);
+      localStorage.setItem(USAGE_OVER_TIME_STORAGE_KEY, v);
+    } else {
+      setLiveTime(v);
+      localStorage.setItem(USAGE_LIVE_TIME_STORAGE_KEY, v);
+    }
+  };
   const [granularity, setGranularity] = useState<Granularity>(() => {
     const saved = localStorage.getItem(USAGE_GRANULARITY_STORAGE_KEY);
     return saved === "weekly" || saved === "monthly" ? saved : "daily";
