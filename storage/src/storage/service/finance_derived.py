@@ -914,6 +914,14 @@ def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0
     lookup = PriceLookup(price_service.list_for_pairs(pairs, _today()))
     rows = []
     for entry in entries:
+        # Only real income/expense events: the entry must touch at least one
+        # Income:* or Expenses:* account. Pure internal transfers (asset-to-asset,
+        # asset-to-liability between own accounts) are excluded.
+        if not any(
+            (posting.get("account") or "").startswith(("Income:", "Expenses:"))
+            for posting in entry["postings"]
+        ):
+            continue
         txn_date = datetime.date.fromisoformat(entry["transaction_date"][:10])
         max_usd = 0.0
         for posting in entry["postings"]:
