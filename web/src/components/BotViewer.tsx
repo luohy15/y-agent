@@ -627,11 +627,13 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
 
   // When period columns overflow horizontally, land on the rightmost (most recent)
   // columns + sticky "Range Σ" on initial render and whenever the periods change.
+  // Re-run on `metric` too: switching cost<->requests<->tokens changes cell widths
+  // (so scrollWidth changes), and without this the Range Σ column gets clipped.
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
-  }, [periods]);
+  }, [periods, metric]);
 
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
