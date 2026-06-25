@@ -20,6 +20,7 @@ import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import ScheduleList from "./components/ScheduleList";
+import FinancePanel from "./components/FinancePanel";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
@@ -800,6 +801,8 @@ export default function App() {
                 <BotList isLoggedIn={auth.isLoggedIn} onChange={refreshBotList} />
               ) : sidebarPanel === "calendar" ? (
                 <ScheduleList isLoggedIn={auth.isLoggedIn} onSelectEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} />
+              ) : sidebarPanel === "finance" ? (
+                <FinancePanel isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "routine" ? (
