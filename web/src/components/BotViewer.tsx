@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -756,6 +756,24 @@ export default function BotViewer() {
   const [editing, setEditing] = useState<BotConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshingUsage, setRefreshingUsage] = useState(false);
+
+  // Trigger the CRS model-usage sync, then revalidate the usage SWR caches
+  // (LiveUsageView / OverTimeView are keyed on the model-daily URL).
+  const refreshUsage = async () => {
+    setRefreshingUsage(true);
+    try {
+      const res = await authFetch(`${API}/api/usage/sync`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to sync model usage");
+      await globalMutate(
+        (key) => typeof key === "string" && key.startsWith(`${API}/api/usage/model-daily`),
+        undefined,
+        { revalidate: true },
+      );
+    } finally {
+      setRefreshingUsage(false);
+    }
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -924,6 +942,16 @@ export default function BotViewer() {
           </>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => void refreshUsage()}
+              disabled={refreshingUsage}
+              className={`px-2 py-1 rounded text-xs bg-sol-base02 text-sol-base0 hover:text-sol-base1 ${
+                refreshingUsage ? "opacity-50 cursor-wait animate-spin" : "cursor-pointer"
+              }`}
+              title="Sync model usage from CRS"
+            >
+              ↻
+            </button>
             <div className="flex items-center gap-1">
               {([["live", "Live"], ["over-time", "Over time"]] as const).map(([m, label]) => (
                 <button

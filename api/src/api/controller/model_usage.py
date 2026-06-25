@@ -36,3 +36,12 @@ async def list_model_daily(
         {k: v for k, v in row.to_dict().items() if k not in _INTERNAL_FIELDS}
         for row in rows
     ]
+
+
+@router.post("/sync")
+async def sync(request: Request, source: Optional[str] = Query("crs")):
+    """Trigger the CRS model-usage sync, then return the result envelope.
+    Mirrors finance /refresh: pulls fresh per-model daily aggregates so the
+    usage view can revalidate after the call completes."""
+    user_id = request.state.user_id
+    return usage_service.sync(user_id, source=source)
