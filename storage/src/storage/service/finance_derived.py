@@ -900,9 +900,11 @@ def _posting_currency(posting: dict) -> str | None:
 
 
 def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0, limit: int = 200) -> DerivedResult:
-    """Ledger entries whose largest single posting (converted to USD) reaches
-    threshold_usd, most-recent first. Double-entry postings net to ~0 within a
-    currency, so the per-entry size is the max absolute posting magnitude in USD."""
+    """Ledger entries whose income/expense magnitude (converted to USD) exceeds
+    threshold_usd, most-recent first. The per-entry size is the sum of |amount|
+    over the entry's Income:* and Expenses:* postings only, so a stock buy/sell
+    (large stock/cash posting but tiny fee postings) is sized by its fee, not the
+    trade. Pure internal transfers never touch Income/Expenses and are excluded."""
     entries = transaction_service.list_entries_for(user_id, limit=100000)
     pairs = set()
     for entry in entries:
@@ -914,17 +916,14 @@ def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0
     lookup = PriceLookup(price_service.list_for_pairs(pairs, _today()))
     rows = []
     for entry in entries:
-        # Only real income/expense events: the entry must touch at least one
-        # Income:* or Expenses:* account. Pure internal transfers (asset-to-asset,
-        # asset-to-liability between own accounts) are excluded.
-        if not any(
-            (posting.get("account") or "").startswith(("Income:", "Expenses:"))
-            for posting in entry["postings"]
-        ):
-            continue
         txn_date = datetime.date.fromisoformat(entry["transaction_date"][:10])
-        max_usd = 0.0
+        income_expense_usd = 0.0
         for posting in entry["postings"]:
+            # Size on the Income:*/Expenses:* postings only. This both restricts to
+            # real income/expense events (pure transfers contribute nothing) and
+            # avoids sizing a trade by its large stock/cash legs.
+            if not (posting.get("account") or "").startswith(("Income:", "Expenses:")):
+                continue
             amount = posting.get("amount")
             if amount is None:
                 continue
@@ -938,11 +937,11 @@ def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0
                 # No price for this currency: fall back to raw magnitude rather
                 # than dropping the entry (treated as already USD).
                 usd = magnitude
-            max_usd = max(max_usd, usd)
-        if max_usd >= threshold_usd:
+            income_expense_usd += usd
+        if income_expense_usd > threshold_usd:
             rows.append({
                 "date": entry["transaction_date"],
-                "amount_usd": round(max_usd, 2),
+                "amount_usd": round(income_expense_usd, 2),
                 "payee": entry["payee"],
                 "narration": entry["narration"],
                 "symbol": entry["symbol"],
