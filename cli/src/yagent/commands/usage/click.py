@@ -1,5 +1,6 @@
 import click
 
+from .backfill import backfill
 from .sync import sync
 
 
@@ -9,3 +10,4 @@ def usage_group():
 
 
 usage_group.add_command(sync)
+usage_group.add_command(backfill)
