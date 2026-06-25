@@ -1,7 +1,8 @@
 """Scheduled action: pull daily LLM token/cost usage into model_usage_daily.
 
-Runs daily on an EventBridge cron. CRS usage is per-user (resolved from each
-user's `claude_code` bot_config relay key), so it iterates users.
+Runs daily on an EventBridge cron. CRS usage is per-user (each user's sync
+enumerates all distinct cr_ relay keys in their bot_configs and sums per model
+into the global per-model aggregate), so it iterates users.
 
 The pull is an idempotent upsert keyed on (user, date, source, scope_id, model),
 which matches CRS's ~30-day retention window: re-pulling the in-progress day
