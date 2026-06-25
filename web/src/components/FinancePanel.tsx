@@ -135,13 +135,12 @@ export default function FinancePanel({ isLoggedIn }: FinancePanelProps) {
                   <div
                     key={`${txn.date}-${i}`}
                     className="flex items-baseline gap-1.5 py-0.5 px-1 text-[0.7rem]"
-                    title={label || txn.symbol}
                   >
                     <span className="text-sol-base01 tabular-nums shrink-0 w-14">{txn.date}</span>
                     <span className="text-sol-base1 tabular-nums shrink-0 text-right w-16">
                       {formatAmount(txn.amount_usd)}
                     </span>
-                    <span className="text-sol-base0 truncate flex-1">{label || txn.symbol}</span>
+                    <span className="text-sol-base0 flex-1 break-words">{label || txn.symbol}</span>
                   </div>
                 );
               })}

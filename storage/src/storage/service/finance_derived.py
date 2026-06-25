@@ -899,7 +899,7 @@ def _posting_currency(posting: dict) -> str | None:
     return posting.get("amount_currency") or posting.get("symbol") or posting.get("cost_currency") or posting.get("price_currency") or None
 
 
-def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0, limit: int = 200) -> DerivedResult:
+def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 100.0, limit: int = 200) -> DerivedResult:
     """Ledger entries whose income/expense magnitude (converted to USD) exceeds
     threshold_usd, most-recent first. The per-entry size is the sum of |amount|
     over the entry's Income:* and Expenses:* postings only, so a stock buy/sell

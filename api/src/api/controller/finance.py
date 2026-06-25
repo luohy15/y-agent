@@ -222,7 +222,7 @@ async def quick_stats(
 async def large_transactions(
     request: Request,
     vm_name: str = Query(None),
-    threshold: float = Query(1000.0),
+    threshold: float = Query(100.0),
     limit: int = Query(200),
 ):
     user_id = _get_user_id(request)
