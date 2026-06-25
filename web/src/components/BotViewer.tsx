@@ -602,6 +602,29 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
     return { totals, grand };
   }, [tableRows, periods]);
 
+  // Clickable column sort: Model (by name), each period column (by that period's value),
+  // and Range Σ (row.sum), defaulting to Range Σ descending. Special keys "__model" /
+  // "__sum" can't collide with the YYYY-MM(-DD) period keys. Total row stays unsorted.
+  const [sortKey, setSortKey] = useState<string>("__sum");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const onSort = (key: string) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "__model" ? "asc" : "desc");
+    }
+  };
+  const arrow = (key: string) => (sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "");
+  const sortedTableRows = useMemo(() => {
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    return [...tableRows].sort((a, b) => {
+      if (sortKey === "__model") return a.model.localeCompare(b.model) * dirMul;
+      if (sortKey === "__sum") return (a.sum - b.sum) * dirMul;
+      return ((a.values[sortKey] || 0) - (b.values[sortKey] || 0)) * dirMul;
+    });
+  }, [tableRows, sortKey, sortDir]);
+
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
@@ -640,15 +663,15 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
           <table className="min-w-full text-xs">
             <thead>
               <tr className="text-sol-base01 border-b border-sol-base02">
-                <th className="sticky left-0 top-0 z-20 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap">Model</th>
+                <th onClick={() => onSort("__model")} className="sticky left-0 top-0 z-20 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap cursor-pointer select-none hover:text-sol-base0">Model{arrow("__model")}</th>
                 {periods.map((pk) => (
-                  <th key={pk} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap">{formatPeriodLabel(pk, false)}</th>
+                  <th key={pk} onClick={() => onSort(pk)} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap cursor-pointer select-none hover:text-sol-base0">{formatPeriodLabel(pk, false)}{arrow(pk)}</th>
                 ))}
-                <th className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0">Range Σ</th>
+                <th onClick={() => onSort("__sum")} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0 cursor-pointer select-none hover:text-sol-base1">Range Σ{arrow("__sum")}</th>
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((row) => (
+              {sortedTableRows.map((row) => (
                 <tr key={row.model} className="hover:bg-sol-base02/50">
                   <td className="sticky left-0 z-10 bg-sol-base03 py-0.5 px-3 font-mono text-sol-base0 whitespace-nowrap">{row.model}</td>
                   {periods.map((pk) => (
@@ -740,6 +763,28 @@ function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m:
   );
 }
 
+// Live per-model table columns (sort-independent of the pie's metric toggle). Numeric
+// columns default to descending on first click, string columns ascending — matching the
+// config table's clickable-header behavior. Cache is one column sorted by cache_create.
+type LiveSortKey = "model" | "provider" | "all_tokens" | "cost" | "requests" | "input_tokens" | "output_tokens" | "cache_create_tokens";
+
+const LIVE_COLUMNS: { key: LiveSortKey; label: string; numeric: boolean }[] = [
+  { key: "model", label: "Model", numeric: false },
+  { key: "provider", label: "Provider", numeric: false },
+  { key: "all_tokens", label: "Tokens", numeric: true },
+  { key: "cost", label: "Cost", numeric: true },
+  { key: "requests", label: "Requests", numeric: true },
+  { key: "input_tokens", label: "Input", numeric: true },
+  { key: "output_tokens", label: "Output", numeric: true },
+  { key: "cache_create_tokens", label: "Cache (cr/rd)", numeric: true },
+];
+
+function liveSortValue(a: ModelUsageAgg, key: LiveSortKey): string | number {
+  if (key === "model") return a.model;
+  if (key === "provider") return a.provider || "";
+  return a[key];
+}
+
 // Per-model usage snapshot for Live mode: aggregates daily rows over the selected
 // time range (source=crs only). Defaults to today when no range is given. A single
 // donut pie driven by the shared metric sits above the metric toggle and per-model table.
@@ -757,12 +802,29 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
 
   const rows = useMemo(() => aggregateByModel(data || []), [data]);
 
-  // Table rows follow the pie: sort by the selected metric descending so the table
-  // order matches the slices (aggregateByModel only pre-sorts by all_tokens).
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => aggMetricValue(b, metric) - aggMetricValue(a, metric)),
-    [rows, metric],
-  );
+  // Table sort is independent of the pie's metric toggle: every column header is
+  // clickable, defaulting to Tokens descending. Numeric columns flip to desc on first
+  // click, string columns to asc; clicking the active column toggles direction.
+  const [sortKey, setSortKey] = useState<LiveSortKey>("all_tokens");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const onSort = (key: LiveSortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      const col = LIVE_COLUMNS.find((c) => c.key === key);
+      setSortDir(col && !col.numeric ? "asc" : "desc");
+    }
+  };
+  const sortedRows = useMemo(() => {
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const av = liveSortValue(a, sortKey);
+      const bv = liveSortValue(b, sortKey);
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dirMul;
+      return String(av).localeCompare(String(bv)) * dirMul;
+    });
+  }, [rows, sortKey, sortDir]);
 
   // Single donut: each model's share of the selected metric (top-7 + Other).
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
@@ -816,14 +878,18 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="text-sol-base01 text-left text-xs bg-sol-base03 border-b border-sol-base02">
-              <th className="py-1 px-1.5 bg-sol-base03">Model</th>
-              <th className="py-1 px-1.5 bg-sol-base03">Provider</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Tokens</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Cost</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Requests</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Input</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Output</th>
-              <th className="py-1 px-1.5 text-right bg-sol-base03">Cache (cr/rd)</th>
+              {LIVE_COLUMNS.map((col) => {
+                const active = sortKey === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    onClick={() => onSort(col.key)}
+                    className={`py-1 px-1.5 bg-sol-base03 cursor-pointer select-none hover:text-sol-base1 ${col.numeric ? "text-right" : ""}`}
+                  >
+                    {col.label}{active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
