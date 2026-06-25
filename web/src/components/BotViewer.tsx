@@ -77,6 +77,17 @@ function fmtCost(c: number): string {
   return `$${(c || 0).toFixed(2)}`;
 }
 
+// Compact token-count formatting by magnitude with 1 decimal: 1.2B / 100.1M / 101.2K.
+// Keeps small counts as plain integers so big numbers don't overflow chart/table cells.
+function fmtCompact(n: number): string {
+  const v = n || 0;
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return fmtNum(v);
+}
+
 function localDateStr(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -138,7 +149,9 @@ function metricValue(row: ModelUsageRow, metric: UsageMetric): number {
 }
 
 function formatMetric(v: number, metric: UsageMetric): string {
-  return metric === "cost" ? fmtCost(v) : fmtNum(v);
+  if (metric === "cost") return fmtCost(v);
+  if (metric === "tokens") return fmtCompact(v); // big token counts -> compact
+  return fmtNum(v); // requests are small ints
 }
 
 // from_date + limit for the over-time range. ALL passes an early explicit from_date
@@ -576,6 +589,18 @@ function UsageOverTimeView({ granularity, metric, range }: { granularity: Granul
   const byPeriod = useMemo(() => bucketByPeriodModel(rows, granularity, metric), [rows, granularity, metric]);
   const chartRows = useMemo(() => usageChartRows(byPeriod, models, periods), [byPeriod, models, periods]);
   const tableRows = useMemo(() => usageTableRows(byPeriod, models, periods), [byPeriod, models, periods]);
+  // Per-column totals: each period's usage across all models (top-7 + Other) + grand total.
+  const columnTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    let grand = 0;
+    for (const pk of periods) {
+      let t = 0;
+      for (const row of tableRows) t += row.values[pk] || 0;
+      totals[pk] = t;
+      grand += t;
+    }
+    return { totals, grand };
+  }, [tableRows, periods]);
 
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
@@ -594,7 +619,7 @@ function UsageOverTimeView({ granularity, metric, range }: { granularity: Granul
           <BarChart data={chartRows} margin={{ top: 16, right: 20, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
-            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => metric === "cost" ? `$${(v / 1000).toFixed(0)}k` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} width={56} tickFormatter={(v) => formatMetric(v, metric)} />
             <Tooltip content={<UsageChartTooltip metric={metric} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {models.map((model, index) => (
               <Bar key={model} dataKey={model} stackId="usage" fill={MODEL_COLORS[index % MODEL_COLORS.length]} isAnimationActive={false} />
@@ -631,6 +656,13 @@ function UsageOverTimeView({ granularity, metric, range }: { granularity: Granul
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatMetric(row.sum, metric)}</td>
                 </tr>
               ))}
+              <tr className="border-t border-sol-base02 bg-sol-base02/40 font-medium">
+                <td className="sticky left-0 z-10 bg-sol-base02 py-1 px-3 text-sol-base1 whitespace-nowrap">Total</td>
+                {periods.map((pk) => (
+                  <td key={pk} className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap">{formatMetric(columnTotals.totals[pk] || 0, metric)}</td>
+                ))}
+                <td className="py-1 px-3 text-right tabular-nums text-sol-base1 whitespace-nowrap border-l border-sol-base02">{formatMetric(columnTotals.grand, metric)}</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -680,10 +712,10 @@ function UsageTable({ time }: { time: string }) {
               <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
               <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.input_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.output_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.cache_create_tokens)}/{fmtNum(r.cache_read_tokens)}</td>
-              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtNum(r.all_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.input_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.output_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
               <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
             </tr>
           ))}
@@ -838,7 +870,8 @@ export default function BotViewer() {
 
   return (
     <div className="h-full flex flex-col bg-sol-base03">
-      <div className="p-2 border-b border-sol-base02 shrink-0 flex items-center gap-2 flex-wrap">
+      <div className="p-2 border-b border-sol-base02 shrink-0 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1">
           {(["config", "usage"] as const).map((v) => (
             <button
@@ -935,21 +968,6 @@ export default function BotViewer() {
                   ))}
                 </div>
                 <div className="flex items-center gap-1">
-                  {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
-                    <button
-                      key={m}
-                      onClick={() => setUsageMetric(m)}
-                      className={`px-2 py-1 rounded text-xs cursor-pointer ${
-                        usageMetric === m
-                          ? "bg-sol-blue text-sol-base03"
-                          : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1">
                   {(["30D", "90D", "1Y", "ALL"] as const).map((r) => (
                     <button
                       key={r}
@@ -966,6 +984,24 @@ export default function BotViewer() {
                 </div>
               </>
             )}
+          </div>
+        )}
+        </div>
+        {view === "usage" && usageMode === "over-time" && (
+          <div className="flex items-center gap-1">
+            {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setUsageMetric(m)}
+                className={`px-2 py-1 rounded text-xs cursor-pointer ${
+                  usageMetric === m
+                    ? "bg-sol-blue text-sol-base03"
+                    : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
       </div>
