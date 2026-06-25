@@ -665,7 +665,7 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
               <tr className="text-sol-base01 border-b border-sol-base02">
                 <th onClick={() => onSort("__model")} className="sticky left-0 top-0 z-20 bg-sol-base02 text-left font-normal py-1 px-3 whitespace-nowrap cursor-pointer select-none hover:text-sol-base0">Model{arrow("__model")}</th>
                 {periods.map((pk) => (
-                  <th key={pk} onClick={() => onSort(pk)} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap cursor-pointer select-none hover:text-sol-base0">{formatPeriodLabel(pk, false)}{arrow(pk)}</th>
+                  <th key={pk} onClick={() => onSort(pk)} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap cursor-pointer select-none hover:text-sol-base0">{formatPeriodLabel(pk, granularity === "monthly")}{arrow(pk)}</th>
                 ))}
                 <th onClick={() => onSort("__sum")} className="sticky top-0 z-10 bg-sol-base02 text-right font-normal py-1 px-3 whitespace-nowrap border-l border-sol-base02 text-sol-base0 cursor-pointer select-none hover:text-sol-base1">Range Σ{arrow("__sum")}</th>
               </tr>
