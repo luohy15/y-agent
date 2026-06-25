@@ -842,24 +842,31 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
-      <div className="shrink-0 grid grid-cols-3 gap-2">
-        {([
-          ["Tokens", formatMetric(totals.all_tokens, "tokens"), "text-sol-blue"],
-          ["Cost", formatMetric(totals.cost, "cost"), "text-sol-green"],
-          ["Requests", formatMetric(totals.requests, "requests"), "text-sol-base1"],
-        ] as const).map(([label, value, color]) => (
-          <div key={label} className="bg-sol-base02/50 rounded p-2.5 border border-sol-base02">
-            <div className="text-sol-base01 text-[10px] uppercase tracking-wide mb-1">{label}</div>
-            <div className={`text-base font-medium tabular-nums ${color}`}>{value}</div>
-          </div>
-        ))}
-      </div>
       <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
-        <div className="mb-2">
-          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
-            {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+              {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
+            </div>
+            <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
           </div>
-          <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
+          {/* Single compact totals strip: inline label:value pairs, freeing the vertical
+              space the old 3-card row stole from the table. */}
+          <div className="shrink-0 flex items-center gap-2 text-[10px] tabular-nums">
+            {([
+              ["Tokens", fmtCompact(totals.all_tokens)],
+              ["Cost", fmtCost(totals.cost)],
+              ["Requests", fmtNum(totals.requests)],
+            ] as const).map(([label, value], i) => (
+              <Fragment key={label}>
+                {i > 0 && <span className="text-sol-base01/60">·</span>}
+                <span className="flex items-baseline gap-1 whitespace-nowrap">
+                  <span className="text-sol-base01 uppercase tracking-wide">{label}</span>
+                  <span className="text-sol-base1">{value}</span>
+                </span>
+              </Fragment>
+            ))}
+          </div>
         </div>
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
