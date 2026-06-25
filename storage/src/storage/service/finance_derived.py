@@ -850,6 +850,8 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
         projected_months = None
         projected_date = None
     return DerivedResult({
+        "assets_usd": round(assets_usd, 2),
+        "liabilities_usd": round(liabilities_usd, 2),
         "net_worth_usd": net_worth_usd,
         "target_usd": round(target_usd, 2),
         "gap_usd": gap_usd,
@@ -863,3 +865,79 @@ def fire_progress(user_id: int, vm_name: str) -> DerivedResult:
         "projected_date": projected_date,
         "config_source": config["config_source"],
     }, _synced_at(user_id, vm_name), _realtime_meta(realtime_synced_at, realtime_source))
+
+
+def quick_stats(user_id: int, vm_name: str) -> DerivedResult:
+    """Compose the left-panel quick numbers from existing computations: assets /
+    liabilities / net worth + FIRE progress from fire_progress, risky allocation
+    from the holding_positions summary."""
+    fire = fire_progress(user_id, vm_name)
+    fire_data = fire.data
+    summary = holding_positions(user_id, vm_name).meta.get("summary") or {}
+    data = {
+        "assets_usd": fire_data.get("assets_usd"),
+        "liabilities_usd": fire_data.get("liabilities_usd"),
+        "net_worth_usd": fire_data.get("net_worth_usd"),
+        "risky": {
+            "total_base": summary.get("total_base"),
+            "risky_base": summary.get("risky_base"),
+            "risky_pct": summary.get("risky_pct"),
+            "base_currency": summary.get("base_currency", "USD"),
+        },
+        "fire": {
+            "progress_pct": fire_data.get("progress_pct"),
+            "target_usd": fire_data.get("target_usd"),
+            "gap_usd": fire_data.get("gap_usd"),
+            "projected_date": fire_data.get("projected_date"),
+            "projected_months_to_target": fire_data.get("projected_months_to_target"),
+        },
+    }
+    return DerivedResult(data, fire.synced_at, fire.meta)
+
+
+def _posting_currency(posting: dict) -> str | None:
+    return posting.get("amount_currency") or posting.get("symbol") or posting.get("cost_currency") or posting.get("price_currency") or None
+
+
+def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 1000.0, limit: int = 200) -> DerivedResult:
+    """Ledger entries whose largest single posting (converted to USD) reaches
+    threshold_usd, most-recent first. Double-entry postings net to ~0 within a
+    currency, so the per-entry size is the max absolute posting magnitude in USD."""
+    entries = transaction_service.list_entries_for(user_id, limit=100000)
+    pairs = set()
+    for entry in entries:
+        for posting in entry["postings"]:
+            currency = _posting_currency(posting)
+            if currency and currency != "USD":
+                pairs.add((currency, "USD"))
+                pairs.add(("USD", currency))
+    lookup = PriceLookup(price_service.list_for_pairs(pairs, _today()))
+    rows = []
+    for entry in entries:
+        txn_date = datetime.date.fromisoformat(entry["transaction_date"][:10])
+        max_usd = 0.0
+        for posting in entry["postings"]:
+            amount = posting.get("amount")
+            if amount is None:
+                continue
+            currency = _posting_currency(posting)
+            if not currency:
+                continue
+            magnitude = abs(float(amount))
+            try:
+                usd = convert(user_id, vm_name, magnitude, currency, "USD", txn_date, lookup)
+            except ConversionError:
+                # No price for this currency: fall back to raw magnitude rather
+                # than dropping the entry (treated as already USD).
+                usd = magnitude
+            max_usd = max(max_usd, usd)
+        if max_usd >= threshold_usd:
+            rows.append({
+                "date": entry["transaction_date"],
+                "amount_usd": round(max_usd, 2),
+                "payee": entry["payee"],
+                "narration": entry["narration"],
+                "symbol": entry["symbol"],
+            })
+    rows.sort(key=lambda row: row["date"], reverse=True)
+    return DerivedResult(rows[:limit], _synced_at(user_id, vm_name))

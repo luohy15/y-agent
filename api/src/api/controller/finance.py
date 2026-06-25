@@ -208,6 +208,28 @@ async def fire_progress(
     return _envelope_result(result)
 
 
+@router.get("/quick-stats")
+async def quick_stats(
+    request: Request,
+    vm_name: str = Query(None),
+):
+    user_id = _get_user_id(request)
+    result = derived_service.quick_stats(user_id, vm_name or "")
+    return _envelope_result(result)
+
+
+@router.get("/large-transactions")
+async def large_transactions(
+    request: Request,
+    vm_name: str = Query(None),
+    threshold: float = Query(1000.0),
+    limit: int = Query(200),
+):
+    user_id = _get_user_id(request)
+    result = derived_service.large_transactions(user_id, vm_name or "", threshold_usd=threshold, limit=limit)
+    return _envelope_dict(result.data, result.synced_at)
+
+
 @router.post("/refresh")
 async def refresh(request: Request, vm_name: str = Query(None)):
     user_id = _get_user_id(request)
