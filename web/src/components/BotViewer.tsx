@@ -850,19 +850,20 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             </div>
             <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
           </div>
-          {/* Single compact totals strip: inline label:value pairs, freeing the vertical
-              space the old 3-card row stole from the table. */}
-          <div className="shrink-0 flex items-center gap-2 text-[10px] tabular-nums">
+          {/* Single consolidated totals strip: the three headline numbers are the
+              point of this view, so the value is the prominent element (large,
+              tabular, accent) with a quiet uppercase caption stacked above it. */}
+          <div className="shrink-0 flex items-start gap-4 tabular-nums">
             {([
               ["Tokens", fmtCompact(totals.all_tokens)],
               ["Cost", fmtCost(totals.cost)],
               ["Requests", fmtNum(totals.requests)],
             ] as const).map(([label, value], i) => (
               <Fragment key={label}>
-                {i > 0 && <span className="text-sol-base01/60">·</span>}
-                <span className="flex items-baseline gap-1 whitespace-nowrap">
-                  <span className="text-sol-base01 uppercase tracking-wide">{label}</span>
-                  <span className="text-sol-base1">{value}</span>
+                {i > 0 && <span className="self-stretch w-px bg-sol-base02" />}
+                <span className="flex flex-col items-end whitespace-nowrap leading-tight">
+                  <span className="text-sol-base01 text-[10px] uppercase tracking-wide">{label}</span>
+                  <span className="text-sol-cyan text-xl font-semibold">{value}</span>
                 </span>
               </Fragment>
             ))}
