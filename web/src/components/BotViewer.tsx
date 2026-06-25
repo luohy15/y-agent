@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -625,6 +625,14 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
     });
   }, [tableRows, sortKey, sortDir]);
 
+  // When period columns overflow horizontally, land on the rightmost (most recent)
+  // columns + sticky "Range Σ" on initial render and whenever the periods change.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [periods]);
+
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
@@ -659,7 +667,7 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
           </div>
           <div className="text-sol-base01 text-[10px]">Rows are models; columns are periods</div>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
           <table className="min-w-full text-xs">
             <thead>
               <tr className="text-sol-base01 border-b border-sol-base02">
