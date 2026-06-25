@@ -19,6 +19,7 @@ import EntityList from "./components/EntityList";
 import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
+import ScheduleList from "./components/ScheduleList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
@@ -797,6 +798,8 @@ export default function App() {
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
               ) : sidebarPanel === "bots" ? (
                 <BotList isLoggedIn={auth.isLoggedIn} onChange={refreshBotList} />
+              ) : sidebarPanel === "calendar" ? (
+                <ScheduleList isLoggedIn={auth.isLoggedIn} onSelectEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "routine" ? (

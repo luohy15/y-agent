@@ -76,12 +76,6 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-// HH:MM time-of-day from a stored ISO string (browser-local), for the schedule list.
-function fmtTimeOfDay(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 // Format a Date as a `datetime-local` value (YYYY-MM-DDTHH:MM) in browser-local components.
 function fmtLocal(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -242,20 +236,6 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
     }
     return { allDayByDay: allDay, timedByDay: timed };
   }, [events, days]);
-
-  // Google-Calendar-style Schedule view source: for each day of the visible week
-  // that has events, list all-day events first then timed events sorted by start.
-  // Days with no events are dropped (agenda style). Reuses the already-loaded data.
-  const scheduleDays = useMemo(() => {
-    return days
-      .map((d, i) => {
-        const timed = [...timedByDay[i]].sort(
-          (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
-        );
-        return { date: d, events: [...allDayByDay[i], ...timed] };
-      })
-      .filter((g) => g.events.length > 0);
-  }, [days, allDayByDay, timedByDay]);
 
   const sourceColorMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -632,41 +612,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
       ) : error ? (
         <ListError error={error} className="p-3" />
       ) : (
-        <div className="flex-1 min-h-0 flex">
-          {/* Left schedule sidebar: Google-Calendar-style agenda list, one event
-              per row, grouped by day with a date header per group. */}
-          <div className="w-56 shrink-0 overflow-auto border-r border-sol-base02 bg-sol-base03">
-            {scheduleDays.length === 0 ? (
-              <div className="px-3 py-2 text-sol-base01">No events this week</div>
-            ) : (
-              scheduleDays.map(({ date, events: dayEvents }) => (
-                <div key={toISODate(date)}>
-                  <div
-                    className={`px-3 py-1 sticky top-0 z-10 bg-sol-base02 border-b border-sol-base02 font-medium ${
-                      isSameDay(date, today) ? "text-sol-blue" : "text-sol-base0"
-                    }`}
-                  >
-                    {date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  </div>
-                  {dayEvents.map((ev) => (
-                    <button
-                      key={ev.event_id}
-                      onClick={() => openEdit(ev)}
-                      className="w-full flex items-start gap-2 px-3 py-1 text-left hover:bg-sol-base02 cursor-pointer"
-                    >
-                      <span className="text-sol-base01 tabular-nums shrink-0 w-9">
-                        {ev.all_day ? "all" : fmtTimeOfDay(ev.start_time)}
-                      </span>
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${getSourceColor(ev.source, sourceColorMap)}`} />
-                      <span className="text-sol-base0 truncate">{ev.summary}</span>
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-0 relative">
           {(!events || events.length === 0) && (
             <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
               <span className="px-2 py-1 rounded bg-sol-base02/80 text-sol-base01">No events this week</span>
@@ -875,7 +821,6 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
                 ))}
               </div>
             </div>
-          </div>
           </div>
           </div>
         </div>
