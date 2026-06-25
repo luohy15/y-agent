@@ -17,8 +17,102 @@ type SortDir = "asc" | "desc";
 
 type TypeFilter = "all" | "agent" | "model";
 
+type ViewMode = "config" | "usage";
+type UsageWindow = "today" | "7d" | "30d";
+
 const SORT_KEY_STORAGE_KEY = "botViewSortKey";
 const SORT_DIR_STORAGE_KEY = "botViewSortDir";
+
+// One per-model daily usage row from GET /api/usage/model-daily (source=crs).
+interface ModelUsageRow {
+  usage_date: string;
+  source: string;
+  provider: string;
+  model: string;
+  scope: string;
+  scope_id: string;
+  scope_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_create_tokens: number;
+  cache_read_tokens: number;
+  all_tokens: number;
+  requests: number;
+  cost: number;
+  cost_basis: string;
+  synced_at: string;
+}
+
+// Aggregate of one model's rows across the selected window.
+interface ModelUsageAgg {
+  model: string;
+  provider: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_create_tokens: number;
+  cache_read_tokens: number;
+  all_tokens: number;
+  requests: number;
+  cost: number;
+  from_date: string;
+  to_date: string;
+}
+
+function fmtNum(n: number): string {
+  return (n || 0).toLocaleString();
+}
+
+function fmtCost(c: number): string {
+  return `$${(c || 0).toFixed(2)}`;
+}
+
+function localDateStr(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// from_date query for the window; today needs none (API defaults to today-today).
+function windowFromDate(w: UsageWindow): string | null {
+  if (w === "today") return null;
+  const d = new Date();
+  d.setDate(d.getDate() - (w === "7d" ? 6 : 29));
+  return localDateStr(d);
+}
+
+// Sum per-model rows (multi-day windows return one row per (model, date)).
+function aggregateByModel(rows: ModelUsageRow[]): ModelUsageAgg[] {
+  const map = new Map<string, ModelUsageAgg>();
+  for (const r of rows) {
+    const existing = map.get(r.model);
+    if (existing) {
+      existing.input_tokens += r.input_tokens;
+      existing.output_tokens += r.output_tokens;
+      existing.cache_create_tokens += r.cache_create_tokens;
+      existing.cache_read_tokens += r.cache_read_tokens;
+      existing.all_tokens += r.all_tokens;
+      existing.requests += r.requests;
+      existing.cost += r.cost;
+      if (r.usage_date < existing.from_date) existing.from_date = r.usage_date;
+      if (r.usage_date > existing.to_date) existing.to_date = r.usage_date;
+    } else {
+      map.set(r.model, {
+        model: r.model,
+        provider: r.provider,
+        input_tokens: r.input_tokens,
+        output_tokens: r.output_tokens,
+        cache_create_tokens: r.cache_create_tokens,
+        cache_read_tokens: r.cache_read_tokens,
+        all_tokens: r.all_tokens,
+        requests: r.requests,
+        cost: r.cost,
+        from_date: r.usage_date,
+        to_date: r.usage_date,
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) => b.all_tokens - a.all_tokens);
+}
 
 function botValue(bot: BotConfig, key: SortKey): string | number | null {
   switch (key) {
@@ -65,6 +159,16 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
     fetcher,
   );
   const full = detail || bot;
+
+  // Today's per-model usage; SWR dedupes this key across all expanded rows.
+  const { data: usageRows } = useSWR<ModelUsageRow[]>(
+    full.model ? `${API}/api/usage/model-daily` : null,
+    fetcher,
+  );
+  const modelUsage = useMemo(
+    () => (usageRows || []).filter((r) => r.model === full.model),
+    [usageRows, full.model],
+  );
 
   const [name] = useState(full.name);
   const [description, setDescription] = useState(full.description || "");
@@ -217,6 +321,28 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
         </div>
       </div>
 
+      {full.model && (
+        <div className="mt-3 pt-2 border-t border-sol-base01/20">
+          <div className="text-[0.65rem] text-sol-base01 uppercase tracking-wide mb-1">
+            Model usage (today) · <span className="font-mono normal-case">{full.model}</span>
+          </div>
+          {modelUsage.length === 0 ? (
+            <div className="text-xs text-sol-base01/70 italic">No usage recorded for this model today</div>
+          ) : (
+            modelUsage.map((u) => (
+              <div key={`${u.model}-${u.usage_date}`} className="text-xs text-sol-base0 flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+                <span>Requests: {fmtNum(u.requests)}</span>
+                <span>Total: {fmtNum(u.all_tokens)} tok</span>
+                <span>In: {fmtNum(u.input_tokens)}</span>
+                <span>Out: {fmtNum(u.output_tokens)}</span>
+                <span>Cache: {fmtNum(u.cache_create_tokens)}/{fmtNum(u.cache_read_tokens)}</span>
+                <span>Cost: {fmtCost(u.cost)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
       {dirty && (
         <div className="mt-2 flex justify-end">
           <button onClick={handleSave} disabled={saving} className="px-3 py-1 rounded text-xs bg-sol-blue text-sol-base03 hover:opacity-90 cursor-pointer disabled:opacity-50">
@@ -228,8 +354,64 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
   );
 }
 
+// Per-model usage table (second "view" on the bot page). source=crs only.
+function UsageTable({ usageWindow }: { usageWindow: UsageWindow }) {
+  const fromDate = windowFromDate(usageWindow);
+  const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
+    `${API}/api/usage/model-daily${fromDate ? `?from_date=${encodeURIComponent(fromDate)}` : ""}`,
+    fetcher,
+  );
+
+  const rows = useMemo(() => aggregateByModel(data || []), [data]);
+  const multiDay = usageWindow !== "today";
+
+  if (isLoading) return <ListLoading />;
+  if (error && !data) return <ListError error={error} />;
+  if (rows.length === 0) return <ListEmpty label="usage" />;
+
+  return (
+    <div className="px-3 pt-2">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
+            <th className="py-1 px-1.5">Model</th>
+            <th className="py-1 px-1.5">Provider</th>
+            <th className="py-1 px-1.5 text-right">Requests</th>
+            <th className="py-1 px-1.5 text-right">Input</th>
+            <th className="py-1 px-1.5 text-right">Output</th>
+            <th className="py-1 px-1.5 text-right">Cache (cr/rd)</th>
+            <th className="py-1 px-1.5 text-right">Total tokens</th>
+            <th className="py-1 px-1.5 text-right">Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
+              <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
+              <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.input_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.output_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.cache_create_tokens)}/{fmtNum(r.cache_read_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtNum(r.all_tokens)}</td>
+              <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {multiDay && (
+        <p className="text-[0.65rem] text-sol-base01/70 mt-1.5 px-1.5">
+          Aggregated per model over the selected window (one row per model).
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function BotViewer() {
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<ViewMode>("config");
+  const [usageWindow, setUsageWindow] = useState<UsageWindow>("today");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
   const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
@@ -342,40 +524,77 @@ export default function BotViewer() {
     <div className="h-full flex flex-col bg-sol-base03">
       <div className="p-2 border-b border-sol-base02 shrink-0 flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1">
-          {(["all", "agent", "model"] as const).map((f) => (
+          {(["config", "usage"] as const).map((v) => (
             <button
-              key={f}
-              onClick={() => setTypeFilter(f)}
+              key={v}
+              onClick={() => setView(v)}
               className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
-                typeFilter === f
+                view === v
                   ? "bg-sol-blue text-sol-base03"
                   : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
               }`}
             >
-              {f}
+              {v}
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search bots"
-          className="min-w-0 flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-xs text-sol-base0 outline-none focus:border-sol-blue"
-        />
-        <button
-          onClick={openNew}
-          className="px-2 py-1 flex items-center gap-1 rounded text-xs text-sol-blue hover:bg-sol-blue/10 cursor-pointer border border-sol-blue/40"
-          title="New bot"
-        >
-          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14" /><path d="M5 12h14" />
-          </svg>
-          New bot
-        </button>
+        {view === "config" ? (
+          <>
+            <div className="flex items-center gap-1">
+              {(["all", "agent", "model"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setTypeFilter(f)}
+                  className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
+                    typeFilter === f
+                      ? "bg-sol-blue text-sol-base03"
+                      : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search bots"
+              className="min-w-0 flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-xs text-sol-base0 outline-none focus:border-sol-blue"
+            />
+            <button
+              onClick={openNew}
+              className="px-2 py-1 flex items-center gap-1 rounded text-xs text-sol-blue hover:bg-sol-blue/10 cursor-pointer border border-sol-blue/40"
+              title="New bot"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14" /><path d="M5 12h14" />
+              </svg>
+              New bot
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center gap-1">
+            {(["today", "7d", "30d"] as const).map((w) => (
+              <button
+                key={w}
+                onClick={() => setUsageWindow(w)}
+                className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
+                  usageWindow === w
+                    ? "bg-sol-blue text-sol-base03"
+                    : "bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+                }`}
+              >
+                {w === "today" ? "Today" : w}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="flex-1 min-h-0 overflow-auto" onClick={(e) => { if (expandedName && !(e.target as HTMLElement).closest('[data-bot-card]')) setExpandedName(null); }}>
-        {isLoading ? (
+        {view === "usage" ? (
+          <UsageTable usageWindow={usageWindow} />
+        ) : isLoading ? (
           <ListLoading />
         ) : loadError && !data ? (
           <ListError error={loadError} />
