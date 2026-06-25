@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -152,6 +153,13 @@ function formatMetric(v: number, metric: UsageMetric): string {
   if (metric === "cost") return fmtCost(v);
   if (metric === "tokens") return fmtCompact(v); // big token counts -> compact
   return fmtNum(v); // requests are small ints
+}
+
+// Selected metric's value for an aggregated (multi-day summed) model row.
+function aggMetricValue(a: ModelUsageAgg, metric: UsageMetric): number {
+  if (metric === "cost") return a.cost || 0;
+  if (metric === "requests") return a.requests || 0;
+  return a.all_tokens || 0; // tokens
 }
 
 // Resolve a free-text usage time expression into a usage-endpoint query window.
@@ -661,9 +669,46 @@ function UsageOverTimeView({ granularity, metric, time }: { granularity: Granula
   );
 }
 
+// Pie slices for Live mode: each model's share of the selected metric, top-7 by
+// value + "Other" (mirrors buildModelSeries ordering). Zero-value models are dropped.
+interface PieSlice { model: string; value: number; }
+function buildModelPie(rows: ModelUsageAgg[], metric: UsageMetric): PieSlice[] {
+  const ordered = rows
+    .map((r) => ({ model: r.model, value: aggMetricValue(r, metric) }))
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const top = ordered.slice(0, 7);
+  const rest = ordered.slice(7);
+  if (rest.length) return [...top, { model: "Other", value: rest.reduce((s, x) => s + x.value, 0) }];
+  return top;
+}
+
+// Pie-slice tooltip: model name + formatted metric value + % share of the total.
+function UsagePieTooltip({ active, payload, metric, total }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color?: string }>;
+  metric: UsageMetric;
+  total: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const slice = payload[0];
+  const value = Number(slice.value || 0);
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: slice.color }} />
+        <span style={{ color: SOL.base1, fontWeight: 500 }}>{slice.name}</span>
+      </div>
+      <div style={{ color: SOL.base0 }} className="mt-0.5 tabular-nums">{formatMetric(value, metric)} · {pct.toFixed(1)}%</div>
+    </div>
+  );
+}
+
 // Per-model usage snapshot for Live mode: aggregates daily rows over the selected
-// time range (source=crs only). Defaults to today when no range is given.
-function UsageTable({ time }: { time: string }) {
+// time range (source=crs only). Defaults to today when no range is given. A pie
+// (driven by the shared Requests/Tokens/Cost toggle) sits above the per-model table.
+function UsageTable({ time, metric }: { time: string; metric: UsageMetric }) {
   const { fromDate, toDate, limit } = parseUsageTime(time);
   const params = new URLSearchParams();
   if (fromDate) params.set("from_date", fromDate);
@@ -676,13 +721,38 @@ function UsageTable({ time }: { time: string }) {
   );
 
   const rows = useMemo(() => aggregateByModel(data || []), [data]);
+  const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
+  const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
 
   return (
-    <div className="px-3 pt-2">
+    <div className="px-3 pt-2 flex flex-col gap-3">
+      <div className="rounded border border-sol-base02 bg-sol-base03 p-3">
+        <div className="mb-2">
+          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+            {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
+          </div>
+          <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
+        </div>
+        {pieData.length === 0 ? (
+          <div className="text-xs text-sol-base01/70 italic">No {metric} recorded in this range</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={100} innerRadius={50} stroke={SOL.base03} isAnimationActive={false}>
+                {pieData.map((d, i) => (
+                  <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
+              <Legend formatter={(v) => <span style={{ color: SOL.base0 }}>{v}</span>} />
+            </PieChart>
+          </ResponsiveContainer>
+        )}
+      </div>
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
@@ -986,7 +1056,7 @@ export default function BotViewer() {
           </div>
         )}
         </div>
-        {view === "usage" && usageMode === "over-time" && (
+        {view === "usage" && (
           <div className="flex justify-center gap-1">
             {([["tokens", "Tokens"], ["cost", "Cost"], ["requests", "Requests"]] as const).map(([m, label]) => (
               <button
@@ -1009,7 +1079,7 @@ export default function BotViewer() {
           usageMode === "over-time" ? (
             <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} />
           ) : (
-            <UsageTable time={usageTime} />
+            <UsageTable time={usageTime} metric={usageMetric} />
           )
         ) : isLoading ? (
           <ListLoading />
