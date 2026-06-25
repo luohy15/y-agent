@@ -38,12 +38,6 @@ function getSourceColor(source: string | undefined, map: Map<string, string>): s
   return color;
 }
 
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-
 function toISODate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -61,9 +55,6 @@ function fmtTimeOfDay(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-// Agenda window: from the start of today out 30 days ahead.
-const WINDOW_DAYS = 30;
-
 interface ScheduleListProps {
   isLoggedIn: boolean;
   // Open the week view focused on the clicked event's day (App wires this to
@@ -78,10 +69,11 @@ export default function ScheduleList({ isLoggedIn, onSelectEvent }: ScheduleList
     return d;
   }, []);
   const fromDate = toISODate(today);
-  const toDate = toISODate(addDays(today, WINDOW_DAYS));
 
+  // No upper bound: show all future events from today onward (omitting `to`
+  // makes /api/calendar/list return everything from `from` forward).
   const { data: events, isLoading, error } = useSWR<CalendarEvent[]>(
-    isLoggedIn ? `${API}/api/calendar/list?from=${fromDate}&to=${toDate}` : null,
+    isLoggedIn ? `${API}/api/calendar/list?from=${fromDate}` : null,
     fetcher,
   );
 
