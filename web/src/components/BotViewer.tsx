@@ -714,9 +714,14 @@ function UsagePieTooltip({ active, payload, metric, total }: {
 // polar viewBox center drifts off the visible ring center, so an HTML block centered
 // over the donut hole (matching the Pie's cy="50%") stays dead-center regardless of
 // legend height.
-// Fixed donut center Y (px) within the 240px chart box. The Pie's cy is pinned here
-// and the HTML totals overlay is positioned at the same pixel so the two always align.
+// Fixed donut center Y (px) within the chart box (DONUT_HEIGHT). The Pie's cy is pinned
+// here and the HTML totals overlay is positioned at the same pixel so the two always
+// align. With outerRadius 80 the ring spans y=20..180, so the box is sized just past the
+// ring bottom (no dead space before the legend below).
 const DONUT_CY = 100;
+// Chart box height: just past the ring bottom (DONUT_CY + outerRadius 80 + ~10px) so the
+// legend in flow below sits snugly under the donut instead of after a tall empty gap.
+const DONUT_HEIGHT = 190;
 
 function DonutCenterLabel({ totals }: {
   totals: { all_tokens: number; cost: number; requests: number };
@@ -885,8 +890,8 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
           // The donut center is pinned to a fixed pixel (DONUT_CY) so the HTML totals
           // overlay can sit dead-center in the ring hole regardless of the bottom
           // legend's measured height (which otherwise shifts the polar viewBox center).
-          <div className="relative" style={{ height: 240 }}>
-            <ResponsiveContainer width="100%" height={240}>
+          <div className="relative" style={{ height: DONUT_HEIGHT }}>
+            <ResponsiveContainer width="100%" height={DONUT_HEIGHT}>
               <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
                 <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy={DONUT_CY} outerRadius={80} innerRadius={52} stroke={SOL.base03} isAnimationActive={false}>
                   {pieData.map((d, i) => (
@@ -906,7 +911,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         )}
         {/* Legend rendered as a normal HTML block in document flow below the fixed-height
             chart (not via recharts <Legend>, which is absolutely positioned inside the
-            240px ResponsiveContainer and would overlap the donut when it wraps to 3 rows).
+            fixed-height ResponsiveContainer and would overlap the donut when it wraps to 3 rows).
             Built from pieData so dots index into MODEL_COLORS the same way as the slices. */}
         {pieData.length > 0 && <UsagePieLegend pieData={pieData} />}
         <MetricToggle metric={metric} onChange={onMetricChange} />
