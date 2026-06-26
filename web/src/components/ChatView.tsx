@@ -499,7 +499,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
         {sourcesPanel && <SourcesSidebar links={sourcesPanel.links} onClose={() => setSourcesPanel(null)} />}
         {showScrollBottom && (
           <button
-            onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}
+            onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" })}
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-8 h-8 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-lg cursor-pointer hover:bg-sol-base01/30"
             title="Scroll to bottom"
           >
