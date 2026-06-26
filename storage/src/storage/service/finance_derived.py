@@ -879,12 +879,23 @@ def _posting_currency(posting: dict) -> str | None:
     return posting.get("amount_currency") or posting.get("symbol") or posting.get("cost_currency") or posting.get("price_currency") or None
 
 
+def _under_root(account: str, root: str) -> bool:
+    return account == root or account.startswith(f"{root}:")
+
+
 def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 100.0, limit: int = 200) -> DerivedResult:
     """Ledger entries whose income/expense magnitude (converted to USD) exceeds
     threshold_usd, most-recent first. The per-entry size is the sum of |amount|
     over the entry's Income:* and Expenses:* postings only, so a stock buy/sell
     (large stock/cash posting but tiny fee postings) is sized by its fee, not the
-    trade. Pure internal transfers never touch Income/Expenses and are excluded."""
+    trade. Pure internal transfers never touch Income/Expenses and are excluded.
+
+    Each row carries a `kind` classifying the dominant income/expense category by
+    USD magnitude: realized investment gains/losses (Income:Investment*) are
+    `investment`, other income (salary/bonus/etc.) is `income`, and Expenses:* is
+    `expense`. `direction` is +1 for inflow / realized gain and -1 for outflow /
+    realized loss, so the web can render a signed +/- next to the magnitude."""
+    investment_root = finance_config_service.get_for(user_id, vm_name)["account_roots"]["investment_income"]
     entries = transaction_service.list_entries_for(user_id, limit=100000)
     pairs = set()
     for entry in entries:
@@ -897,12 +908,23 @@ def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 100.0,
     rows = []
     for entry in entries:
         txn_date = datetime.date.fromisoformat(entry["transaction_date"][:10])
-        income_expense_usd = 0.0
+        # Bucket the entry's USD flow by category. `magnitude` sizes/classifies the
+        # entry; `signed` (beancount sign: income credit is negative) is kept for
+        # the investment direction (gain vs loss).
+        magnitude = {"investment": 0.0, "income": 0.0, "expense": 0.0}
+        signed = {"investment": 0.0, "income": 0.0, "expense": 0.0}
         for posting in entry["postings"]:
+            account = posting.get("account") or ""
             # Size on the Income:*/Expenses:* postings only. This both restricts to
             # real income/expense events (pure transfers contribute nothing) and
             # avoids sizing a trade by its large stock/cash legs.
-            if not (posting.get("account") or "").startswith(("Income:", "Expenses:")):
+            if _under_root(account, investment_root):
+                bucket = "investment"
+            elif account.startswith("Income:"):
+                bucket = "income"
+            elif account.startswith("Expenses:"):
+                bucket = "expense"
+            else:
                 continue
             amount = posting.get("amount")
             if amount is None:
@@ -910,18 +932,31 @@ def large_transactions(user_id: int, vm_name: str, threshold_usd: float = 100.0,
             currency = _posting_currency(posting)
             if not currency:
                 continue
-            magnitude = abs(float(amount))
+            value = float(amount)
             try:
-                usd = convert(user_id, vm_name, magnitude, currency, "USD", txn_date, lookup)
+                usd = convert(user_id, vm_name, abs(value), currency, "USD", txn_date, lookup)
             except ConversionError:
                 # No price for this currency: fall back to raw magnitude rather
                 # than dropping the entry (treated as already USD).
-                usd = magnitude
-            income_expense_usd += usd
+                usd = abs(value)
+            magnitude[bucket] += usd
+            signed[bucket] += usd if value >= 0 else -usd
+        income_expense_usd = magnitude["investment"] + magnitude["income"] + magnitude["expense"]
         if income_expense_usd > threshold_usd:
+            kind = max(magnitude, key=magnitude.get)
+            if kind == "expense":
+                direction = -1
+            elif kind == "income":
+                direction = 1
+            else:
+                # Income postings are credits (negative) for a gain, debits for a
+                # loss; realized gain is the sign-flipped sum.
+                direction = 1 if -signed["investment"] >= 0 else -1
             rows.append({
                 "date": entry["transaction_date"],
                 "amount_usd": round(income_expense_usd, 2),
+                "kind": kind,
+                "direction": direction,
                 "payee": entry["payee"],
                 "narration": entry["narration"],
                 "symbol": entry["symbol"],
