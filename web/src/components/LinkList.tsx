@@ -277,7 +277,15 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
       if (offset === 0) {
         setAllLinks(newData);
       } else {
-        setAllLinks((prev) => [...prev, ...newData]);
+        // Dedupe by activity_id: offset pagination over a shifting dataset can
+        // re-return a prior page's item, and SWR may fire onSuccess more than
+        // once per key. Duplicate ids would produce duplicate React keys, which
+        // breaks reconciliation and resets the scroll container.
+        setAllLinks((prev) => {
+          const seen = new Set(prev.map((l) => l.activity_id));
+          const additions = newData.filter((l) => !seen.has(l.activity_id));
+          return additions.length ? [...prev, ...additions] : prev;
+        });
       }
       setLoadedOnce(true);
     },
