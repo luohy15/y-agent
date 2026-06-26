@@ -24,9 +24,19 @@ interface QuickStats {
 interface LargeTransaction {
   date: string;
   amount_usd: number;
+  kind: "expense" | "income" | "investment";
+  direction: number;
   payee: string;
   narration: string;
   symbol: string;
+}
+
+// Color + sign per classification: expense red/-, regular income green/+,
+// realized investment gain/loss teal with its signed direction.
+function txnStyle(kind: LargeTransaction["kind"], direction: number): { color: string; sign: string } {
+  if (kind === "expense") return { color: "text-sol-red", sign: "-" };
+  if (kind === "income") return { color: "text-sol-green", sign: "+" };
+  return { color: "text-sol-cyan", sign: direction < 0 ? "-" : "+" };
 }
 
 // Both controller routes return the standard finance envelope; jsonFetcher does
@@ -131,13 +141,15 @@ export default function FinancePanel({ isLoggedIn }: FinancePanelProps) {
             <div className="space-y-0">
               {txns.map((txn, i) => {
                 const label = [txn.payee, txn.narration].filter(Boolean).join(" · ");
+                const { color, sign } = txnStyle(txn.kind, txn.direction);
                 return (
                   <div
                     key={`${txn.date}-${i}`}
                     className="flex items-baseline gap-1.5 py-0.5 px-1 text-[0.7rem]"
                   >
                     <span className="text-sol-base01 tabular-nums shrink-0 w-14">{txn.date}</span>
-                    <span className="text-sol-base1 tabular-nums shrink-0 text-right w-16">
+                    <span className={`${color} tabular-nums shrink-0 text-right w-16`} title={txn.kind}>
+                      {sign}
                       {formatAmount(txn.amount_usd)}
                     </span>
                     <span className="text-sol-base0 flex-1 break-words">{label || txn.symbol}</span>
