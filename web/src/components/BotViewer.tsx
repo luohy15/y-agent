@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, Label,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -743,32 +743,32 @@ function UsagePieTooltip({ active, payload, metric, total }: {
 
 // Range totals (tokens / cost / requests) stacked in the donut's center hole. This
 // replaces the former header stat strip — the three headline numbers now live inside
-// the ring. recharts passes the polar viewBox (cx/cy) to a <Label>'s content element.
-function DonutCenterLabel({ viewBox, totals }: {
-  viewBox?: { cx?: number; cy?: number };
+// the ring. An absolutely-centered HTML overlay (pointer-events-none) is used instead
+// of a recharts <Label>: with a bottom <Legend> reserving vertical space the chart's
+// polar viewBox center drifts off the visible ring center, so an HTML block centered
+// over the donut hole (matching the Pie's cy="50%") stays dead-center regardless of
+// legend height.
+// Fixed donut center Y (px) within the 240px chart box. The Pie's cy is pinned here
+// and the HTML totals overlay is positioned at the same pixel so the two always align.
+const DONUT_CY = 100;
+
+function DonutCenterLabel({ totals }: {
   totals: { all_tokens: number; cost: number; requests: number };
 }) {
-  const cx = viewBox?.cx ?? 0;
-  const cy = viewBox?.cy ?? 0;
   const stats: [string, string][] = [
     ["TOKENS", fmtCompact(totals.all_tokens)],
     ["COST", fmtCost(totals.cost)],
     ["REQUESTS", fmtNum(totals.requests)],
   ];
-  const blockH = 23;
-  const top = cy - ((stats.length - 1) * blockH) / 2;
   return (
-    <g className="tabular-nums">
-      {stats.map(([label, value], i) => {
-        const yc = top + i * blockH;
-        return (
-          <Fragment key={label}>
-            <text x={cx} y={yc - 4} textAnchor="middle" fill={SOL.base01} fontSize={8}>{label}</text>
-            <text x={cx} y={yc + 9} textAnchor="middle" fill={SOL.cyan} fontSize={14} fontWeight={600}>{value}</text>
-          </Fragment>
-        );
-      })}
-    </g>
+    <div className="flex flex-col items-center gap-0.5 tabular-nums leading-none">
+      {stats.map(([label, value]) => (
+        <Fragment key={label}>
+          <span style={{ color: SOL.base01, fontSize: 8 }} className="uppercase tracking-wide">{label}</span>
+          <span style={{ color: SOL.cyan, fontSize: 14, fontWeight: 600 }}>{value}</span>
+        </Fragment>
+      ))}
+    </div>
   );
 }
 
@@ -894,25 +894,39 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
         ) : (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={80} innerRadius={52} stroke={SOL.base03} isAnimationActive={false}>
-                {pieData.map((d, i) => (
-                  <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
-                ))}
-                <Label content={<DonutCenterLabel totals={totals} />} position="center" />
-              </Pie>
-              <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
-              <Legend
-                layout="horizontal"
-                verticalAlign="bottom"
-                align="center"
-                iconType="circle"
-                wrapperStyle={{ fontSize: 10 }}
-                formatter={(value) => <span style={{ color: SOL.base0 }}>{value}</span>}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+          // The donut center is pinned to a fixed pixel (DONUT_CY) so the HTML totals
+          // overlay can sit dead-center in the ring hole regardless of the bottom
+          // legend's measured height (which otherwise shifts the polar viewBox center).
+          <div className="relative" style={{ height: 240 }}>
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy={DONUT_CY} outerRadius={80} innerRadius={52} stroke={SOL.base03} isAnimationActive={false}>
+                  {pieData.map((d, i) => (
+                    <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
+                <Legend
+                  layout="horizontal"
+                  verticalAlign="bottom"
+                  align="center"
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 10 }}
+                  // recharts 3.8 defaults itemSorter to 'value' (alphabetical); a numeric
+                  // sorter keyed on each slice's value keeps the legend in the same
+                  // share-descending order as the slices (pieData is sorted desc).
+                  itemSorter={(item) => -((item.payload as { value?: number } | undefined)?.value ?? 0)}
+                  formatter={(value) => <span style={{ color: SOL.base0 }}>{value}</span>}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div
+              className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ top: DONUT_CY }}
+            >
+              <DonutCenterLabel totals={totals} />
+            </div>
+          </div>
         )}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
