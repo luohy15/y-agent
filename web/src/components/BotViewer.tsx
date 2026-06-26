@@ -748,7 +748,7 @@ function UsagePieLegend({ pieData }: { pieData: PieSlice[] }) {
   const rows: (typeof items)[] = [];
   for (let i = 0; i < items.length; i += 3) rows.push(items.slice(i, i + 3));
   return (
-    <div className="flex flex-col items-center gap-1 mt-1">
+    <div className="flex flex-col items-center gap-2.5 mt-1 py-2">
       {rows.map((row, ri) => (
         <div key={ri} className="flex justify-center gap-4">
           {row.map((it) => (
