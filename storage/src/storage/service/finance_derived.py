@@ -5,25 +5,13 @@ from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from fava.util.date import parse_date
-
 from storage.service import finance_config as finance_config_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_price as price_service
 from storage.service import finance_positions as positions_service
 from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
-
-
-TIME_RANGE_ALIASES = {
-    "ytd": "year to day",
-    "mtd": "month to day",
-    "qtd": "quarter to day",
-    "1m": "day-30 to day-1",
-    "3m": "day-90 to day-1",
-    "1y": "day-365 to day-1",
-    "all": "",
-}
+from storage.service.time_range import TIME_RANGE_ALIASES, parse_time_range
 
 
 class ConversionError(ValueError):
@@ -64,14 +52,6 @@ def _today() -> datetime.date:
 
 def _format_realtime_synced_at(value: datetime.datetime | None) -> str:
     return value.isoformat().replace("+00:00", "Z") if value else ""
-
-
-def parse_time_range(time_filter: str, default: str | None = None) -> tuple[datetime.date | None, datetime.date | None]:
-    value = (time_filter or default or "").strip()
-    value = TIME_RANGE_ALIASES.get(value.lower(), value)
-    if not value:
-        return None, None
-    return parse_date(value)
 
 
 def period_boundaries(start_date: datetime.date, end_date: datetime.date, granularity: str):

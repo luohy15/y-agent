@@ -1,9 +1,11 @@
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
 from storage.service import model_usage_daily as usage_service
 from storage.service.model_usage_daily import _local_today
+from storage.service.time_range import parse_time_range
 
 router = APIRouter(prefix="/usage")
 
@@ -16,20 +18,33 @@ _INTERNAL_FIELDS = ("id", "user_id")
 async def list_model_daily(
     request: Request,
     source: Optional[str] = Query("crs"),
+    time: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
-    limit: int = Query(1000),
+    limit: int = Query(100000),
 ):
     """Per-model daily usage rows. Defaults to source='crs' and today's date
-    (the freshest CRS snapshot) when no range is given. Thin passthrough to
-    service.list_for; multi-day aggregation is done client-side."""
+    (the freshest CRS snapshot) when no range is given. When `time` is given it
+    is parsed server-side with the shared finance time grammar (specific dates,
+    quarters, ranges, ytd/mtd/etc.); fava's exclusive end boundary is converted
+    to the repo's inclusive `<=` semantics via −1 day."""
     user_id = request.state.user_id
-    today = _local_today()
+    if time is not None:
+        # `time` is authoritative; its parsed (possibly None) bounds pass
+        # straight through, so `all` / `''` stay unbounded instead of
+        # collapsing back to the today-default below.
+        start, end = parse_time_range(time)
+        from_date = start.isoformat() if start else None
+        to_date = (end - timedelta(days=1)).isoformat() if end else None
+    else:
+        today = _local_today()
+        from_date = from_date or today
+        to_date = to_date or today
     rows = usage_service.list_for(
         user_id,
         source=source,
-        from_date=from_date or today,
-        to_date=to_date or today,
+        from_date=from_date,
+        to_date=to_date,
         limit=limit,
     )
     return [
