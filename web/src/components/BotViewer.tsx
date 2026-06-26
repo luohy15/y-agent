@@ -164,37 +164,6 @@ function aggMetricValue(a: ModelUsageAgg, metric: UsageMetric): number {
   return a.all_tokens || 0; // tokens
 }
 
-// Resolve a free-text usage time expression into a usage-endpoint query window.
-// Shared by Live and Over-time (mirrors FinanceViewer's Income Statement time input UX);
-// supported tokens are a focused subset because the usage endpoint only takes
-// from_date/to_date (finance's Fava grammar is server-side). Supported: empty/"today",
-// "week", "month"/"mtd", "year"/"ytd", "all", a bare "YYYY", or "YYYY-MM". Unknown input
-// falls back to today.
-function parseUsageTime(value: string): { fromDate: string | null; toDate: string | null; limit: number | null } {
-  const v = value.trim().toLowerCase();
-  const today = new Date();
-  const todayStr = localDateStr(today);
-  if (v === "" || v === "today" || v === "day") return { fromDate: null, toDate: null, limit: null };
-  if (v === "all") return { fromDate: "2000-01-01", toDate: todayStr, limit: 100000 };
-  if (v === "week") return { fromDate: mondayOf(todayStr), toDate: todayStr, limit: null };
-  if (v === "month" || v === "mtd") {
-    const first = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { fromDate: localDateStr(first), toDate: todayStr, limit: null };
-  }
-  if (v === "year" || v === "ytd") {
-    const first = new Date(today.getFullYear(), 0, 1);
-    return { fromDate: localDateStr(first), toDate: todayStr, limit: null };
-  }
-  const yearMatch = /^(\d{4})$/.exec(v);
-  if (yearMatch) return { fromDate: `${yearMatch[1]}-01-01`, toDate: `${yearMatch[1]}-12-31`, limit: 100000 };
-  const monthMatch = /^(\d{4})-(\d{2})$/.exec(v);
-  if (monthMatch) {
-    const last = new Date(Number(monthMatch[1]), Number(monthMatch[2]), 0); // day 0 of next month = last day of this month
-    return { fromDate: `${monthMatch[1]}-${monthMatch[2]}-01`, toDate: localDateStr(last), limit: null };
-  }
-  return { fromDate: null, toDate: null, limit: null }; // unknown -> today
-}
-
 // Sum per-model rows (multi-day windows return one row per (model, date)).
 function aggregateByModel(rows: ModelUsageRow[]): ModelUsageAgg[] {
   const map = new Map<string, ModelUsageAgg>();
@@ -572,12 +541,9 @@ function UsageChartTooltip({ active, payload, label, metric }: {
 
 // Over-time view: stacked chart of one metric per period + per-model x period table.
 function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { granularity: Granularity; metric: UsageMetric; time: string; onMetricChange: (m: UsageMetric) => void }) {
-  const { fromDate, toDate, limit } = parseUsageTime(time);
-  const params = new URLSearchParams();
-  if (fromDate) params.set("from_date", fromDate);
-  if (toDate) params.set("to_date", toDate);
-  if (limit != null) params.set("limit", String(limit));
-  const qs = params.toString();
+  // The usage endpoint parses `time` server-side with finance's shared Fava
+  // grammar; send it raw so specific dates / quarters / ranges all work.
+  const qs = time.trim() ? `time=${encodeURIComponent(time.trim())}` : "";
   const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
     `${API}/api/usage/model-daily${qs ? `?${qs}` : ""}`,
     fetcher,
@@ -822,12 +788,9 @@ function liveSortValue(a: ModelUsageAgg, key: LiveSortKey): string | number {
 // time range (source=crs only). Defaults to today when no range is given. A single
 // donut pie driven by the shared metric sits above the metric toggle and per-model table.
 function UsageTable({ time, metric, onMetricChange }: { time: string; metric: UsageMetric; onMetricChange: (m: UsageMetric) => void }) {
-  const { fromDate, toDate, limit } = parseUsageTime(time);
-  const params = new URLSearchParams();
-  if (fromDate) params.set("from_date", fromDate);
-  if (toDate) params.set("to_date", toDate);
-  if (limit != null) params.set("limit", String(limit));
-  const qs = params.toString();
+  // The usage endpoint parses `time` server-side with finance's shared Fava
+  // grammar; send it raw so specific dates / quarters / ranges all work.
+  const qs = time.trim() ? `time=${encodeURIComponent(time.trim())}` : "";
   const { data, error, isLoading } = useSWR<ModelUsageRow[]>(
     `${API}/api/usage/model-daily${qs ? `?${qs}` : ""}`,
     fetcher,
@@ -1251,7 +1214,7 @@ export default function BotViewer() {
               onChange={(e) => setUsageTimeInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") commitUsageTime(); }}
               onBlur={commitUsageTime}
-              placeholder="today, week, month, year, all, 2024, 2024-05"
+              placeholder="day, week, month, year, all, 2024-05, 2024-q2, 2024-05-15, day-7 to day"
               className="px-2 py-1 rounded text-xs w-56 bg-sol-base02 text-sol-base1 border border-sol-base01 outline-none placeholder:text-sol-base01"
             />
             {usageMode === "over-time" && (
