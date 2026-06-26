@@ -284,7 +284,8 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
     revalidateOnFocus: false,
   });
 
-  const hasMore = data && data.length === LIMIT;
+  const loadingMore = offset > 0 && isLoading;
+  const hasMore = data ? data.length === LIMIT : loadingMore;
 
   useEffect(() => {
     if (refreshKey === undefined || refreshKey === 0) return;
@@ -478,7 +479,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
       <div className="flex-1 overflow-y-auto p-1.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view links</p>
-        ) : isLoading || isValidating ? (
+        ) : (isLoading || isValidating) && !loadedOnce ? (
           <ListLoading />
         ) : error && grouped.length === 0 ? (
           <ListError error={error} />
@@ -532,10 +533,10 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
             {hasMore && (
               <button
                 onClick={handleLoadMore}
-                disabled={isLoading}
+                disabled={loadingMore}
                 className="w-full py-1.5 text-center text-[0.6rem] rounded bg-sol-base02 text-sol-base0 hover:text-sol-base1 cursor-pointer disabled:opacity-50 mb-2"
               >
-                {isLoading ? "Loading..." : "Load more"}
+                {loadingMore ? "Loading..." : "Load more"}
               </button>
             )}
           </>
