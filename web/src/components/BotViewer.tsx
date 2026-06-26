@@ -905,7 +905,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
                     <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
+                <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} />
                 <Legend
                   layout="horizontal"
                   verticalAlign="bottom"
@@ -922,7 +922,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             </ResponsiveContainer>
             <div
               className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ top: DONUT_CY }}
+              style={{ top: DONUT_CY, zIndex: 10 }}
             >
               <DonutCenterLabel totals={totals} />
             </div>
