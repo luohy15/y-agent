@@ -22,6 +22,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Auto-generated showcase screenshots (2541)** — `/showcase` skill generates panel screenshots via Playwright, with chat added as a 6th showcased capability.
 - **Calendar event view / add in web (2572)** — CalendarViewer surfaces a shared view/edit/add form with a 30-minute time-picker dropdown, in-modal event view/add, pointer cursor, and an optimistic preview while saving.
 - **Bot credentials in web panel (2567)** — bot list and detail views surface each bot's `base_url` plus a masked `api_key`.
+- **Bot per-model usage view (2606, 2607, 2610, 2611, 2615)** — new bot-page model-usage view with Live | Over-time tabs at daily granularity, wired to `model_usage_daily`; a Live time-range selector with independent Live vs Over-time range storage; a single/multi-pie metric breakdown (Requests/Tokens/Cost toggle, CRS-style bottom legend) plus a 3-card totals summary and a consolidated Live-totals header strip; per-column totals row, independent clickable-column sorting, a refresh button that triggers a CRS sync, and an over-time history table that opens scrolled to the most-recent columns.
+- **CRS usage sync + backfill (2608)** — sync CRS model-usage as a global per-model aggregate across all `cr_` keys, plus `y usage backfill` for dated-window historical sync.
+- **Calendar schedule list (2613)** — a Google-Calendar-style schedule list (one event per row, grouped by day) in the main left sidebar (ScheduleList), showing all future events.
+- **Finance large-transactions panel (2614)** — finance-mode left panel with quick-stats and large-transactions endpoints, filtered to Income/Expenses events (internal transfers excluded), sized by Income/Expenses posting magnitude, with a USD 100 threshold and full-display wrapping for long entries.
+- **FileViewer download for all file types (2605)** — download is now allowed for all file types, not just markdown.
 
 ### Changed
 - **MCP disabled on agent launch (2549, 2550)** — both the `claude -p` and claude_tui launch paths now disable MCP (`--strict-mcp-config`), and claude_tui launches are restricted to a tool allowlist.
