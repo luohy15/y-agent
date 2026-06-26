@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell, Legend, Label,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -741,6 +741,37 @@ function UsagePieTooltip({ active, payload, metric, total }: {
   );
 }
 
+// Range totals (tokens / cost / requests) stacked in the donut's center hole. This
+// replaces the former header stat strip — the three headline numbers now live inside
+// the ring. recharts passes the polar viewBox (cx/cy) to a <Label>'s content element.
+function DonutCenterLabel({ viewBox, totals }: {
+  viewBox?: { cx?: number; cy?: number };
+  totals: { all_tokens: number; cost: number; requests: number };
+}) {
+  const cx = viewBox?.cx ?? 0;
+  const cy = viewBox?.cy ?? 0;
+  const stats: [string, string][] = [
+    ["TOKENS", fmtCompact(totals.all_tokens)],
+    ["COST", fmtCost(totals.cost)],
+    ["REQUESTS", fmtNum(totals.requests)],
+  ];
+  const blockH = 23;
+  const top = cy - ((stats.length - 1) * blockH) / 2;
+  return (
+    <g className="tabular-nums">
+      {stats.map(([label, value], i) => {
+        const yc = top + i * blockH;
+        return (
+          <Fragment key={label}>
+            <text x={cx} y={yc - 4} textAnchor="middle" fill={SOL.base01} fontSize={8}>{label}</text>
+            <text x={cx} y={yc + 9} textAnchor="middle" fill={SOL.cyan} fontSize={14} fontWeight={600}>{value}</text>
+          </Fragment>
+        );
+      })}
+    </g>
+  );
+}
+
 // Shared Requests/Tokens/Cost toggle row (finance income-statement chartTab style),
 // rendered between a chart and its table in both Live and Over-time views. Both views
 // drive the same parent-held usageMetric, so switching in one reflects in the other.
@@ -860,41 +891,16 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   return (
     <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
       <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
-              {metric === "cost" ? "Cost" : metric === "requests" ? "Requests" : "Tokens"} by model
-            </div>
-            <div className="text-sol-base01 text-[10px]">Each slice is a model's share (top 7 + Other), source=crs</div>
-          </div>
-          {/* Single consolidated totals strip: the three headline numbers are the
-              point of this view, so the value is the prominent element (large,
-              tabular, accent) with a quiet uppercase caption stacked above it. */}
-          <div className="shrink-0 flex items-start gap-4 tabular-nums">
-            {([
-              ["Tokens", fmtCompact(totals.all_tokens)],
-              ["Cost", fmtCost(totals.cost)],
-              ["Requests", fmtNum(totals.requests)],
-            ] as const).map(([label, value], i) => (
-              <Fragment key={label}>
-                {i > 0 && <span className="self-stretch w-px bg-sol-base02" />}
-                <span className="flex flex-col items-end whitespace-nowrap leading-tight">
-                  <span className="text-sol-base01 text-[10px] uppercase tracking-wide">{label}</span>
-                  <span className="text-sol-cyan text-xl font-semibold">{value}</span>
-                </span>
-              </Fragment>
-            ))}
-          </div>
-        </div>
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
         ) : (
           <ResponsiveContainer width="100%" height={240}>
             <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={70} innerRadius={36} stroke={SOL.base03} isAnimationActive={false}>
+              <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy="50%" outerRadius={80} innerRadius={52} stroke={SOL.base03} isAnimationActive={false}>
                 {pieData.map((d, i) => (
                   <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                 ))}
+                <Label content={<DonutCenterLabel totals={totals} />} position="center" />
               </Pie>
               <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} />
               <Legend
