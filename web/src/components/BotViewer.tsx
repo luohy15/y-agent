@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell,
 } from "recharts";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
@@ -894,13 +894,6 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
                   ))}
                 </Pie>
                 <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} isAnimationActive={false} />
-                <Legend
-                  verticalAlign="bottom"
-                  align="center"
-                  // Custom HTML legend (max 3 items per centered row); built from pieData
-                  // directly so it stays in the slices' share-descending order.
-                  content={() => <UsagePieLegend pieData={pieData} />}
-                />
               </PieChart>
             </ResponsiveContainer>
             <div
@@ -911,6 +904,11 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             </div>
           </div>
         )}
+        {/* Legend rendered as a normal HTML block in document flow below the fixed-height
+            chart (not via recharts <Legend>, which is absolutely positioned inside the
+            240px ResponsiveContainer and would overlap the donut when it wraps to 3 rows).
+            Built from pieData so dots index into MODEL_COLORS the same way as the slices. */}
+        {pieData.length > 0 && <UsagePieLegend pieData={pieData} />}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
