@@ -767,11 +767,13 @@ function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m:
 // Live per-model table columns (sort-independent of the pie's metric toggle). Numeric
 // columns default to descending on first click, string columns ascending — matching the
 // config table's clickable-header behavior. Cache is one column sorted by cache_create.
-type LiveSortKey = "model" | "provider" | "all_tokens" | "cost" | "requests" | "input_tokens" | "output_tokens" | "cache_create_tokens";
+type LiveSortKey = "model" | "all_tokens" | "cost" | "requests" | "input_tokens" | "output_tokens" | "cache_create_tokens";
 
-const LIVE_COLUMNS: { key: LiveSortKey; label: string; numeric: boolean }[] = [
+// "pct" is a display-only column (not sortable); it shows each row's share of the
+// active sort column's total, so it has no LiveSortKey of its own.
+const LIVE_COLUMNS: { key: LiveSortKey | "pct"; label: string; numeric: boolean }[] = [
   { key: "model", label: "Model", numeric: false },
-  { key: "provider", label: "Provider", numeric: false },
+  { key: "pct", label: "%", numeric: true },
   { key: "all_tokens", label: "Tokens", numeric: true },
   { key: "cost", label: "Cost", numeric: true },
   { key: "requests", label: "Requests", numeric: true },
@@ -782,7 +784,6 @@ const LIVE_COLUMNS: { key: LiveSortKey; label: string; numeric: boolean }[] = [
 
 function liveSortValue(a: ModelUsageAgg, key: LiveSortKey): string | number {
   if (key === "model") return a.model;
-  if (key === "provider") return a.provider || "";
   return a[key];
 }
 
@@ -846,6 +847,12 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
     { all_tokens: 0, cost: 0, requests: 0, input_tokens: 0, output_tokens: 0, cache_create_tokens: 0, cache_read_tokens: 0 },
   ), [rows]);
 
+  // The "%" column = each row's value in the active numeric sort column / that column's
+  // total across all rows. Model (non-numeric) has no sensible total, so fall back to
+  // Tokens. Recomputes whenever sortKey changes.
+  const pctKey = sortKey === "model" ? "all_tokens" : sortKey;
+  const pctTotal = totals[pctKey];
+
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
@@ -908,11 +915,23 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
           <thead className="sticky top-0 z-10">
             <tr className="text-sol-base01 text-left text-xs bg-sol-base03 border-b border-sol-base02">
               {LIVE_COLUMNS.map((col) => {
-                const active = sortKey === col.key;
+                if (col.key === "pct") {
+                  return (
+                    <th
+                      key={col.key}
+                      className="py-1 px-1.5 bg-sol-base03 select-none text-right"
+                      title="Share of the active sort column's total"
+                    >
+                      {col.label}
+                    </th>
+                  );
+                }
+                const key = col.key; // narrowed to LiveSortKey after the pct early-return
+                const active = sortKey === key;
                 return (
                   <th
-                    key={col.key}
-                    onClick={() => onSort(col.key)}
+                    key={key}
+                    onClick={() => onSort(key)}
                     className={`py-1 px-1.5 bg-sol-base03 cursor-pointer select-none hover:text-sol-base1 ${col.numeric ? "text-right" : ""}`}
                   >
                     {col.label}{active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
@@ -925,7 +944,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             {sortedRows.map((r) => (
               <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
                 <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
-                <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{r.provider || "-"}</td>
+                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{pctTotal > 0 ? `${((r[pctKey] / pctTotal) * 100).toFixed(1)}%` : "-"}</td>
                 <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
                 <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
                 <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
@@ -936,7 +955,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             ))}
             <tr className="font-medium">
               <td className="sticky bottom-0 px-1.5 py-1 text-sol-base1 bg-sol-base02 border-t border-sol-base02">Total</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-sol-base01 bg-sol-base02 border-t border-sol-base02"></td>
+              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base0 tabular-nums bg-sol-base02 border-t border-sol-base02">{pctTotal > 0 ? "100.0%" : "-"}</td>
               <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.all_tokens)}</td>
               <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCost(totals.cost)}</td>
               <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtNum(totals.requests)}</td>
