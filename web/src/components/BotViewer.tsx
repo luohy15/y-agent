@@ -738,6 +738,31 @@ function DonutCenterLabel({ totals }: {
   );
 }
 
+// Custom pie legend: the recharts built-in <Legend> renders all items in one row,
+// which is too wide/cramped with up to 8 entries (top-7 + Other). Chunk the slices
+// into rows of at most 3 and center each row (partial last row included). Items are
+// built from pieData in its existing share-descending order, and each dot's color is
+// keyed on the same global index as the matching <Cell>, so legend and slices align.
+function UsagePieLegend({ pieData }: { pieData: PieSlice[] }) {
+  const items = pieData.map((d, i) => ({ model: d.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
+  const rows: (typeof items)[] = [];
+  for (let i = 0; i < items.length; i += 3) rows.push(items.slice(i, i + 3));
+  return (
+    <div className="flex flex-col items-center gap-1 mt-1">
+      {rows.map((row, ri) => (
+        <div key={ri} className="flex justify-center gap-4">
+          {row.map((it) => (
+            <span key={it.model} className="inline-flex items-center gap-1" style={{ fontSize: 10 }}>
+              <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: it.color }} />
+              <span style={{ color: SOL.base0 }}>{it.model}</span>
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Shared Requests/Tokens/Cost toggle row (finance income-statement chartTab style),
 // rendered between a chart and its table in both Live and Over-time views. Both views
 // drive the same parent-held usageMetric, so switching in one reflects in the other.
@@ -870,16 +895,11 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
                 </Pie>
                 <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} isAnimationActive={false} />
                 <Legend
-                  layout="horizontal"
                   verticalAlign="bottom"
                   align="center"
-                  iconType="circle"
-                  wrapperStyle={{ fontSize: 10 }}
-                  // recharts 3.8 defaults itemSorter to 'value' (alphabetical); a numeric
-                  // sorter keyed on each slice's value keeps the legend in the same
-                  // share-descending order as the slices (pieData is sorted desc).
-                  itemSorter={(item) => -((item.payload as { value?: number } | undefined)?.value ?? 0)}
-                  formatter={(value) => <span style={{ color: SOL.base0 }}>{value}</span>}
+                  // Custom HTML legend (max 3 items per centered row); built from pieData
+                  // directly so it stays in the slices' share-descending order.
+                  content={() => <UsagePieLegend pieData={pieData} />}
                 />
               </PieChart>
             </ResponsiveContainer>
