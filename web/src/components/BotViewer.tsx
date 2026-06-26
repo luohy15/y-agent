@@ -868,7 +868,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
                     <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} />
+                <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} isAnimationActive={false} />
                 <Legend
                   layout="horizontal"
                   verticalAlign="bottom"
