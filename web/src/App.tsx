@@ -345,12 +345,28 @@ export default function App() {
 
   const activeFileRef = useRef(activeFile);
   activeFileRef.current = activeFile;
+  const chatHideRef = useRef(chatHide);
+  chatHideRef.current = chatHide;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "`") {
         e.preventDefault();
         setChatHide((v) => !v);
+      }
+      // Ctrl+<number> switches FileViewer tabs (1-8 by position, 9 = last tab,
+      // browser convention). Only when the FileViewer panel is active (chat hidden)
+      // and more than one tab is open. Ctrl-only to avoid clashing with the Mac
+      // Cmd+number browser tab shortcut.
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+        const files = openFilesRef.current;
+        if (chatHideRef.current && files.length > 1) {
+          e.preventDefault();
+          const n = Number(e.key);
+          const idx = n === 9 ? files.length - 1 : n - 1;
+          if (idx < files.length) setActiveFile(files[idx]);
+          return;
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "p") {
         e.preventDefault();
