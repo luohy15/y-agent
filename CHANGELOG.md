@@ -22,10 +22,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Auto-generated showcase screenshots (2541)** — `/showcase` skill generates panel screenshots via Playwright, with chat added as a 6th showcased capability.
 - **Calendar event view / add in web (2572)** — CalendarViewer surfaces a shared view/edit/add form with a 30-minute time-picker dropdown, in-modal event view/add, pointer cursor, and an optimistic preview while saving.
 - **Bot credentials in web panel (2567)** — bot list and detail views surface each bot's `base_url` plus a masked `api_key`.
-- **Bot per-model usage view (2606, 2607, 2610, 2611, 2615)** — new bot-page model-usage view with Live | Over-time tabs at daily granularity, wired to `model_usage_daily`; a Live time-range selector with independent Live vs Over-time range storage; a single/multi-pie metric breakdown (Requests/Tokens/Cost toggle, CRS-style bottom legend) plus a 3-card totals summary and a consolidated Live-totals header strip; per-column totals row, independent clickable-column sorting, a refresh button that triggers a CRS sync, and an over-time history table that opens scrolled to the most-recent columns.
+- **Bot per-model usage view (2606, 2607, 2610, 2611, 2615, 2619, 2620, 2622)** — new bot-page model-usage view with Live | Over-time tabs at daily granularity, wired to `model_usage_daily`; a Live time-range selector with independent Live vs Over-time range storage (routed through finance's shared time grammar); a single/multi-pie metric breakdown (Requests/Tokens/Cost toggle, CRS-style bottom legend) plus a 3-card totals summary and a consolidated Live-totals header strip; the Live table's `provider` column is replaced with a sort-relative `%` column; per-column totals row, independent clickable-column sorting, a refresh button that triggers a CRS sync, and an over-time history table that opens scrolled to the most-recent columns. Pie chart polished: totals moved into the donut center via HTML overlay, legend sorted by share descending and wrapped 3-per-row below the chart, plus tooltip animation/z-index and box-sizing fixes.
 - **CRS usage sync + backfill (2608)** — sync CRS model-usage as a global per-model aggregate across all `cr_` keys, plus `y usage backfill` for dated-window historical sync.
 - **Calendar schedule list (2613)** — a Google-Calendar-style schedule list (one event per row, grouped by day) in the main left sidebar (ScheduleList), showing all future events.
-- **Finance large-transactions panel (2614)** — finance-mode left panel with quick-stats and large-transactions endpoints, filtered to Income/Expenses events (internal transfers excluded), sized by Income/Expenses posting magnitude, with a USD 100 threshold and full-display wrapping for long entries.
+- **Finance large-transactions panel (2614)** — finance-mode left panel with quick-stats and large-transactions endpoints, filtered to Income/Expenses events (internal transfers excluded), sized by Income/Expenses posting magnitude, with a USD 100 threshold and full-display wrapping for long entries; entries are classified as income / expense / investment with distinct colors and signed amounts.
+- **FileViewer Ctrl+number tab switching (2630)** — Ctrl+1–8 select FileViewer tabs by position and Ctrl+9 jumps to the last tab.
 - **FileViewer download for all file types (2605)** — download is now allowed for all file types, not just markdown.
 
 ### Changed
@@ -44,6 +45,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **pi_cli backend option (2568)** — `pi_cli` is now selectable in the bot list and detail backend selector.
 - **Finance to-date semantics (2592)** — YTD / MTD / QTD ranges now include today so same-day entries show, and the net-worth-over-time chart applies the realtime overlay so the current period matches the table.
 - **Calendar editor delete confirmation (2586)** — deleting an event from the editor no longer happens without confirmation.
+- **Link list load-more (2624)** — `load more` now appends without a full reload (preserving scroll) and dedupes by `activity_id` to stop duplicate keys, scroll reset, and repeated rows.
+- **Chat scroll-to-bottom button (2626)** — the scroll-to-bottom button now jumps instantly instead of smooth-scrolling.
 
 ### Removed
 
