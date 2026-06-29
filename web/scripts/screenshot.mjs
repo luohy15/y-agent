@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..");
 const OUT_DIR = "/Users/roy/luohy15/assets/images";
 const PORT = Number(process.env.SHOWCASE_PORT || 5191);
-const NAMES = ["todo", "trace", "note", "link", "finance", "chat"];
+const NAMES = ["todo", "trace", "note", "link", "finance", "bot-usage", "chat"];
 
 function startServer() {
   // Run vite directly (skip the `predev` docs build; the showcase needs no docs).
