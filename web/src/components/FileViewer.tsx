@@ -70,6 +70,7 @@ const PUBLIC_TRACE_TAB = "trace.md";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
 const PDF_EXTS = new Set(["pdf"]);
+const HTML_EXTS = new Set(["html", "htm"]);
 
 function getExt(path: string): string {
   const dot = path.lastIndexOf(".");
@@ -1296,7 +1297,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               )}
             </button>
           )}
-          {getExt(activeFile) === "md" && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && (
+          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
@@ -1467,6 +1468,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileData.content !== undefined ? (
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
                   <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} onExternalLinkClick={onExternalLinkClick} />
+                ) : HTML_EXTS.has(getExt(filePath)) && mdPreview[filePath] !== false ? (
+                  <iframe sandbox="allow-scripts" srcDoc={editContent[filePath] ?? fileData.content ?? ""} className="w-full h-full border-0 bg-white" title={filePath} />
                 ) : (
                   <div className="h-full overflow-hidden bg-sol-base03" data-editor="true">
                     <CodeEditor
