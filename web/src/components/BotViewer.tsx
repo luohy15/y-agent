@@ -229,16 +229,26 @@ function heatmapLevel(value: number, max: number): number {
 
 interface HeatCell { date: string; value: number; }
 
-// Build GitHub-style week columns: pad the data span out to whole Sun..Sat weeks and
-// fill every day in between (missing days -> value 0). Each inner array is one week
-// column, indexed 0=Sun..6=Sat.
-function buildHeatmapWeeks(dailyTotals: Map<string, number>): { weeks: HeatCell[][]; max: number } {
-  const dates = [...dailyTotals.keys()].sort();
-  if (dates.length === 0) return { weeks: [], max: 0 };
-  const start = new Date(`${dates[0]}T00:00:00`);
-  start.setDate(start.getDate() - start.getDay()); // back to Sunday
-  const end = new Date(`${dates[dates.length - 1]}T00:00:00`);
-  end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday
+// Build a GitHub-style week grid (Sun(top)->Sat(bottom) columns) whose span is fixed by
+// the active time filter, not by which days have data: a bare 4-digit year (e.g. "2024")
+// spans that whole calendar year (Jan 1 -> Dec 31), anything else spans the rolling past
+// 12 months ending at the current week. `dailyTotals` only supplies values, so every day
+// in the window renders and days with no usage fall to value 0 (empty bucket).
+function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { weeks: HeatCell[][]; max: number } {
+  const year = /^\d{4}$/.test(time.trim()) ? parseInt(time.trim(), 10) : null;
+  let start: Date;
+  let end: Date;
+  if (year !== null) {
+    start = new Date(year, 0, 1); // Jan 1
+    end = new Date(year, 11, 31); // Dec 31
+  } else {
+    end = new Date();
+    end.setHours(0, 0, 0, 0);
+    start = new Date(end);
+  }
+  start.setDate(start.getDate() - start.getDay()); // back to Sunday of its week
+  end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday of its week
+  if (year === null) start.setDate(start.getDate() - 52 * 7); // rolling: 53 columns total
   const weeks: HeatCell[][] = [];
   let max = 0;
   let col: HeatCell[] = [];
@@ -993,8 +1003,8 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   const heatmap = useMemo(() => {
     const dailyTotals = new Map<string, number>();
     for (const r of data || []) dailyTotals.set(r.usage_date, (dailyTotals.get(r.usage_date) || 0) + metricValue(r, metric));
-    return buildHeatmapWeeks(dailyTotals);
-  }, [data, metric]);
+    return buildHeatmapWeeks(dailyTotals, time);
+  }, [data, metric, time]);
 
   // Per-column totals: sum each numeric column across all model rows.
   const totals = useMemo(() => rows.reduce(
