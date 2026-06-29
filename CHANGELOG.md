@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.18] - 2026-06-28
+
+### Added
 - **claude_tui backend (2514)** — new tmux-backed Claude Code TUI backend that drives the interactive `claude` TUI on EC2 over the subscription login (no `base_url` / API key), parallel to the existing `claude -p` path.
 - **Claude `/usage` scrape (2515)** — `y claude usage` CLI plus a `claude-usage-check` alert skill that scrapes the claude_tui `/usage` TUI for current limit-window usage and notifies via Telegram above a threshold.
 - **Daily Claude usage persistence (2588)** — daily Claude (CRS) limit-window usage is persisted into a `model_usage_daily` table.
