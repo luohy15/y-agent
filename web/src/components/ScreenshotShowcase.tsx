@@ -10,6 +10,7 @@ import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import FinanceViewer from "./FinanceViewer";
 import ChatView from "./ChatView";
+import BotViewer from "./BotViewer";
 
 // Install the fetch mock + force deterministic panel state before any panel
 // mounts and fires its SWR fetch. Runs once when this lazy chunk is imported.
@@ -21,6 +22,11 @@ try {
   localStorage.setItem("finance-tab", "holdings");
   localStorage.setItem("finance-mode", "live");
   localStorage.setItem("holdings-risky-only", "0");
+  // Bot usage: land on the Live usage view (donut + daily contribution heatmap), with a
+  // wide time range so the heatmap spans the whole fixture window.
+  localStorage.setItem("botView", "usage");
+  localStorage.setItem("botUsageMode", "live");
+  localStorage.setItem("botUsageLiveTime", "all");
 } catch {
   // localStorage may be unavailable in some headless contexts; harmless.
 }
@@ -79,6 +85,10 @@ export default function ScreenshotShowcase() {
 
         <PanelFrame name="finance" title="finance · FinanceViewer" width={900} height={760}>
           <FinanceViewer />
+        </PanelFrame>
+
+        <PanelFrame name="bot-usage" title="bot · BotViewer (usage)" width={560} height={760}>
+          <BotViewer />
         </PanelFrame>
 
         <PanelFrame name="chat" title="chat · ChatView (snapshot)" width={560} height={680}>

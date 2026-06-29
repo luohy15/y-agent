@@ -198,6 +198,61 @@ function aggregateByModel(rows: ModelUsageRow[]): ModelUsageAgg[] {
   return [...map.values()].sort((a, b) => b.all_tokens - a.all_tokens);
 }
 
+// --- Daily contribution heatmap (GitHub-style) ---
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Cell geometry (px). Columns are weeks; each column is Sun(top)->Sat(bottom).
+const HEATMAP_CELL = 11;
+const HEATMAP_GAP = 3;
+const HEATMAP_WEEKDAY_W = 24; // left gutter for the Mon/Wed/Fri labels
+
+// Sequential green buckets (Solarized green), GitHub contribution style: index 0 = no
+// usage that day, 1..4 = increasing intensity. Rendered over the dark base03 background.
+const HEATMAP_COLORS = [
+  SOL.base02,
+  "rgba(133, 153, 0, 0.30)",
+  "rgba(133, 153, 0, 0.55)",
+  "rgba(133, 153, 0, 0.78)",
+  "rgba(133, 153, 0, 1)",
+];
+
+// Bucket a day's value into 0..4 by its share of the window's busiest day (0 -> empty).
+function heatmapLevel(value: number, max: number): number {
+  if (value <= 0 || max <= 0) return 0;
+  const r = value / max;
+  if (r > 0.75) return 4;
+  if (r > 0.5) return 3;
+  if (r > 0.25) return 2;
+  return 1;
+}
+
+interface HeatCell { date: string; value: number; }
+
+// Build GitHub-style week columns: pad the data span out to whole Sun..Sat weeks and
+// fill every day in between (missing days -> value 0). Each inner array is one week
+// column, indexed 0=Sun..6=Sat.
+function buildHeatmapWeeks(dailyTotals: Map<string, number>): { weeks: HeatCell[][]; max: number } {
+  const dates = [...dailyTotals.keys()].sort();
+  if (dates.length === 0) return { weeks: [], max: 0 };
+  const start = new Date(`${dates[0]}T00:00:00`);
+  start.setDate(start.getDate() - start.getDay()); // back to Sunday
+  const end = new Date(`${dates[dates.length - 1]}T00:00:00`);
+  end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday
+  const weeks: HeatCell[][] = [];
+  let max = 0;
+  let col: HeatCell[] = [];
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const ds = localDateStr(d);
+    const value = dailyTotals.get(ds) || 0;
+    if (value > max) max = value;
+    col.push({ date: ds, value });
+    if (d.getDay() === 6) { weeks.push(col); col = []; }
+  }
+  if (col.length) weeks.push(col);
+  return { weeks, max };
+}
+
 function botValue(bot: BotConfig, key: SortKey): string | number | null {
   switch (key) {
     case "name": return bot.name;
@@ -791,6 +846,83 @@ function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m:
   );
 }
 
+// GitHub-style daily contribution heatmap, driven by the same selected metric as the
+// donut/table. Columns are weeks (left=oldest), each column Sun(top)->Sat(bottom); cell
+// color intensity scales with that day's metric value. Hover shows the date + exact value.
+function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number; metric: UsageMetric }) {
+  const [hover, setHover] = useState<{ date: string; value: number; x: number; y: number } | null>(null);
+  if (weeks.length === 0) return null;
+
+  // Month label above the first week column whose Sunday lands in a new month.
+  const monthLabels = weeks.map((col, i) => {
+    const month = col[0].date.slice(5, 7);
+    const prev = i > 0 ? weeks[i - 1][0].date.slice(5, 7) : null;
+    return month !== prev ? MONTHS_SHORT[parseInt(month, 10) - 1] : "";
+  });
+  const colWidth = HEATMAP_CELL + HEATMAP_GAP;
+  const weekdayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]; // index 0=Sun..6=Sat
+
+  return (
+    <div className="relative">
+      <div className="overflow-x-auto pb-1">
+        <div className="inline-flex flex-col" style={{ gap: HEATMAP_GAP }}>
+          {/* Month labels row, offset past the weekday gutter */}
+          <div className="flex" style={{ marginLeft: HEATMAP_WEEKDAY_W, gap: HEATMAP_GAP }}>
+            {monthLabels.map((m, i) => (
+              <div key={i} className="text-sol-base01 text-[9px] leading-none" style={{ width: HEATMAP_CELL }}>{m}</div>
+            ))}
+          </div>
+          <div className="flex" style={{ gap: HEATMAP_GAP }}>
+            {/* Weekday gutter (Mon/Wed/Fri) */}
+            <div className="flex flex-col" style={{ gap: HEATMAP_GAP, width: HEATMAP_WEEKDAY_W }}>
+              {weekdayLabels.map((w, i) => (
+                <div key={i} className="text-sol-base01 text-[9px] leading-none flex items-center" style={{ height: HEATMAP_CELL }}>{w}</div>
+              ))}
+            </div>
+            {/* Week columns */}
+            <div className="flex" style={{ gap: HEATMAP_GAP }}>
+              {weeks.map((col, ci) => (
+                <div key={ci} className="flex flex-col" style={{ gap: HEATMAP_GAP }}>
+                  {col.map((cell) => (
+                    <div
+                      key={cell.date}
+                      className="rounded-sm"
+                      style={{
+                        width: HEATMAP_CELL,
+                        height: HEATMAP_CELL,
+                        background: HEATMAP_COLORS[heatmapLevel(cell.value, max)],
+                      }}
+                      onMouseEnter={(e) => setHover({ date: cell.date, value: cell.value, x: e.clientX, y: e.clientY })}
+                      onMouseLeave={() => setHover(null)}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Less -> More legend (GitHub style) */}
+      <div className="flex items-center justify-end gap-1 mt-1.5 text-sol-base01 text-[9px]">
+        <span>Less</span>
+        {HEATMAP_COLORS.map((c, i) => (
+          <span key={i} className="rounded-sm inline-block" style={{ width: HEATMAP_CELL, height: HEATMAP_CELL, background: c }} />
+        ))}
+        <span>More</span>
+      </div>
+      {hover && (
+        <div
+          className="fixed z-30 pointer-events-none rounded px-2 py-1 text-xs whitespace-nowrap"
+          style={{ left: hover.x + 12, top: hover.y + 12, background: SOL.base02, border: `1px solid ${SOL.base01}` }}
+        >
+          <span style={{ color: SOL.base1 }}>{formatPeriodLabel(hover.date)}</span>
+          <span style={{ color: SOL.base0 }} className="ml-2 tabular-nums">{formatMetric(hover.value, metric)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Live per-model table columns (sort-independent of the pie's metric toggle). Numeric
 // columns default to descending on first click, string columns ascending — matching the
 // config table's clickable-header behavior. Cache is one column sorted by cache_create.
@@ -856,6 +988,14 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
   const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
+  // Daily contribution heatmap: per-day total of the selected metric across all models,
+  // built straight from the raw (unaggregated) rows so each day keeps its own bucket.
+  const heatmap = useMemo(() => {
+    const dailyTotals = new Map<string, number>();
+    for (const r of data || []) dailyTotals.set(r.usage_date, (dailyTotals.get(r.usage_date) || 0) + metricValue(r, metric));
+    return buildHeatmapWeeks(dailyTotals);
+  }, [data, metric]);
+
   // Per-column totals: sum each numeric column across all model rows.
   const totals = useMemo(() => rows.reduce(
     (t, r) => {
@@ -916,6 +1056,17 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {pieData.length > 0 && <UsagePieLegend pieData={pieData} />}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
+      {heatmap.weeks.length > 0 && (
+        <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
+          <div className="mb-2">
+            <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+              Daily {metric === "cost" ? "cost" : metric === "requests" ? "requests" : "tokens"}
+            </div>
+            <div className="text-sol-base01 text-[10px]">One cell per day, darker = more usage, source=crs</div>
+          </div>
+          <UsageHeatmap weeks={heatmap.weeks} max={heatmap.max} metric={metric} />
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-10">

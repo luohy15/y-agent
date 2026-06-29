@@ -435,6 +435,60 @@ export const BALANCE_SHEET_FIXTURE = {
   source: "cache" as const,
 };
 
+// --- /api/usage/model-daily -> ModelUsageRow[] --------------------------------
+// Per-(model, date) usage rows over the last ~11 weeks, driving the bot usage Live
+// view (donut + per-day contribution heatmap). A deterministic pseudo-random pattern
+// gives weekday-heavy, weekend-light days and the occasional zero day so the heatmap
+// reads like a real GitHub contribution graph.
+const USAGE_MODELS = [
+  { model: "claude-opus-4-8", provider: "anthropic", weight: 1.0 },
+  { model: "claude-sonnet-4-6", provider: "anthropic", weight: 0.6 },
+  { model: "gpt-5-codex", provider: "openai", weight: 0.45 },
+  { model: "gemini-2.5-pro", provider: "google", weight: 0.2 },
+];
+
+export const MODEL_DAILY_FIXTURE = (() => {
+  const rows: Record<string, unknown>[] = [];
+  for (let d = 75; d >= 0; d--) {
+    const date = ymdDaysAgo(d);
+    const dow = new Date(NOW - d * DAY).getDay(); // 0=Sun..6=Sat
+    // Deterministic 0..1 intensity for the day; weekends and a few scattered days dip to 0.
+    const wave = (Math.sin(d * 1.7) + 1) / 2; // 0..1
+    const weekend = dow === 0 || dow === 6 ? 0.25 : 1;
+    const idle = d % 9 === 4 ? 0 : 1; // occasional zero day
+    const dayScale = wave * weekend * idle;
+    if (dayScale <= 0.02) continue; // no usage that day
+    for (const m of USAGE_MODELS) {
+      const reqs = Math.round(dayScale * m.weight * 40);
+      if (reqs <= 0) continue;
+      const input = reqs * 1800;
+      const output = reqs * 900;
+      const cacheCreate = reqs * 600;
+      const cacheRead = reqs * 5200;
+      const all = input + output + cacheCreate + cacheRead;
+      rows.push({
+        usage_date: date,
+        source: "crs",
+        provider: m.provider,
+        model: m.model,
+        scope: "user",
+        scope_id: "u-demo",
+        scope_name: "demo",
+        input_tokens: input,
+        output_tokens: output,
+        cache_create_tokens: cacheCreate,
+        cache_read_tokens: cacheRead,
+        all_tokens: all,
+        requests: reqs,
+        cost: Number((all / 1e6 * 4.2).toFixed(2)),
+        cost_basis: "list",
+        synced_at: isoDaysAgo(0, -10 * MIN),
+      });
+    }
+  }
+  return rows;
+})();
+
 // --- /showcase chat panel: snapshot raw messages ------------------------------
 // Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
 // uses to project mock chat messages). Snapshot mode short-circuits every
@@ -556,6 +610,8 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/note/list") return NOTES_FIXTURE;
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
   if (pathname === "/api/finance/holdings") return HOLDINGS_FIXTURE;
+  if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
+  if (pathname === "/api/bot/list") return []; // usage view ignores the config table
   if (pathname === "/api/finance/balance-sheet") {
     // Only the live balance sheet is exercised by the default tab; history
     // breakdowns return empty envelopes so over-time views degrade gracefully.
