@@ -944,7 +944,7 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
                   {col.map((cell) => (
                     <div
                       key={cell.date}
-                      className="rounded-sm"
+                      className="rounded-xs hover:outline hover:outline-1 hover:outline-sol-base1"
                       style={{
                         width: HEATMAP_CELL,
                         height: HEATMAP_CELL,
@@ -964,7 +964,7 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
       <div className="flex items-center justify-end gap-1 mt-1.5 text-sol-base01 text-[9px]">
         <span>Less</span>
         {HEATMAP_COLORS.map((c, i) => (
-          <span key={i} className="rounded-sm inline-block" style={{ width: HEATMAP_CELL, height: HEATMAP_CELL, background: c }} />
+          <span key={i} className="rounded-xs inline-block" style={{ width: HEATMAP_CELL, height: HEATMAP_CELL, background: c }} />
         ))}
         <span>More</span>
       </div>
