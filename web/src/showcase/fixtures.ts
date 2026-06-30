@@ -492,6 +492,23 @@ export const MODEL_DAILY_FIXTURE = (() => {
   return rows;
 })();
 
+// --- /api/usage/daily-totals -> per-day totals --------------------------------
+// Per-day tokens/cost/requests summed across all models, driving the contribution
+// heatmap independently of the Live time filter. Derived from MODEL_DAILY_FIXTURE
+// (the same seeded days) so the donut/table and heatmap stay visually consistent.
+export const DAILY_TOTALS_FIXTURE = (() => {
+  const byDay = new Map<string, { usage_date: string; all_tokens: number; cost: number; requests: number }>();
+  for (const r of MODEL_DAILY_FIXTURE) {
+    const date = r.usage_date as string;
+    const agg = byDay.get(date) || { usage_date: date, all_tokens: 0, cost: 0, requests: 0 };
+    agg.all_tokens += (r.all_tokens as number) || 0;
+    agg.cost += (r.cost as number) || 0;
+    agg.requests += (r.requests as number) || 0;
+    byDay.set(date, agg);
+  }
+  return [...byDay.values()].sort((a, b) => a.usage_date.localeCompare(b.usage_date));
+})();
+
 // --- /showcase chat panel: snapshot raw messages ------------------------------
 // Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
 // uses to project mock chat messages). Snapshot mode short-circuits every
@@ -614,6 +631,7 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
   if (pathname === "/api/finance/holdings") return HOLDINGS_FIXTURE;
   if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
+  if (pathname === "/api/usage/daily-totals") return DAILY_TOTALS_FIXTURE;
   if (pathname === "/api/bot/list") return []; // usage view ignores the config table
   if (pathname === "/api/finance/balance-sheet") {
     // Only the live balance sheet is exercised by the default tab; history

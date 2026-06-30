@@ -57,6 +57,15 @@ interface ModelUsageRow {
   synced_at: string;
 }
 
+// One per-day usage total from GET /api/usage/daily-totals: tokens/cost/requests
+// summed across all models, over the heatmap window (decoupled from the Live filter).
+interface DailyTotal {
+  usage_date: string;
+  all_tokens: number;
+  cost: number;
+  requests: number;
+}
+
 // Aggregate of one model's rows across the selected window.
 interface ModelUsageAgg {
   model: string;
@@ -144,8 +153,9 @@ function periodKeyFor(usageDate: string, granularity: Granularity): string {
   return usageDate; // daily
 }
 
-// Selected metric's value for a single daily row.
-function metricValue(row: ModelUsageRow, metric: UsageMetric): number {
+// Selected metric's value for a single row (per-model daily row or per-day total —
+// both carry all_tokens/cost/requests, so this reads the structural subset).
+function metricValue(row: { all_tokens: number; cost: number; requests: number }, metric: UsageMetric): number {
   if (metric === "cost") return row.cost || 0;
   if (metric === "requests") return row.requests || 0;
   return row.all_tokens || 0; // tokens
@@ -206,6 +216,10 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 const HEATMAP_CELL = 11;
 const HEATMAP_GAP = 3;
 const HEATMAP_WEEKDAY_W = 24; // left gutter for the Mon/Wed/Fri labels
+// Upscale cap when filling a wide panel: cells/gaps are solid divs so they stay crisp
+// when scaled up, but cap the factor so an ultra-wide panel doesn't blow them up
+// grotesquely (2.4x -> ~26px cells, still a tidy contribution graph).
+const HEATMAP_MAX_SCALE = 2.4;
 
 // Sequential green buckets (Solarized green), GitHub contribution style: index 0 = no
 // usage that day, 1..4 = increasing intensity. Rendered over the dark base03 background.
@@ -867,11 +881,13 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
   const fitRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
 
-  // Fit-to-width: 12 months is a fixed maximum, so scale the whole grid down to the panel
-  // width with transform: scale() (never up) instead of letting it scroll horizontally.
-  // scale() doesn't shrink the layout box, so the wrapper height is set explicitly
-  // (overflow:hidden hides the reserved space); ceil + 2px keeps the bottom (Sat) row from
-  // being clipped by sub-pixel rounding. Re-measure on panel resize via ResizeObserver.
+  // Fit-to-width: the grid has a fixed natural size (weeks x 7 days), so scale the whole
+  // thing with transform: scale() to consume the panel width — down on narrow panels,
+  // and UP (capped at HEATMAP_MAX_SCALE) on wide ones so it fills the card instead of
+  // sitting small in the top-left. scale() doesn't change the layout box, so the wrapper
+  // height is set explicitly (overflow:hidden hides the reserved space); ceil + 2px keeps
+  // the bottom (Sat) row from being clipped by sub-pixel rounding. Re-measure on panel
+  // resize via ResizeObserver.
   useEffect(() => {
     const fit = fitRef.current;
     const inner = innerRef.current;
@@ -882,7 +898,7 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
       const natH = inner.scrollHeight;
       const avail = fit.clientWidth;
       if (!natW || !avail) return; // skip pre-layout measurements
-      const scale = Math.min(1, avail / natW);
+      const scale = Math.min(HEATMAP_MAX_SCALE, avail / natW);
       inner.style.transform = `scale(${scale})`;
       fit.style.height = `${Math.ceil(natH * scale) + 2}px`;
     };
@@ -1036,13 +1052,21 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
   const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
-  // Daily contribution heatmap: per-day total of the selected metric across all models,
-  // built straight from the raw (unaggregated) rows so each day keeps its own bucket.
+  // Daily contribution heatmap: per-day totals fetched from a SEPARATE endpoint over the
+  // heatmap's own window (rolling 12 months, or the selected calendar year), decoupled
+  // from the donut/table's Live time filter so the heatmap always shows the full history.
+  // A bare 4-digit `time` (e.g. "2024") scopes the heatmap to that year; everything else
+  // (today/week/month/all/ranges) leaves it on the rolling-12-month default.
+  const heatYear = /^\d{4}$/.test(time.trim()) ? time.trim() : null;
+  const { data: heatData } = useSWR<DailyTotal[]>(
+    `${API}/api/usage/daily-totals${heatYear ? `?year=${heatYear}` : ""}`,
+    fetcher,
+  );
   const heatmap = useMemo(() => {
     const dailyTotals = new Map<string, number>();
-    for (const r of data || []) dailyTotals.set(r.usage_date, (dailyTotals.get(r.usage_date) || 0) + metricValue(r, metric));
+    for (const r of heatData || []) dailyTotals.set(r.usage_date, metricValue(r, metric));
     return buildHeatmapWeeks(dailyTotals, time);
-  }, [data, metric, time]);
+  }, [heatData, metric, time]);
 
   // Per-column totals: sum each numeric column across all model rows.
   const totals = useMemo(() => rows.reduce(
@@ -1248,15 +1272,16 @@ export default function BotViewer() {
   const [error, setError] = useState<string | null>(null);
   const [refreshingUsage, setRefreshingUsage] = useState(false);
 
-  // Trigger the CRS model-usage sync, then revalidate the usage SWR caches
-  // (LiveUsageView / OverTimeView are keyed on the model-daily URL).
+  // Trigger the CRS model-usage sync, then revalidate the usage SWR caches (the
+  // donut/table model-daily URL and the heatmap's daily-totals URL both live under
+  // /api/usage/, so match the whole prefix).
   const refreshUsage = async () => {
     setRefreshingUsage(true);
     try {
       const res = await authFetch(`${API}/api/usage/sync`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to sync model usage");
       await globalMutate(
-        (key) => typeof key === "string" && key.startsWith(`${API}/api/usage/model-daily`),
+        (key) => typeof key === "string" && key.startsWith(`${API}/api/usage/`),
         undefined,
         { revalidate: true },
       );

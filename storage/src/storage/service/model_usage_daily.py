@@ -39,6 +39,36 @@ def list_for(user_id: int, source: str | None = None, from_date: str | None = No
     return repo.list_for(user_id, source=source, from_date=from_date, to_date=to_date, limit=limit)
 
 
+def _heatmap_window(year: int | None) -> tuple[str, str]:
+    """The contribution heatmap's date range, independent of the Live time filter:
+    a specific 4-digit `year` spans that whole calendar year (Jan 1 -> Dec 31);
+    otherwise the month-aligned past 12 months (the 1st of the month 11 months back
+    through today). Mirrors BotViewer.buildHeatmapWeeks so the rows cover its grid."""
+    if year is not None:
+        return f"{year}-01-01", f"{year}-12-31"
+    today = date.fromisoformat(_local_today())
+    y, m = today.year, today.month - 11
+    while m <= 0:
+        m += 12
+        y -= 1
+    return date(y, m, 1).isoformat(), today.isoformat()
+
+
+def daily_totals(user_id: int, year: int | None = None, source: str | None = "crs") -> list[dict]:
+    """Per-day usage totals (tokens / cost / requests summed across all models) over
+    the heatmap window, decoupled from the Live time-range filter. Drives the bot
+    usage contribution heatmap so it always renders its full historical window."""
+    from_date, to_date = _heatmap_window(year)
+    rows = repo.list_for(user_id, source=source, from_date=from_date, to_date=to_date, limit=1000000)
+    by_day: dict[str, dict] = {}
+    for r in rows:
+        agg = by_day.setdefault(r.usage_date, {"all_tokens": 0, "cost": 0.0, "requests": 0})
+        agg["all_tokens"] += r.all_tokens or 0
+        agg["cost"] += r.cost or 0.0
+        agg["requests"] += r.requests or 0
+    return [{"usage_date": d, **agg} for d, agg in sorted(by_day.items())]
+
+
 # --- helpers ----------------------------------------------------------------
 
 def _derive_provider(model: str) -> str:
