@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Bot usage contribution heatmap (2632)** — bot usage Live view gains a GitHub-style daily contribution heatmap over a fixed past-12-month / selected-year window.
+- **HTML file preview (2634)** — FileViewer renders `.html` / `.htm` files as a sandboxed iframe preview.
 
 ### Changed
 
