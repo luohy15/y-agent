@@ -444,7 +444,10 @@ const USAGE_MODELS = [
   { model: "claude-opus-4-8", provider: "anthropic", weight: 1.0 },
   { model: "claude-sonnet-4-6", provider: "anthropic", weight: 0.6 },
   { model: "gpt-5-codex", provider: "openai", weight: 0.45 },
+  { model: "claude-haiku-4-5", provider: "anthropic", weight: 0.3 },
   { model: "gemini-2.5-pro", provider: "google", weight: 0.2 },
+  { model: "sonar", provider: "perplexity", weight: 0.12 },
+  { model: "deepseek-v3", provider: "deepseek", weight: 0.06 },
 ];
 
 export const MODEL_DAILY_FIXTURE = (() => {

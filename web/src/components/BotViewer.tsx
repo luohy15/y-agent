@@ -231,9 +231,9 @@ interface HeatCell { date: string; value: number; }
 
 // Build a GitHub-style week grid (Sun(top)->Sat(bottom) columns) whose span is fixed by
 // the active time filter, not by which days have data: a bare 4-digit year (e.g. "2024")
-// spans that whole calendar year (Jan 1 -> Dec 31), anything else spans the rolling past
-// 12 months ending at the current week. `dailyTotals` only supplies values, so every day
-// in the window renders and days with no usage fall to value 0 (empty bucket).
+// spans that whole calendar year (Jan 1 -> Dec 31), anything else spans the month-aligned
+// past 12 months. `dailyTotals` only supplies values, so every day in the window renders
+// and days with no usage fall to value 0 (empty bucket).
 function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { weeks: HeatCell[][]; max: number } {
   const year = /^\d{4}$/.test(time.trim()) ? parseInt(time.trim(), 10) : null;
   let start: Date;
@@ -242,13 +242,16 @@ function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { we
     start = new Date(year, 0, 1); // Jan 1
     end = new Date(year, 11, 31); // Dec 31
   } else {
-    end = new Date();
-    end.setHours(0, 0, 0, 0);
-    start = new Date(end);
+    // Month-aligned past-12-month window: start at the 1st of the month 11 months back
+    // (12 whole months incl. the current one) so the leftmost month is a full month, not
+    // a few-day sliver. The grid then pads out to whole Sun..Sat weeks below.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    end = today;
+    start = new Date(today.getFullYear(), today.getMonth() - 11, 1);
   }
   start.setDate(start.getDate() - start.getDay()); // back to Sunday of its week
   end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday of its week
-  if (year === null) start.setDate(start.getDate() - 52 * 7); // rolling: 53 columns total
   const weeks: HeatCell[][] = [];
   let max = 0;
   let col: HeatCell[] = [];
@@ -861,32 +864,61 @@ function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m:
 // color intensity scales with that day's metric value. Hover shows the date + exact value.
 function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number; metric: UsageMetric }) {
   const [hover, setHover] = useState<{ date: string; value: number; x: number; y: number } | null>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+
+  // Fit-to-width: 12 months is a fixed maximum, so scale the whole grid down to the panel
+  // width with transform: scale() (never up) instead of letting it scroll horizontally.
+  // scale() doesn't shrink the layout box, so the wrapper height is set explicitly
+  // (overflow:hidden hides the reserved space); ceil + 2px keeps the bottom (Sat) row from
+  // being clipped by sub-pixel rounding. Re-measure on panel resize via ResizeObserver.
+  useEffect(() => {
+    const fit = fitRef.current;
+    const inner = innerRef.current;
+    if (!fit || !inner) return;
+    const apply = () => {
+      inner.style.transform = "none";
+      const natW = inner.scrollWidth;
+      const natH = inner.scrollHeight;
+      const avail = fit.clientWidth;
+      if (!natW || !avail) return; // skip pre-layout measurements
+      const scale = Math.min(1, avail / natW);
+      inner.style.transform = `scale(${scale})`;
+      fit.style.height = `${Math.ceil(natH * scale) + 2}px`;
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(fit);
+    return () => ro.disconnect();
+  }, [weeks]);
+
   if (weeks.length === 0) return null;
 
-  // Month label above the first week column whose Sunday lands in a new month.
-  const monthLabels = weeks.map((col, i) => {
-    const month = col[0].date.slice(5, 7);
-    const prev = i > 0 ? weeks[i - 1][0].date.slice(5, 7) : null;
-    return month !== prev ? MONTHS_SHORT[parseInt(month, 10) - 1] : "";
+  // One month label per month, placed on the column that contains that month's 1st, so
+  // each month is labelled exactly where it begins (no slivers, no crammed-together pair).
+  const monthLabels = weeks.map((col) => {
+    const firstOfMonth = col.find((cell) => cell.date.slice(8, 10) === "01");
+    return firstOfMonth ? MONTHS_SHORT[parseInt(firstOfMonth.date.slice(5, 7), 10) - 1] : "";
   });
-  const colWidth = HEATMAP_CELL + HEATMAP_GAP;
   const weekdayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]; // index 0=Sun..6=Sat
 
   return (
     <div className="relative">
-      <div className="overflow-x-auto pb-1">
-        <div className="inline-flex flex-col" style={{ gap: HEATMAP_GAP }}>
+      {/* line-height/font-size 0 so baseline leading doesn't push the inline-flex grid past
+          the JS-computed height and clip the bottom Sat row. */}
+      <div ref={fitRef} className="overflow-hidden" style={{ lineHeight: 0, fontSize: 0 }}>
+        <div ref={innerRef} className="inline-flex flex-col align-top" style={{ gap: HEATMAP_GAP, transformOrigin: "top left" }}>
           {/* Month labels row, offset past the weekday gutter */}
           <div className="flex" style={{ marginLeft: HEATMAP_WEEKDAY_W, gap: HEATMAP_GAP }}>
             {monthLabels.map((m, i) => (
-              <div key={i} className="text-sol-base01 text-[9px] leading-none" style={{ width: HEATMAP_CELL }}>{m}</div>
+              <div key={i} className="text-sol-base01 leading-none" style={{ width: HEATMAP_CELL, fontSize: 9 }}>{m}</div>
             ))}
           </div>
           <div className="flex" style={{ gap: HEATMAP_GAP }}>
             {/* Weekday gutter (Mon/Wed/Fri) */}
             <div className="flex flex-col" style={{ gap: HEATMAP_GAP, width: HEATMAP_WEEKDAY_W }}>
               {weekdayLabels.map((w, i) => (
-                <div key={i} className="text-sol-base01 text-[9px] leading-none flex items-center" style={{ height: HEATMAP_CELL }}>{w}</div>
+                <div key={i} className="text-sol-base01 leading-none flex items-center" style={{ height: HEATMAP_CELL, fontSize: 9 }}>{w}</div>
               ))}
             </div>
             {/* Week columns */}
@@ -939,17 +971,23 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
 type LiveSortKey = "model" | "all_tokens" | "cost" | "requests" | "input_tokens" | "output_tokens" | "cache_create_tokens";
 
 // "pct" is a display-only column (not sortable); it shows each row's share of the
-// active sort column's total, so it has no LiveSortKey of its own.
-const LIVE_COLUMNS: { key: LiveSortKey | "pct"; label: string; numeric: boolean }[] = [
+// active sort column's total, so it has no LiveSortKey of its own. `reveal` gates a column
+// behind the table card's width (container queries): "io" (Input/Output) appears >=560px,
+// "cache" appears >=700px; the rest always show.
+const LIVE_COLUMNS: { key: LiveSortKey | "pct"; label: string; numeric: boolean; reveal?: "io" | "cache" }[] = [
   { key: "model", label: "Model", numeric: false },
   { key: "pct", label: "%", numeric: true },
   { key: "all_tokens", label: "Tokens", numeric: true },
   { key: "cost", label: "Cost", numeric: true },
   { key: "requests", label: "Requests", numeric: true },
-  { key: "input_tokens", label: "Input", numeric: true },
-  { key: "output_tokens", label: "Output", numeric: true },
-  { key: "cache_create_tokens", label: "Cache (cr/rd)", numeric: true },
+  { key: "input_tokens", label: "Input", numeric: true, reveal: "io" },
+  { key: "output_tokens", label: "Output", numeric: true, reveal: "io" },
+  { key: "cache_create_tokens", label: "Cache (cr/rd)", numeric: true, reveal: "cache" },
 ];
+
+// Tailwind container-query classes for a column's reveal gate (table card is the @container).
+const revealClass = (reveal?: "io" | "cache"): string =>
+  reveal === "io" ? "hidden @min-[560px]:table-cell" : reveal === "cache" ? "hidden @min-[700px]:table-cell" : "";
 
 function liveSortValue(a: ModelUsageAgg, key: LiveSortKey): string | number {
   if (key === "model") return a.model;
@@ -1027,6 +1065,25 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   const pctKey = sortKey === "model" ? "all_tokens" : sortKey;
   const pctTotal = totals[pctKey];
 
+  // Cap the table card to header + 5 data rows + Total, then scroll the rest under the
+  // sticky header/Total. Measure real rendered heights (they vary with font metrics) and
+  // set the scroll wrapper's max-height; recompute when the row count changes.
+  const tblWrapRef = useRef<HTMLDivElement>(null);
+  const theadRef = useRef<HTMLTableSectionElement>(null);
+  const firstRowRef = useRef<HTMLTableRowElement>(null);
+  const totalRowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    const wrap = tblWrapRef.current;
+    const thead = theadRef.current;
+    const firstRow = firstRowRef.current;
+    const totalRow = totalRowRef.current;
+    if (!wrap || !thead || !firstRow || !totalRow) return;
+    const headH = thead.getBoundingClientRect().height;
+    const rowH = firstRow.getBoundingClientRect().height;
+    const totalH = totalRow.getBoundingClientRect().height;
+    wrap.style.maxHeight = `${headH + 5 * rowH + totalH}px`;
+  }, [sortedRows.length]);
+
   if (isLoading) return <ListLoading />;
   if (error && !data) return <ListError error={error} />;
   if (rows.length === 0) return <ListEmpty label="usage" />;
@@ -1066,6 +1123,70 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {pieData.length > 0 && <UsagePieLegend pieData={pieData} />}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
+      {/* Per-model table card. The card is a query container so columns reveal by the PANEL
+          width (not the viewport): narrow shows through Requests, >=560px adds Input/Output,
+          >=700px adds Cache. Capped to 5 data rows then scrolls under a sticky header + Total. */}
+      <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3 @container">
+        <div ref={tblWrapRef} className="overflow-auto">
+          {/* border-separate so the sticky header/Total cells fully cover the scrolling rows
+              (with border-collapse the shared 1px borders paint at table level and bleed through). */}
+          <table className="w-full text-xs border-separate border-spacing-0">
+            <thead ref={theadRef}>
+              <tr className="text-sol-base01 text-left text-xs">
+                {LIVE_COLUMNS.map((col) => {
+                  const reveal = revealClass(col.reveal);
+                  if (col.key === "pct") {
+                    return (
+                      <th
+                        key={col.key}
+                        className={`sticky top-0 z-20 py-1 px-1.5 bg-sol-base03 border-b border-sol-base02 select-none text-right whitespace-nowrap ${reveal}`}
+                        title="Share of the active sort column's total"
+                      >
+                        {col.label}
+                      </th>
+                    );
+                  }
+                  const key = col.key; // narrowed to LiveSortKey after the pct early-return
+                  const active = sortKey === key;
+                  return (
+                    <th
+                      key={key}
+                      onClick={() => onSort(key)}
+                      className={`sticky top-0 z-20 py-1 px-1.5 bg-sol-base03 border-b border-sol-base02 cursor-pointer select-none hover:text-sol-base1 whitespace-nowrap ${col.numeric ? "text-right" : ""} ${reveal}`}
+                    >
+                      {col.label}{active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((r, i) => (
+                <tr key={r.model} ref={i === 0 ? firstRowRef : undefined} className="hover:bg-sol-base02/50">
+                  <td className="px-1.5 py-1 font-mono text-sol-base1 border-b border-sol-base02/40 whitespace-nowrap">{r.model}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{pctTotal > 0 ? `${((r[pctKey] / pctTotal) * 100).toFixed(1)}%` : "-"}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums border-b border-sol-base02/40">{fmtCompact(r.all_tokens)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{fmtCost(r.cost)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{fmtNum(r.requests)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[560px]:table-cell">{fmtCompact(r.input_tokens)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[560px]:table-cell">{fmtCompact(r.output_tokens)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[700px]:table-cell">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
+                </tr>
+              ))}
+              <tr ref={totalRowRef} className="font-medium">
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-sol-base1 bg-sol-base02 border-t border-sol-base02">Total</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base0 tabular-nums bg-sol-base02 border-t border-sol-base02">{pctTotal > 0 ? "100.0%" : "-"}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.all_tokens)}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCost(totals.cost)}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtNum(totals.requests)}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02 hidden @min-[560px]:table-cell">{fmtCompact(totals.input_tokens)}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02 hidden @min-[560px]:table-cell">{fmtCompact(totals.output_tokens)}</td>
+                <td className="sticky bottom-0 z-20 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02 hidden @min-[700px]:table-cell">{fmtCompact(totals.cache_create_tokens)}/{fmtCompact(totals.cache_read_tokens)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       {heatmap.weeks.length > 0 && (
         <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
           <div className="mb-2">
@@ -1077,62 +1198,6 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
           <UsageHeatmap weeks={heatmap.weeks} max={heatmap.max} metric={metric} />
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <table className="w-full text-xs border-collapse">
-          <thead className="sticky top-0 z-10">
-            <tr className="text-sol-base01 text-left text-xs bg-sol-base03 border-b border-sol-base02">
-              {LIVE_COLUMNS.map((col) => {
-                if (col.key === "pct") {
-                  return (
-                    <th
-                      key={col.key}
-                      className="py-1 px-1.5 bg-sol-base03 select-none text-right"
-                      title="Share of the active sort column's total"
-                    >
-                      {col.label}
-                    </th>
-                  );
-                }
-                const key = col.key; // narrowed to LiveSortKey after the pct early-return
-                const active = sortKey === key;
-                return (
-                  <th
-                    key={key}
-                    onClick={() => onSort(key)}
-                    className={`py-1 px-1.5 bg-sol-base03 cursor-pointer select-none hover:text-sol-base1 ${col.numeric ? "text-right" : ""}`}
-                  >
-                    {col.label}{active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRows.map((r) => (
-              <tr key={r.model} className="border-b border-sol-base02/40 hover:bg-sol-base02/50">
-                <td className="px-1.5 py-1 font-mono text-sol-base1">{r.model}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{pctTotal > 0 ? `${((r[pctKey] / pctTotal) * 100).toFixed(1)}%` : "-"}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums">{fmtCompact(r.all_tokens)}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCost(r.cost)}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtNum(r.requests)}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.input_tokens)}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.output_tokens)}</td>
-                <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
-              </tr>
-            ))}
-            <tr className="font-medium">
-              <td className="sticky bottom-0 px-1.5 py-1 text-sol-base1 bg-sol-base02 border-t border-sol-base02">Total</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base0 tabular-nums bg-sol-base02 border-t border-sol-base02">{pctTotal > 0 ? "100.0%" : "-"}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.all_tokens)}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCost(totals.cost)}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtNum(totals.requests)}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.input_tokens)}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.output_tokens)}</td>
-              <td className="sticky bottom-0 px-1.5 py-1 text-right text-sol-base1 tabular-nums bg-sol-base02 border-t border-sol-base02">{fmtCompact(totals.cache_create_tokens)}/{fmtCompact(totals.cache_read_tokens)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
