@@ -53,6 +53,21 @@ async def list_model_daily(
     ]
 
 
+@router.get("/daily-totals")
+async def list_daily_totals(
+    request: Request,
+    source: Optional[str] = Query("crs"),
+    year: Optional[int] = Query(None),
+):
+    """Per-day usage totals (tokens / cost / requests) over the contribution
+    heatmap's window, independent of the Live time-range filter. A specific
+    4-digit `year` returns that calendar year's daily totals; otherwise the
+    rolling month-aligned past 12 months. Used so the heatmap always renders its
+    full historical window regardless of the donut/table time selection."""
+    user_id = request.state.user_id
+    return usage_service.daily_totals(user_id, year=year, source=source)
+
+
 @router.post("/sync")
 async def sync(request: Request, source: Optional[str] = Query("crs")):
     """Trigger the CRS model-usage sync, then return the result envelope.
