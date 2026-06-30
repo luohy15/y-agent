@@ -72,6 +72,17 @@ const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "
 const PDF_EXTS = new Set(["pdf"]);
 const HTML_EXTS = new Set(["html", "htm"]);
 
+// A sandboxed (origin-null) preview iframe swallows keydown events when focused,
+// so the parent window's global shortcuts (Ctrl+`, Ctrl+P, Ctrl+1-9, …) stop
+// firing once the user clicks into the preview. This bridge forwards any
+// Ctrl/Cmd-modified keydown out to the parent via postMessage; App.tsx replays it
+// as a synthetic window keydown so the existing handler runs unchanged.
+const PREVIEW_KBD_BRIDGE = `<script>(function(){window.addEventListener('keydown',function(e){if(e.ctrlKey||e.metaKey){e.preventDefault();parent.postMessage({__yPreviewKeydown:{key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,shiftKey:e.shiftKey,altKey:e.altKey}},'*');}});})();<\/script>`;
+
+function withPreviewKbdBridge(html: string): string {
+  return PREVIEW_KBD_BRIDGE + html;
+}
+
 function getExt(path: string): string {
   const dot = path.lastIndexOf(".");
   return dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
@@ -1469,7 +1480,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
                   <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} onExternalLinkClick={onExternalLinkClick} />
                 ) : HTML_EXTS.has(getExt(filePath)) && mdPreview[filePath] !== false ? (
-                  <iframe sandbox="allow-scripts" srcDoc={editContent[filePath] ?? fileData.content ?? ""} className="w-full h-full border-0 bg-white" title={filePath} />
+                  <iframe sandbox="allow-scripts" srcDoc={withPreviewKbdBridge(editContent[filePath] ?? fileData.content ?? "")} className="w-full h-full border-0 bg-white" title={filePath} />
                 ) : (
                   <div className="h-full overflow-hidden bg-sol-base03" data-editor="true">
                     <CodeEditor

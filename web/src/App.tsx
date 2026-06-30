@@ -384,8 +384,20 @@ export default function App() {
         if (activeFileRef.current) handleCloseFile(activeFileRef.current);
       }
     };
+    // Sandboxed (origin-null) HTML preview iframes swallow keydown events when
+    // focused, so global shortcuts stop firing once the user clicks into the
+    // preview. FileViewer injects a bridge that postMessages those keydowns out;
+    // replay them as synthetic window events so `handler` runs unchanged.
+    const onPreviewKeydown = (e: MessageEvent) => {
+      const k = (e.data as { __yPreviewKeydown?: KeyboardEventInit })?.__yPreviewKeydown;
+      if (k) window.dispatchEvent(new KeyboardEvent("keydown", k));
+    };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("message", onPreviewKeydown);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("message", onPreviewKeydown);
+    };
   }, [handleCloseFile]);
 
   useEffect(() => {
