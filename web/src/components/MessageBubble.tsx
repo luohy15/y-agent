@@ -1,4 +1,4 @@
-import { Children, isValidElement, useState, useRef, useEffect, type ReactNode } from "react";
+import { Children, isValidElement, useState, useRef, useEffect, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { API, authFetch, getToken } from "../api";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -546,6 +546,62 @@ function ToolCallCompact({
   );
 }
 
+async function writeClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Fallback for insecure contexts / older browsers where the async API is unavailable.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+}
+
+// Small copy-to-clipboard button revealed on message hover; flips to a check for a
+// brief confirmation window after copying.
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
+
+  const handleCopy = (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    writeClipboard(text).then(() => {
+      setCopied(true);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "Copied" : "Copy"}
+      aria-label={copied ? "Copied" : "Copy message"}
+      className={`inline-flex items-center justify-center rounded border border-sol-base02 bg-sol-base03/80 p-1 text-sol-base01 transition-colors hover:border-sol-blue hover:text-sol-blue focus:opacity-100 ${copied ? "text-sol-green border-sol-green/60" : ""} ${className ?? ""}`}
+    >
+      {copied ? (
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+      ) : (
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+      )}
+    </button>
+  );
+}
+
 const USER_MSG_MAX_LINES = 3;
 
 function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }: { content: string; images?: string[]; timestamp?: string; onSelectChat?: (chatId: string) => void; onSelectTrace?: (traceId: string) => void }) {
@@ -576,7 +632,8 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
         onSelectChat={onSelectChat}
         onSelectTrace={onSelectTrace}
       />
-      <div className="bg-sol-base02 rounded px-2 py-1.5 -mx-2">
+      <div className="group relative bg-sol-base02 rounded px-2 py-1.5 -mx-2">
+        <CopyButton text={displayContent} className="absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100" />
         <div className="flex items-baseline">
           <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
           <div className="min-w-0 flex-1">
@@ -630,7 +687,8 @@ export default function MessageBubble({ role, content, images, links, toolName, 
 
   // Assistant message: rendered markdown like CLI
   return (
-    <div>
+    <div className="group relative">
+      <CopyButton text={content} className="absolute right-0 top-0 z-10 opacity-0 transition-opacity group-hover:opacity-100" />
       {!dimmed && <TimestampLine timestamp={timestamp} />}
       <div className={`text-sm sm:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
