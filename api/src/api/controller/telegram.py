@@ -401,13 +401,13 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     chat = find_latest_chat_by_topic(user.id, topic)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
 
-    # Root-topic concurrency: a root chat is a long-lived inbox, so when one is
-    # busy we spawn a parallel overflow chat instead of queueing on top of the
-    # in-flight turn. Only applies to root topics (today: 'manager'); non-root
-    # topics serialize naturally because they're scoped to a single task.
+    # Root-topic steer: a root chat is a long-lived inbox, so when one is already
+    # mid-turn we steer the new message into the running chat instead of spawning
+    # a parallel overflow chat, mirroring chat.py's post_send_message
+    # already_running path. Only applies to root topics (today: 'manager');
+    # non-root topics serialize naturally because they're scoped to a single task.
     if topic == 'manager' and chat and chat.running:
-        logger.info("_handle_message: manager chat {} is busy, creating overflow chat", chat.id)
-        chat_id = generate_id()
+        logger.info("_handle_message: manager chat {} is busy, steering message into running chat", chat.id)
         msg_dict = {
             "role": "user",
             "content": text,
@@ -419,24 +419,10 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         if images:
             msg_dict["images"] = images
         user_msg = Message.from_dict(msg_dict)
-        from storage.dto.chat import Chat as ChatDTO
-        timestamp = get_utc_iso8601_timestamp()
-        overflow_chat = ChatDTO(
-            id=chat_id,
-            create_time=timestamp,
-            update_time=timestamp,
-            messages=[user_msg],
-            topic='manager',
-            running=True,
-        )
+        chat.messages.append(user_msg)
+        chat.interrupted = False
         from storage.repository import chat as chat_repo
-        await chat_repo.save_chat(user.id, overflow_chat)
-
-        try:
-            from storage.service.chat import send_chat_message
-            send_chat_message(chat_id, user_id=user.id, topic='manager')
-        except Exception as e:
-            logger.exception("_handle_message: failed to queue overflow manager message: {}", e)
+        await chat_repo.save_chat_by_id(chat)
         return {"ok": True}
 
     if chat:
