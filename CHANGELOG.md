@@ -13,6 +13,17 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+- **Telegram root-topic steer instead of overflow chat (2661)** — when the `manager` root chat is already mid-turn, an incoming Telegram message now steers into the running chat instead of spawning a parallel overflow chat.
+
+### Fixed
+
+### Removed
+
+## [0.5.19] - 2026-07-05
+
+### Added
 - **Bot usage contribution heatmap (2632)** — redesigned bot usage Live view with a GitHub-style month-aligned daily contribution heatmap (squarish cells + hover outline) and a carded responsive table; the heatmap is decoupled from the time filter via `/api/usage/daily-totals` and fills width on wide screens.
 - **HTML file preview (2634)** — FileViewer renders `.html` / `.htm` files as a sandboxed iframe preview, forwarding Ctrl/Cmd keyboard shortcuts out of the iframe.
 - **Message copy button (2654)** — hover-revealed copy button on each chat message in MessageBubble.
