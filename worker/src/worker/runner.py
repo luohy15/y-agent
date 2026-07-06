@@ -2,6 +2,7 @@
 
 import os
 import re
+import threading
 
 from loguru import logger
 
@@ -42,13 +43,31 @@ ARTIFACT_PLACEHOLDERS = {
 }
 
 
-def _latest_user_text_and_images(messages) -> tuple[str, list]:
-    """Return the latest user message text plus image paths, preserving text-only behavior."""
+def _pending_user_text_and_images(messages) -> tuple[str, list]:
+    """Return all trailing user messages (since the last non-user message),
+    concatenated text plus merged image paths.
+
+    A single trailing user message behaves exactly like the old
+    latest-message-only lookup. Gathering all of them recovers a message
+    that a prior turn's steer race silently failed to deliver (see
+    plan-2662-steer-race.md): the moment any new turn starts, every
+    unanswered trailing user message is folded into its prompt.
+    """
+    trailing = []
     for msg in reversed(messages):
-        if msg.role == "user":
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            return content, list(msg.images or [])
-    return "", []
+        if msg.role != "user":
+            break
+        trailing.append(msg)
+    trailing.reverse()
+
+    texts = []
+    images = []
+    for msg in trailing:
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        if content:
+            texts.append(content)
+        images.extend(msg.images or [])
+    return "\n\n".join(texts), images
 
 
 def message_callback(chat_id: str, message: Message):
@@ -78,21 +97,35 @@ def make_steer_checker(chat_id: str, initial_message_ids: set, previously_consum
 
     Returns list of (text, id, images) tuples for messages added after the worker started.
     previously_consumed: steer IDs already sent by a previous Lambda, to avoid duplicates.
+
+    A message is claimed (added to `consumed`) as soon as it's discovered, to
+    prevent two concurrent callers (the poll loop and a turn-end drain) from
+    both picking it up. Claiming is not the same as delivery: the returned
+    `check` function exposes an `unclaim(msg_id)` attribute that a caller
+    should invoke if it learns delivery actually failed, so the message stays
+    available for the next mechanism to pick up (see plan-2662-steer-race.md).
     """
     consumed = set(previously_consumed) if previously_consumed else set()
+    lock = threading.Lock()
 
     def check():
         chat = chat_service.get_chat_by_id_sync(chat_id)
         if not chat:
             return []
         steer_messages = []
-        for msg in chat.messages:
-            if msg.role == "user" and msg.id not in initial_message_ids and msg.id not in consumed:
-                consumed.add(msg.id)
-                content = msg.content if isinstance(msg.content, str) else str(msg.content)
-                steer_messages.append((content, msg.id, list(msg.images or [])))
+        with lock:
+            for msg in chat.messages:
+                if msg.role == "user" and msg.id not in initial_message_ids and msg.id not in consumed:
+                    consumed.add(msg.id)
+                    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    steer_messages.append((content, msg.id, list(msg.images or [])))
         return steer_messages
 
+    def unclaim(msg_id):
+        with lock:
+            consumed.discard(msg_id)
+
+    check.unclaim = unclaim
     return check
 
 
@@ -562,8 +595,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
-    # Extract the latest user message as the prompt
-    user_prompt, user_images = _latest_user_text_and_images(messages)
+    # Extract all trailing user messages as the prompt
+    user_prompt, user_images = _pending_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -738,8 +771,8 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
-    # Extract the latest user message as the prompt
-    user_prompt, user_images = _latest_user_text_and_images(messages)
+    # Extract all trailing user messages as the prompt
+    user_prompt, user_images = _pending_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -796,7 +829,7 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
     """Extract prompt, build cmd/env/cwd for Gemini CLI."""
     messages = list(chat.messages)
 
-    user_prompt, user_images = _latest_user_text_and_images(messages)
+    user_prompt, user_images = _pending_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -842,7 +875,7 @@ def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str 
     """Extract prompt, build cmd/env/cwd for pi."""
     messages = list(chat.messages)
 
-    user_prompt, user_images = _latest_user_text_and_images(messages)
+    user_prompt, user_images = _pending_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -911,7 +944,7 @@ def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_na
     import uuid as _uuid
 
     messages = list(chat.messages)
-    user_prompt, user_images = _latest_user_text_and_images(messages)
+    user_prompt, user_images = _pending_user_text_and_images(messages)
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None

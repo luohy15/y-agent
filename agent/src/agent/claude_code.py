@@ -18,6 +18,7 @@ import base64
 import json
 import mimetypes
 import re
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Callable, Dict, List, Optional, Tuple
@@ -714,6 +715,13 @@ async def tail_ssh_output(
     current_offset = offset
     consumed_steer_ids = []
     stream_error = None
+    # Guards the race between a live steer write and turn-end teardown: both
+    # _on_steer_detached and _kill_tmux fire independent fire-and-forget SSH
+    # commands against the same tmux session/stdin file, so without a shared
+    # lock a steer write can land after the session is already killed and
+    # silently no-op (see plan-2662-steer-race.md).
+    steer_lock = threading.RLock()
+    torn_down = False
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
@@ -735,7 +743,10 @@ async def tail_ssh_output(
             except Exception:
                 pass
 
-        def _on_steer_detached(text, msg_id, images=None):
+        def _write_steer(text, msg_id, images=None) -> bool:
+            """Write a steer message to the remote stdin pipe and block until
+            the write is confirmed to have landed. Must be called while
+            holding steer_lock."""
             content = [{"type": "text", "text": text}]
             for image_path in images or []:
                 content.append(_claude_image_block(image_path, client))
@@ -746,11 +757,21 @@ async def tail_ssh_output(
                     "content": content,
                 },
             })
-            client.exec_command(
+            _, write_stdout, _ = client.exec_command(
                 f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
             )
+            exit_code = write_stdout.channel.recv_exit_status()
+            if exit_code != 0:
+                return False
             converter.last_message_id = msg_id
             consumed_steer_ids.append(msg_id)
+            return True
+
+        def _on_steer_detached(text, msg_id, images=None) -> bool:
+            with steer_lock:
+                if torn_down:
+                    return False
+                return _write_steer(text, msg_id, images)
 
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
@@ -761,13 +782,31 @@ async def tail_ssh_output(
         poll.start()
 
         def _kill_tmux():
-            try:
-                client.exec_command(
-                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-            except Exception:
-                pass
+            nonlocal torn_down
+            with steer_lock:
+                # Final drain: catch any steer message that landed in the
+                # checker between the last poll pass and turn-end, and
+                # deliver it before the session goes away.
+                if check_steer_fn:
+                    try:
+                        stragglers = check_steer_fn()
+                    except Exception:
+                        stragglers = []
+                    for msg in stragglers:
+                        text, msg_id, images = msg if len(msg) == 3 else (msg[0], msg[1], [])
+                        delivered = _write_steer(text, msg_id, images)
+                        if not delivered:
+                            unclaim = getattr(check_steer_fn, "unclaim", None)
+                            if unclaim:
+                                unclaim(msg_id)
+                torn_down = True
+                try:
+                    client.exec_command(
+                        f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                    )
+                    client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
+                except Exception:
+                    pass
             try:
                 stdout_ch.channel.close()
             except Exception:

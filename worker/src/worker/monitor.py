@@ -279,12 +279,17 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # Save offset to DynamoDB
     # Defensive: keep prior session_id when this tail did not observe a fresh one.
     updated_session_id = result.get("session_id") or result.get("thread_id") or session_id
+    # Merge with prior-Lambda-handoff consumed ids (matches the restart-with-steer
+    # paths above) — update_process_offset overwrites rather than merges, so a
+    # plain completion that skips this would forget ids confirmed in an earlier
+    # handoff and risk re-delivering them on a later one.
+    all_consumed_steer_ids = list(prev_consumed) + list(result.get("consumed_steer_ids") or [])
     update_process_offset(
         chat_id=chat_id,
         offset=result["offset"],
         last_message_id=result.get("last_message_id"),
         session_id=updated_session_id,
-        consumed_steer_ids=result.get("consumed_steer_ids"),
+        consumed_steer_ids=all_consumed_steer_ids,
     )
 
     if result["is_done"]:
@@ -307,6 +312,32 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 await chat_repo.save_chat_by_id(fresh)
             except Exception as e:
                 logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
+
+            # Safety net: a claude_code turn can end with a trailing user
+            # message that was never confirmed delivered via the live steer
+            # pipe (e.g. it raced turn-end teardown and _on_steer_detached
+            # returned False). Don't finalize as done — relaunch a
+            # continuation turn so the message isn't silently dropped forever
+            # (see plan-2662-steer-race.md). codex/gemini/pi already
+            # reconcile via their own status="steer" restart branch above.
+            if backend_type == "claude_code" and result["status"] != "error" and not fresh.interrupted:
+                confirmed_delivered = initial_msg_ids | set(all_consumed_steer_ids)
+                has_undelivered_trailing = False
+                for msg in reversed(fresh.messages):
+                    if msg.role != "user":
+                        break
+                    if msg.id not in confirmed_delivered:
+                        has_undelivered_trailing = True
+                        break
+
+                if has_undelivered_trailing:
+                    logger.warning(
+                        "steer reconciliation: chat_id={} undelivered trailing user message(s), relaunching turn",
+                        chat_id,
+                    )
+                    complete_process(chat_id, status=result["status"])
+                    await _relaunch_claude_code_turn(chat_id, user_id, proc)
+                    return
 
             complete_process(chat_id, status=result["status"])
 
@@ -545,6 +576,35 @@ def _int_value(value):
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict) -> None:
+    """Re-invoke the normal claude_code launch path for a leftover trailing
+    user message that the steer race failed to deliver, instead of
+    finalizing the turn as done (safety net, see plan-2662-steer-race.md).
+
+    Reuses `run_chat` so this goes through the same resume-detection,
+    tmux launch, and DynamoDB registration as any other turn — `resume` is
+    computed from `chat.external_id` (already persisted by
+    `_apply_completion_metadata` above) and `chat.work_dir`.
+    """
+    from worker.runner import run_chat
+
+    post_hooks = proc.get("post_hooks")
+    if isinstance(post_hooks, str):
+        post_hooks = json.loads(post_hooks)
+
+    await run_chat(
+        user_id,
+        chat_id,
+        bot_name=proc.get("bot_name"),
+        vm_name=proc.get("vm_name"),
+        work_dir=proc.get("work_dir"),
+        post_hooks=post_hooks,
+        trace_id=proc.get("trace_id"),
+        topic=proc.get("topic"),
+        backend="claude_code",
+    )
 
 
 async def _sweep_orphan_running_chats():

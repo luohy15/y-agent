@@ -17,6 +17,9 @@ class PollLoop:
             on_interrupt=lambda: kill_and_close(),
             check_steer_fn=lambda: get_new_messages(),
             on_steer=lambda text, msg_id, images: write_to_stdin(text, msg_id, images),
+            # on_steer may return False to signal delivery failed; if
+            # check_steer_fn exposes an `unclaim(msg_id)` attribute, it is
+            # called so the message is re-surfaced by a later check.
         )
         loop.start()
         # ... do work ...
@@ -73,7 +76,16 @@ class PollLoop:
                     msgs = self._check_steer_fn()
                     for msg in msgs:
                         text, msg_id, images = _normalize_steer_msg(msg)
-                        self._on_steer(text, msg_id, images)
+                        delivered = self._on_steer(text, msg_id, images)
+                        # Backends that can't confirm delivery return None
+                        # (treated as success). Only an explicit False means
+                        # the checker's "consumed" claim must be released so
+                        # the message stays visible for the next mechanism to
+                        # pick up (see plan-2662-steer-race.md).
+                        if delivered is False:
+                            unclaim = getattr(self._check_steer_fn, "unclaim", None)
+                            if unclaim:
+                                unclaim(msg_id)
                 except Exception as e:
                     logger.warning("poll_loop steer failed: {}", e)
                     break
