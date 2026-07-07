@@ -6,13 +6,27 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from pydantic import BaseModel
 
-from storage.repository.user import get_or_create_user_by_email
+from storage.repository.user import get_or_create_user_by_email, get_user_by_email
 
 router = APIRouter(prefix="/auth")
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
+
+
+def _is_allowlisted(email: str) -> bool:
+    """Gate new-account signup behind an invite allowlist.
+
+    Fails closed: an unset/empty SIGNUP_ALLOWLIST allows no new signups (only
+    already-existing users can log in), until Phase 1/3 intentionally opens it.
+    """
+    allowlist = {
+        entry.strip().lower()
+        for entry in os.environ.get("SIGNUP_ALLOWLIST", "").split(",")
+        if entry.strip()
+    }
+    return email.lower() in allowlist
 
 
 class GoogleLoginRequest(BaseModel):
@@ -40,6 +54,12 @@ async def google_login(req: GoogleLoginRequest):
         raise HTTPException(status_code=401, detail="Email not found in token")
 
     username = idinfo.get("name", email.split("@")[0])
+
+    if not get_user_by_email(email) and not _is_allowlisted(email):
+        raise HTTPException(
+            status_code=403,
+            detail="This email is not invited yet. Ask the admin for an invite.",
+        )
 
     user = get_or_create_user_by_email(email, username)
     user_id = user.id

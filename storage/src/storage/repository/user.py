@@ -59,6 +59,11 @@ def unbind_telegram_id(telegram_id: int) -> Optional[UserEntity]:
         return user
 
 
+def get_user_by_email(email: str) -> Optional[UserEntity]:
+    with get_db() as session:
+        return session.query(UserEntity).filter_by(email=email, deleted=False).first()
+
+
 def get_or_create_user_by_email(email: str, username: str) -> UserEntity:
     with get_db() as session:
         user = session.query(UserEntity).filter_by(email=email, deleted=False).first()
