@@ -93,6 +93,18 @@ function getFileName(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
+// FileTree builds node paths as `${workDir}/${entry.name}`, so files opened via
+// the tree carry the absolute workDir (or defaultWorkDir) prefix. Strip whichever
+// matches so links built from the path are y-history-repo-relative.
+function stripWorkDirPrefix(path: string, ...workDirs: (string | undefined)[]): string {
+  for (const dir of workDirs) {
+    if (!dir) continue;
+    if (path === dir) return "";
+    if (path.startsWith(`${dir}/`)) return path.slice(dir.length + 1);
+  }
+  return path;
+}
+
 // Download a file preserving its original name/extension. Pass `blobUrl` for
 // binary files (images/PDFs) or `content` for text; one of the two is used.
 function downloadFile(filename: string, source: { content?: string | null; blobUrl?: string }) {
@@ -976,6 +988,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
+  const historyFilePath = stripWorkDirPrefix(activeFileName, workDir, defaultWorkDir);
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isTrace = !isDiff && !isArtifact && activeFileName === "trace.md";
@@ -1330,7 +1343,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           )}
           {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (
             <a
-              href={`https://github.com/luohy15/y-history/commits/main/${activeFileName}`}
+              href={`https://github.com/luohy15/y-history/commits/main/${historyFilePath}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
