@@ -92,6 +92,14 @@ export default function CodeEditor({
             return true;
           },
         },
+        {
+          key: "Ctrl-s",
+          preventDefault: true,
+          run: () => {
+            onSaveRef.current?.(filePath);
+            return true;
+          },
+        },
         ...defaultKeymap,
         ...historyKeymap,
       ]),
