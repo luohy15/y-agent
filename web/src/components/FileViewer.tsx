@@ -1254,6 +1254,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
+          {isLinkPreview && selectedLinkContentKey && (
+            <a
+              href={`https://github.com/luohy15/y-history/commits/main/${selectedLinkContentKey}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title="View file history"
+            >
+              History
+            </a>
+          )}
           {isLinkPreview && (selectedLinkId || selectedLinkLinkId) && (() => {
             const linkCacheKey = selectedLinkId
               ? `link:activity:${selectedLinkId}`
@@ -1316,6 +1327,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             >
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
+          )}
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (
+            <a
+              href={`https://github.com/luohy15/y-history/commits/main/${activeFileName}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
+              title="View file history"
+            >
+              History
+            </a>
           )}
           {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (() => {
             const fileData = cache[activeFile];
