@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import useSWR, { mutate as globalMutate } from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -1227,6 +1227,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
 }
 
 export default function BotViewer() {
+  const { mutate: globalMutate } = useSWRConfig();
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>(
     () => (localStorage.getItem(VIEW_STORAGE_KEY) === "usage" ? "usage" : "config"),

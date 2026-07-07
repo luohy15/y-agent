@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, Fragment, DragEvent } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
-import { ListEmpty, ListError, ListLoading } from "./ListStates";
+import { ListEmpty, ListError, ListLoading, StaleBanner } from "./ListStates";
 import TodoContextMenu from "./TodoContextMenu";
+import { optimisticListMutate } from "../utils/optimisticMutate";
 
 interface TodoNote {
   note_id: string;
@@ -131,6 +132,7 @@ async function togglePin(todoId: string, pinned: boolean): Promise<boolean> {
 }
 
 function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onSaved: () => void }) {
+  const swr = useSWRConfig();
   const { data: detail } = useSWR<Todo>(`${API}/api/todo/detail?todo_id=${t.todo_id}`, fetcher);
   const notes = detail?.notes || t.notes || [];
   const [name, setName] = useState(t.name);
@@ -157,13 +159,17 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
 
     if (Object.keys(fields).length <= 1) return; // only todo_id
     setSaving(true);
-    const res = await authFetch(`${API}/api/todo/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fields),
-    });
+    await optimisticListMutate<Todo>(
+      swr, "/api/todo/", "todo_id", t.todo_id,
+      { name, desc, due_date: dueDate, priority: priority || undefined, progress, tags: newTags },
+      () => authFetch(`${API}/api/todo/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      }),
+    );
     setSaving(false);
-    if (res.ok) onSaved();
+    onSaved();
   };
 
   const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
@@ -302,6 +308,7 @@ async function moveTodoToStatus(todoId: string, fromStatus: string, toStatus: st
 }
 
 function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onMoved: () => void; onChatListRefresh?: () => void }) {
+  const swr = useSWRConfig();
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [modalTodo, setModalTodo] = useState<Todo | null>(null);
@@ -337,8 +344,11 @@ function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onM
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
       if (data.status === targetStatus) return;
       setMoving(data.todo_id);
-      const ok = await moveTodoToStatus(data.todo_id, data.status, targetStatus);
-      if (ok) onMoved();
+      await optimisticListMutate<Todo>(
+        swr, "/api/todo/", "todo_id", data.todo_id, { status: targetStatus },
+        () => moveTodoToStatus(data.todo_id, data.status, targetStatus),
+      );
+      onMoved();
     } catch { /* ignore */ }
     setMoving(null);
   };
@@ -400,6 +410,7 @@ function KanbanBoard({ todos, onMoved, onChatListRefresh }: { todos: Todo[]; onM
 }
 
 export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { viewMode?: ViewMode; onChatListRefresh?: () => void }) {
+  const { mutate } = useSWRConfig();
 
   const [historyCollapsed, setHistoryCollapsed] = useState(() => localStorage.getItem("todoHistoryCollapsed") !== "false");
   useEffect(() => { localStorage.setItem("todoHistoryCollapsed", String(historyCollapsed)); }, [historyCollapsed]);
@@ -467,21 +478,22 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
 
   // Kanban fetches all non-deleted todos (high limit per status)
   const kanbanQueryParam = nameFilter.trim() ? `&query=${encodeURIComponent(nameFilter.trim())}` : "";
-  const { data: kanbanPending } = useSWR<Todo[]>(
+  const { data: kanbanPending, error: kanbanPendingError } = useSWR<Todo[]>(
     viewMode === "kanban" ? `${API}/api/todo/list?status=pending&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
-  const { data: kanbanActive } = useSWR<Todo[]>(
+  const { data: kanbanActive, error: kanbanActiveError } = useSWR<Todo[]>(
     viewMode === "kanban" ? `${API}/api/todo/list?status=active&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
-  const { data: kanbanCompleted } = useSWR<Todo[]>(
+  const { data: kanbanCompleted, error: kanbanCompletedError } = useSWR<Todo[]>(
     viewMode === "kanban" ? `${API}/api/todo/list?status=completed&limit=500${kanbanQueryParam}` : null,
     fetcher,
   );
   const kanbanTodos = viewMode === "kanban"
     ? [...(kanbanPending || []), ...(kanbanActive || []), ...(kanbanCompleted || [])]
     : [];
+  const kanbanError = kanbanPendingError || kanbanActiveError || kanbanCompletedError;
 
   const revalidateTodos = () => {
     mutateTable();
@@ -545,8 +557,11 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
               className="px-2 py-0.5 rounded text-xs bg-sol-base02 text-sol-base1 border border-sol-base01/20 outline-none focus:border-sol-blue placeholder:text-sol-base01"
             />
           </div>
-          <div className="flex-1 overflow-hidden">
-            <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} onChatListRefresh={onChatListRefresh} />
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <StaleBanner error={kanbanError} className="mx-3 mt-1 mb-0" />
+            <div className="flex-1 min-h-0">
+              <KanbanBoard todos={filteredKanbanTodos} onMoved={revalidateTodos} onChatListRefresh={onChatListRefresh} />
+            </div>
           </div>
         </div>
         <ActivityHistory todos={allTodosForHistory} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
@@ -584,11 +599,13 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
 
         {isLoading ? (
           <ListLoading className="" />
-        ) : error ? (
+        ) : error && (!sortedTodos || sortedTodos.length === 0) ? (
           <ListError error={error} className="" />
         ) : !sortedTodos || sortedTodos.length === 0 ? (
           <ListEmpty label="todos" className="" />
         ) : (
+          <>
+          <StaleBanner error={error} />
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-sol-base03">
               <tr className="text-sol-base01 text-left text-xs border-b border-sol-base02">
@@ -649,6 +666,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
               ))}
             </tbody>
           </table>
+          </>
         )}
         {sortedTodos && sortedTodos.length > 0 && !tableReachingEnd && (
           <div ref={tableSentinelRef} className="py-2 text-center text-sol-base01 italic text-xs">

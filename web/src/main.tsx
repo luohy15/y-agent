@@ -11,6 +11,7 @@ import ShareNoteView from "./components/ShareNoteView";
 import { useAuth } from "./hooks/useAuth";
 import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
+import { localStorageProvider } from "./utils/swrPersistedCache";
 import { API } from "./api";
 
 // Lazy, unauthenticated route used only by the doc-screenshot pipeline.
@@ -27,7 +28,7 @@ function RootGate() {
 
 updateFavicon();
 createRoot(document.getElementById("root")!).render(
-  <SWRConfig value={{ use: [abortMiddleware] }}>
+  <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RootGate />} />

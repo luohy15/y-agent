@@ -3,7 +3,7 @@ import useSWRInfinite from "swr/infinite";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { TRACE_BADGE, statusBadgeClass, priorityColorClass } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
-import { ListEmpty, ListError, ListLoading } from "./ListStates";
+import { ListEmpty, ListError, ListLoading, StaleBanner } from "./ListStates";
 import TodoContextMenu from "./TodoContextMenu";
 
 interface Todo {
@@ -322,7 +322,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {!isLoggedIn ? (
           <p className="text-sol-base01 italic p-2">Sign in to view todos</p>
-        ) : isLoading || isValidating ? (
+        ) : isLoading ? (
           <ListLoading />
         ) : error && todos.length === 0 ? (
           <ListError error={error} />
@@ -330,6 +330,7 @@ export default function TodoList({ isLoggedIn, onSelectTodo, onSelectTrace, onCh
           <ListEmpty label="todos" />
         ) : (
           <>
+            <StaleBanner error={error} />
             {todos.map((t) => {
               const isSelected = selectedTodoIds.has(t.todo_id);
               const cancelLongPress = () => {

@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 

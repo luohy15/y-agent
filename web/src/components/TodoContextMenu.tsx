@@ -1,7 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import { priorityColorClass } from "./badges";
+import { optimisticListMutate } from "../utils/optimisticMutate";
+
+interface TodoCacheItem {
+  todo_id: string;
+  status: string;
+  priority?: string;
+  pinned?: boolean;
+  has_unread?: boolean;
+}
 
 interface TodoContextMenuProps {
   todo: { todo_id: string; status: string; priority?: string; pinned?: boolean; has_unread?: boolean };
@@ -75,6 +85,7 @@ const STATUS_COLOR_CLASS: Record<string, string> = {
 };
 
 export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatListRefresh }: TodoContextMenuProps) {
+  const swr = useSWRConfig();
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
   const submenuRowRef = useRef<HTMLDivElement>(null);
@@ -141,7 +152,10 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
       disabled: s === todo.status,
       className: STATUS_COLOR_CLASS[s],
       action: async () => {
-        await changeTodoStatus(todo.todo_id, s);
+        await optimisticListMutate<TodoCacheItem>(
+          swr, "/api/todo/", "todo_id", todo.todo_id, { status: s },
+          () => changeTodoStatus(todo.todo_id, s),
+        );
         onAction();
         onClose();
       },
@@ -153,11 +167,11 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
     type: "item",
     label: todo.has_unread ? "Mark read" : "Mark unread",
     action: async () => {
-      if (todo.has_unread) {
-        await markTraceRead(todo.todo_id);
-      } else {
-        await markTraceUnread(todo.todo_id);
-      }
+      const nextHasUnread = !todo.has_unread;
+      await optimisticListMutate<TodoCacheItem>(
+        swr, "/api/todo/", "todo_id", todo.todo_id, { has_unread: nextHasUnread },
+        () => (todo.has_unread ? markTraceRead(todo.todo_id) : markTraceUnread(todo.todo_id)),
+      );
       onChatListRefresh?.();
       onAction();
       onClose();
@@ -174,7 +188,10 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
       checked: p === currentPriority,
       className: priorityColorClass(p),
       action: async () => {
-        await updateTodoPriority(todo.todo_id, p);
+        await optimisticListMutate<TodoCacheItem>(
+          swr, "/api/todo/", "todo_id", todo.todo_id, { priority: p },
+          () => updateTodoPriority(todo.todo_id, p),
+        );
         onAction();
         onClose();
       },
@@ -186,7 +203,11 @@ export default function TodoContextMenu({ todo, x, y, onClose, onAction, onChatL
     type: "item",
     label: todo.pinned ? "Unpin" : "Pin",
     action: async () => {
-      await setTodoPinned(todo.todo_id, !todo.pinned);
+      const nextPinned = !todo.pinned;
+      await optimisticListMutate<TodoCacheItem>(
+        swr, "/api/todo/", "todo_id", todo.todo_id, { pinned: nextPinned },
+        () => setTodoPinned(todo.todo_id, nextPinned),
+      );
       onAction();
       onClose();
     },
