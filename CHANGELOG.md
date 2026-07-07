@@ -18,6 +18,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Telegram root-topic steer instead of overflow chat (2661)** — when the `manager` root chat is already mid-turn, an incoming Telegram message now steers into the running chat instead of spawning a parallel overflow chat.
 
 ### Fixed
+- **Steer race dropping end-of-turn messages (2662)** — a user message sent right as a claude_code turn ends could be silently dropped: added a lock + final drain before tmux teardown, delivery-confirmed steer writes, gathered all trailing user messages (not just the latest) when seeding a fresh turn, and a monitor-side safety-net reconciliation that relaunches the turn if any trailing message wasn't confirmed delivered.
 
 ### Removed
 
