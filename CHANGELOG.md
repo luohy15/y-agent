@@ -13,12 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **FileViewer file history link (2679)** — non-todo/calendar/link/etc. file previews (and link previews with a content key) show a "History" link to the file's commit history on GitHub, path corrected to be y-history-repo-relative rather than workDir-absolute.
+- **Ctrl+S save shortcut in FileViewer** — CodeEditor now saves the current file on Ctrl/Cmd+S instead of triggering the browser's save dialog.
+- **SWR-backed optimistic todo mutations (2676)** — TodoList/TodoViewer/TodoContextMenu/BotViewer/DevViewer migrated to SWR with a persisted cache and a shared `optimisticMutate` helper, plus reusable loading/error/empty list states.
 
 ### Changed
 - **Telegram root-topic steer instead of overflow chat (2661)** — when the `manager` root chat is already mid-turn, an incoming Telegram message now steers into the running chat instead of spawning a parallel overflow chat.
 
 ### Fixed
 - **Steer race dropping end-of-turn messages (2662)** — a user message sent right as a claude_code turn ends could be silently dropped: added a lock + final drain before tmux teardown, delivery-confirmed steer writes, gathered all trailing user messages (not just the latest) when seeding a fresh turn, and a monitor-side safety-net reconciliation that relaunches the turn if any trailing message wasn't confirmed delivered.
+- **Gate google_login signup behind SIGNUP_ALLOWLIST (security)** — new-user creation via Google OAuth login is now blocked unless the email is on the allowlist, closing an open-signup gap; existing users can still log in.
 
 ### Removed
 
