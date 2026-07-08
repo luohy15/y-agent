@@ -10,12 +10,13 @@ from agent.pi_models import sync_pi_models
 @click.option('--base-url', '-u', default=None, help='Base URL. For codex backend this is a crs-style prefix (e.g. https://cc1.yovy.app/openai); codex appends the wire path (/responses), so do NOT use a full endpoint or the claude messages-root URL.')
 @click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, perplexity, openai)')
 @click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2|tier3, default: tier3)')
+@click.option('--clear-tier', is_flag=True, help='Clear the tier (set to NULL, falls back to system default)')
 @click.option('--type', default=None, help='Type (agent|model)')
 @click.option('--route-weight', type=float, default=None, help='Route weight for auto-routing (default: 1, 0=paused)')
 @click.option('--ref-bot-name', default=None, help='Ref/pointer to another bot (e.g. codex)')
 @click.option('--clear-ref-bot-name', is_flag=True, help='Clear the ref bot name')
 @click.option('--clear-openrouter', is_flag=True, help='Clear the OpenRouter config')
-def bot_update(name, model, api_key, base_url, backend, tier, type, route_weight, ref_bot_name, clear_ref_bot_name, clear_openrouter):
+def bot_update(name, model, api_key, base_url, backend, tier, clear_tier, type, route_weight, ref_bot_name, clear_ref_bot_name, clear_openrouter):
     """Update an existing bot configuration."""
     user_id = get_cli_user_id()
     config = bot_service.get_config(user_id, name)
@@ -33,6 +34,8 @@ def bot_update(name, model, api_key, base_url, backend, tier, type, route_weight
         config.backend = backend
     if tier is not None:
         config.tier = tier
+    if clear_tier:
+        config.tier = None
     if type is not None:
         config.type = type
     if route_weight is not None:
