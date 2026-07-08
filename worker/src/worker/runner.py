@@ -977,6 +977,10 @@ def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_na
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
+            # Relay hosts are treated as third-party by the Claude Code CLI,
+            # capping natively-1M models (e.g. fable) at a 200k context window.
+            # This escape hatch restores the 1M window.
+            env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
         if api_key:
             env["ANTHROPIC_AUTH_TOKEN"] = api_key
         if chat_id:
