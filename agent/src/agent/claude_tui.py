@@ -25,6 +25,7 @@ reused because the TUI path has neither.
 
 import asyncio
 import json
+import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -519,21 +520,60 @@ async def tail_claude_tui_output(
     tail_start = time.monotonic()
     last_seen_offset = current_offset
     quiescent_since: Optional[float] = None
+    # Guards the race between a live steer paste and turn-end teardown: both
+    # _on_steer and the done-branch kill fire independent SSH commands
+    # against the same tmux session, so without a shared lock a steer paste
+    # can land after the session is already killed and silently no-op
+    # (mirrors claude_code.tail_ssh_output's steer_lock; see
+    # plan-2704-steer-prd-gap.md gap 2).
+    steer_lock = threading.RLock()
+    torn_down = False
 
-    # Live steer + interrupt run in the shared poll thread.
-    def _on_steer(text, msg_id, images=None):
+    def _paste_steer(text, msg_id, images=None) -> bool:
+        """Paste a steer message into the TUI. Must be called while holding
+        steer_lock. Returns True on confirmed paste, False on failure."""
         try:
             full = _append_image_paths(text, _upload_images(client, chat_id, images) if images else None)
             _paste_prompt(client, chat_id, full)
             converter.last_message_id = msg_id
             consumed_steer_ids.append(msg_id)
             logger.info("claude_tui steer: live-pasted into chat {}", chat_id)
+            return True
         except Exception as e:
             logger.warning("claude_tui steer paste failed for chat {}: {}", chat_id, e)
+            return False
+
+    # Live steer + interrupt run in the shared poll thread.
+    def _on_steer(text, msg_id, images=None) -> bool:
+        with steer_lock:
+            if torn_down:
+                return False
+            return _paste_steer(text, msg_id, images)
 
     def _on_interrupt():
         logger.info("claude_tui interrupt: Escape + kill tmux for chat {}", chat_id)
         _tui_kill(client, chat_id)
+
+    def _kill_with_drain() -> None:
+        """Turn-end teardown: final synchronous drain of check_steer_fn before
+        killing the tmux session, so a steer message that landed in the
+        checker between the last poll pass and turn-end still gets
+        delivered instead of racing a dead session."""
+        nonlocal torn_down
+        with steer_lock:
+            if check_steer_fn:
+                try:
+                    stragglers = check_steer_fn()
+                except Exception:
+                    stragglers = []
+                for msg in stragglers:
+                    text, msg_id, images = msg if len(msg) == 3 else (msg[0], msg[1], [])
+                    if not _paste_steer(text, msg_id, images):
+                        unclaim = getattr(check_steer_fn, "unclaim", None)
+                        if unclaim:
+                            unclaim(msg_id)
+            torn_down = True
+            _tui_kill(client, chat_id)
 
     poll = PollLoop(
         check_interrupted_fn=check_interrupted_fn,
@@ -606,7 +646,7 @@ async def tail_claude_tui_output(
 
                 if done:
                     status = "completed"
-                    _tui_kill(client, chat_id)
+                    _kill_with_drain()
                     break
 
                 # No turn-end marker yet; guard against a dead session (crash).

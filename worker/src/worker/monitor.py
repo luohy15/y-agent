@@ -313,14 +313,15 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             except Exception as e:
                 logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
 
-            # Safety net: a claude_code turn can end with a trailing user
-            # message that was never confirmed delivered via the live steer
-            # pipe (e.g. it raced turn-end teardown and _on_steer_detached
-            # returned False). Don't finalize as done — relaunch a
-            # continuation turn so the message isn't silently dropped forever
-            # (see plan-2662-steer-race.md). codex/gemini/pi already
-            # reconcile via their own status="steer" restart branch above.
-            if backend_type == "claude_code" and result["status"] != "error" and not fresh.interrupted:
+            # Safety net: a claude_code / claude_tui turn can end with a
+            # trailing user message that was never confirmed delivered via
+            # the live steer path (e.g. it raced turn-end teardown and
+            # _on_steer / _on_steer_detached returned False). Don't finalize
+            # as done — relaunch a continuation turn so the message isn't
+            # silently dropped forever (see plan-2662-steer-race.md,
+            # plan-2704-steer-prd-gap.md). codex/gemini/pi already reconcile
+            # via their own status="steer" restart branch above.
+            if backend_type in ("claude_code", "claude_tui") and result["status"] != "error" and not fresh.interrupted:
                 confirmed_delivered = initial_msg_ids | set(all_consumed_steer_ids)
                 has_undelivered_trailing = False
                 for msg in reversed(fresh.messages):
@@ -336,7 +337,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         chat_id,
                     )
                     complete_process(chat_id, status=result["status"])
-                    await _relaunch_claude_code_turn(chat_id, user_id, proc)
+                    await _relaunch_claude_code_turn(chat_id, user_id, proc, backend=backend_type)
                     return
 
             complete_process(chat_id, status=result["status"])
@@ -578,15 +579,17 @@ def _int_value(value):
         return 0
 
 
-async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict) -> None:
-    """Re-invoke the normal claude_code launch path for a leftover trailing
-    user message that the steer race failed to deliver, instead of
-    finalizing the turn as done (safety net, see plan-2662-steer-race.md).
+async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code") -> None:
+    """Re-invoke the normal launch path for a leftover trailing user message
+    that the steer race failed to deliver, instead of finalizing the turn as
+    done (safety net, see plan-2662-steer-race.md, plan-2704-steer-prd-gap.md).
 
     Reuses `run_chat` so this goes through the same resume-detection,
     tmux launch, and DynamoDB registration as any other turn — `resume` is
     computed from `chat.external_id` (already persisted by
-    `_apply_completion_metadata` above) and `chat.work_dir`.
+    `_apply_completion_metadata` above) and `chat.work_dir`. `backend`
+    defaults to `claude_code` but callers pass the actual backend_type
+    (e.g. `claude_tui`) so the relaunch stays on the same backend.
     """
     from worker.runner import run_chat
 
@@ -603,7 +606,7 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict) -> 
         post_hooks=post_hooks,
         trace_id=proc.get("trace_id"),
         topic=proc.get("topic"),
-        backend="claude_code",
+        backend=backend,
     )
 
 

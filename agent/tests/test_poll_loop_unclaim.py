@@ -57,5 +57,40 @@ class PollLoopUnclaimTest(unittest.TestCase):
         on_steer.assert_called_once_with("text", "m1", [])
 
 
+class PollLoopSteerExceptionTest(unittest.TestCase):
+    """A transient exception in the steer branch must warn-and-continue, not
+    kill the loop (plan-2704-steer-prd-gap.md gap 4): interrupt polling stays
+    alive for the rest of the turn, symmetric with the interrupt branch."""
+
+    def test_steer_exception_does_not_stop_later_interrupt_polling(self):
+        check_steer_fn = Mock(side_effect=[RuntimeError("transient db error")])
+        check_interrupted_fn = Mock(side_effect=[False, True])
+        on_interrupt = Mock()
+
+        loop = PollLoop(
+            check_interrupted_fn=check_interrupted_fn,
+            on_interrupt=on_interrupt,
+            check_steer_fn=check_steer_fn,
+            on_steer=Mock(),
+        )
+        loop.start()
+        loop._thread.join(timeout=3)
+
+        on_interrupt.assert_called_once()
+
+    def test_steer_exception_does_not_stop_later_steer_delivery(self):
+        # The loop polls every 1s (PollLoop._loop's fixed self._done.wait(1)),
+        # so the second (post-exception) pass lands just after 1s.
+        check_steer_fn = Mock(side_effect=[RuntimeError("transient db error"), [("text", "m1", [])], []])
+        on_steer = Mock(return_value=True)
+
+        loop = PollLoop(check_steer_fn=check_steer_fn, on_steer=on_steer)
+        loop.start()
+        time.sleep(1.2)
+        loop.stop()
+
+        on_steer.assert_called_once_with("text", "m1", [])
+
+
 if __name__ == "__main__":
     unittest.main()

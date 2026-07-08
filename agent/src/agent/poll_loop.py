@@ -88,7 +88,6 @@ class PollLoop:
                                 unclaim(msg_id)
                 except Exception as e:
                     logger.warning("poll_loop steer failed: {}", e)
-                    break
 
             self._done.wait(1)
 

@@ -5,6 +5,10 @@
 - sub-task 5: the plain claude_code completion path must merge
   prev_consumed + this turn's consumed_steer_ids before persisting, not
   overwrite (matching the codex/gemini/pi restart-with-steer paths).
+
+plan-2704-steer-prd-gap.md sub-task 3 extends the same safety net to
+claude_tui: the gate covers both backends and the relaunch passes the
+actual backend_type through instead of hard-coding claude_code.
 """
 
 import unittest
@@ -42,12 +46,18 @@ class SteerReconciliationTest(unittest.IsolatedAsyncioTestCase):
             **result_overrides,
         }
 
+        tail_target = (
+            "agent.claude_tui.tail_claude_tui_output"
+            if proc["backend_type"] == "claude_tui"
+            else "agent.claude_code.tail_ssh_output"
+        )
+
         with (
             patch("agent.config.resolve_vm_config", return_value=Mock()),
             patch("storage.service.chat.get_chat_by_id", new_callable=AsyncMock, return_value=chat),
             patch("storage.repository.chat.save_chat_by_id", new_callable=AsyncMock),
             patch("storage.repository.chat.set_chat_unread"),
-            patch("agent.claude_code.tail_ssh_output", new_callable=AsyncMock, return_value=result),
+            patch(tail_target, new_callable=AsyncMock, return_value=result),
             patch("worker.monitor.update_process_offset") as update_offset,
             patch("worker.monitor.complete_process") as complete_process,
             patch("worker.monitor.release_lease") as release_lease,
@@ -70,7 +80,24 @@ class SteerReconciliationTest(unittest.IsolatedAsyncioTestCase):
         relaunch.assert_awaited_once_with("chat-1", 1, {
             "user_id": 1, "vm_name": "vm", "backend_type": "claude_code",
             "work_dir": "/repo", "initial_msg_count": 1,
-        })
+        }, backend="claude_code")
+        complete_process.assert_called_once_with("chat-1", status="completed")
+        self.assertFalse(chat.running)
+
+    async def test_undelivered_trailing_message_triggers_relaunch_for_claude_tui(self):
+        chat = self._chat([
+            _msg("assistant", "m0", "initial reply"),
+            _msg("user", "m1", "please also do X"),
+        ])
+        # Same gate and relaunch now cover claude_tui (plan-2704-steer-prd-gap.md).
+        update_offset, complete_process, release_lease, relaunch = await self._run(
+            chat, {"backend_type": "claude_tui"}, {"consumed_steer_ids": []},
+        )
+
+        relaunch.assert_awaited_once_with("chat-1", 1, {
+            "user_id": 1, "vm_name": "vm", "backend_type": "claude_tui",
+            "work_dir": "/repo", "initial_msg_count": 1,
+        }, backend="claude_tui")
         complete_process.assert_called_once_with("chat-1", status="completed")
         self.assertFalse(chat.running)
 
