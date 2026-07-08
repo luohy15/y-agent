@@ -12,13 +12,13 @@ from storage.entity.dto import BotConfig
 
 
 class TierOfTest(unittest.TestCase):
-    def test_falsy_tier_defaults_tier1(self):
+    def test_falsy_tier_defaults_tier3(self):
         # Only the default-fallback has logic worth pinning: a falsy `tier`
-        # (absent → None, or stored empty string) resolves to tier1. Explicit
+        # (absent → None, or stored empty string) resolves to tier3. Explicit
         # tier values are a plain field passthrough, not retested here.
         for value in (None, ""):
             with self.subTest(tier=value):
-                self.assertEqual(tier_of(BotConfig(name="b", tier=value)), "tier1")
+                self.assertEqual(tier_of(BotConfig(name="b", tier=value)), "tier3")
 
 
 class PickByWeightTest(unittest.TestCase):
@@ -135,23 +135,25 @@ class BotsForTierTest(unittest.TestCase):
             BotConfig(name="t0", tier="tier0"),
             BotConfig(name="t1", tier="tier1"),
             BotConfig(name="t2", tier="tier2"),
-            BotConfig(name="none"),  # defaults tier1
+            BotConfig(name="none"),  # defaults tier3
         ]
         with patch("agent.config.bot_service.list_configs", return_value=configs):
             t0_bots = _bots_for_tier(1, "tier0")
             t1_bots = _bots_for_tier(1, "tier1")
             t2_bots = _bots_for_tier(1, "tier2")
+            t3_bots = _bots_for_tier(1, "tier3")
 
         self.assertEqual(len(t0_bots), 1)
         self.assertEqual(t0_bots[0].name, "t0")
 
-        self.assertEqual(len(t1_bots), 2)
-        names = [b.name for b in t1_bots]
-        self.assertIn("t1", names)
-        self.assertIn("none", names)
+        self.assertEqual(len(t1_bots), 1)
+        self.assertEqual(t1_bots[0].name, "t1")
 
         self.assertEqual(len(t2_bots), 1)
         self.assertEqual(t2_bots[0].name, "t2")
+
+        self.assertEqual(len(t3_bots), 1)
+        self.assertEqual(t3_bots[0].name, "none")
 
     def test_excludes_perplexity(self):
         configs = [

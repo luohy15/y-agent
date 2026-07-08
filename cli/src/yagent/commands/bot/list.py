@@ -57,7 +57,7 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 bot_cfg.ref_bot_name or "-",
                 fmt_price(input_price),
                 fmt_price(output_price),
-                bot_cfg.tier or "tier1",
+                bot_cfg.tier or "tier3",
                 bot_cfg.type or "agent",
                 "Yes" if bot_cfg.enabled else "No",
             ])

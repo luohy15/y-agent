@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 _MAX_REF_DEPTH = 5
 
 # Phase 0 static skill->tier mapping.
-# Unlisted skills (and *all* new skills) default to tier1 (conservative).
+# Unlisted skills (and *all* new skills) default to tier3 (most bots are tier3
+# now, so this is the "no opinion" default rather than a conservative pin).
 # tier2 is an explicit allowlist of cheap-safe skills only.
 # tier0 set is EMPTY: no skill auto-routes to tier0 (opt-in via --bot / --tier only).
 SKILL_TO_TIER: Dict[str, str] = {
@@ -75,10 +76,10 @@ def _find_bot_config_by_backend(user_id: int, backend: str, bot_name: str = None
 def tier_of(bot_config: BotConfig) -> str:
     """Return the tier for a bot config.
 
-    Explicit bot_config.tier wins; NULL/unspecified defaults to tier1
-    (conservative).
+    Explicit bot_config.tier wins; NULL/unspecified defaults to tier3
+    (most bots are tier3, so unlabeled configs need no explicit tier).
     """
-    return bot_config.tier or "tier1"
+    return bot_config.tier or "tier3"
 
 
 def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:

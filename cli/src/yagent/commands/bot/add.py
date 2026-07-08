@@ -10,7 +10,7 @@ from agent.pi_models import sync_pi_models
 @click.option('--api-key', '-k', default='', help='API key')
 @click.option('--base-url', '-u', default=None, help='Base URL. For codex backend this is a crs-style prefix (e.g. https://cc1.yovy.app/openai); codex appends the wire path (/responses), so do NOT use a full endpoint or the claude messages-root URL.')
 @click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, perplexity, openai)')
-@click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2)')
+@click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2|tier3, default: tier3)')
 @click.option('--type', default=None, help='Type (agent|model, default: agent)')
 @click.option('--route-weight', type=float, default=None, help='Route weight for auto-routing (default: 1, 0=paused)')
 @click.option('--ref-bot-name', default=None, help='Ref/pointer to another bot (e.g. codex)')

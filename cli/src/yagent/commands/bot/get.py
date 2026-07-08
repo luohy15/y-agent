@@ -24,7 +24,7 @@ def bot_get(name):
         ("OpenRouter Config", config.openrouter_config or "N/A"),
         ("Input/1M", fmt_price(input_price)),
         ("Output/1M", fmt_price(output_price)),
-        ("Tier", config.tier or "tier1"),
+        ("Tier", config.tier or "tier3"),
         ("Type", config.type or "agent"),
         ("Route Weight", config.route_weight if config.route_weight is not None else "N/A"),
         ("Ref", config.ref_bot_name or "N/A"),
