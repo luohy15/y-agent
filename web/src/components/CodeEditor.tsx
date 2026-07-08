@@ -4,6 +4,7 @@ import type { Extension } from "@codemirror/state";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, keymap } from "@codemirror/view";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { search, searchKeymap } from "@codemirror/search";
 import { solarizedDarkTheme, solarizedDarkSyntaxHighlight } from "./codeEditorTheme";
 import { loadLanguage, getCachedLanguage, resolveLangKey } from "./codeEditorLangs";
 
@@ -82,6 +83,7 @@ export default function CodeEditor({
       highlightActiveLine(),
       highlightActiveLineGutter(),
       history(),
+      search({ top: true }),
       EditorView.lineWrapping,
       keymap.of([
         {
@@ -100,6 +102,7 @@ export default function CodeEditor({
             return true;
           },
         },
+        ...searchKeymap,
         ...defaultKeymap,
         ...historyKeymap,
       ]),
