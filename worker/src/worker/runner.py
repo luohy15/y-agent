@@ -628,6 +628,10 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         env = {}
         if api_base_url:
             env["ANTHROPIC_BASE_URL"] = api_base_url
+            # Relay hosts are treated as third-party by the Claude Code CLI,
+            # capping natively-1M models (e.g. fable) at a 200k context window.
+            # This escape hatch restores the 1M window.
+            env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
         if api_key:
             env["ANTHROPIC_AUTH_TOKEN"] = api_key
         if chat_id:
@@ -678,7 +682,7 @@ def build_codex_provider_args(bot_config) -> list:
     NOTE on the base_url convention: codex treats ``base_url`` as a prefix and
     appends the wire path (``/responses`` for ``wire_api="responses"``). So a
     codex bot's ``base_url`` must be the crs-style prefix (e.g.
-    ``https://cc1.yovy.app/openai``), NOT a full endpoint and NOT the claude
+    ``https://<relay-host>/openai``), NOT a full endpoint and NOT the claude
     ``ANTHROPIC_BASE_URL`` messages-root semantics.
     """
     base_url = (bot_config.base_url or "").strip()
