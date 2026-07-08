@@ -24,11 +24,12 @@ SKILL_TO_TIER: Dict[str, str] = {
     "calendar": "tier2",
     "cdn": "tier2",
     "chat": "tier2",
+    "claude-usage-check": "tier2",
     "daily-changelog": "tier2",
+    "daily-scan": "tier2",
     "deploy": "tier2",
     "email-style": "tier2",
     "entity": "tier2",
-    "exit-watch": "tier2",
     "finance": "tier2",
     "finance-changelog": "tier2",
     "format-zh": "tier2",
@@ -44,6 +45,8 @@ SKILL_TO_TIER: Dict[str, str] = {
     "reminder": "tier2",
     "style-zh": "tier2",
     "test": "tier2",
+    "ticker-analysis": "tier2",
+    "weekly-review": "tier2",
 }
 
 
@@ -80,6 +83,20 @@ def tier_of(bot_config: BotConfig) -> str:
     (most bots are tier3, so unlabeled configs need no explicit tier).
     """
     return bot_config.tier or "tier3"
+
+
+def derive_tier(skill: Optional[str], requested: Optional[str] = None) -> str:
+    """Derive the effective tier for a run.
+
+    An explicit requested tier (e.g. a `--tier` CLI flag) overrides the
+    skill-derived tier. Otherwise the tier is looked up in SKILL_TO_TIER;
+    unlisted skills and no-skill default to tier3.
+    """
+    if requested:
+        return requested
+    if skill:
+        return SKILL_TO_TIER.get(skill) or "tier3"
+    return "tier3"
 
 
 def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:
@@ -168,7 +185,16 @@ def _pick_uniform(bots: List[BotConfig]) -> Optional[BotConfig]:
 
 
 def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
-    # Priority 1: backend pin
+    # Priority 1: bot-name pin (original path, no cross-user fallback). A named
+    # bot beats every other signal, including a backend pin on the same request.
+    # A requested-but-missing name does not "match" and falls through to the
+    # next link in the chain (strict chain evaluation, not an early exit).
+    if bot_name:
+        bot_config = bot_service.get_config(user_id, bot_name)
+        if bot_config:
+            return _deref_bot_config(user_id, bot_config)
+
+    # Priority 2: backend pin
     if backend:
         bot_config = _find_bot_config_by_backend(user_id, backend, bot_name)
         if not bot_config:
@@ -186,13 +212,8 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
         )
         return BotConfig(name=bot_name or backend, backend=backend)
 
-    # Priority 2: bot_name pin (original path, no cross-user fallback)
-    bot_config = None
-    if bot_name:
-        bot_config = bot_service.get_config(user_id, bot_name)
-
-    # Priority 3: tier-based selection (only when no explicit pin)
-    if not bot_config and not bot_name and tier:
+    # Priority 3: tier-based selection (only consulted when neither pin matched)
+    if tier:
         bots = _bots_for_tier(user_id, tier)
         if bots:
             selected = _pick_by_weight(bots)
@@ -205,8 +226,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
         )
 
     # Fallback: default logic (original path preserved)
-    if not bot_config:
-        bot_config = bot_service.get_config(user_id)
+    bot_config = bot_service.get_config(user_id)
     if not bot_config:
         default_user_id = get_default_user_id()
         if default_user_id != user_id:

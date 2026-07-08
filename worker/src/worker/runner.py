@@ -516,13 +516,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
-    # Phase 0: derive tier from skill. Unlisted skills and no-skill default to tier3.
-    skill_tier = "tier3"
-    if skill:
-        skill_tier = getattr(agent_config, "SKILL_TO_TIER", {}).get(skill) or "tier3"
-
-    # bot_tier (e.g. --tier cli flag) overrides skill-derived tier.
-    effective_tier = bot_tier or skill_tier
+    # Phase 0: derive tier from skill, with bot_tier (e.g. --tier cli flag)
+    # overriding the skill-derived tier. Unlisted skills and no-skill default
+    # to tier3.
+    effective_tier = agent_config.derive_tier(skill, bot_tier)
 
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to

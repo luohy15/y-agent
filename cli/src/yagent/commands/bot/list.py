@@ -62,14 +62,15 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 "Yes" if bot_cfg.enabled else "No",
             ])
     else:
-        # Compact: Name, Backend, Model, Type, Ref
-        headers = ["Name", "Backend", "Model", "Type", "Ref"]
+        # Compact: Name, Backend, Model, Tier, Type, Ref
+        headers = ["Name", "Backend", "Model", "Tier", "Type", "Ref"]
         table_data = []
         for bot_cfg in configs:
             table_data.append([
                 bot_cfg.name,
                 bot_cfg.backend or bot_cfg.api_type or "N/A",
                 bot_cfg.model or "N/A",
+                bot_cfg.tier or "tier3",
                 bot_cfg.type or "agent",
                 bot_cfg.ref_bot_name or "-",
             ])

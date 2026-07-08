@@ -4,6 +4,7 @@ from unittest.mock import patch
 from agent.config import (
     resolve_bot_config,
     tier_of,
+    derive_tier,
     _bots_for_tier,
     _pick_by_weight,
     _pick_uniform,
@@ -19,6 +20,20 @@ class TierOfTest(unittest.TestCase):
         for value in (None, ""):
             with self.subTest(tier=value):
                 self.assertEqual(tier_of(BotConfig(name="b", tier=value)), "tier3")
+
+
+class DeriveTierTest(unittest.TestCase):
+    def test_listed_skill_uses_skill_tier(self):
+        self.assertEqual(derive_tier("git"), "tier2")
+
+    def test_unlisted_skill_defaults_tier3(self):
+        self.assertEqual(derive_tier("some-unmapped-skill"), "tier3")
+
+    def test_no_skill_defaults_tier3(self):
+        self.assertEqual(derive_tier(None), "tier3")
+
+    def test_explicit_requested_tier_overrides_skill(self):
+        self.assertEqual(derive_tier("git", "tier0"), "tier0")
 
 
 class PickByWeightTest(unittest.TestCase):
@@ -207,17 +222,42 @@ class BotsForTierTest(unittest.TestCase):
 
 
 class ResolveBotConfigTierTest(unittest.TestCase):
-    def test_backend_pin_ignores_tier(self):
-        configs = [
-            BotConfig(name="default", backend="codex", model="gpt-5.4"),
-            BotConfig(name="claude_code", backend="claude_code", model="sonnet"),
-        ]
+    def test_name_pin_beats_backend_pin_same_request(self):
+        """G1: bot-name pin wins over a backend pin on the same request, even
+        when the named config's backend differs from the pinned backend."""
+        default = BotConfig(name="default", backend="codex", model="gpt-5.4")
+        claude_code = BotConfig(name="claude_code", backend="claude_code", model="sonnet")
+
+        def _get_config(uid, name="default"):
+            return claude_code if name == "claude_code" else None
+
         with (
-            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.bot_service.get_config", side_effect=_get_config),
+            patch("agent.config.bot_service.list_configs", return_value=[default, claude_code]),
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            config = resolve_bot_config(1, bot_name="claude_code", backend="codex")
+
+        self.assertEqual(config.name, "claude_code")
+        self.assertEqual(config.backend, "claude_code")
+
+    def test_backend_pin_ignores_tier(self):
+        """Name-first: the bot-name pin wins over both a backend pin and a
+        tier request on the same request (PRD chain: name > backend > tier >
+        default)."""
+        default = BotConfig(name="default", backend="codex", model="gpt-5.4")
+        claude_code = BotConfig(name="claude_code", backend="claude_code", model="sonnet")
+
+        def _get_config(uid, name="default"):
+            return default if name == "default" else None
+
+        with (
+            patch("agent.config.bot_service.get_config", side_effect=_get_config),
+            patch("agent.config.bot_service.list_configs", return_value=[default, claude_code]),
             patch("agent.config.get_default_user_id", return_value=1),
         ):
             config = resolve_bot_config(1, bot_name="default", backend="claude_code", tier="tier2")
-        self.assertEqual(config.name, "claude_code")
+        self.assertEqual(config.name, "default")
 
     def test_bot_name_pin_ignores_tier(self):
         pinned = BotConfig(name="pinned", backend="claude_code")
@@ -233,7 +273,8 @@ class ResolveBotConfigTierTest(unittest.TestCase):
         mock_choice.assert_not_called()
 
     def test_bot_name_not_found_fallback_to_default(self):
-        """Original path preserved: bot_name not found -> default, no cross-user."""
+        """G2 (strict chain): bot_name not found and no backend/tier given ->
+        falls all the way through to default, no cross-user."""
         default_config = BotConfig(name="default", backend="codex")
 
         def _get_side_effect(uid, name="default"):
@@ -248,6 +289,24 @@ class ResolveBotConfigTierTest(unittest.TestCase):
             config = resolve_bot_config(1, bot_name="pinned")
 
         self.assertEqual(config.name, "default")
+
+    def test_missing_name_pin_falls_through_to_tier(self):
+        """G2 (strict chain): a bot_name that fails lookup 'did not match' and
+        falls through to the next link (tier), instead of short-circuiting to
+        default."""
+        bot_a = BotConfig(name="bot-a", tier="tier1", route_weight=1)
+
+        with (
+            patch("agent.config.bot_service.get_config", return_value=None),
+            patch("agent.config.bot_service.list_configs", return_value=[bot_a]),
+            patch("agent.config.random.choices") as mock_choices,
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            mock_choices.return_value = [bot_a]
+            config = resolve_bot_config(1, bot_name="pinned", tier="tier1")
+
+        self.assertEqual(config.name, "bot-a")
+        mock_choices.assert_called_once()
 
     def test_tier_selects_weighted_random(self):
         # Representative proportional-weight routing through resolve_bot_config.
@@ -366,20 +425,24 @@ class ResolveBotConfigOriginalTest(unittest.TestCase):
         self.assertEqual(config.model, "gpt-5.4")
 
     def test_backend_identity_ignores_mismatched_default_config(self):
-        configs = [
-            BotConfig(name="default", backend="codex", model="gpt-5.4"),
-            BotConfig(name="claude_code", backend="claude_code", model="sonnet"),
-        ]
+        """Name-first: the name pin ('default') wins even though its backend
+        ('codex') differs from the pinned backend ('claude_code')."""
+        default = BotConfig(name="default", backend="codex", model="gpt-5.4")
+        claude_code = BotConfig(name="claude_code", backend="claude_code", model="sonnet")
+
+        def _get_config(uid, name="default"):
+            return default if name == "default" else None
 
         with (
-            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.bot_service.get_config", side_effect=_get_config),
+            patch("agent.config.bot_service.list_configs", return_value=[default, claude_code]),
             patch("agent.config.get_default_user_id", return_value=1),
         ):
             config = resolve_bot_config(1, bot_name="default", backend="claude_code")
 
-        self.assertEqual(config.name, "claude_code")
-        self.assertEqual(config.backend, "claude_code")
-        self.assertEqual(config.model, "sonnet")
+        self.assertEqual(config.name, "default")
+        self.assertEqual(config.backend, "codex")
+        self.assertEqual(config.model, "gpt-5.4")
 
     def test_backend_only_fallback_does_not_reuse_mismatched_model(self):
         configs = [
@@ -387,6 +450,7 @@ class ResolveBotConfigOriginalTest(unittest.TestCase):
         ]
 
         with (
+            patch("agent.config.bot_service.get_config", return_value=None),
             patch("agent.config.bot_service.list_configs", return_value=configs),
             patch("agent.config.get_default_user_id", return_value=1),
             self.assertLogs("agent.config", level="WARNING"),
@@ -506,16 +570,17 @@ class RefBotResolveTest(unittest.TestCase):
         self.assertEqual(config.backend, "codex")
 
     def test_ref_backend_pin_derefs(self):
-        # "default" is a ref to "codex", backend pin searches for codex backend
+        # A backend pin (no matching name) derefs the matched ref bot to its target.
         default = BotConfig(name="default", ref_bot_name="codex")
         codex = BotConfig(name="codex", backend="codex", model="gpt-5.4")
         configs = [default, codex]
 
         with (
+            patch("agent.config.bot_service.get_config", return_value=None),
             patch("agent.config.bot_service.list_configs", return_value=configs),
             patch("agent.config.get_default_user_id", return_value=1),
         ):
-            config = resolve_bot_config(1, bot_name="default", backend="codex")
+            config = resolve_bot_config(1, bot_name="unpinned", backend="codex")
 
         # _find_bot_config_by_backend finds codex directly (not default)
         self.assertEqual(config.name, "codex")
