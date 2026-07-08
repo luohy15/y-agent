@@ -618,27 +618,25 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
 
     # Build env
-    env = None
     api_base_url = bot_config.base_url if bot_config.base_url else None
     api_key = bot_config.api_key if bot_config.api_key else None
-    if api_base_url or api_key or chat_id or trace_id or topic or last_message_id:
-        env = {}
-        if api_base_url:
-            env["ANTHROPIC_BASE_URL"] = api_base_url
-            # Relay hosts are treated as third-party by the Claude Code CLI,
-            # capping natively-1M models (e.g. fable) at a 200k context window.
-            # This escape hatch restores the 1M window.
-            env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
-        if api_key:
-            env["ANTHROPIC_AUTH_TOKEN"] = api_key
-        if chat_id:
-            env["Y_CHAT_ID"] = chat_id
-        if trace_id:
-            env["Y_TRACE_ID"] = trace_id
-        if topic:
-            env["Y_TOPIC"] = topic
-        if last_message_id:
-            env["Y_MESSAGE_ID"] = last_message_id
+    env = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+    if api_base_url:
+        env["ANTHROPIC_BASE_URL"] = api_base_url
+        # Relay hosts are treated as third-party by the Claude Code CLI,
+        # capping natively-1M models (e.g. fable) at a 200k context window.
+        # This escape hatch restores the 1M window.
+        env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
+    if api_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
 
     return {
         "prompt": user_prompt,
@@ -970,27 +968,25 @@ def _build_claude_tui_params(chat, chat_id: str, user_id: int, bot_config, vm_na
 
     # Env: trace/topic/chat vars, plus ANTHROPIC overrides only when explicitly
     # configured (a subscription bot leaves both unset to use the EC2 login).
-    env = None
     api_base_url = bot_config.base_url if bot_config.base_url else None
     api_key = bot_config.api_key if bot_config.api_key else None
-    if api_base_url or api_key or chat_id or trace_id or topic or last_message_id:
-        env = {}
-        if api_base_url:
-            env["ANTHROPIC_BASE_URL"] = api_base_url
-            # Relay hosts are treated as third-party by the Claude Code CLI,
-            # capping natively-1M models (e.g. fable) at a 200k context window.
-            # This escape hatch restores the 1M window.
-            env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
-        if api_key:
-            env["ANTHROPIC_AUTH_TOKEN"] = api_key
-        if chat_id:
-            env["Y_CHAT_ID"] = chat_id
-        if trace_id:
-            env["Y_TRACE_ID"] = trace_id
-        if topic:
-            env["Y_TOPIC"] = topic
-        if last_message_id:
-            env["Y_MESSAGE_ID"] = last_message_id
+    env = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+    if api_base_url:
+        env["ANTHROPIC_BASE_URL"] = api_base_url
+        # Relay hosts are treated as third-party by the Claude Code CLI,
+        # capping natively-1M models (e.g. fable) at a 200k context window.
+        # This escape hatch restores the 1M window.
+        env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
+    if api_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
 
     return {
         "prompt": user_prompt,
