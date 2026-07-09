@@ -16,13 +16,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **FileViewer file history link (2679)** — non-todo/calendar/link/etc. file previews (and link previews with a content key) show a "History" link to the file's commit history on GitHub, path corrected to be y-history-repo-relative rather than workDir-absolute.
 - **Ctrl+S save shortcut in FileViewer** — CodeEditor now saves the current file on Ctrl/Cmd+S instead of triggering the browser's save dialog.
 - **SWR-backed optimistic todo mutations (2676)** — TodoList/TodoViewer/TodoContextMenu/BotViewer/DevViewer migrated to SWR with a persisted cache and a shared `optimisticMutate` helper, plus reusable loading/error/empty list states.
+- **Bot-name-first tier/dispatch routing (2696, 2698, 2708)** — `resolve_bot_config` now checks an explicit bot-name pin before the backend pin, `--tier` accepts `tier3` explicitly (skills without a tier default to `tier3`), `y bot update --clear-tier` resets a bot's tier to NULL, and a `derive_tier()` helper centralizes skill-to-tier lookup for `--tier` CLI overrides.
+- **Cmd+F in-file search in FileViewer** — CodeEditor wires in CodeMirror's search extension (Solarized-themed find panel with next/prev, select-all, case/regex/word toggles, and replace).
 
 ### Changed
 - **Telegram root-topic steer instead of overflow chat (2661)** — when the `manager` root chat is already mid-turn, an incoming Telegram message now steers into the running chat instead of spawning a parallel overflow chat.
+- **Claude Code background tasks disabled in worker sessions** — `claude_code` and `claude_tui` session env now sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` so remote turns don't spawn detached background subprocesses.
 
 ### Fixed
-- **Steer race dropping end-of-turn messages (2662)** — a user message sent right as a claude_code turn ends could be silently dropped: added a lock + final drain before tmux teardown, delivery-confirmed steer writes, gathered all trailing user messages (not just the latest) when seeding a fresh turn, and a monitor-side safety-net reconciliation that relaunches the turn if any trailing message wasn't confirmed delivered.
+- **Steer race dropping end-of-turn messages (2662)** — a user message sent right as a claude_code turn ends could be silently dropped: added a lock + final drain before tmux teardown, delivery-confirmed steer writes, gathered all trailing user messages (not just the latest) when seeding a fresh turn, a monitor-side safety-net reconciliation that relaunches the turn if any trailing message wasn't confirmed delivered, an unclaim on paste failure, and poll-loop resilience hardening.
 - **Gate google_login signup behind SIGNUP_ALLOWLIST (security)** — new-user creation via Google OAuth login is now blocked unless the email is on the allowlist, closing an open-signup gap; existing users can still log in.
+- **Relay base URL restores 1M context window** — `claude_code` and `claude_tui` relay sessions now set `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1`, since the CLI otherwise treats a relay host as third-party and caps natively-1M models (e.g. fable) at a 200k window.
+- **Persisted SWR cache freeze on localStorage quota overflow** — the persisted SWR cache no longer locks up when writes exceed the browser's localStorage quota.
 
 ### Removed
 
