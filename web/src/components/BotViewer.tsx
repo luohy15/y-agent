@@ -1216,7 +1216,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   if (rows.length === 0) return <ListEmpty label="usage" />;
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
+    <div className="h-full min-h-0 flex flex-col gap-3">
       <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
         {pieData.length === 0 ? (
           <div className="text-xs text-sol-base01/70 italic text-center py-12">No {metric} in this range</div>
