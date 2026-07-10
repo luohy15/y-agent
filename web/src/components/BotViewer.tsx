@@ -30,6 +30,7 @@ type UsageMetric = "tokens" | "cost" | "requests";
 const SORT_KEY_STORAGE_KEY = "botViewSortKey";
 const SORT_DIR_STORAGE_KEY = "botViewSortDir";
 const VIEW_STORAGE_KEY = "botView";
+const TYPE_FILTER_STORAGE_KEY = "botViewTypeFilter";
 const USAGE_MODE_STORAGE_KEY = "botUsageMode";
 const USAGE_GRANULARITY_STORAGE_KEY = "botUsageGranularity";
 // Free-text time range (mirrors finance Income tab). Live and Over-time each keep their
@@ -319,6 +320,11 @@ function loadSortKey(): SortKey {
 function loadSortDir(): SortDir {
   const saved = localStorage.getItem(SORT_DIR_STORAGE_KEY);
   return saved === "desc" ? "desc" : "asc";
+}
+
+function loadTypeFilter(): TypeFilter {
+  const saved = localStorage.getItem(TYPE_FILTER_STORAGE_KEY);
+  return saved === "agent" || saved === "model" ? saved : "all";
 }
 
 const COL_COUNT = COLUMNS.length + 1; // +1 for "On" column
@@ -1270,7 +1276,7 @@ export default function BotViewer() {
     return saved === "weekly" || saved === "monthly" ? saved : "daily";
   });
   const [usageMetric, setUsageMetric] = useState<UsageMetric>("tokens");
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(loadTypeFilter());
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
   const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
   const [expandedName, setExpandedName] = useState<string | null>(null);
@@ -1360,6 +1366,10 @@ export default function BotViewer() {
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
   }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem(TYPE_FILTER_STORAGE_KEY, typeFilter);
+  }, [typeFilter]);
 
   useEffect(() => {
     localStorage.setItem(USAGE_MODE_STORAGE_KEY, usageMode);
