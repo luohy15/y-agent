@@ -92,9 +92,10 @@ function fmtCost(c: number): string {
 
 // OpenAI's usage schema has no cache-write metric (cache writes are billed/reported as
 // plain input_tokens; only cache hits are reported). cache_create is structurally always
-// 0 for provider=openai rows, so render "n/a" instead of a misleading 0.
+// 0 for provider=openai rows, so render "(n/a)" instead of a misleading 0; parenthesized
+// so it doesn't run into the "/<cache_read>" value that follows (e.g. "(n/a)/2.5M").
 function fmtCacheCreate(n: number, provider: string, fmt: (n: number) => string): string {
-  return provider === "openai" ? "n/a" : fmt(n);
+  return provider === "openai" ? "(n/a)" : fmt(n);
 }
 
 // Compact token-count formatting by magnitude with 1 decimal: 1.2B / 100.1M / 101.2K.
