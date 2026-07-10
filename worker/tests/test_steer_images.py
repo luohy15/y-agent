@@ -1,15 +1,16 @@
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from worker.runner import _pending_user_text_and_images, make_steer_checker
 
 
 class _Msg:
-    def __init__(self, role, content, msg_id, images=None):
+    def __init__(self, role, content, msg_id, images=None, reasoning_effort=None):
         self.role = role
         self.content = content
         self.id = msg_id
         self.images = images
+        self.reasoning_effort = reasoning_effort
 
 
 class _Chat:
@@ -44,12 +45,14 @@ class SteerImagesSmokeTest(unittest.TestCase):
         import worker.monitor as monitor
 
         async def run():
+            chat = _Chat([_Msg("user", "describe", "m2")])
             with (
                 patch("agent.config.resolve_vm_config", return_value=Mock()),
                 patch("agent.config.resolve_bot_config", return_value=Mock(model=None)),
                 patch("agent.codex.start_detached_codex_ssh") as start,
                 patch("worker.monitor.update_process_offset"),
                 patch("worker.monitor.release_lease"),
+                patch("storage.service.chat.get_chat_by_id", AsyncMock(return_value=chat)),
             ):
                 await monitor._restart_codex_with_steer(
                     "chat-1",
