@@ -713,7 +713,7 @@ function UsageChartTooltip({ active, payload, label, metric }: {
 }
 
 // Over-time view: stacked chart of one metric per period + per-model x period table.
-function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { granularity: Granularity; metric: UsageMetric; time: string; onMetricChange: (m: UsageMetric) => void }) {
+function UsageOverTimeView({ granularity, metric, time }: { granularity: Granularity; metric: UsageMetric; time: string }) {
   // The usage endpoint parses `time` server-side with finance's shared Fava
   // grammar; send it raw so specific dates / quarters / ranges all work.
   const qs = time.trim() ? `time=${encodeURIComponent(time.trim())}` : "";
@@ -799,7 +799,6 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
             ))}
           </BarChart>
         </ResponsiveContainer>
-        <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col rounded border border-sol-base02 bg-sol-base03 overflow-hidden">
@@ -969,9 +968,9 @@ function UsagePieLegend({ pieData }: { pieData: PieSlice[] }) {
   );
 }
 
-// Shared Requests/Tokens/Cost toggle row (finance income-statement chartTab style),
-// rendered between a chart and its table in both Live and Over-time views. Both views
-// drive the same parent-held usageMetric, so switching in one reflects in the other.
+// Shared Requests/Tokens/Cost toggle row (finance income-statement chartTab style).
+// Both views drive the same parent-held usageMetric, so switching in one reflects in
+// the other. Over-time renders it before every metric-dependent module.
 function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m: UsageMetric) => void }) {
   return (
     <div className="flex justify-center gap-1 mt-1">
@@ -1671,7 +1670,10 @@ export default function BotViewer() {
         {view === "usage" ? (
           <div className="flex min-h-full flex-col gap-3 p-3">
             {usageMode === "over-time" ? (
-              <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} onMetricChange={setUsageMetric} />
+              <>
+                <MetricToggle metric={usageMetric} onChange={setUsageMetric} />
+                <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} />
+              </>
             ) : (
               <>
                 <UsageLimits />
