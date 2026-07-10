@@ -9,7 +9,7 @@ from storage.entity.dto import Chat, Message
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
 
-from storage.util import get_utc_iso8601_timestamp, generate_id, build_message_path
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, generate_id, generate_message_id, build_message_path
 
 IS_WINDOWS = sys.platform == 'win32'
 
@@ -61,6 +61,27 @@ async def create_chat(user_id: int, messages: List[Message], external_id: Option
         external_id=external_id,
     )
     return await chat_repo.add_chat(user_id, chat)
+
+
+async def restart_manager_session(user_id: int) -> Chat:
+    """Create a fresh manager session with its standard bootstrap message."""
+    timestamp = get_utc_iso8601_timestamp()
+    chat = await create_chat(
+        user_id,
+        messages=[Message(
+            id=generate_message_id(),
+            role="user",
+            content="load manager skill",
+            timestamp=timestamp,
+            unix_timestamp=get_unix_timestamp(),
+        )],
+    )
+    chat.topic = "manager"
+    chat.running = True
+    await chat_repo.save_chat_by_id(chat)
+    chat_repo.release_topic(user_id, "manager", except_chat_id=chat.id)
+    send_chat_message(chat.id, user_id=user_id, topic="manager", bot_tier="tier1")
+    return chat
 
 
 async def update_chat(user_id: int, chat_id: str, messages: List[Message], external_id: Optional[str] = None) -> Chat:

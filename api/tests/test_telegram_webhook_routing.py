@@ -80,6 +80,22 @@ class TelegramWebhookRoutingTest(unittest.IsolatedAsyncioTestCase):
         send.assert_called_once()
         self.assertIn("Welcome", send.call_args.args[1])
 
+    async def test_clear_restarts_manager_with_standard_bootstrap_flow(self):
+        body = _message_body("/clear")
+        user = type("User", (), {"id": 42})()
+        restart = AsyncMock()
+        send = AsyncMock()
+        with (
+            patch.object(tg, "TELEGRAM_WEBHOOK_SECRET", "right"),
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch("storage.service.chat.restart_manager_session", restart),
+            patch.object(tg, "_send_message", send),
+        ):
+            resp = await tg.telegram_webhook(FakeRequest(secret_header="right", body=body))
+        self.assertEqual(resp, {"ok": True})
+        restart.assert_awaited_once_with(42)
+        send.assert_awaited_once_with(10, "New session started.", message_thread_id=None)
+
 
 class TelegramRoutePrefixRegexTest(unittest.TestCase):
     def test_chat_id_prefix_requires_six_hex_and_whitespace(self):

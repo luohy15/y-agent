@@ -286,6 +286,12 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         if tg_topic:
             topic = tg_topic.topic_name
 
+    if topic == "manager":
+        from storage.service import chat as chat_service
+        await chat_service.restart_manager_session(user.id)
+        await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
+        return {"ok": True}
+
     # Create a new empty chat with topic set
     chat_id = generate_id()
     from storage.dto.chat import Chat as ChatDTO
