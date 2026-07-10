@@ -3,6 +3,7 @@
 mocked; nothing touches a real database or CRS."""
 
 import unittest
+import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,7 +23,7 @@ class LimitsEndpointTest(unittest.IsolatedAsyncioTestCase):
             result = await usage_controller.limits(_request(user_id=456))
 
         get_limit_status.assert_called_once_with(456)
-        self.assertEqual(result, envelope)
+        self.assertEqual(result, {**envelope, "timezone": "Asia/Shanghai"})
 
     async def test_returns_the_service_envelope_unchanged(self):
         envelope = {
@@ -49,9 +50,18 @@ class LimitsEndpointTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(usage_controller.limits_service, "get_limit_status", return_value=envelope):
             result = await usage_controller.limits(_request())
 
-        self.assertEqual(result, envelope)
+        self.assertEqual(result, {**envelope, "timezone": "Asia/Shanghai"})
         self.assertNotIn("id", result["providers"][0])
         self.assertNotIn("user_id", result["providers"][0])
+
+    async def test_returns_configured_timezone(self):
+        with (
+            patch.dict(os.environ, {"Y_AGENT_TIMEZONE": "America/Los_Angeles"}),
+            patch.object(usage_controller.limits_service, "get_limit_status", return_value={"providers": [], "errors": []}),
+        ):
+            result = await usage_controller.limits(_request())
+
+        self.assertEqual(result["timezone"], "America/Los_Angeles")
 
 
 if __name__ == "__main__":

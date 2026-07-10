@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 from typing import Optional
 
@@ -86,4 +87,8 @@ async def limits(request: Request):
     CRS's own cache TTL), and manual retry / automatic poll both call this
     same safe read endpoint."""
     user_id = request.state.user_id
-    return await limits_service.get_limit_status(user_id)
+    status = await limits_service.get_limit_status(user_id)
+    return {
+        **status,
+        "timezone": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
+    }

@@ -509,6 +509,25 @@ export const DAILY_TOTALS_FIXTURE = (() => {
   return [...byDay.values()].sort((a, b) => a.usage_date.localeCompare(b.usage_date));
 })();
 
+// --- /api/usage/limits -> live account-wide subscription windows --------------
+export const USAGE_LIMITS_FIXTURE = {
+  timezone: "Asia/Shanghai",
+  providers: [
+    { backend: "claude_code", provider: "anthropic", account_id: "claude-demo", account_name: "Claude subscription", observed_at: isoDaysAgo(0, -34 * MIN), source: "anthropic_oauth_usage", availability: "available", freshness: "fresh", error: null, windows: { five_hour: { used_percent: 42, remaining_percent: 58, reset_at: isoDaysAgo(0, 2 * HOUR + 12 * MIN) }, one_week: { used_percent: 18, remaining_percent: 82, reset_at: isoDaysAgo(-2, 17 * HOUR) } }, extra_windows: {} },
+    { backend: "codex", provider: "openai", account_id: "codex-demo", account_name: "OpenAI subscription", observed_at: isoDaysAgo(0, -7 * MIN), source: "codex_rate_limit_headers", availability: "available", freshness: "stale", error: null, windows: { five_hour: { used_percent: 67, remaining_percent: 33, reset_at: isoDaysAgo(0, 46 * MIN) }, one_week: { used_percent: 84, remaining_percent: 16, reset_at: null } }, extra_windows: {} },
+  ],
+  errors: [{ origin: "https://relay-backup.example", error: "timeout" }],
+};
+
+export const USAGE_LIMITS_UNAVAILABLE_FIXTURE = {
+  timezone: "Asia/Shanghai",
+  providers: [
+    { backend: "claude_code", provider: "anthropic", account_id: "claude-setup", account_name: "Claude setup-token account", observed_at: null, source: "anthropic_oauth_usage", availability: "unavailable", freshness: "unavailable", error: "Setup-token accounts do not expose authoritative subscription percentages.", windows: { five_hour: null, one_week: null }, extra_windows: {} },
+    { backend: "codex", provider: "openai", account_id: "codex-pool", account_name: "Shared relay pool", observed_at: null, source: "codex_rate_limit_headers", availability: "unavailable", freshness: "unavailable", error: "No stable account scope is bound to this relay key.", windows: { five_hour: null, one_week: null }, extra_windows: {} },
+  ],
+  errors: [],
+};
+
 // --- /showcase chat panel: snapshot raw messages ------------------------------
 // Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
 // uses to project mock chat messages). Snapshot mode short-circuits every
@@ -632,6 +651,7 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/finance/holdings") return HOLDINGS_FIXTURE;
   if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
   if (pathname === "/api/usage/daily-totals") return DAILY_TOTALS_FIXTURE;
+  if (pathname === "/api/usage/limits") return new URLSearchParams(window.location.search).get("limits") === "unavailable" ? USAGE_LIMITS_UNAVAILABLE_FIXTURE : USAGE_LIMITS_FIXTURE;
   if (pathname === "/api/bot/list") return []; // usage view ignores the config table
   if (pathname === "/api/finance/balance-sheet") {
     // Only the live balance sheet is exercised by the default tab; history
