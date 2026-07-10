@@ -39,12 +39,17 @@ toggle shared across both.
 The same bot-page Usage view also presents a current subscription-limit status
 section for the Claude and GPT (Codex) backends. Each provider shows its
 rolling 5-hour and 1-week windows with percent used, percent remaining, reset
-time, freshness, and explicit unavailable/stale states. Claude status comes
-from its native `/usage` TUI overlay; Codex status comes from the structured
-rate-limit telemetry emitted by Codex sessions. A provider adapter normalizes
-both into one API contract and stores only the latest snapshot needed for a
-stable cross-process web read. Refresh is independent from spend sync because
-the two datasets have different sources, cadence, and failure modes.
+time, freshness, and explicit unavailable/stale states. Both providers are
+read live through claude-relay-service (CRS), which already owns the
+provider account identities behind the user's relay keys: Claude status
+comes from CRS's cached Anthropic OAuth usage snapshot, and Codex status
+comes from CRS's cached structured rate-limit snapshot captured passively
+off ordinary Codex response headers. A dedicated, API-key-scoped CRS
+self-service endpoint normalizes both providers' bound-account windows into
+one contract that y-agent reads live on every request; y-agent does not add
+a second persistence layer of its own. Refresh is independent from spend
+sync because the two datasets have different sources, cadence, and failure
+modes.
 
 ## User Stories
 
@@ -314,43 +319,58 @@ the two datasets have different sources, cadence, and failure modes.
 
 ### Subscription limit-window status
 
-- **Separate operational dataset.** Subscription limit windows are current
-  provider-account status, not spend history. They do not share the daily
-  per-model table, relay sync, date filtering, or historical analytics. A
-  compact latest-snapshot record is keyed by user, backend, and stable account
-  scope; it stores the normalized windows, observation time, source version,
-  and last probe error. Successful refresh replaces the snapshot; failed
-  refresh preserves the last success and marks it stale/unavailable.
+- **Separate operational dataset, no new persistence.** Subscription limit
+  windows are current provider-account status, not spend history. They do not
+  share the daily per-model table, relay sync, date filtering, or historical
+  analytics, and y-agent does not add a second persistence layer for this
+  data: every read is a live call through CRS's self-service endpoint, which
+  is itself backed by CRS's own Redis-cached provider snapshots (refreshed on
+  CRS's own cadence). Nothing is written to y-agent's PostgreSQL and this
+  feature has no migration SQL.
 - **Normalized window contract.** Every required window exposes a stable kind
   (`five_hour` or `one_week`), provider label, used percent, derived remaining
   percent, absolute reset timestamp when supplied, and observation timestamp.
   The API also reports provider/account availability and freshness. Unknown or
   missing values stay null and visible as unavailable; they are never coerced
   to zero. Provider-specific extra windows remain optional metadata.
-- **Claude source.** Claude is actively probed through the subscription-login
-  Claude Code TUI's native `/usage` overlay. The existing parser's `Current
-  session` value maps to the 5-hour window and `Current week (all models)` maps
-  to the required 1-week window. `Current week (Sonnet only)`, when present,
-  is retained as an extra window. The probe launches no model turn and always
-  tears down its ephemeral session.
-- **Codex source.** GPT (Codex) reads structured rate-limit telemetry emitted
-  by Codex session events rather than scraping terminal presentation. The
-  primary window with `window_minutes=300` maps to 5 hours and the secondary
-  window with `window_minutes=10080` maps to 1 week; `used_percent` and
-  `resets_at` map directly into the normalized contract. Collection accepts
-  telemetry from normal Codex runs and may use a no-turn status probe only if
-  the installed CLI later exposes one; refreshing status must not deliberately
-  spend model tokens.
-- **Account scope and deduplication.** Status is account-wide. Bot configs that
-  resolve to the same provider login share one snapshot; the UI labels the
-  provider/account scope and never implies that each bot has an independent
-  quota. Different configured accounts remain separate rows instead of being
-  merged into a misleading average or maximum.
+- **Claude source.** Claude status comes from CRS's cached Anthropic OAuth
+  usage snapshot (`claudeAccountService.fetchOAuthUsage()` /
+  `updateClaudeUsageSnapshot()`), which CRS already refreshes when its cache
+  is older than about a minute. The snapshot's `five_hour` value maps to the
+  required 5-hour window and `seven_day` maps to the required 1-week window;
+  the optional `seven_day_sonnet` value, when present, is retained as an extra
+  window. This is a zero-model-turn provider API read, not TUI or `/usage`
+  scraping: CRS accounts using setup-token auth cannot call the OAuth usage
+  endpoint and correctly report the required windows as unavailable rather
+  than inferring quota from session timing, tokens, costs, or response
+  warning headers.
+- **Codex source.** GPT (Codex) status comes from CRS's cached structured
+  rate-limit snapshot, captured passively from response headers on ordinary
+  Codex chat-completions traffic through the relay and stored on the selected
+  OpenAI account. CRS identifies the required windows by `windowMinutes`
+  (`300` maps to the 5-hour window, `10080` maps to the 1-week window) rather
+  than assuming primary/secondary window order, and derives the absolute
+  reset time from the snapshot's observation time. Collection is entirely
+  passive: refreshing status never issues a synthetic request and never
+  deliberately spends model tokens; if CRS holds no header snapshot yet the
+  window is reported unavailable, and an old one is reported stale.
+- **Account scope and deduplication.** Status is account-wide, scoped by
+  CRS's relay account UUID (the same identity CRS's own account management
+  view already tracks). Bot configs whose `cr_` relay key is bound to the
+  same Claude or OpenAI account share one snapshot; y-agent deduplicates by
+  (relay origin, backend, account id) so account-wide subscription limits are
+  never presented as bot-specific quotas. Different configured accounts
+  remain separate rows instead of being merged into a misleading average or
+  maximum. A shared-pool key with no explicit dedicated account binding
+  returns an explicit unavailable result (`no_stable_account_scope`) rather
+  than leaking or guessing a pool account.
 - **Refresh semantics.** Limit-window refresh is a dedicated authenticated
-  action, independent from relay spend sync. Providers refresh independently
-  and return partial success. A refresh may also occur opportunistically when
-  a backend run emits newer native status. Freshness is determined from the
-  observation time and the configured status TTL, not from page-load time.
+  read, independent from relay spend sync: manual retry and the web view's
+  periodic poll both call the same safe endpoint, which performs no side
+  effects beyond CRS's own short-TTL cache refresh for Claude. Providers
+  refresh independently and return partial success when one target fails.
+  Freshness is determined from the snapshot's observation time and a
+  configurable status TTL, not from page-load time.
 
 ### Usage API
 
@@ -376,12 +396,17 @@ the two datasets have different sources, cadence, and failure modes.
 - **Generous default limit.** The default row limit is high (100k) so wide
   ranges never truncate; per-model daily rows are small enough that this is
   safe.
-- **Latest limit status.** A provider-neutral endpoint returns the latest
-  subscription-window snapshots for the current user, optionally filtered by
-  backend/account scope. A separate refresh action runs the provider adapters
-  and returns per-provider success/error results. Both surfaces omit internal
-  integer ids and preserve stale snapshots instead of returning fabricated
-  current values after a probe failure.
+- **Latest limit status.** A provider-neutral, authenticated endpoint
+  (`GET /api/usage/limits`) fans out live to every distinct CRS relay key the
+  user's bot configs reference, normalizes each returned provider-account
+  entry (used/remaining percent, absolute reset time, observation time,
+  availability, freshness), and deduplicates by (relay origin, backend,
+  account id). One relay key's failure is isolated to a per-origin error list
+  rather than failing the whole read; manual retry and the web view's
+  periodic poll both call this same endpoint, with no separate refresh action
+  and no persisted snapshot on the y-agent side. Responses omit internal
+  integer ids and never fabricate a current value after a probe failure:
+  missing or malformed data stays null and visibly unavailable.
 
 ### Web views
 
@@ -456,11 +481,16 @@ the two datasets have different sources, cadence, and failure modes.
   real off-by-one class once already.
 - **API responses are checked for the ID convention** (no internal integer
   ids) and for the default-today behavior when no range is supplied.
-- **Provider adapters are contract-tested** with captured Claude pane text and
-  Codex rate-limit event payloads: 300-minute and 10080-minute windows normalize
-  to the required kinds, reset timestamps survive conversion, optional extra
-  windows do not replace required ones, and missing/malformed values become
-  unavailable rather than 0%.
+- **Provider mapping is contract-tested on the CRS side** with captured
+  Anthropic OAuth usage payloads and Codex rate-limit response headers:
+  300-minute and 10080-minute windows normalize to the required
+  `five_hour`/`one_week` kinds (never assumed from primary/secondary window
+  order), reset timestamps survive conversion, optional extra windows do not
+  replace required ones, and missing/malformed values become unavailable
+  rather than 0%. y-agent's own normalization (remaining-percent derivation,
+  freshness) is contract-tested against captured CRS envelope fixtures
+  covering the same cases, plus target dedup, per-origin partial failure, and
+  duplicate account-scope dedup.
 - **Failure and freshness behavior is tested externally:** one provider can
   fail while the other succeeds; a failed refresh retains the last successful
   snapshot as stale with an error; account-equivalent bot configs deduplicate;
@@ -478,8 +508,10 @@ the two datasets have different sources, cadence, and failure modes.
   API timestamps.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
   day, spot-check a date's totals against the relay dashboard, refresh both
-  providers' limit status, and compare their 5-hour/1-week values and reset
-  times with the native Claude and Codex surfaces.
+  providers' limit status, confirm the web poll and manual retry never
+  trigger a relay spend sync or a provider inference request (checked via the
+  browser Network panel), and compare their 5-hour/1-week values and reset
+  times against CRS's own account management view.
 - Prior art to mirror: the finance test suite's derived-view style and the
   finance price table's upsert tests.
 
