@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.entity.dto import BotConfig
 from storage.repository import bot_config as bot_repo
+from storage.repository import chat as chat_repo
 
 
 def list_configs(user_id: int) -> List[BotConfig]:
@@ -32,3 +33,13 @@ def delete_config(user_id: int, name: str) -> bool:
     if name == "default":
         return False
     return bot_repo.delete_config(user_id, name)
+
+
+def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
+    """Rename a bot config, cascading to `bot_config.ref_bot_name` pointers
+    and `chat.bot_name`. See `bot_config_repo.rename_config` for the
+    validation rules (existence, name collision, "default" guard)."""
+    if not bot_repo.rename_config(user_id, old_name, new_name):
+        return False
+    chat_repo.rename_bot_name(user_id, old_name, new_name)
+    return True

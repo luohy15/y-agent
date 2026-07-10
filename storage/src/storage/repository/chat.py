@@ -401,6 +401,19 @@ def release_topic(user_id: int, topic: str, except_chat_id: Optional[str] = None
         return q.update({"topic": f"{topic}-archived"})
 
 
+def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
+    """Rename `bot_name` from `old_name` to `new_name` on all chats matching
+    (user_id, bot_name). Returns the affected row count.
+
+    Direct UPDATE so `_resolve_immutable_field` in `_save_chat_*_sync` doesn't
+    apply, same rationale as `release_topic` above.
+    """
+    with get_db() as session:
+        return (session.query(ChatEntity)
+                .filter_by(user_id=user_id, bot_name=old_name)
+                .update({"bot_name": new_name}))
+
+
 def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Optional[Chat]:
     """Find a chat with the given topic and trace_id."""
     with get_db() as session:
