@@ -160,12 +160,6 @@ function providerLabel(provider: UsageLimitProvider): string {
   return provider.backend === "codex" || provider.provider === "openai" ? "GPT / Codex" : "Claude";
 }
 
-function providerSource(source: string | null): string {
-  if (source === "anthropic_oauth_usage") return "Anthropic OAuth";
-  if (source === "codex_rate_limit_headers") return "Codex headers";
-  return source ? source.replace(/_/g, " ") : "relay status";
-}
-
 // OpenAI's usage schema has no cache-write metric (cache writes are billed/reported as
 // plain input_tokens; only cache hits are reported). cache_create is structurally always
 // 0 for provider=openai rows, so render "(n/a)" instead of a misleading 0; parenthesized
@@ -1317,10 +1311,9 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   );
 }
 
-function LimitWindowRow({ label, window, timezone }: { label: string; window: UsageLimitWindow | null; timezone?: string }) {
+function LimitWindowRow({ label, window }: { label: string; window: UsageLimitWindow | null }) {
   const used = window?.used_percent;
-  const remaining = window?.remaining_percent;
-  const hasUsage = typeof used === "number" && typeof remaining === "number";
+  const hasUsage = typeof used === "number";
   return (
     <div className="grid grid-cols-[48px_minmax(72px,1fr)_auto] gap-x-2 gap-y-1 text-[10px] min-w-0">
       <span className="pt-0.5 text-sol-base0">{label}</span>
@@ -1328,15 +1321,14 @@ function LimitWindowRow({ label, window, timezone }: { label: string; window: Us
         {hasUsage && <div className={`h-full rounded-full ${used >= 80 ? "bg-sol-orange" : used >= 60 ? "bg-sol-yellow" : "bg-sol-green"}`} style={{ width: `${Math.max(0, Math.min(100, used))}%` }} />}
       </div>
       <span className="font-medium tabular-nums text-sol-base1">{hasUsage ? `${used.toFixed(0)}%` : "—"}</span>
-      <div className="col-start-2 col-end-4 flex min-w-0 justify-between gap-2 text-sol-base01">
-        <span className="text-sol-base0 whitespace-nowrap">{hasUsage ? `${remaining.toFixed(0)}% remaining` : "usage unavailable"}</span>
-        <span className="min-w-0 truncate text-right" title={window?.reset_at || undefined}>{formatResetTime(window?.reset_at || null, timezone)}{window?.reset_at ? ` · ${formatRelativeTime(window.reset_at)}` : ""}</span>
+      <div className="col-start-2 col-end-4 flex min-w-0 justify-end gap-2 text-sol-base01">
+        <span className="min-w-0 truncate text-right">{window?.reset_at ? formatRelativeTime(window.reset_at) : "reset unavailable"}</span>
       </div>
     </div>
   );
 }
 
-function UsageLimitCard({ provider, lastReadFailed, timezone }: { provider: UsageLimitProvider; lastReadFailed: boolean; timezone?: string }) {
+function UsageLimitCard({ provider, lastReadFailed }: { provider: UsageLimitProvider; lastReadFailed: boolean }) {
   const unavailable = provider.freshness === "unavailable" || provider.availability === "unavailable";
   const freshness: LimitFreshness = lastReadFailed && !unavailable ? "stale" : provider.freshness;
   const badgeClasses = freshness === "fresh" ? "border-sol-green/40 bg-sol-green/10 text-sol-green" : freshness === "stale" ? "border-sol-yellow/40 bg-sol-yellow/10 text-sol-yellow" : "border-sol-red/40 bg-sol-red/10 text-sol-red";
@@ -1346,12 +1338,12 @@ function UsageLimitCard({ provider, lastReadFailed, timezone }: { provider: Usag
     <article className="min-w-0 border-b border-sol-base02 p-3 last:border-b-0 @min-[620px]:border-b-0 @min-[620px]:border-r @min-[620px]:last:border-r-0">
       <div className="mb-3 flex min-w-0 items-center gap-2">
         <span className={`grid size-6 shrink-0 place-items-center rounded text-xs font-semibold ${mark === "C" ? "bg-sol-orange/15 text-sol-orange" : "bg-sol-blue/15 text-sol-blue"}`}>{mark}</span>
-        <div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold text-sol-base1">{providerLabel(provider)}</div><div className="truncate text-[10px] text-sol-base01">{provider.account_name || "Subscription account"}</div></div>
+        <div className="min-w-0 flex-1 truncate text-xs font-semibold text-sol-base1">{providerLabel(provider)}</div>
+        {lastReadFailed && <span className="text-[9px] text-sol-yellow">last read failed</span>}
         <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${badgeClasses}`}>{freshness}</span>
       </div>
       {unavailable ? <div className="rounded border border-dashed border-sol-base01 px-2.5 py-3 text-[10px] text-sol-base01"><strong className="mb-1 block text-sol-base0">Usage windows unavailable</strong>{errorMessage}</div> : <>
-        <div className="space-y-2.5"><LimitWindowRow label="5 hours" window={provider.windows.five_hour} timezone={timezone} /><LimitWindowRow label="1 week" window={provider.windows.one_week} timezone={timezone} /></div>
-        <div className="mt-2 border-t border-sol-base02 pt-2 text-[10px] text-sol-base01">Observed <strong className="font-medium text-sol-base0">{formatRelativeTime(provider.observed_at)}</strong> via {providerSource(provider.source)}{lastReadFailed ? " · last read failed" : ""}</div>
+        <div className="space-y-2.5"><LimitWindowRow label="5 hours" window={provider.windows.five_hour} /><LimitWindowRow label="1 week" window={provider.windows.one_week} /></div>
       </>}
     </article>
   );
@@ -1370,7 +1362,7 @@ export function UsageLimits() {
   return (
     <section className="@container shrink-0 overflow-hidden rounded border border-sol-base02 bg-sol-base03">
       <div className="flex items-center gap-2 border-b border-sol-base02 px-3 py-2"><span className="text-[11px] font-semibold uppercase tracking-wide text-sol-base1">Subscription limits</span><span className="hidden text-[10px] text-sol-base01 @min-[460px]:inline">account-wide · updates every 60s</span>{hasPartialError && <span className="min-w-0 truncate text-[10px] text-sol-yellow" title="Some providers could not be refreshed">partial read</span>}<button onClick={() => void mutate()} disabled={isLoading} className={`ml-auto rounded px-1.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base02 hover:text-sol-base1 ${isLoading ? "animate-spin cursor-wait opacity-50" : "cursor-pointer"}`} title="Retry subscription status">↻</button></div>
-      {isLoading && !data ? <div className="p-3 text-xs italic text-sol-base01">Loading subscription limits...</div> : providers.length > 0 ? <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">{providers.map((provider, index) => <UsageLimitCard key={`${provider.backend}:${provider.account_id || index}`} provider={provider} lastReadFailed={Boolean(error)} timezone={data?.timezone} />)}</div> : <div className="p-3 text-xs text-sol-base01">{error ? "Subscription limits could not be loaded. Retry to try again." : "No subscription accounts are configured."}</div>}
+      {isLoading && !data ? <div className="p-3 text-xs italic text-sol-base01">Loading subscription limits...</div> : providers.length > 0 ? <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">{providers.map((provider, index) => <UsageLimitCard key={`${provider.backend}:${provider.account_id || index}`} provider={provider} lastReadFailed={Boolean(error)} />)}</div> : <div className="p-3 text-xs text-sol-base01">{error ? "Subscription limits could not be loaded. Retry to try again." : "No subscription accounts are configured."}</div>}
     </section>
   );
 }
