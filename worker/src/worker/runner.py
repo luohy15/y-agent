@@ -516,17 +516,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
-    # Phase 0: derive tier from skill, with bot_tier (e.g. --tier cli flag)
-    # overriding the skill-derived tier. Unlisted skills and no-skill default
-    # to tier3.
-    effective_tier = agent_config.derive_tier(skill, bot_tier)
-
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to
     # a hand-built default bot so the conversation keeps running.
     try:
         bot_config = agent_config.resolve_bot_config(
-            user_id, bot_name, backend=chat.backend or backend, tier=effective_tier,
+            user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
         )
     except Exception as e:
         fallback_backend = chat.backend or backend or "claude_tui"

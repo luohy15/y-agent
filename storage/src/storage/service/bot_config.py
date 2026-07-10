@@ -19,8 +19,9 @@ def add_config(user_id: int, config: BotConfig) -> BotConfig:
 
 
 def set_enabled(user_id: int, name: str, enabled: bool) -> bool:
-    """Enable or disable a bot config. Disabled bots are excluded from
-    default routing but can still be explicitly pinned by name."""
+    """Enable or disable a bot config. Disabled bots are excluded from the
+    dispatch universe entirely, including an explicit name pin (which
+    degrades to a tier2 fallback instead of resolving the disabled bot)."""
     config = bot_repo.get_config(user_id, name=name)
     if config is None:
         return False

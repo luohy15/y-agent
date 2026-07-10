@@ -3,7 +3,7 @@
 import logging
 import os
 import random
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
@@ -14,64 +14,9 @@ logger = logging.getLogger(__name__)
 
 _MAX_REF_DEPTH = 5
 
-# Phase 0 static skill->tier mapping.
-# Unlisted skills (and *all* new skills) default to tier3 (most bots are tier3
-# now, so this is the "no opinion" default rather than a conservative pin).
-# tier2 is an explicit allowlist of cheap-safe skills only.
-# tier0 set is EMPTY: no skill auto-routes to tier0 (opt-in via --bot / --tier only).
-SKILL_TO_TIER: Dict[str, str] = {
-    "artifact": "tier2",
-    "calendar": "tier2",
-    "cdn": "tier2",
-    "chat": "tier2",
-    "claude-usage-check": "tier2",
-    "daily-changelog": "tier2",
-    "daily-scan": "tier2",
-    "deploy": "tier2",
-    "email-style": "tier2",
-    "entity": "tier2",
-    "finance": "tier2",
-    "finance-changelog": "tier2",
-    "format-zh": "tier2",
-    "git": "tier2",
-    "hr": "tier2",
-    "image": "tier2",
-    "journal": "tier2",
-    "link": "tier2",
-    "note": "tier2",
-    "openrouter-credit-check": "tier2",
-    "pdf": "tier2",
-    "refine": "tier2",
-    "reminder": "tier2",
-    "style-zh": "tier2",
-    "test": "tier2",
-    "ticker-analysis": "tier2",
-    "weekly-review": "tier2",
-}
-
 
 def _effective_backend(bot_config: BotConfig) -> str:
     return bot_config.backend or bot_config.api_type
-
-
-def _find_bot_config_by_backend(user_id: int, backend: str, bot_name: str = None) -> Optional[BotConfig]:
-    configs = bot_service.list_configs(user_id)
-    matches = [config for config in configs if _effective_backend(config) == backend]
-
-    if bot_name:
-        for config in matches:
-            if config.name == bot_name:
-                return config
-
-    for preferred_name in (backend, "default"):
-        for config in matches:
-            if config.name == preferred_name and config.enabled:
-                return config
-
-    for config in matches:
-        if config.enabled:
-            return config
-    return None
 
 
 # --- Tier helpers ---
@@ -83,20 +28,6 @@ def tier_of(bot_config: BotConfig) -> str:
     (most bots are tier3, so unlabeled configs need no explicit tier).
     """
     return bot_config.tier or "tier3"
-
-
-def derive_tier(skill: Optional[str], requested: Optional[str] = None) -> str:
-    """Derive the effective tier for a run.
-
-    An explicit requested tier (e.g. a `--tier` CLI flag) overrides the
-    skill-derived tier. Otherwise the tier is looked up in SKILL_TO_TIER;
-    unlisted skills and no-skill default to tier3.
-    """
-    if requested:
-        return requested
-    if skill:
-        return SKILL_TO_TIER.get(skill) or "tier3"
-    return "tier3"
 
 
 def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:
@@ -135,38 +66,53 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
     return _deref_bot_config(user_id, target, visited, depth + 1)
 
 
-def _bots_for_tier(user_id: int, tier: str) -> List[BotConfig]:
-    """Return list of BotConfig for bots matching the tier.
+def _universe(user_id: int) -> List[BotConfig]:
+    """Return the candidate pool a dispatch request is resolved against.
 
-    Excludes perplexity backend (px is pin-only, not a pool member).
-    Excludes type='model' bots (inline, tldr, etc.) from auto-routing.
-    Excludes ref/pointer bots (a pointer shouldn't be a weighted pool member).
+    User's own configs, falling back to the system default user's configs
+    only when the user has none of their own. Ref/pointer bots and
+    type='model' bots are never routing candidates; disabled bots are out
+    (an explicit name pin to a disabled bot degrades to tier2, see
+    resolve_bot_config). Perplexity stays in the universe here (it is only
+    excluded from tier-filter candidacy) so backend=perplexity / name=px
+    pins still resolve.
     """
     configs = bot_service.list_configs(user_id)
-    bots = []
-    for cfg in configs:
-        # Exclude ref/pointer bots from tier pools
-        if cfg.ref_bot_name:
-            continue
-        effective = cfg.backend or cfg.api_type
-        # Safety: keep perplexity hard-exclusion (belt + suspenders)
-        if effective == "perplexity":
-            continue
-        type_val = getattr(cfg, "type", None) or "agent"
-        if type_val == "model":
-            continue
-        if not cfg.enabled:
-            continue
-        if tier_of(cfg) == tier:
-            bots.append(cfg)
-    return bots
+    if not configs:
+        default_user_id = get_default_user_id()
+        if default_user_id != user_id:
+            configs = bot_service.list_configs(default_user_id)
+    return [
+        cfg for cfg in configs
+        if cfg.enabled
+        and not cfg.ref_bot_name
+        and (getattr(cfg, "type", None) or "agent") != "model"
+    ]
+
+
+def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = None, tier: str = None) -> List[BotConfig]:
+    """Intersect the universe with the given filters.
+
+    Filters combine with AND, not precedence: bot_name, backend, and tier
+    each narrow the pool further when given. The tier filter additionally
+    excludes perplexity (web-search bot is pin-only, not a pool member).
+    """
+    result = universe
+    if bot_name:
+        result = [cfg for cfg in result if cfg.name == bot_name]
+    if backend:
+        result = [cfg for cfg in result if _effective_backend(cfg) == backend]
+    if tier:
+        result = [cfg for cfg in result if tier_of(cfg) == tier and _effective_backend(cfg) != "perplexity"]
+    return result
 
 
 def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
     """Weighted random pick from bots by route_weight.
 
-    Probability = route_weight / sum(route_weights) within the tier.
-    Bots with route_weight <= 0 are excluded from auto-routing.
+    Probability = route_weight / sum(route_weights). Bots with
+    route_weight <= 0 are excluded from the draw. Only called with 2+
+    candidates (see _select) so weight never gates a sole candidate.
     """
     eligible = [(cfg, cfg.route_weight) for cfg in bots if cfg.route_weight and cfg.route_weight > 0]
     if not eligible:
@@ -177,63 +123,64 @@ def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
     return random.choices(choices, weights=weights, k=1)[0]
 
 
-def _pick_uniform(bots: List[BotConfig]) -> Optional[BotConfig]:
-    """Uniform random pick (equal weight, retained but no longer used)."""
-    if not bots:
+def _select(candidates: List[BotConfig]) -> Optional[BotConfig]:
+    """Pick a config from a candidate pool.
+
+    A sole candidate is used directly regardless of its weight; a
+    multi-candidate pool is drawn by weight (which may still come up
+    empty if every candidate has zero/unset weight).
+    """
+    if not candidates:
         return None
-    return random.choice(bots)
+    if len(candidates) == 1:
+        return candidates[0]
+    return _pick_by_weight(candidates)
 
 
-def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
-    # Priority 1: bot-name pin (original path, no cross-user fallback). A named
-    # bot beats every other signal, including a backend pin on the same request.
-    # A requested-but-missing name does not "match" and falls through to the
-    # next link in the chain (strict chain evaluation, not an early exit).
-    if bot_name:
-        bot_config = bot_service.get_config(user_id, bot_name)
-        if bot_config:
-            return _deref_bot_config(user_id, bot_config)
-
-    # Priority 2: backend pin
-    if backend:
-        bot_config = _find_bot_config_by_backend(user_id, backend, bot_name)
-        if not bot_config:
-            default_user_id = get_default_user_id()
-            if default_user_id != user_id:
-                bot_config = _find_bot_config_by_backend(default_user_id, backend, bot_name)
-        if bot_config:
-            return _deref_bot_config(user_id, bot_config)
-
-        logger.warning(
-            "No bot config found for user_id=%s bot_name=%s backend=%s; using backend-only fallback",
-            user_id,
-            bot_name,
-            backend,
-        )
-        return BotConfig(name=bot_name or backend, backend=backend)
-
-    # Priority 3: tier-based selection (only consulted when neither pin matched)
-    if tier:
-        bots = _bots_for_tier(user_id, tier)
-        if bots:
-            selected = _pick_by_weight(bots)
-            if selected:
-                return selected
-        logger.warning(
-            "No qualified bots for tier %s (user_id=%s); falling back to default",
-            tier,
-            user_id,
-        )
-
-    # Fallback: default logic (original path preserved)
+def _global_default(user_id: int) -> BotConfig:
     bot_config = bot_service.get_config(user_id)
     if not bot_config:
         default_user_id = get_default_user_id()
         if default_user_id != user_id:
             bot_config = bot_service.get_config(default_user_id)
     if not bot_config:
-        raise ValueError(f"No bot config found for user_id={user_id}, bot_name={bot_name}")
+        raise ValueError(f"No bot config found for user_id={user_id}")
     return _deref_bot_config(user_id, bot_config)
+
+
+def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
+    """Resolve a dispatch request to a bot config.
+
+    Unified filter resolution (no precedence chain): bot_name / backend /
+    tier intersect over the user's universe of eligible configs. Exactly
+    one match is used directly; multiple matches draw by weight. No
+    filters, or an empty intersection, re-resolves against the tier2 pool;
+    an empty tier2 pool falls back to the user's global default bot.
+    """
+    universe = _universe(user_id)
+
+    if bot_name or backend or tier:
+        selected = _select(_candidates(universe, bot_name=bot_name, backend=backend, tier=tier))
+        if not selected and bot_name and not backend and not tier:
+            # Explicit name pins keep pointer-deref semantics even though
+            # ref bots are excluded from the universe: name addressing
+            # (story 20 aliasing) should still reach the pointer's target.
+            pinned = bot_service.get_config(user_id, bot_name)
+            if pinned and pinned.ref_bot_name and pinned.enabled:
+                selected = _deref_bot_config(user_id, pinned)
+        if selected:
+            return selected
+        logger.warning(
+            "No bot matched filters (bot_name=%s backend=%s tier=%s) for user_id=%s; falling back to tier2",
+            bot_name, backend, tier, user_id,
+        )
+
+    tier2 = _select(_candidates(universe, tier="tier2"))
+    if tier2:
+        return tier2
+
+    logger.warning("Empty tier2 pool for user_id=%s; falling back to default bot", user_id)
+    return _global_default(user_id)
 
 
 def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
