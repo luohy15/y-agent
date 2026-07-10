@@ -36,7 +36,7 @@ class ChatSendTraceFlagsCliTest(unittest.TestCase):
         self.assertEqual(payload["force_new"], False)
         self.assertEqual(payload["from_topic"], "manager")
         # Absent optional targeting flags are omitted, not sent as None.
-        for key in ("topic", "skill", "chat_id", "trace_id", "work_dir", "from_chat_id", "bot_name", "bot_tier"):
+        for key in ("topic", "skill", "chat_id", "trace_id", "work_dir", "from_chat_id", "bot_name", "bot_tier", "reasoning_effort"):
             self.assertNotIn(key, payload)
 
     def test_trace_flags_included(self):
@@ -90,6 +90,11 @@ class ChatSendTraceFlagsCliTest(unittest.TestCase):
         payload = api_request.call_args.kwargs["json"]
         self.assertEqual(payload["bot_name"], "codex")
         self.assertEqual(payload["bot_tier"], "tier2")
+
+    def test_reasoning_effort_is_sent_with_alias(self):
+        result, api_request = _invoke(["--effort", "XHIGH"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(api_request.call_args.kwargs["json"]["reasoning_effort"], "xhigh")
 
     def test_posts_to_notify_endpoint_and_prints_chat_id(self):
         result, api_request = _invoke([])

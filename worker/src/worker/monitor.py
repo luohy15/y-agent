@@ -680,7 +680,7 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
     """
     from agent.config import resolve_vm_config, resolve_bot_config
     from agent.codex import start_detached_codex_ssh
-    from worker.runner import build_codex_resume_cmd, build_codex_env, build_codex_provider_args
+    from worker.runner import build_codex_resume_cmd, build_codex_env, build_codex_provider_args, resolve_reasoning_effort
 
     thread_id = result.get("thread_id")
     if not thread_id:
@@ -701,6 +701,15 @@ async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
     # Keep the per-bot relay override on steer restarts; without it the resumed
     # run drops the -c provider flags and reverts to the host config.toml crs.
     cmd.extend(build_codex_provider_args(bot_config))
+
+    consumed_steer_ids = set(result.get("consumed_steer_ids") or [])
+    if consumed_steer_ids:
+        from storage.service import chat as chat_service
+        chat = await chat_service.get_chat_by_id(chat_id)
+        consumed_messages = [msg for msg in chat.messages if msg.id in consumed_steer_ids] if chat else []
+        reasoning_effort = resolve_reasoning_effort(consumed_messages, "codex")
+        if reasoning_effort:
+            cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
 
     last_message_id = result.get("last_message_id")
     env = build_codex_env(bot_config, chat_id, proc.get("trace_id"),

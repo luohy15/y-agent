@@ -31,6 +31,7 @@ class CreateChatRequest(BaseModel):
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
     post_hooks: Optional[list] = None
+    reasoning_effort: Optional[str] = None
 
 
 class CreateChatResponse(BaseModel):
@@ -47,6 +48,7 @@ class SendMessageRequest(BaseModel):
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
     post_hooks: Optional[list] = None
+    reasoning_effort: Optional[str] = None
 
 
 class StopChatRequest(BaseModel):
@@ -129,7 +131,22 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
     return delivered
 
 
-def _message_dict(role: str, content: str, images: Optional[List[str]] = None) -> dict:
+REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> Optional[str]:
+    if reasoning_effort is None:
+        return None
+    normalized = reasoning_effort.lower()
+    if normalized not in REASONING_EFFORT_LEVELS:
+        raise HTTPException(
+            status_code=400,
+            detail="reasoning_effort must be one of: low, medium, high, xhigh, max",
+        )
+    return normalized
+
+
+def _message_dict(role: str, content: str, images: Optional[List[str]] = None, reasoning_effort: Optional[str] = None) -> dict:
     data = {
         "role": role,
         "content": content,
@@ -139,6 +156,8 @@ def _message_dict(role: str, content: str, images: Optional[List[str]] = None) -
     }
     if images:
         data["images"] = images
+    if reasoning_effort is not None:
+        data["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
     return data
 
 
@@ -203,7 +222,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
     # Build user message
-    user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
+    user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort))
 
     chat = await chat_service.create_chat(
         user_id,
@@ -238,7 +257,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
-    user_msg = Message.from_dict(_message_dict("user", req.prompt, images))
+    user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort))
     chat.messages.append(user_msg)
     chat.interrupted = False
 
@@ -539,6 +558,7 @@ class NotifyRequest(BaseModel):
     from_chat_id: Optional[str] = None
     bot_name: Optional[str] = None
     bot_tier: Optional[str] = None
+    reasoning_effort: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):
@@ -622,7 +642,7 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload", vm_config=vm_config)
-    user_msg = Message.from_dict(_message_dict("user", msg_content, images))
+    user_msg = Message.from_dict(_message_dict("user", msg_content, images, req.reasoning_effort))
 
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir

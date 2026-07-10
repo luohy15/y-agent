@@ -43,6 +43,40 @@ ARTIFACT_PLACEHOLDERS = {
 }
 
 
+REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+CODEX_REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh"}
+SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex"}
+
+
+def _trailing_user_messages(messages) -> list:
+    """Return user messages that have not yet received a non-user response."""
+    trailing = []
+    for msg in reversed(messages):
+        if msg.role != "user":
+            break
+        trailing.append(msg)
+    trailing.reverse()
+    return trailing
+
+
+def resolve_reasoning_effort(messages, backend: str) -> str | None:
+    """Resolve and validate the newest explicit per-turn effort override."""
+    reasoning_effort = None
+    for msg in _trailing_user_messages(messages):
+        if msg.reasoning_effort is not None:
+            reasoning_effort = msg.reasoning_effort.lower()
+
+    if reasoning_effort is None:
+        return None
+    if reasoning_effort not in REASONING_EFFORT_LEVELS:
+        raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'; expected low, medium, high, xhigh, or max")
+    if backend not in SUPPORTED_REASONING_EFFORT_BACKENDS:
+        raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {backend}")
+    if backend == "codex" and reasoning_effort not in CODEX_REASONING_EFFORT_LEVELS:
+        raise ValueError(f"Codex does not support reasoning_effort '{reasoning_effort}'; expected low, medium, high, or xhigh")
+    return reasoning_effort
+
+
 def _pending_user_text_and_images(messages) -> tuple[str, list]:
     """Return all trailing user messages (since the last non-user message),
     concatenated text plus merged image paths.
@@ -53,12 +87,7 @@ def _pending_user_text_and_images(messages) -> tuple[str, list]:
     plan-2662-steer-race.md): the moment any new turn starts, every
     unanswered trailing user message is folded into its prompt.
     """
-    trailing = []
-    for msg in reversed(messages):
-        if msg.role != "user":
-            break
-        trailing.append(msg)
-    trailing.reverse()
+    trailing = _trailing_user_messages(messages)
 
     texts = []
     images = []
@@ -547,16 +576,16 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     await chat_repo.save_chat_by_id(chat)
 
     effective_backend = bot_config.backend or bot_config.api_type
-    if effective_backend == "perplexity":
-        await _run_perplexity_inline(chat, chat_id, user_id, bot_config,
-                                     post_hooks=post_hooks, trace_id=trace_id, topic=topic)
-        return "done"
-    elif effective_backend == "openai":
-        await _run_openai_inline(chat, chat_id, user_id, bot_config,
-                                 post_hooks=post_hooks, trace_id=trace_id, topic=topic)
-        return "done"
-
     try:
+        resolve_reasoning_effort(list(chat.messages), effective_backend)
+        if effective_backend == "perplexity":
+            await _run_perplexity_inline(chat, chat_id, user_id, bot_config,
+                                         post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+            return "done"
+        elif effective_backend == "openai":
+            await _run_openai_inline(chat, chat_id, user_id, bot_config,
+                                     post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+            return "done"
         await _start_detached(chat, chat_id, user_id, bot_config,
                                vm_name=vm_name, work_dir=work_dir,
                                post_hooks=post_hooks, trace_id=trace_id, topic=topic)
@@ -589,6 +618,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     # Extract all trailing user messages as the prompt
     user_prompt, user_images = _pending_user_text_and_images(messages)
+    reasoning_effort = resolve_reasoning_effort(messages, "claude_code")
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -609,6 +639,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
     if model:
         cmd.extend(["--model", model])
+    if reasoning_effort:
+        cmd.extend(["--effort", reasoning_effort])
     if chat.skill and not resume:
         cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
 
@@ -792,6 +824,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 
     # Extract all trailing user messages as the prompt
     user_prompt, user_images = _pending_user_text_and_images(messages)
+    reasoning_effort = resolve_reasoning_effort(messages, "codex")
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -818,6 +851,9 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
             cmd.extend(["-C", cwd])
         if model:
             cmd.extend(["-m", model])
+
+    if reasoning_effort:
+        cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
 
     # Skill loading: codex exec has no --append-system-prompt equivalent, so
     # prepend the skill-load instruction to the prompt (only on a fresh run).

@@ -84,6 +84,31 @@ class ChatImagesApiTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(existing.messages[-1].images, [str(image_path.resolve())])
 
+    async def test_create_chat_stores_reasoning_effort(self):
+        saved = {}
+
+        async def create_chat(user_id, messages, chat_id):
+            saved["message"] = messages[0]
+            return self._chat(chat_id)
+
+        req = chat_controller.CreateChatRequest(prompt="new", reasoning_effort="HIGH")
+        with patch.object(chat_controller.chat_service, "create_chat", new=AsyncMock(side_effect=create_chat)), \
+             patch("storage.repository.chat.save_chat", new=AsyncMock()), \
+             patch.object(chat_controller, "send_chat_message"):
+            await chat_controller.post_create_chat(req, self._request())
+
+        self.assertEqual(saved["message"].reasoning_effort, "high")
+
+    async def test_send_message_stores_reasoning_effort(self):
+        existing = self._chat()
+        req = chat_controller.SendMessageRequest(chat_id="abc123", prompt="existing", reasoning_effort="xhigh")
+        with patch.object(chat_controller.chat_service, "get_chat", new=AsyncMock(return_value=existing)), \
+             patch("storage.repository.chat.save_chat_by_id", new=AsyncMock()), \
+             patch.object(chat_controller, "send_chat_message"):
+            await chat_controller.post_send_message(req, self._request())
+
+        self.assertEqual(existing.messages[-1].reasoning_effort, "xhigh")
+
     async def test_notify_accepts_image_uploads(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             assets_dir = Path(tmp_dir).resolve()

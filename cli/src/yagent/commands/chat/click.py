@@ -114,6 +114,7 @@ def _fire_and_forget(
     from_chat_id: Optional[str],
     bot: Optional[str],
     bot_tier: Optional[str],
+    reasoning_effort: Optional[str],
     wait: bool = False,
     wait_timeout: int = 300,
 ):
@@ -148,6 +149,8 @@ def _fire_and_forget(
         payload["bot_name"] = bot
     if bot_tier:
         payload["bot_tier"] = bot_tier
+    if reasoning_effort:
+        payload["reasoning_effort"] = reasoning_effort
     try:
         resp = api_request("POST", "/api/chat/notify", json=payload)
         data = resp.json()
@@ -171,6 +174,7 @@ def _interactive(
     bot: Optional[str],
     bot_tier: Optional[str],
     prompt: Optional[str],
+    reasoning_effort: Optional[str],
 ):
     """Interactive REPL (or one-off with -p)."""
     display_manager = DisplayManager()
@@ -192,10 +196,13 @@ def _interactive(
             return
 
     if prompt:
+        payload = {"prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir}
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         if chat_id:
-            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
+            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, **payload})
         else:
-            resp = api_request("POST", "/api/chat", json={"prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
+            resp = api_request("POST", "/api/chat", json=payload)
             chat_id = resp.json()["chat_id"]
 
         _stream_and_handle(chat_id, display_manager, last_index)
@@ -217,10 +224,13 @@ def _interactive(
         sys.stdout.write("\033[A\033[2K" * clear_lines)
         sys.stdout.flush()
 
+        payload = {"prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir}
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         if chat_id:
-            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, "prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
+            api_request("POST", "/api/chat/message", json={"chat_id": chat_id, **payload})
         else:
-            resp = api_request("POST", "/api/chat", json={"prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir})
+            resp = api_request("POST", "/api/chat", json=payload)
             chat_id = resp.json()["chat_id"]
 
         last_index, interrupted = _stream_and_handle(chat_id, display_manager, last_index)
@@ -248,6 +258,7 @@ def _interactive(
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
 @click.option('--bot', '-b', default=None, help='Bot name to use (e.g. codex, claude_code, openai)')
 @click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
+@click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
 @click.pass_context
 def chat_group(
@@ -268,6 +279,7 @@ def chat_group(
     latest: bool,
     bot: Optional[str],
     tier: Optional[str],
+    reasoning_effort: Optional[str],
     prompt: Optional[str],
 ):
     """Chat with AI models.
@@ -313,13 +325,14 @@ def chat_group(
             from_chat_id=from_chat_id,
             bot=bot,
             bot_tier=tier,
+            reasoning_effort=reasoning_effort,
             wait=wait,
             wait_timeout=wait_timeout,
         )
         return
 
     if interactive:
-        _interactive(chat_id=chat_id, latest=latest, bot=bot, bot_tier=tier, prompt=prompt)
+        _interactive(chat_id=chat_id, latest=latest, bot=bot, bot_tier=tier, prompt=prompt, reasoning_effort=reasoning_effort)
         return
 
     click.echo("Error: pass -m <message> for fire-and-forget, or -i for the interactive REPL.", err=True)

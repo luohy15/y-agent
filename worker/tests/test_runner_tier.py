@@ -56,6 +56,35 @@ class RunChatTierTest(unittest.TestCase):
         resolve = self._run(chat, skill="dev", bot_tier="tier0")
         self.assertEqual(resolve.call_args.kwargs["tier"], "tier0")
 
+    def test_unsupported_inline_effort_resets_chat_and_records_error(self):
+        chat = _chat(messages=[Message(
+            id="m1",
+            role="user",
+            content="hello",
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+            reasoning_effort="high",
+        )])
+        bot_config = BotConfig(name="openai", backend="openai")
+        with (
+            patch("worker.runner.chat_service.get_chat", new=AsyncMock(return_value=chat)),
+            patch("worker.runner.chat_service.get_chat_by_id", new=AsyncMock(return_value=chat)),
+            patch("storage.repository.chat.save_chat_by_id", new=AsyncMock()) as save_chat,
+            patch("worker.runner.agent_config.resolve_vm_config", return_value=Mock()),
+            patch("worker.runner._send_telegram_user_message"),
+            patch("worker.runner.agent_config.resolve_bot_config", return_value=bot_config),
+            patch("worker.runner._run_openai_inline", new=AsyncMock()) as run_openai,
+        ):
+            with self.assertRaisesRegex(ValueError, "only supported for claude_code and codex"):
+                asyncio.run(runner.run_chat("user-1", "chat-1"))
+
+        self.assertFalse(chat.running)
+        self.assertEqual(chat.messages[-1].role, "assistant")
+        self.assertIn("Backend launch failed: ValueError", chat.messages[-1].content)
+        self.assertIn("only supported for claude_code and codex", chat.messages[-1].content)
+        run_openai.assert_not_awaited()
+        self.assertGreaterEqual(save_chat.await_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

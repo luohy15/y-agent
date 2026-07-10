@@ -1,5 +1,8 @@
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
+
+from storage.entity.dto import Chat, Message
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 from worker.monitor import _restart_codex_with_steer
 
@@ -15,7 +18,7 @@ PROVIDER_ARGS = [
 
 
 class CodexSteerTest(unittest.IsolatedAsyncioTestCase):
-    async def _run_steer(self, base_url):
+    async def _run_steer(self, base_url, reasoning_effort=None):
         captured = {}
 
         async def fake_start(**kwargs):
@@ -32,13 +35,23 @@ class CodexSteerTest(unittest.IsolatedAsyncioTestCase):
             patch("agent.config.resolve_vm_config", return_value=Mock(name="vm")),
             patch("agent.config.resolve_bot_config", return_value=bot_config),
             patch("agent.codex.start_detached_codex_ssh", side_effect=fake_start) as start,
+            patch("storage.service.chat.get_chat_by_id", new_callable=AsyncMock, return_value=Chat(
+                id="chat-1",
+                create_time=get_utc_iso8601_timestamp(),
+                update_time=get_utc_iso8601_timestamp(),
+                messages=[Message(
+                    id="steer-1", role="user", content="do more",
+                    timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+                    reasoning_effort=reasoning_effort,
+                )],
+            )),
             patch("worker.monitor.update_process_offset"),
             patch("worker.monitor.release_lease"),
         ):
             await _restart_codex_with_steer(
                 "chat-1",
                 {"user_id": 1, "vm_name": "vm", "work_dir": "/repo", "backend_type": "codex"},
-                {"status": "steer", "steer_text": "do more", "thread_id": "thread-1"},
+                {"status": "steer", "steer_text": "do more", "thread_id": "thread-1", "consumed_steer_ids": ["steer-1"]},
             )
 
         start.assert_awaited_once()
@@ -61,6 +74,10 @@ class CodexSteerTest(unittest.IsolatedAsyncioTestCase):
              "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-5.5"],
         )
         self.assertNotIn('model_provider="y-codex"', captured["cmd"])
+
+    async def test_steer_restart_preserves_consumed_message_effort(self):
+        captured = await self._run_steer("", reasoning_effort="high")
+        self.assertEqual(captured["cmd"][-2:], ["-c", 'model_reasoning_effort="high"'])
 
 
 if __name__ == "__main__":

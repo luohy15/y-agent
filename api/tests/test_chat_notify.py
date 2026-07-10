@@ -70,6 +70,10 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     def _appended_content(m) -> str:
         return m.append_message.call_args.args[1].content
 
+    @staticmethod
+    def _created_message(m):
+        return m.create_chat.call_args.kwargs["messages"][0]
+
     # --- trace-prefix construction -------------------------------------------------
 
     async def test_full_trace_prefix_on_new_chat(self):
@@ -101,6 +105,13 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
             await chat_controller.post_chat_notify(req, _request())
 
         self.assertEqual(self._created_content(m), "[to_chat:newchat]\nping")
+
+    async def test_reasoning_effort_is_stored_on_notify_message(self):
+        req = chat_controller.NotifyRequest(message="ping", reasoning_effort="HIGH")
+        m = self._patches()
+        with m.stack:
+            await chat_controller.post_chat_notify(req, _request())
+        self.assertEqual(self._created_message(m).reasoning_effort, "high")
 
     # --- root-topic ('manager') callback rejection ---------------------------------
 
