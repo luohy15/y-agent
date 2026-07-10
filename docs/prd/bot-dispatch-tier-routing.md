@@ -22,9 +22,11 @@ Bots carry a capability tier as data: a four-level ladder from tier0
 (strongest, most expensive) to tier3 (baseline). A dispatcher can request a
 tier instead of naming a bot, and the system picks a bot from that tier's pool
 by weighted random selection. Explicit pins always win: naming a bot or a
-backend bypasses tier routing entirely. When nothing is pinned or requested,
-a static skill-to-tier map supplies a default tier, and an empty tier pool
-falls back to the global default bot with a warning rather than failing.
+backend bypasses tier routing entirely. Bot targeting on a dispatch is
+expressed as either a bot name or a tier; when both are empty the dispatch
+resolves as a tier2 request, the system default. Skills are never statically
+bound to tiers. An empty tier pool falls back to the global default bot with
+a warning rather than failing.
 
 Which tier to request is governed by a documented dispatch policy, not code:
 strong models go where judgment concentrates in a trace (planning, review,
@@ -43,16 +45,16 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 3. As a user, I want a backend pin (for example codex) to resolve to a
    matching enabled bot config, so that I can choose the runtime family
    without knowing config names.
-4. As a user, I want a chat with no bot, backend, or tier specified to run on
-   the global default bot, so that plain conversations never require routing
-   knowledge.
+4. As a user, I want a chat with no bot, backend, or tier specified to
+   resolve as a tier2 request, so that unspecified dispatches land on a
+   capable mid-range bot by default without any routing knowledge.
 5. As an admin, I want each bot's tier stored on its config and visible in
    the bot list, so that tier membership is queryable data rather than
    something agents memorize.
 6. As an admin, I want unlabeled bots to default to the lowest tier, so that
    the majority of bots need no explicit tier configuration.
 7. As an admin, I want to clear a bot's explicit tier back to unset, so that
-   redundant labels matching the system default can be removed.
+   redundant labels matching the bot-side default can be removed.
 8. As an admin, I want to weight bots within a tier, so that I control the
    probability split when a tier has multiple members.
 9. As an admin, I want a bot with no positive route weight kept out of tier
@@ -61,14 +63,15 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 10. As an admin, I want disabled bots, pointer bots, model-type entries, and
     the web-search bot excluded from tier pools, so that auto-routing only
     ever lands on a real, runnable agent backend.
-11. As a dispatching agent, I want routine cheap-safe skills to route to a
-    mid-tier by default, so that scheduled maintenance work never burns
-    frontier-model budget.
-12. As a dispatching agent, I want no skill to auto-route to the top tier, so
-    that the most expensive model is only ever chosen by explicit opt-in.
+11. As a dispatching agent, I want skills never statically bound to tiers,
+    so that tier choice reflects each dispatch's task shape instead of a
+    stale per-skill label.
+12. As a dispatching agent, I want the top tier reachable only by explicit
+    opt-in (bot pin or tier request), so that the most expensive model is
+    never chosen by a default.
 13. As a dispatching agent, I want an explicit tier request to override the
-    skill-derived tier, so that I can escalate a normally cheap skill for a
-    hard instance of the task.
+    tier2 default, so that I can escalate or downgrade any dispatch
+    per-instance.
 14. As a user, I want an empty tier pool to fall back to the default bot with
     a logged warning, so that a data gap degrades service quality instead of
     breaking the chat.
@@ -95,10 +98,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 ## Implementation Decisions
 
 - **Tier is a nullable field on the bot config**, one of `tier0` (strongest)
-  through `tier3` (baseline). Unset means tier3: the system default tier is
-  the bottom of the ladder, chosen because most bots are baseline and should
-  need no label. The default was originally tier1 and was deliberately moved
-  to tier3; explicit tier3 labels were then cleared as redundant.
+  through `tier3` (baseline). Unset means tier3: the bot-side default tier
+  is the bottom of the ladder, chosen because most bots are baseline and
+  should need no label. The default was originally tier1 and was deliberately
+  moved to tier3; explicit tier3 labels were then cleared as redundant.
 - **The reference ladder** (as of adoption): tier0 = frontier flagship,
   tier1 = strong general model, tier2 = capable mid-range (multiple members),
   tier3 = everything else. The ladder is per-user data maintained via the bot
@@ -112,9 +115,12 @@ inspectable and editable through the bot CLI, never memorized in instructions.
      cross-user fallback to the system default user, and a synthetic
      backend-only config as last resort.
   3. Tier request: only consulted when neither pin matched; weighted random
-     pick from the tier's pool.
+     pick from the tier's pool. When no tier was requested either, the
+     effective tier is tier2 (the system default), so an unspecified
+     dispatch is equivalent to an explicit tier2 request.
   4. Default: the user's default config, then the system default user's, then
-     a hard error if nothing exists.
+     a hard error if nothing exists. Reached only when the effective tier's
+     pool is empty (the empty-pool fallback), never as a primary path.
 - **Tier pool membership** requires all of: enabled, not a pointer (ref)
   config, not a model-type entry, not the web-search backend, tier matches
   (with unset counting as tier3), and an explicitly positive route weight.
@@ -127,11 +133,18 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - **Weighted selection** within a pool: probability equals the bot's weight
   divided by the pool's total weight. Setting weight to zero pauses a bot
   from auto-routing without disabling it.
-- **Skill-to-tier mapping is a static allowlist** (phase 0): an explicit
-  tier2 list of cheap-safe routine skills; every unlisted skill, and the
-  no-skill case, derives tier3. The tier0 set is empty by design: nothing
-  auto-routes to the top tier. An explicit tier on the request overrides the
-  skill-derived tier.
+- **No skill-to-tier mapping.** Skills are never statically bound to tiers.
+  This reverses the phase-0 design (a hard-coded static allowlist mapping
+  cheap-safe routine skills to tier2, everything else to tier3), which is
+  removed entirely: a per-skill label ignores task shape, the same reason
+  static topic-to-bot bindings were rejected. Bot targeting on a dispatch is
+  expressed as exactly two signals: a bot name or a tier.
+- **Tier2 is the dispatch-side default.** When a dispatch carries neither a
+  bot name nor a tier, it resolves as `--tier tier2`. Note the asymmetry
+  with the bot-side default: an unlabeled bot config still counts as tier3
+  (bottom of the ladder), while an unlabeled dispatch requests tier2
+  (capable mid-range). Nothing defaults to tier0: the top tier is explicit
+  opt-in only.
 - **Empty-pool fallback**: when a requested tier has no qualified bots,
   resolution logs a warning and proceeds down the chain to the default bot.
   Routing must never fail a chat over a data gap.
@@ -145,7 +158,7 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - **The tier request travels the whole dispatch path**: CLI flag, API
   payloads on chat creation, message send, and cross-skill notify, through
   the queue message, to the worker where the effective tier (explicit
-  request, else skill-derived) feeds resolution.
+  request, else the tier2 default) feeds resolution.
 - **Dispatch policy lives in agent instructions, not code.** The framework,
   derived from Anthropic's advisor-tool guidance ("judgment concentrates in
   a few moments while most turns are mechanical"):
@@ -153,11 +166,12 @@ inspectable and editable through the bot CLI, never memorized in instructions.
     root-cause analysis, multi-stage coordination) request tier0; their
     artifacts are the quality lever for the whole trace.
   - Mechanical execution under an approved upstream plan omits the flag and
-    inherits the default; quality is carried by the plan artifact.
+    inherits the tier2 default; quality is carried by the plan artifact.
   - Every-turn-hard tasks with no clean plan/execute split (deep debugging)
     run tier0 throughout.
   - Nothing-to-plan one-shots skip tiers: web fact-checks pin the web-search
-    bot with a synchronous wait; ordinary one-off Q&A takes the default.
+    bot with a synchronous wait; ordinary one-off Q&A takes the tier2
+    default.
   - The user's explicit bot pick always wins; when difficulty is uncertain,
     treat as tier0 (a weak bot failing a hard task costs more than a strong
     bot doing an easy one).
@@ -183,14 +197,15 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   excluded, pointer and model-type and web-search excluded, unset tier
   counted as tier3.
 - Test the precedence rules: a bot-name pin beating a backend pin on the
-  same request, pins beating tier requests, explicit tier beating
-  skill-derived tier, and the empty-pool fallback reaching the default bot
-  rather than erroring.
+  same request, pins beating tier requests, explicit tier beating the tier2
+  default, and the empty-pool fallback reaching the default bot rather than
+  erroring.
 - Test pointer dereference limits: cycle detection and max depth both raise.
 - For weighted selection, test eligibility and single-member determinism,
   not the random distribution.
-- Worker-side: skill-tier derivation (listed skill, unlisted skill, no
-  skill) and the explicit-tier override.
+- Worker-side: tier defaulting (no bot, no tier resolves as tier2; skill
+  presence is irrelevant to the derived tier) and the explicit-tier
+  override.
 - Prior art: the agent package has dedicated config tests covering weight
   exclusion, tier defaulting, and pool membership; the worker package covers
   resolution fallback. Extend those rather than inventing a new harness.
@@ -203,14 +218,16 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - Per-topic or per-skill bot bindings: explicitly rejected as the
   pass-through anti-pattern this feature replaces.
 - Populating the tier3 pool: most baseline bots are currently disabled, so
-  tier3 (and thus the no-flag default path) falls through to the default
-  bot. Known data follow-up, not a routing defect.
+  an explicit tier3 request falls through to the default bot. Known data
+  follow-up, not a routing defect (the no-flag path defaults to tier2, so
+  this gap no longer sits on the default path).
 - Automatic escalation or retry on a failed run (re-dispatching to a higher
   tier): tier choice is made at dispatch time only.
 - Cost- or budget-aware routing and load balancing beyond static per-bot
   weights.
-- A learned or dynamic skill-to-tier mapping: the static allowlist is
-  phase 0 by design.
+- Any skill-to-tier mapping, static or learned: skills are not routing
+  signals; the phase-0 static allowlist was removed, not to be replaced by
+  a smarter variant.
 - In-code enforcement of the dispatch policy: which tier a dispatcher asks
   for remains an agent-instruction convention; the code only honors the
   request.
