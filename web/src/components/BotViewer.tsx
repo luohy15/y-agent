@@ -1289,7 +1289,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             <tbody>
               {sortedRows.map((r, i) => (
                 <tr key={r.model} ref={i === 0 ? firstRowRef : undefined} className="hover:bg-sol-base02/50">
-                  <td className="px-1.5 py-1 font-mono text-sol-base1 border-b border-sol-base02/40 whitespace-nowrap">{r.model}</td>
+                  <td className="px-1.5 py-1 font-mono text-sol-base1 border-b border-sol-base02/40"><div className="max-w-[180px] truncate" title={r.model}>{r.model}</div></td>
                   <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{pctTotal > 0 ? `${((r[pctKey] / pctTotal) * 100).toFixed(1)}%` : "-"}</td>
                   <td className="px-1.5 py-1 text-right text-sol-base1 tabular-nums border-b border-sol-base02/40">{fmtCompact(r.all_tokens)}</td>
                   <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{fmtCost(r.cost)}</td>
