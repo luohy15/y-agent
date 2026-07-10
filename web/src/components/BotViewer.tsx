@@ -89,6 +89,13 @@ function fmtCost(c: number): string {
   return `$${(c || 0).toFixed(2)}`;
 }
 
+// OpenAI's usage schema has no cache-write metric (cache writes are billed/reported as
+// plain input_tokens; only cache hits are reported). cache_create is structurally always
+// 0 for provider=openai rows, so render "n/a" instead of a misleading 0.
+function fmtCacheCreate(n: number, provider: string, fmt: (n: number) => string): string {
+  return provider === "openai" ? "n/a" : fmt(n);
+}
+
 // Compact token-count formatting by magnitude with 1 decimal: 1.2B / 100.1M / 101.2K.
 // Keeps small counts as plain integers so big numbers don't overflow chart/table cells.
 function fmtCompact(n: number): string {
@@ -501,7 +508,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
                 <span>Total: {fmtNum(u.all_tokens)} tok</span>
                 <span>In: {fmtNum(u.input_tokens)}</span>
                 <span>Out: {fmtNum(u.output_tokens)}</span>
-                <span>Cache: {fmtNum(u.cache_create_tokens)}/{fmtNum(u.cache_read_tokens)}</span>
+                <span>Cache: {fmtCacheCreate(u.cache_create_tokens, u.provider, fmtNum)}/{fmtNum(u.cache_read_tokens)}</span>
                 <span>Cost: {fmtCost(u.cost)}</span>
               </div>
             ))
@@ -1194,7 +1201,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
                   <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40">{fmtNum(r.requests)}</td>
                   <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[560px]:table-cell">{fmtCompact(r.input_tokens)}</td>
                   <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[560px]:table-cell">{fmtCompact(r.output_tokens)}</td>
-                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[700px]:table-cell">{fmtCompact(r.cache_create_tokens)}/{fmtCompact(r.cache_read_tokens)}</td>
+                  <td className="px-1.5 py-1 text-right text-sol-base0 tabular-nums border-b border-sol-base02/40 hidden @min-[700px]:table-cell">{fmtCacheCreate(r.cache_create_tokens, r.provider, fmtCompact)}/{fmtCompact(r.cache_read_tokens)}</td>
                 </tr>
               ))}
               <tr ref={totalRowRef} className="font-medium">
