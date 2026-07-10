@@ -2,12 +2,14 @@ import click
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
 from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+from .tier import display_tier
 
 @click.command('get')
 @click.argument('name')
 def bot_get(name):
     """Show full details of a single bot configuration."""
-    config = bot_service.get_config(get_cli_user_id(), name=name)
+    user_id = get_cli_user_id()
+    config = bot_service.get_config(user_id, name=name)
     if config is None or config.name != name:
         click.echo(f"Bot '{name}' not found")
         return
@@ -24,7 +26,7 @@ def bot_get(name):
         ("OpenRouter Config", config.openrouter_config or "N/A"),
         ("Input/1M", fmt_price(input_price)),
         ("Output/1M", fmt_price(output_price)),
-        ("Tier", config.tier or "tier3"),
+        ("Tier", display_tier(config, lambda n: bot_service.get_config(user_id, name=n))),
         ("Type", config.type or "agent"),
         ("Route Weight", config.route_weight if config.route_weight is not None else "N/A"),
         ("Ref", config.ref_bot_name or "N/A"),

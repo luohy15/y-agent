@@ -4,6 +4,7 @@ from tabulate import tabulate
 from storage.service import bot_config as bot_service
 from storage.service.user import get_cli_user_id
 from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+from .tier import display_tier
 
 def truncate_text(text, max_length):
     """Truncate text to max_length with ellipsis if needed."""
@@ -24,6 +25,8 @@ def bot_list(full: bool = False, filter_type: str | None = None):
     if not configs:
         click.echo("No bot configurations found")
         return
+
+    by_name = {c.name: c for c in configs}
 
     if full:
         # Full table: all columns
@@ -57,7 +60,7 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 bot_cfg.ref_bot_name or "-",
                 fmt_price(input_price),
                 fmt_price(output_price),
-                bot_cfg.tier or "tier3",
+                display_tier(bot_cfg, by_name.get),
                 bot_cfg.type or "agent",
                 "Yes" if bot_cfg.enabled else "No",
             ])
@@ -70,7 +73,7 @@ def bot_list(full: bool = False, filter_type: str | None = None):
                 bot_cfg.name,
                 bot_cfg.backend or bot_cfg.api_type or "N/A",
                 bot_cfg.model or "N/A",
-                bot_cfg.tier or "tier3",
+                display_tier(bot_cfg, by_name.get),
                 bot_cfg.type or "agent",
                 bot_cfg.ref_bot_name or "-",
             ])
