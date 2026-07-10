@@ -840,6 +840,34 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
           </table>
         </div>
       </div>
+      <DailyUsageHeatmap time={time} metric={metric} />
+    </div>
+  );
+}
+
+function DailyUsageHeatmap({ time, metric }: { time: string; metric: UsageMetric }) {
+  const heatYear = /^\d{4}$/.test(time.trim()) ? time.trim() : null;
+  const { data: heatData } = useSWR<DailyTotal[]>(
+    `${API}/api/usage/daily-totals${heatYear ? `?year=${heatYear}` : ""}`,
+    fetcher,
+  );
+  const heatmap = useMemo(() => {
+    const dailyTotals = new Map<string, number>();
+    for (const row of heatData || []) dailyTotals.set(row.usage_date, metricValue(row, metric));
+    return buildHeatmapWeeks(dailyTotals, time);
+  }, [heatData, metric, time]);
+
+  if (heatmap.weeks.length === 0) return null;
+
+  return (
+    <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
+      <div className="mb-2">
+        <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
+          Daily {metric === "cost" ? "cost" : metric === "requests" ? "requests" : "tokens"}
+        </div>
+        <div className="text-sol-base01 text-[10px]">One cell per day, darker = more usage, source=crs</div>
+      </div>
+      <UsageHeatmap weeks={heatmap.weeks} max={heatmap.max} metric={metric} />
     </div>
   );
 }
@@ -1143,22 +1171,6 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
   const pieData = useMemo(() => buildModelPie(rows, metric), [rows, metric]);
   const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
 
-  // Daily contribution heatmap: per-day totals fetched from a SEPARATE endpoint over the
-  // heatmap's own window (rolling 12 months, or the selected calendar year), decoupled
-  // from the donut/table's Live time filter so the heatmap always shows the full history.
-  // A bare 4-digit `time` (e.g. "2024") scopes the heatmap to that year; everything else
-  // (today/week/month/all/ranges) leaves it on the rolling-12-month default.
-  const heatYear = /^\d{4}$/.test(time.trim()) ? time.trim() : null;
-  const { data: heatData } = useSWR<DailyTotal[]>(
-    `${API}/api/usage/daily-totals${heatYear ? `?year=${heatYear}` : ""}`,
-    fetcher,
-  );
-  const heatmap = useMemo(() => {
-    const dailyTotals = new Map<string, number>();
-    for (const r of heatData || []) dailyTotals.set(r.usage_date, metricValue(r, metric));
-    return buildHeatmapWeeks(dailyTotals, time);
-  }, [heatData, metric, time]);
-
   // Per-column totals: sum each numeric column across all model rows.
   const totals = useMemo(() => rows.reduce(
     (t, r) => {
@@ -1302,17 +1314,6 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
           </table>
         </div>
       </div>
-      {heatmap.weeks.length > 0 && (
-        <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
-          <div className="mb-2">
-            <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
-              Daily {metric === "cost" ? "cost" : metric === "requests" ? "requests" : "tokens"}
-            </div>
-            <div className="text-sol-base01 text-[10px]">One cell per day, darker = more usage, source=crs</div>
-          </div>
-          <UsageHeatmap weeks={heatmap.weeks} max={heatmap.max} metric={metric} />
-        </div>
-      )}
     </div>
   );
 }
@@ -1669,11 +1670,13 @@ export default function BotViewer() {
       <div className="flex-1 min-h-0 overflow-auto" onClick={(e) => { if (expandedName && !(e.target as HTMLElement).closest('[data-bot-card]')) setExpandedName(null); }}>
         {view === "usage" ? (
           <div className="flex min-h-full flex-col gap-3 p-3">
-            <UsageLimits />
             {usageMode === "over-time" ? (
               <UsageOverTimeView granularity={granularity} metric={usageMetric} time={usageTime} onMetricChange={setUsageMetric} />
             ) : (
-              <UsageTable time={usageTime} metric={usageMetric} onMetricChange={setUsageMetric} />
+              <>
+                <UsageLimits />
+                <UsageTable time={usageTime} metric={usageMetric} onMetricChange={setUsageMetric} />
+              </>
             )}
           </div>
         ) : isLoading ? (
