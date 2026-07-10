@@ -93,6 +93,39 @@ reset y-agent without affecting other apps.
 If you trigger the shortcut without a selection, the input still opens — you
 can use it as a quick prompt that copies the result to the clipboard.
 
+### Quick prompts
+
+Below Selection, a **Quick prompts** row lists one-click buttons that run a
+saved label/prompt pair immediately against the captured selection — same
+request path as pressing Enter, but with no typing required. The first time
+you open the popup after signing in, it seeds a single default: **Grammar
+refine**. Clicking a pill fills the prompt input with that pill's text (so
+the instruction that ran is visible and editable) and submits right away.
+
+Click the gear (⚙) next to the "Quick prompts" label to manage the list
+in place:
+
+- **Add prompt** appends a blank Label/Prompt row.
+- Edit any row's Label and Prompt fields directly.
+- **Delete** removes a row.
+- Edits are a local draft — nothing is saved until you click **Save**; Cancel
+  (or the gear again) discards the draft and reverts to the last saved list.
+- Both fields are required (after trimming); Save is blocked with a compact
+  error under any invalid row until it's fixed or deleted.
+- Deleting every prompt and saving is a valid, intentional empty state — it
+  won't be re-seeded with the default on reopen.
+- The manager scrolls internally once it hits the popup's existing
+  half-screen height cap.
+
+Quick prompts are stored server-side as an authenticated per-user preference
+(`desktopQuickPrompts` via `/api/user-preference`), so they sync across that
+user's desktop installs — not just this Mac. The popup's main process holds
+the JWT (see Sign-in below) and proxies load/save calls over IPC; the
+renderer never receives the token directly. If a load or save call fails
+(e.g. offline, not signed in), the popup keeps the last-known list usable for
+one-click prompting and shows a non-blocking error with a **Retry** button;
+free-form Enter-to-run keeps working regardless.
+
 ## Troubleshooting
 
 - **Stuck on sign-in**: if the browser tab didn't open automatically, click
@@ -127,12 +160,16 @@ src/
 │   ├── selection.ts    AppleScript ⌘C capture + TCC permission notice
 │   ├── oauth.ts        loopback OAuth server + ensureLoggedInViaBrowser
 │   ├── inline-api.ts   JWT read + POST /api/inline
-│   └── ipc.ts          ipcMain handlers (submit / copy / resize / close)
+│   ├── api-client.ts   generic authenticated JSON request helper (net.request)
+│   ├── quick-prompts.ts  QuickPrompt model, default, normalize, load/save
+│   └── ipc.ts          ipcMain handlers (submit / copy / resize / close /
+│                       preferences:getQuickPrompts / preferences:setQuickPrompts)
 ├── preload.ts          contextBridge `window.api` surface
 └── renderer/
     ├── index.html      Vite entry
     ├── main.tsx        React root
     ├── App.tsx         prompt window (input + result phases)
+    ├── QuickPrompts.tsx  quick-prompt pill row + inline add/edit/remove manager
     ├── styles.css      ported from prompt-window.html
     └── global.d.ts     `window.api` type
 ```

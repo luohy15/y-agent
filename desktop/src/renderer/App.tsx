@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { QuickPrompts } from './QuickPrompts';
 
 export function App() {
   const [selection, setSelection] = useState('');
@@ -8,6 +9,7 @@ export function App() {
   const [result, setResult] = useState('');
   const [hasResult, setHasResult] = useState(false);
   const [edited, setEdited] = useState(false);
+  const [quickPromptsResetToken, setQuickPromptsResetToken] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +41,7 @@ export function App() {
       setResult('');
       setHasResult(false);
       setEdited(false);
+      setQuickPromptsResetToken((n) => n + 1);
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         fitWindow();
@@ -73,17 +76,20 @@ export function App() {
     });
   }, [hasResult, result, autosizeResult, fitWindow]);
 
-  const handleSubmit = async () => {
-    const trimmed = instruction.trim();
+  // Shared by Enter (free-form input) and quick-prompt pill clicks so both
+  // paths run the exact same request/response handling.
+  const submitInstruction = async (text: string) => {
+    const trimmed = text.trim();
     if (!trimmed || busy) return;
+    setInstruction(text);
     setBusy(true);
     setError(null);
     const res = await window.api.submit(trimmed);
     setBusy(false);
     if (res && res.ok) {
-      const text = res.result || '';
-      setResult(text);
-      window.api.copy(text);
+      const resultText = res.result || '';
+      setResult(resultText);
+      window.api.copy(resultText);
       setEdited(false);
       setHasResult(true);
     } else {
@@ -91,6 +97,8 @@ export function App() {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
+
+  const handleSubmit = () => submitInstruction(instruction);
 
   const onResultChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setResult(e.target.value);
@@ -112,6 +120,13 @@ export function App() {
             <div className="preview empty">(no selection — instruction only)</div>
           )}
         </Section>
+
+        <QuickPrompts
+          busy={busy}
+          onRun={(prompt) => void submitInstruction(prompt)}
+          onLayoutChange={fitWindow}
+          resetToken={quickPromptsResetToken}
+        />
 
         <Section label={hasResult ? 'Prompt · Enter to re-run' : 'Prompt · Enter to run'}>
           <input

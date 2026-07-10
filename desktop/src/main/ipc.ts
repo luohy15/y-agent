@@ -1,6 +1,7 @@
 import { app, clipboard, ipcMain, screen } from 'electron';
 import { state } from './state';
 import { callInlineApi } from './inline-api';
+import { isQuickPromptsPayload, loadQuickPrompts, saveQuickPrompts } from './quick-prompts';
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -21,6 +22,27 @@ export function registerIpcHandlers(): void {
 
   ipcMain.on('prompt:copy', (_e, text: unknown) => {
     if (typeof text === 'string') clipboard.writeText(text);
+  });
+
+  ipcMain.handle('preferences:getQuickPrompts', async () => {
+    try {
+      const prompts = await loadQuickPrompts();
+      return { ok: true, prompts };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle('preferences:setQuickPrompts', async (_e, prompts: unknown) => {
+    if (!isQuickPromptsPayload(prompts)) {
+      return { ok: false, error: 'quick prompts payload must be an array' };
+    }
+    try {
+      const saved = await saveQuickPrompts(prompts);
+      return { ok: true, prompts: saved };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   });
 
   ipcMain.on('prompt:resize', (_e, height: unknown) => {

@@ -160,3 +160,169 @@ textarea {
   word-break: break-word;
   margin-top: 6px;
 }
+
+.err.small {
+  margin-top: 0;
+}
+
+.hint {
+  color: #586e75;
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Quick prompts */
+
+.section-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manage-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #073642;
+  border: 1px solid #0e5266;
+  border-radius: 4px;
+  color: #93a1a1;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.manage-btn:hover:not(:disabled) {
+  border-color: #268bd2;
+  color: #fdf6e3;
+}
+
+.manage-btn.active {
+  border-color: #268bd2;
+  color: #268bd2;
+}
+
+.manage-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.pill {
+  -webkit-app-region: no-drag;
+  background: #073642;
+  border: 1px solid #073642;
+  border-radius: 12px;
+  color: #93a1a1;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.pill:hover:not(:disabled) {
+  border-color: #268bd2;
+}
+
+.pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.saved-flash {
+  color: #859900;
+  font-size: 11px;
+}
+
+.manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  -webkit-app-region: no-drag;
+}
+
+.manager-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #073642;
+  border-radius: 4px;
+}
+
+.manager-row input {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.manager-row-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manager-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.link-btn {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: none;
+  color: #268bd2;
+  font-size: 11px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+
+.link-btn.danger {
+  color: #dc322f;
+}
+
+.save-btn {
+  -webkit-app-region: no-drag;
+  background: #268bd2;
+  border: none;
+  border-radius: 4px;
+  color: #002b36;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
