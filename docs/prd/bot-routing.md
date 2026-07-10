@@ -24,18 +24,19 @@ is a set of filters: bot name, backend, and tier, all of the same kind.
 Resolution is one simple rule: intersect the given filters over the pool of
 runnable bot configs to get candidates; exactly one candidate is used
 directly; multiple candidates are picked among by weighted random selection;
-no filters at all, or filters that produce an empty set, fall back to tier1,
+no filters at all, or filters that produce an empty set, fall back to tier2,
 the system default. Skills are never statically bound to tiers. An empty
-tier1 fallback pool falls back to the global default bot with a warning
+tier2 fallback pool falls back to the global default bot with a warning
 rather than failing.
 
 Which tier to request is governed by a documented dispatch policy, not code.
-Tier1 and tier2 are the daily workhorses, with tier1 as the default that
-unfiltered dispatches inherit; tier2 is an explicit downgrade for mechanical
-or lower-stakes work. Tier0 is explicit user escalation only: an agent never
-chooses it on its own; it is used when the user asks for it, typically after
-tier1 underperforms on a task. Tier3 serves cheap high-volume, low-stakes
-work such as scheduled routines and one-shot queries. New bots are graded
+Tier1 and tier2 are the daily workhorses: tier2 is the default that
+unfiltered dispatches inherit, and judgment-heavy dispatches (planning,
+review, complex coding) explicitly request tier1. Tier0 is explicit user
+escalation only: an agent never chooses it on its own; it is used when the
+user asks for it, typically after tier1 underperforms on a task. Tier3
+serves cheap high-volume, low-stakes work such as scheduled routines and
+simple one-shot queries. New bots are graded
 into the ladder empirically via a
 standardized onboarding exam, not by intuition. Tier membership stays data:
 inspectable and editable through the bot CLI, never memorized in instructions.
@@ -50,8 +51,8 @@ inspectable and editable through the bot CLI, never memorized in instructions.
    candidates to enabled configs with that effective backend, so that I can
    choose the runtime family without knowing config names.
 4. As a user, I want a chat with no bot, backend, or tier specified to
-   resolve as a tier1 request, so that unspecified dispatches land on a
-   strong daily-driver bot by default without any routing knowledge.
+   resolve as a tier2 request, so that unspecified dispatches land on a
+   capable mid-range bot by default without any routing knowledge.
 5. As a dispatching agent, I want multiple filters to intersect (for
    example backend plus tier), so that targeting signals compose instead of
    one silently overriding another.
@@ -78,10 +79,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
     to it (bot pin or tier request), so that the most expensive model is
     never chosen by a default or by an agent's own judgment call.
 14. As a dispatching agent, I want an explicit tier request to override the
-    tier1 default, so that I can escalate or downgrade any dispatch
+    tier2 default, so that I can escalate or downgrade any dispatch
     per-instance.
 15. As a user, I want filters that produce no candidates to fall back to
-    tier1, and an empty tier1 to fall back to the default bot, each with a
+    tier2, and an empty tier2 to fall back to the default bot, each with a
     logged warning, so that a data gap degrades service quality instead of
     breaking the chat.
 16. As a user, I want an existing chat to keep the bot it started with, so
@@ -90,9 +91,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
     before placing it on the ladder, so that tier assignment reflects
     measured behavior in this system rather than reputation.
 18. As a dispatching agent, I want a documented policy assigning each tier a
-    role (tier1 default, tier2 downgrade, tier0 user escalation, tier3 cheap
-    volume), so that dispatch decisions follow one shared model instead of
-    static topic bindings or per-agent intuition.
+    role (tier2 default, tier1 judgment work, tier0 user escalation, tier3
+    cheap volume), so that dispatch decisions follow one shared model
+    instead of static topic bindings or per-agent intuition.
 19. As a dispatching agent, I want one-shot web fact-checks pinned to the
     web-search bot with a synchronous wait, so that grounded single-turn
     queries bypass tier routing and return their answer inline.
@@ -131,10 +132,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
      bot and matches with unset tier counting as tier3.
   3. Exactly one candidate: used directly; weight is not consulted.
   4. Multiple candidates: weighted random selection by route weight.
-  5. No filters given, or an empty intersection: resolve again as a tier1
+  5. No filters given, or an empty intersection: resolve again as a tier2
      filter (the system default) through the same selection logic, with a
      logged warning when filters produced an empty set.
-  6. An empty tier1 fallback pool falls back to the global default bot
+  6. An empty tier2 fallback pool falls back to the global default bot
      (the user's default config, then the system default user's, then a
      hard error if nothing exists). Routing never fails a chat over a mere
      data gap.
@@ -155,20 +156,20 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   static topic-to-bot bindings were rejected. Bot targeting on a dispatch is
   expressed only as filters (bot name, backend, tier), never derived from
   the skill.
-- **Tier1 is the dispatch-side default.** When a dispatch carries no
+- **Tier2 is the dispatch-side default.** When a dispatch carries no
   filters, or its filters produce no candidates, it resolves as
-  `--tier tier1`. This supersedes the earlier tier2 default: daily work
-  deserves the strong general model, not the mid-range one. Note the
-  asymmetry with the bot-side default: an unlabeled bot config still counts
-  as tier3 (bottom of the ladder), while an unfiltered dispatch requests
-  tier1. Nothing defaults to tier0: the top tier is explicit user
-  escalation only.
-- **Tier roles.** Tier1 and tier2 are the daily workhorses: tier1 is the
-  default, tier2 an explicit downgrade for mechanical or lower-stakes work.
-  Tier0 and tier3 are low-frequency. Tier0 is used only when the user
-  explicitly requests it (typically escalating after tier1 underperforms on
-  a task); a dispatching agent never selects tier0 on its own judgment.
-  Tier3 serves cheap high-volume, low-stakes work: scheduled routines and
+  `--tier tier2`. Note the asymmetry with the bot-side default: an
+  unlabeled bot config still counts as tier3 (bottom of the ladder), while
+  an unfiltered dispatch requests tier2 (capable mid-range). Nothing
+  defaults to tier0: the top tier is explicit user escalation only.
+- **Tier roles.** Tier1 and tier2 are the daily workhorses: tier2 is the
+  default, tier1 the explicit request for judgment-heavy dispatches
+  (planning, review, complex coding). Tier0 and tier3 are low-frequency.
+  Tier0 is used only when the user explicitly requests it (typically
+  escalating after tier1 underperforms on a task); a dispatching agent
+  never selects tier0 on its own judgment. This demotes tier0 from its
+  earlier role as the tier judgment-heavy dispatches self-selected. Tier3
+  serves cheap high-volume, low-stakes work: scheduled routines and simple
   one-shot queries.
 - **Pointer (ref) bots** resolve recursively to their target with a maximum
   depth and cycle detection, both raising errors. Pointers are excluded from
@@ -180,26 +181,30 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - **The tier request travels the whole dispatch path**: CLI flag, API
   payloads on chat creation, message send, and cross-skill notify, through
   the queue message, to the worker where the effective tier (explicit
-  request, else the tier1 default) feeds resolution.
-- **Dispatch policy lives in agent instructions, not code.** The current
-  framework follows the tier roles above; it supersedes the earlier
-  judgment-concentration framework (derived from Anthropic's advisor-tool
-  guidance) under which agents self-selected tier0 for judgment-heavy
-  sessions:
-  - Ordinary work of any shape, including judgment-heavy sessions
-    (planning, review, root-cause analysis), omits the flag and inherits
-    the tier1 default.
-  - Clearly mechanical or low-stakes work may be explicitly downgraded to
-    tier2; quality is carried by the upstream plan artifact.
+  request, else the tier2 default) feeds resolution.
+- **Dispatch policy lives in agent instructions, not code.** The framework,
+  derived from Anthropic's advisor-tool guidance ("judgment concentrates in
+  a few moments while most turns are mechanical"), with tier1 as the
+  judgment tier (these dispatches previously self-selected tier0):
+  - Judgment-concentrated sessions (planning, review, architecture verdicts,
+    root-cause analysis, multi-stage coordination) request tier1; their
+    artifacts are the quality lever for the whole trace.
+  - Mechanical execution under an approved upstream plan omits the flag and
+    inherits the tier2 default; quality is carried by the plan artifact.
+  - Every-turn-hard tasks with no clean plan/execute split (deep debugging)
+    run tier1 throughout.
   - Tier0 is requested only on explicit user escalation, typically after
-    tier1 underperforms; agents never self-select it, so uncertainty about
-    difficulty resolves to staying on the tier1 default.
-  - Cheap high-volume, low-stakes dispatches (scheduled routines, one-shot
-    queries) request tier3; web fact-checks pin the web-search bot with a
-    synchronous wait, bypassing tiers.
+    tier1 underperforms on a task; agents never self-select it, so
+    uncertainty about difficulty resolves to tier1, never tier0.
+  - Cheap high-volume, low-stakes dispatches (scheduled routines, simple
+    one-shot queries) request tier3; web fact-checks pin the web-search bot
+    with a synchronous wait, bypassing tiers; ordinary one-off Q&A takes
+    the tier2 default.
   - The user's explicit bot pick always wins.
   - Static topic-to-bot bindings are rejected as a pass-through anti-pattern:
     the binding ignores task shape.
+  The concrete dispatch guidance lands in the shared agent instructions,
+  maintained separately from this PRD.
 - **Exam-based grading**: a new bot is placed on the ladder only after
   running the onboarding exam (a single end-to-end task with planted
   contradictions and traps, scored on process: context reading, command
@@ -220,14 +225,14 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   universe; web-search out of tier candidacy; unset tier counted as tier3.
 - Test the filter model: single-candidate direct use (including a
   weightless sole candidate), filters intersecting (backend plus tier), a
-  filter miss (unknown bot name, empty intersection) falling back to tier1,
-  and an empty tier1 reaching the default bot rather than erroring.
+  filter miss (unknown bot name, empty intersection) falling back to tier2,
+  and an empty tier2 reaching the default bot rather than erroring.
 - Test pointer dereference limits: cycle detection and max depth both raise.
 - For weighted selection, test the boundary semantics rather than the
   random distribution: unset or zero weight never winning against weighted
   peers, and a zero-total-weight pool counting as empty.
 - Worker-side: tier defaulting (a dispatch with no filters resolves as
-  tier1; skill presence is irrelevant to the derived tier) and the
+  tier2; skill presence is irrelevant to the derived tier) and the
   explicit-tier override.
 - Prior art: the agent package has dedicated config tests covering weight
   semantics, tier defaulting, and candidate eligibility; the worker package
@@ -242,10 +247,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - Per-topic or per-skill bot bindings: explicitly rejected as the
   pass-through anti-pattern this feature replaces.
 - Populating the tier3 pool: most baseline bots are currently disabled, so
-  an explicit tier3 request falls back to tier1. Known data follow-up, not
-  a routing defect (the no-flag path defaults to tier1, so this gap does
-  not sit on the default path), though tier3's cheap-volume role makes
-  filling the pool more relevant than before.
+  an explicit tier3 request falls back to tier2. Known data follow-up, not
+  a routing defect (the no-flag path defaults to tier2, so this gap does
+  not sit on the default path).
 - Automatic escalation or retry on a failed run (re-dispatching to a higher
   tier): tier choice is made at dispatch time only.
 - Cost- or budget-aware routing and load balancing beyond static per-bot
