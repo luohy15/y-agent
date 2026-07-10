@@ -36,8 +36,9 @@ Over-time (stacked per-period chart plus a per-model-by-period table with
 daily / weekly / monthly granularity), with a Tokens / Cost / Requests metric
 toggle shared across both.
 
-The same bot-page Usage view also presents a current subscription-limit status
-section for the Claude and GPT (Codex) backends. Each provider shows its
+The Live mode of that bot-page Usage view also presents a current
+subscription-limit status section for the Claude and GPT (Codex) backends.
+Each provider shows its
 rolling 5-hour and 1-week windows with percent used, percent remaining, reset
 time, freshness, and explicit unavailable/stale states. Both providers are
 read live through claude-relay-service (CRS), which already owns the
@@ -106,9 +107,10 @@ modes.
 
 ### Subscription limit-window status
 
-16. As a web user, I want the bot Usage view to show subscription-limit status
-    for both Claude and GPT (Codex), so that I can choose a backend with enough
-    available capacity before starting work.
+16. As a web user, I want the Live tab of the bot Usage view to show
+    subscription-limit status for both Claude and GPT (Codex), so that I can
+    choose a backend with enough available capacity before starting work
+    without adding operational status to the historical Over-time tab.
 17. As a web user, I want each provider to show both its rolling 5-hour window
     and its rolling 1-week window, so that short-session and sustained-week
     pressure are visible together.
@@ -219,20 +221,26 @@ modes.
 45. As a web user, I want the over-time table to open scrolled to the most
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
+46. As a web user, I want the Daily tokens contribution widget to appear in
+    the Over-time tab rather than the Live tab, so that all day-by-day trend
+    analysis is grouped with the other historical analytics.
+47. As a web user, I want the Over-time tab to omit Subscription limits
+    entirely, so that it remains focused on spend history instead of current
+    provider capacity.
 
 ### Controls and state
 
-46. As a web user, I want a free-text time input accepting the shared grammar,
+48. As a web user, I want a free-text time input accepting the shared grammar,
     with independent per-mode values (Live defaults to today, Over-time
     defaults to the current month) persisted across sessions, so that each mode
     remembers its own natural window.
-47. As a web user, I want the usage view's mode, view toggle, granularity, and
+49. As a web user, I want the usage view's mode, view toggle, granularity, and
     time inputs persisted in local storage, so that the panel reopens the way I
     left it.
-48. As a web user, I want wide ranges ("all", a full year) to return complete
+50. As a web user, I want wide ranges ("all", a full year) to return complete
     data rather than silently truncating at a small row limit, so that
     long-window charts are trustworthy.
-49. As a web user, I want tokens formatted compactly (K / M / B), costs as
+51. As a web user, I want tokens formatted compactly (K / M / B), costs as
     dollars with cents, and requests as plain numbers, consistently across
     cards, charts, tooltips, and tables, so that numbers are readable at every
     scale.
@@ -419,8 +427,10 @@ modes.
   duplicate shared-model usage. The expanded bot detail card may show the
   matching model's usage, clearly labeled as model-level.
 - **Limit status placement.** A compact subscription-status section sits at
-  the top of the Usage view, before spend charts, because it answers an
-  immediate routing/capacity question rather than an analytics question.
+  the top of the Live tab, before its spend charts, because it answers an
+  immediate routing/capacity question rather than an analytics question. It
+  is not rendered or fetched for the Over-time tab, which remains a
+  historical-spend-only view.
   Claude and GPT (Codex) use the same two-window card structure: progress bar,
   used/remaining percentages, reset time, observed time, and fresh/stale/
   unavailable badge. Provider failures are isolated and the limit refresh
@@ -451,7 +461,8 @@ modes.
   tooltip with date and exact metric value, Less-to-More legend. The grid
   scales to the panel width (never scrolls horizontally; scales up to a cap on
   wide panels) with the wrapper height set explicitly since CSS transforms do
-  not shrink layout boxes.
+  not shrink layout boxes. The Daily tokens widget belongs in the Over-time
+  tab, alongside the stacked chart and period table; it is absent from Live.
 - **Over-time.** Client-side bucketing of the fetched daily rows into daily /
   weekly (Monday-start) / monthly periods; stacked chart plus a
   model-by-period table with a range-sum column and a totals row; the table
@@ -506,6 +517,9 @@ modes.
   states (donut center overlay, tooltip stacking, heatmap fit, scroll
   positions) verified via headless-browser screenshots against real data,
   stored under the shared screenshots directory.
+- **Tab-scoping visual checks** confirm that Live shows Subscription limits but
+  not the Daily tokens widget, while Over-time shows the Daily tokens widget
+  but never renders or requests Subscription limits.
 - **Limit-status visual states** cover fresh, stale, never-observed,
   provider-error, missing-reset-time, and narrow-panel layouts for both
   backends, with configured-timezone reset labels checked against the absolute
