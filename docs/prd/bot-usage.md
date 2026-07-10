@@ -1,4 +1,4 @@
-# Usage Tracking and Analytics: Per-Model LLM Spend Sync, API, and Bot-Page Views
+# Bot Usage: Spend Analytics and Subscription Limit Windows
 
 ## Problem Statement
 
@@ -11,7 +11,12 @@ all; the only visibility was the relay's dashboard (per-key, ephemeral) and a
 subscription rate-limit scrape that measures something else entirely. The user
 wants usage queryable and chartable alongside the other y-agent subsystems:
 which models dominate spend, how usage trends week over week, and whether a
-given day was heavy or idle, without the numbers silently rolling off.
+given day was heavy or idle, without the numbers silently rolling off. Spend
+history also does not answer the operational question that matters before
+starting another long agent turn: how much of the active Claude or GPT (Codex)
+subscription allowance remains in the rolling 5-hour and 1-week windows, and
+when each window resets. Those provider-native limits need a current status
+surface of their own rather than being inferred from token or dollar totals.
 
 ## Solution
 
@@ -30,6 +35,16 @@ center, a per-model table, and a GitHub-style daily contribution heatmap) and
 Over-time (stacked per-period chart plus a per-model-by-period table with
 daily / weekly / monthly granularity), with a Tokens / Cost / Requests metric
 toggle shared across both.
+
+The same bot-page Usage view also presents a current subscription-limit status
+section for the Claude and GPT (Codex) backends. Each provider shows its
+rolling 5-hour and 1-week windows with percent used, percent remaining, reset
+time, freshness, and explicit unavailable/stale states. Claude status comes
+from its native `/usage` TUI overlay; Codex status comes from the structured
+rate-limit telemetry emitted by Codex sessions. A provider adapter normalizes
+both into one API contract and stores only the latest snapshot needed for a
+stable cross-process web read. Refresh is independent from spend sync because
+the two datasets have different sources, cadence, and failure modes.
 
 ## User Stories
 
@@ -84,98 +99,135 @@ toggle shared across both.
 15. As a user, I want re-running the backfill to be a no-op-equivalent upsert,
     so that a flaky run can simply be retried.
 
+### Subscription limit-window status
+
+16. As a web user, I want the bot Usage view to show subscription-limit status
+    for both Claude and GPT (Codex), so that I can choose a backend with enough
+    available capacity before starting work.
+17. As a web user, I want each provider to show both its rolling 5-hour window
+    and its rolling 1-week window, so that short-session and sustained-week
+    pressure are visible together.
+18. As a web user, I want each window to show percent used, percent remaining,
+    and the reset time, so that I can judge both current headroom and how long I
+    need to wait for recovery.
+19. As a web user, I want reset times rendered in my configured timezone with
+    a concise relative-time companion, so that provider timestamps are
+    immediately actionable without manual conversion.
+20. As a web user, I want the status to show when it was observed and whether
+    it is fresh or stale, so that an old successful probe is never mistaken for
+    current capacity.
+21. As a web user, I want a manual refresh control for limit-window status
+    that is separate from the spend-data refresh, so that checking subscription
+    headroom does not trigger an unrelated relay sync.
+22. As a web user, I want one provider's probe failure to leave the other
+    provider visible, with a clear unavailable state and the last successful
+    snapshot retained as stale when available, so that partial source failure
+    does not blank the whole status section.
+23. As a user with multiple bot configs on the same backend account, I want
+    limit status deduplicated by provider account rather than repeated per bot,
+    so that account-wide subscription limits are not presented as bot-specific
+    quotas.
+24. As an API consumer, I want a provider-neutral latest-status response that
+    identifies the backend, account scope, 5-hour and 1-week windows,
+    observation time, and availability state, so that future surfaces do not
+    need to parse provider-native output.
+25. As a user, I want provider-native extra windows, such as Claude's optional
+    model-specific weekly limit, preserved as optional metadata without
+    displacing the required 5-hour and all-model 1-week display, so that useful
+    detail is not lost while the primary comparison stays consistent.
+
 ### Usage API
 
-16. As an API consumer, I want per-model daily rows filtered by source and date
+26. As an API consumer, I want per-model daily rows filtered by source and date
     range, so that any client (web, future CLI) can build its own views from
     the raw grain.
-17. As an API consumer, I want to pass a single free-text time expression using
+27. As an API consumer, I want to pass a single free-text time expression using
     the same grammar as the finance views (day, week, month, year, 2024-05,
     2024-q2, a specific date, "day-7 to day", ytd/mtd/all), so that one
     authoritative parser serves both subsystems and the usage view is not stuck
     with a weaker dialect.
-18. As an API consumer, I want the default query (no range given) to return
+28. As an API consumer, I want the default query (no range given) to return
     today's snapshot, so that the common "what is happening now" case needs no
     parameters.
-19. As an API consumer, I want a per-day totals endpoint (tokens, cost,
+29. As an API consumer, I want a per-day totals endpoint (tokens, cost,
     requests summed across models) over a rolling 12-month or single-calendar-
     year window, so that the contribution heatmap renders its full window
     independently of the Live time filter.
-20. As an API consumer, I want responses to carry only public fields (no
+30. As an API consumer, I want responses to carry only public fields (no
     internal integer ids), so that the ID convention holds on this surface like
     every other.
 
 ### Live view
 
-21. As a web user, I want a donut chart of each model's share of the selected
+31. As a web user, I want a donut chart of each model's share of the selected
     metric over the selected time range, top seven models plus an "Other"
     slice, sorted by share descending, so that I can see at a glance which
     models dominate.
-22. As a web user, I want the range totals for tokens, cost, and requests
+32. As a web user, I want the range totals for tokens, cost, and requests
     displayed inside the donut's center hole, so that headline numbers and the
     breakdown share one compact card.
-23. As a web user, I want a clean donut with a bottom dot-legend (no on-slice
+33. As a web user, I want a clean donut with a bottom dot-legend (no on-slice
     labels) and hover tooltips showing model, value, and percent share, with
     the tooltip rendering above the center overlay, so that the chart reads
     like the relay dashboard's distribution chart the user prefers.
-24. As a web user, I want a per-model table with a percent column computed
+34. As a web user, I want a per-model table with a percent column computed
     against whichever numeric column is the active sort column, so that
     "share of tokens" and "share of cost" are one click apart.
-25. As a web user, I want the table columns ordered metric-first (Tokens, Cost,
+35. As a web user, I want the table columns ordered metric-first (Tokens, Cost,
     Requests, then Input, Output, Cache), clickable-sortable, with a sticky
     header and a sticky bottom Total row, and about five rows visible before
     internal scrolling, so that the table stays compact inside the panel.
-26. As a web user on a narrow panel, I want less-important table columns
+36. As a web user on a narrow panel, I want less-important table columns
     (input/output, then cache) to hide progressively based on the panel's own
     width, so that the layout adapts to the resizable panel rather than the
     viewport.
-27. As a web user, I want a GitHub-style daily contribution heatmap (one cell
+37. As a web user, I want a GitHub-style daily contribution heatmap (one cell
     per day, weeks as columns left to right, Sunday at top, a five-bucket
     sequential color scale, month labels, weekday gutter, hover tooltip with
     date and exact value, and a Less-to-More legend), so that heavy and idle
     days are visible over a year at a glance.
-28. As a web user, I want the heatmap driven by the same selected metric as the
+38. As a web user, I want the heatmap driven by the same selected metric as the
     donut and table, so that switching Tokens / Cost / Requests re-colors
     everything consistently.
-29. As a web user, I want the heatmap window decoupled from the Live time
+39. As a web user, I want the heatmap window decoupled from the Live time
     filter: a rolling month-aligned past 12 months by default, or a whole
     calendar year when the time input is a bare four-digit year, so that
     narrowing the donut to "today" never blanks the heatmap.
-30. As a web user, I want the heatmap to scale to the panel width (down to fit,
+40. As a web user, I want the heatmap to scale to the panel width (down to fit,
     up to a cap on wide panels) without horizontal scrolling, so that the full
     12-month grid is always visible.
 
 ### Over-time view
 
-31. As a web user, I want a Live | Over-time mode toggle on the usage view
+41. As a web user, I want a Live | Over-time mode toggle on the usage view
     styled after the finance viewer's mode toggle, so that the two analytics
     panels feel like one system.
-32. As a web user, I want an over-time stacked chart of the selected metric per
+42. As a web user, I want an over-time stacked chart of the selected metric per
     period, top seven models plus "Other", with daily / weekly / monthly
     granularity bucketed client-side, so that trends are visible at the grain I
     choose (the finance views stop at weekly; usage goes down to daily).
-33. As a web user, I want one metric charted at a time via a Tokens | Cost |
+43. As a web user, I want one metric charted at a time via a Tokens | Cost |
     Requests toggle, so that the axis and stacking stay meaningful.
-34. As a web user, I want a per-model-by-period table under the chart with a
+44. As a web user, I want a per-model-by-period table under the chart with a
     range-sum column and a per-column totals row consistent with the chart's
     per-period totals, so that chart and table never disagree.
-35. As a web user, I want the over-time table to open scrolled to the most
+45. As a web user, I want the over-time table to open scrolled to the most
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
 
 ### Controls and state
 
-36. As a web user, I want a free-text time input accepting the shared grammar,
+46. As a web user, I want a free-text time input accepting the shared grammar,
     with independent per-mode values (Live defaults to today, Over-time
     defaults to the current month) persisted across sessions, so that each mode
     remembers its own natural window.
-37. As a web user, I want the usage view's mode, view toggle, granularity, and
+47. As a web user, I want the usage view's mode, view toggle, granularity, and
     time inputs persisted in local storage, so that the panel reopens the way I
     left it.
-38. As a web user, I want wide ranges ("all", a full year) to return complete
+48. As a web user, I want wide ranges ("all", a full year) to return complete
     data rather than silently truncating at a small row limit, so that
     long-window charts are trustworthy.
-39. As a web user, I want tokens formatted compactly (K / M / B), costs as
+49. As a web user, I want tokens formatted compactly (K / M / B), costs as
     dollars with cents, and requests as plain numbers, consistently across
     cards, charts, tooltips, and tables, so that numbers are readable at every
     scale.
@@ -260,6 +312,46 @@ toggle shared across both.
   dated window covers the actual charting need. History older than the relay's
   retention is acknowledged as unrecoverable.
 
+### Subscription limit-window status
+
+- **Separate operational dataset.** Subscription limit windows are current
+  provider-account status, not spend history. They do not share the daily
+  per-model table, relay sync, date filtering, or historical analytics. A
+  compact latest-snapshot record is keyed by user, backend, and stable account
+  scope; it stores the normalized windows, observation time, source version,
+  and last probe error. Successful refresh replaces the snapshot; failed
+  refresh preserves the last success and marks it stale/unavailable.
+- **Normalized window contract.** Every required window exposes a stable kind
+  (`five_hour` or `one_week`), provider label, used percent, derived remaining
+  percent, absolute reset timestamp when supplied, and observation timestamp.
+  The API also reports provider/account availability and freshness. Unknown or
+  missing values stay null and visible as unavailable; they are never coerced
+  to zero. Provider-specific extra windows remain optional metadata.
+- **Claude source.** Claude is actively probed through the subscription-login
+  Claude Code TUI's native `/usage` overlay. The existing parser's `Current
+  session` value maps to the 5-hour window and `Current week (all models)` maps
+  to the required 1-week window. `Current week (Sonnet only)`, when present,
+  is retained as an extra window. The probe launches no model turn and always
+  tears down its ephemeral session.
+- **Codex source.** GPT (Codex) reads structured rate-limit telemetry emitted
+  by Codex session events rather than scraping terminal presentation. The
+  primary window with `window_minutes=300` maps to 5 hours and the secondary
+  window with `window_minutes=10080` maps to 1 week; `used_percent` and
+  `resets_at` map directly into the normalized contract. Collection accepts
+  telemetry from normal Codex runs and may use a no-turn status probe only if
+  the installed CLI later exposes one; refreshing status must not deliberately
+  spend model tokens.
+- **Account scope and deduplication.** Status is account-wide. Bot configs that
+  resolve to the same provider login share one snapshot; the UI labels the
+  provider/account scope and never implies that each bot has an independent
+  quota. Different configured accounts remain separate rows instead of being
+  merged into a misleading average or maximum.
+- **Refresh semantics.** Limit-window refresh is a dedicated authenticated
+  action, independent from relay spend sync. Providers refresh independently
+  and return partial success. A refresh may also occur opportunistically when
+  a backend run emits newer native status. Freshness is determined from the
+  observation time and the configured status TTL, not from page-load time.
+
 ### Usage API
 
 - **Raw-grain passthrough.** The model-daily endpoint returns a bare list of
@@ -284,6 +376,12 @@ toggle shared across both.
 - **Generous default limit.** The default row limit is high (100k) so wide
   ranges never truncate; per-model daily rows are small enough that this is
   safe.
+- **Latest limit status.** A provider-neutral endpoint returns the latest
+  subscription-window snapshots for the current user, optionally filtered by
+  backend/account scope. A separate refresh action runs the provider adapters
+  and returns per-provider success/error results. Both surfaces omit internal
+  integer ids and preserve stale snapshots instead of returning fabricated
+  current values after a probe failure.
 
 ### Web views
 
@@ -293,6 +391,13 @@ toggle shared across both.
   bot-to-model is a lossy many-to-one free-text match and per-bot rows would
   duplicate shared-model usage. The expanded bot detail card may show the
   matching model's usage, clearly labeled as model-level.
+- **Limit status placement.** A compact subscription-status section sits at
+  the top of the Usage view, before spend charts, because it answers an
+  immediate routing/capacity question rather than an analytics question.
+  Claude and GPT (Codex) use the same two-window card structure: progress bar,
+  used/remaining percentages, reset time, observed time, and fresh/stale/
+  unavailable badge. Provider failures are isolated and the limit refresh
+  control is visually and behaviorally separate from spend refresh.
 - **Metric selector.** One metric at a time (Tokens default, Cost, Requests),
   shared by the donut, heatmap, over-time chart, and tables' default sort.
   Tokens means total tokens including cache.
@@ -351,14 +456,30 @@ toggle shared across both.
   real off-by-one class once already.
 - **API responses are checked for the ID convention** (no internal integer
   ids) and for the default-today behavior when no range is supplied.
+- **Provider adapters are contract-tested** with captured Claude pane text and
+  Codex rate-limit event payloads: 300-minute and 10080-minute windows normalize
+  to the required kinds, reset timestamps survive conversion, optional extra
+  windows do not replace required ones, and missing/malformed values become
+  unavailable rather than 0%.
+- **Failure and freshness behavior is tested externally:** one provider can
+  fail while the other succeeds; a failed refresh retains the last successful
+  snapshot as stale with an error; account-equivalent bot configs deduplicate;
+  different provider accounts remain distinct; refresh never launches a paid
+  model turn solely to obtain status.
 - **Frontend changes gate on the strict TypeScript build**, with chart and
   table consistency checked by construction (chart per-period totals equal
   table column totals because both derive from the same fold), and visual
   states (donut center overlay, tooltip stacking, heatmap fit, scroll
   positions) verified via headless-browser screenshots against real data,
   stored under the shared screenshots directory.
+- **Limit-status visual states** cover fresh, stale, never-observed,
+  provider-error, missing-reset-time, and narrow-panel layouts for both
+  backends, with configured-timezone reset labels checked against the absolute
+  API timestamps.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
-  day, and spot-check a date's totals against the relay dashboard.
+  day, spot-check a date's totals against the relay dashboard, refresh both
+  providers' limit status, and compare their 5-hour/1-week values and reset
+  times with the native Claude and Codex surfaces.
 - Prior art to mirror: the finance test suite's derived-view style and the
   finance price table's upsert tests.
 
@@ -382,3 +503,10 @@ toggle shared across both.
   commands exist; no consumer has asked for a terminal view).
 - **Rated / list-price cost reporting** (only real billed cost is stored and
   shown).
+- **Historical limit-window analytics, alerts, or forecasting.** The feature
+  retains the latest successful snapshot for display; notification thresholds
+  remain owned by specialized monitoring skills, and predicting exhaustion is
+  not part of the bot page.
+- **Combining Claude and Codex percentages into one quota.** Their subscription
+  limits are provider-account-specific and are displayed side by side, never
+  summed, averaged, or treated as interchangeable capacity.

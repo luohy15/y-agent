@@ -7,6 +7,6 @@ near-duplicate.
 | PRD | Scope |
 |-----|-------|
 | [bot-routing](bot-routing.md) | Routes each dispatched session to a bot via unified filters (bot name, backend, tier) intersected over the config pool: one candidate is used directly, several are weighted-drawn, and no filters or an empty result falls back to tier2 (never a skill-derived tier); a documented tier-role policy (tier2 default, tier1 judgment work, tier0 user escalation only, tier3 cheap volume) governs tier requests. |
-| [bot-usage](bot-usage.md) | Persists a per-model daily LLM spend time series (tokens/cost/requests) synced from the relay into y-agent's own database, past the relay's retention window, and exposes it via a usage API and bot-page charts. |
+| [bot-usage](bot-usage.md) | Owns bot-page usage visibility: durable per-model spend analytics plus current Claude and GPT (Codex) subscription status for the rolling 5-hour and 1-week limit windows. |
 | [chat-core](chat-core.md) | Owns the durable chat conversation model and its lifecycle across all surfaces: GUI chat list/detail/send, CLI dispatch (`y chat -m` fire-and-forget vs `--wait`) and REPL, and the persist-enqueue-run-stream pipeline (API → queue → worker → backend subprocess → message stream). |
 | [chat-steer](chat-steer.md) | Delivers user messages sent to a chat mid-turn into the already-running agent session exactly once, without spawning a duplicate worker, across backends that accept live input and those that must be killed and resumed. |
