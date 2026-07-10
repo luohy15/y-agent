@@ -13,6 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **`grok_build` agent backend (2734)** — xAI's Grok Build CLI added as a supported agent backend (`agent/src/agent/grok_build.py`), alongside `claude_code` / `codex` / `gemini_cli` / `pi_cli` / `claude_tui`: streaming-json converter (`text`/`thought`/`end`/`error` events), detached tmux launcher + tailer, `--resume` session continuity, worker runner/monitor wiring, and web/CLI backend pickers.
 - **FileViewer file history link (2679)** — non-todo/calendar/link/etc. file previews (and link previews with a content key) show a "History" link to the file's commit history on GitHub, path corrected to be y-history-repo-relative rather than workDir-absolute.
 - **Ctrl+S save shortcut in FileViewer** — CodeEditor now saves the current file on Ctrl/Cmd+S instead of triggering the browser's save dialog.
 - **SWR-backed optimistic todo mutations (2676)** — TodoList/TodoViewer/TodoContextMenu/BotViewer/DevViewer migrated to SWR with a persisted cache and a shared `optimisticMutate` helper, plus reusable loading/error/empty list states.

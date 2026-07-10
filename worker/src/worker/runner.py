@@ -458,7 +458,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     """Execute a chat round. Perplexity runs inline; CLI backends detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli', 'perplexity', 'openai').
+    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli', 'grok_build', 'perplexity', 'openai').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -741,6 +741,31 @@ def build_gemini_env(bot_config, chat_id: str = None, trace_id: str = None,
     return env
 
 
+def build_grok_resume_cmd(session_id: str, model: str = None) -> list:
+    """Grok Build CLI resume command for a known session."""
+    cmd = ["grok", "--resume", session_id, "--output-format", "streaming-json", "--always-approve"]
+    if model:
+        cmd.extend(["-m", model])
+    return cmd
+
+
+def build_grok_env(bot_config, chat_id: str = None, trace_id: str = None,
+                   topic: str = None, last_message_id: str = None) -> dict:
+    """Grok Build CLI subprocess env: xAI auth + trace/topic vars."""
+    env = {}
+    if bot_config.api_key:
+        env["XAI_API_KEY"] = bot_config.api_key
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if topic:
+        env["Y_TOPIC"] = topic
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
 def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None) -> list:
     """pi resume command for a known session (used on fresh resume + steer restart)."""
     cmd = ["pi", "-p", "--mode", "json", "--session", session_id]
@@ -854,6 +879,52 @@ def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: 
         )
 
     env = build_gemini_env(bot_config, chat_id, trace_id, topic, last_message_id)
+
+    return {
+        "prompt": user_prompt,
+        "images": user_images,
+        "cmd": cmd,
+        "env": env if env else None,
+        "cwd": cwd,
+        "vm_config": vm_config,
+        "session_id": session_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
+def _build_grok_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
+    """Extract prompt, build cmd/env/cwd for Grok Build CLI."""
+    messages = list(chat.messages)
+
+    user_prompt, user_images = _pending_user_text_and_images(messages)
+
+    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    last_message_id = messages[-1].id if messages else None
+    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+
+    session_id = chat.external_id
+    resume = bool(session_id) and chat.work_dir == cwd
+
+    if resume and session_id:
+        cmd = build_grok_resume_cmd(session_id, model)
+    else:
+        cmd = ["grok", "--output-format", "streaming-json", "--always-approve"]
+        session_id = None
+        if model:
+            cmd.extend(["-m", model])
+
+    if chat.skill and not resume:
+        user_prompt = (
+            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
+            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
+        )
+
+    env = build_grok_env(bot_config, chat_id, trace_id, topic, last_message_id)
 
     return {
         "prompt": user_prompt,
@@ -1007,7 +1078,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
                            topic: str = None) -> None:
-    """Start claude-code, codex, or Gemini CLI as a detached tmux process on EC2.
+    """Start claude-code, codex, Gemini CLI, or Grok Build CLI as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -1026,6 +1097,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         params = _build_gemini_params(chat, chat_id, user_id, bot_config,
                                       vm_name=vm_name, work_dir=work_dir,
                                       trace_id=trace_id, topic=topic)
+    elif effective_backend == "grok_build":
+        params = _build_grok_params(chat, chat_id, user_id, bot_config,
+                                    vm_name=vm_name, work_dir=work_dir,
+                                    trace_id=trace_id, topic=topic)
     elif effective_backend == "pi_cli":
         params = _build_pi_params(chat, chat_id, user_id, bot_config,
                                   vm_name=vm_name, work_dir=work_dir,
@@ -1071,6 +1146,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     elif effective_backend == "gemini_cli":
         from agent.gemini_cli import start_detached_gemini_ssh
         session_id = await start_detached_gemini_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+            images=params.get("images"),
+        )
+    elif effective_backend == "grok_build":
+        from agent.grok_build import start_detached_grok_ssh
+        session_id = await start_detached_grok_ssh(
             cmd=params["cmd"],
             prompt=params["prompt"],
             cwd=cwd,

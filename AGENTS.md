@@ -100,9 +100,9 @@ entity + controller + service + CLI slices, and most have a web panel.
 The repo no longer contains an in-process agent loop — the worker shells out.
 
 - **Backends** — `agent/src/agent/claude_code.py` (Claude Code), `agent/src/agent/codex.py`
-  (Codex CLI), plus `gemini_cli` / `pi_cli`. `y chat --bot codex|claude_code -m "..."`
-  picks one; default is `claude_code`. The chat's `backend` field is persisted and
-  displayed.
+  (Codex CLI), plus `gemini_cli` / `grok_build` (xAI's Grok Build CLI, `agent/src/agent/grok_build.py`)
+  / `pi_cli`. `y chat --bot codex|claude_code -m "..."` picks one; default is `claude_code`.
+  The chat's `backend` field is persisted and displayed.
 - **Claude Code TUI (`claude_tui`)** — `agent/src/agent/claude_tui.py` is a separate,
   additive backend that drives the *interactive* Claude Code TUI through tmux instead of
   `claude -p`: the prompt is pasted via tmux bracketed paste and output is poll-read from

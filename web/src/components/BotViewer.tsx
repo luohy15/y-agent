@@ -434,6 +434,7 @@ function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => v
           <option value="codex">codex</option>
           <option value="claude_code">claude_code</option>
           <option value="gemini">gemini</option>
+          <option value="grok_build">grok_build</option>
           <option value="pi_cli">pi_cli</option>
           <option value="openai">openai</option>
         </select>
