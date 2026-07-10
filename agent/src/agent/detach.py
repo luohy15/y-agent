@@ -151,7 +151,10 @@ async def _start_detached_tmux(
 
     Steps:
       1. Kill any stale `cc-<chat_id>` tmux session and remove leftover
-         stdin/exit files.
+         stdin/exit files, plus any leftover `.killed` self-kill sentinel
+         from a prior turn's steer/interrupt teardown (see
+         `_kill_session_marking_self_killed` in claude_code.py) so it can't
+         mask a genuine death in this new turn.
       2. Run backend-specific `spec.setup` (optional).
       3. Build the tmux inner command: last-seen touch, env exports,
          optional `cd`, backend exec (from `spec.build_exec`), stdout/stderr
@@ -170,7 +173,7 @@ async def _start_detached_tmux(
         _ssh_exec(
             client,
             f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
-            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
+            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null",
         )
 

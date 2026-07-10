@@ -111,6 +111,34 @@ class DetachTmuxHeartbeatTest(unittest.TestCase):
         self.assertIn("EC=$?; kill $HEARTBEAT_PID 2>/dev/null; echo $EC >", tmux_cmd)
         self.assertIn("/tmp/cc-chat-1.exit", tmux_cmd)
 
+    def test_start_detached_tmux_clears_stale_self_kill_sentinel(self):
+        # A `.killed` sentinel left over from a prior turn's steer/interrupt
+        # kill must not leak into a new turn and mask a genuine death there
+        # (see plan-2751, Fix A).
+        client = _FakeClient()
+        spec = DetachBackendSpec(
+            build_exec=lambda cmd, chat_id, prompt, images: " ".join(cmd),
+            parse_initial=lambda obj: None,
+            upload_images=False,
+        )
+
+        with patch("agent.detach.asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                _start_detached_tmux(
+                    ["echo", "ok"],
+                    "prompt",
+                    "/tmp/work dir",
+                    "chat-1",
+                    vm_config=None,
+                    spec=spec,
+                    ssh_client=client,
+                )
+            )
+
+        cleanup_cmd = client.exec_commands[0]
+        self.assertIn("tmux kill-session", cleanup_cmd)
+        self.assertIn("/tmp/cc-chat-1.killed", cleanup_cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

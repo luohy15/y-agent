@@ -28,6 +28,8 @@ from agent.claude_code import (
     _shell_quote,
     _no_result_error_message,
     _tmux_session_alive,
+    _kill_session_marking_self_killed,
+    _consume_self_kill_sentinel,
     _pkill_tail_cmd,
     _build_tail_cmd,
 )
@@ -408,13 +410,7 @@ async def tail_codex_output(
 
         def _kill_detached():
             logger.info("interrupt watchdog (codex detached): killing tmux session cc-{}", chat_id)
-            try:
-                client.exec_command(
-                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-            except Exception:
-                pass
+            _kill_session_marking_self_killed(client, chat_id)
             try:
                 stdout_ch.channel.close()
             except Exception:
@@ -429,13 +425,7 @@ async def tail_codex_output(
                 return
             steer_requested = True
             logger.info("steer (codex detached): killing tmux session cc-{} to resume", chat_id)
-            try:
-                client.exec_command(
-                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-            except Exception:
-                pass
+            _kill_session_marking_self_killed(client, chat_id)
             try:
                 stdout_ch.channel.close()
             except Exception:
@@ -463,13 +453,12 @@ async def tail_codex_output(
                     current_offset += 1
 
                     if check_interrupted_fn and check_interrupted_fn():
-                        try:
-                            client.exec_command(
-                                f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                            )
-                            client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-                        except Exception:
-                            pass
+                        # Same teardown as the watchdog's _kill_detached, so
+                        # whichever of the two threads wins the race writes
+                        # the sentinel with identical marker-before-kill
+                        # semantics (idempotent: a second kill/touch here is
+                        # harmless if the watchdog already ran).
+                        _kill_session_marking_self_killed(client, chat_id)
                         stdout_ch.channel.close()
                         return "interrupted"
 
@@ -560,13 +549,17 @@ async def tail_codex_output(
                 pass
 
         # Resolve the no-result outcome while the client is still open: the
-        # tmux liveness check and the exit-code read both need SSH.
+        # self-kill sentinel check, tmux liveness check, and exit-code read
+        # all need SSH.
         no_result_session_alive = False
         no_result_error = None
+        self_killed = False
         if exit_reason is None and not steer_requested and result_data is None and last_error_data is None:
-            no_result_session_alive = _tmux_session_alive(client, chat_id)
-            if not no_result_session_alive:
-                no_result_error = _no_result_error_message(client, chat_id, "Codex", stream_error)
+            self_killed = _consume_self_kill_sentinel(client, chat_id)
+            if not self_killed:
+                no_result_session_alive = _tmux_session_alive(client, chat_id)
+                if not no_result_session_alive:
+                    no_result_error = _no_result_error_message(client, chat_id, "Codex", stream_error)
 
         if owns_client:
             client.close()
@@ -610,6 +603,22 @@ async def tail_codex_output(
             status = "error"
             result_data = last_error_data
         elif result_data is None:
+            if self_killed:
+                # We tore this session down ourselves (steer/interrupt) — not
+                # an external crash. Resume monitoring instead of persisting
+                # the generic death report.
+                logger.warning(
+                    "tail_codex_output: chat_id={} no turn.completed event but session was self-killed (offset={}); suppressing death report",
+                    chat_id, current_offset,
+                )
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "thread_id": converter.thread_id,
+                    "is_done": False,
+                    "result_data": None,
+                    "status": "monitoring",
+                }
             if no_result_session_alive:
                 # The tail stream ended without a turn.completed event but the
                 # tmux session is still alive: the turn is still running (e.g.

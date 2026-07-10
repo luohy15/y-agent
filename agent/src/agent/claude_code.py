@@ -498,6 +498,49 @@ def _tmux_session_alive(client, chat_id: str) -> bool:
         return True
 
 
+def _kill_session_marking_self_killed(client, chat_id: str) -> None:
+    """Tear down the detached tmux session for a self-initiated kill (steer
+    or interrupt), marking it as self-killed first.
+
+    The `.killed` sentinel is written BEFORE `tmux kill-session`, chained
+    with `&&` so the kill only runs if the marker write actually succeeded
+    (a failed touch must not be followed by an unmarked kill). Cleanup of
+    the stdin/exit files always runs afterward regardless of whether the
+    marker+kill chain succeeded. Uses `_ssh_exec` (not fire-and-forget) so
+    the caller only proceeds once the remote command has actually
+    completed.
+    """
+    session_name = f"cc-{chat_id}"
+    cmd = (
+        f"touch /tmp/cc-{chat_id}.killed && "
+        f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
+        f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null"
+    )
+    try:
+        _ssh_exec(client, cmd)
+    except Exception:
+        pass
+
+
+def _consume_self_kill_sentinel(client, chat_id: str) -> bool:
+    """Check for and clear the sentinel written by
+    `_kill_session_marking_self_killed`.
+
+    Returns True if the session that just produced no result was torn down
+    by us, not by an external crash — the no-result branch should resume
+    monitoring instead of reporting a death.
+    """
+    sentinel = f"/tmp/cc-{chat_id}.killed"
+    try:
+        raw = _ssh_exec(
+            client,
+            f"test -f {_shell_quote(sentinel)} && echo yes; rm -f {_shell_quote(sentinel)} 2>/dev/null",
+        ).strip()
+    except Exception:
+        return False
+    return raw == "yes"
+
+
 def _pkill_tail_cmd(chat_id: str) -> str:
     """Build a pkill that matches only the remote tail readers of the stdout
     file. The pattern is anchored to the tail cmdline (`tail -n +N -f
@@ -731,13 +774,7 @@ async def tail_ssh_output(
 
         def _kill_detached():
             logger.info("interrupt watchdog (detached): killing tmux session cc-{}", chat_id)
-            try:
-                client.exec_command(
-                    f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                )
-                client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-            except Exception:
-                pass
+            _kill_session_marking_self_killed(client, chat_id)
             try:
                 stdout_ch.channel.close()
             except Exception:
@@ -781,7 +818,17 @@ async def tail_ssh_output(
         )
         poll.start()
 
-        def _kill_tmux():
+        def _kill_tmux(self_killed: bool = False):
+            """Tear down the tmux session at turn end.
+
+            `self_killed=True` is the interrupt path: it must mark the
+            sentinel before killing (same as the watchdog's _kill_detached),
+            so a subsequent no-result check can't mistake our own teardown
+            for a crash. `self_killed=False` (default) is the normal
+            result-completion path: the turn already produced result_data,
+            so no no-result branch will run for it and no sentinel is
+            needed. Both share the final steer drain/lock behavior.
+            """
             nonlocal torn_down
             with steer_lock:
                 # Final drain: catch any steer message that landed in the
@@ -800,13 +847,16 @@ async def tail_ssh_output(
                             if unclaim:
                                 unclaim(msg_id)
                 torn_down = True
-                try:
-                    client.exec_command(
-                        f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                    )
-                    client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-                except Exception:
-                    pass
+                if self_killed:
+                    _kill_session_marking_self_killed(client, chat_id)
+                else:
+                    try:
+                        client.exec_command(
+                            f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                        )
+                        client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
+                    except Exception:
+                        pass
             try:
                 stdout_ch.channel.close()
             except Exception:
@@ -817,7 +867,7 @@ async def tail_ssh_output(
             try:
                 for raw_line in stdout_ch:
                     if check_interrupted_fn and check_interrupted_fn():
-                        _kill_tmux()
+                        _kill_tmux(self_killed=True)
                         return "interrupted"
 
                     if check_deadline_fn and check_deadline_fn():
@@ -889,13 +939,17 @@ async def tail_ssh_output(
             return cancelled_result
 
         # Resolve the no-result outcome while the client is still open: the
-        # tmux liveness check and the exit-code read both need SSH.
+        # self-kill sentinel check, tmux liveness check, and exit-code read
+        # all need SSH.
         no_result_session_alive = False
         no_result_error = None
+        self_killed = False
         if exit_reason is None and result_data is None:
-            no_result_session_alive = _tmux_session_alive(client, chat_id)
-            if not no_result_session_alive:
-                no_result_error = _no_result_error_message(client, chat_id, "Claude Code", stream_error)
+            self_killed = _consume_self_kill_sentinel(client, chat_id)
+            if not self_killed:
+                no_result_session_alive = _tmux_session_alive(client, chat_id)
+                if not no_result_session_alive:
+                    no_result_error = _no_result_error_message(client, chat_id, "Claude Code", stream_error)
 
         if owns_client:
             client.close()
@@ -925,6 +979,23 @@ async def tail_ssh_output(
         # Process finished normally
         status = "completed"
         if result_data is None:
+            if self_killed:
+                # We tore this session down ourselves (steer/interrupt) —
+                # not an external crash. Resume monitoring instead of
+                # persisting the generic death report.
+                logger.warning(
+                    "tail_ssh_output: chat_id={} no result event but session was self-killed (offset={}); suppressing death report",
+                    chat_id, current_offset,
+                )
+                return {
+                    "offset": current_offset,
+                    "last_message_id": converter.last_message_id,
+                    "session_id": session_id,
+                    "is_done": False,
+                    "result_data": None,
+                    "status": "monitoring",
+                    "consumed_steer_ids": consumed_steer_ids,
+                }
             if no_result_session_alive:
                 # The tail stream ended without a `result` event but the tmux
                 # session is still alive: the turn is still running (e.g. a
