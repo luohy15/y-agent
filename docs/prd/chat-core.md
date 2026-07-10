@@ -111,7 +111,7 @@ mode (`-i`) serves a human at a terminal.
 24. As a web user, I want a follow-up send to reuse the chat's existing work
     dir and bot identity, so that the conversation stays in one session.
 25. As a web user, I want sending into a running chat to steer it rather
-    than start a parallel run (delivery mechanics per the steer PRD), so that
+    than start a parallel run (delivery mechanics per the chat-steer PRD), so that
     one chat never has two concurrent workers.
 
 ### CLI: dispatch (fire-and-forget vs wait)
@@ -221,7 +221,7 @@ mode (`-i`) serves a human at a terminal.
   enqueues a queue task (SQS in production, Celery filesystem broker in dev)
   carrying the chat id plus routing hints. If the chat is already running, no
   task is enqueued; the running worker's steer polling picks the message up
-  (mechanics owned by the steer PRD).
+  (mechanics owned by the chat-steer PRD).
 - **Notify target resolution order:** explicit chat id (404 if missing, 400 on
   topic mismatch) > topic + trace lookup (resume the trace's existing chat for
   that topic unless `--new`) > create a new chat. Skill defaults to the topic
@@ -268,7 +268,7 @@ mode (`-i`) serves a human at a terminal.
 - **Lambda time limit**: the worker releases its monitoring lease before the
   deadline and re-enqueues itself; the next invocation resumes tailing from
   the stored offset. This is core lifecycle; steer-specific handoff behavior
-  (consumed-message continuity) is in the steer PRD.
+  (consumed-message continuity) is in the chat-steer PRD.
 - **CLI `--wait` is client-side polling** of the snapshot endpoint (2s
   cadence) applying the shared completion predicate; the server has no
   blocking-wait API. Timeout and interrupt both exit nonzero, printing the
@@ -303,19 +303,19 @@ mode (`-i`) serves a human at a terminal.
   converters, steer drain, poll loop).
 - Repository-level tests for status derivation, title/search-text
   extraction, and identity-field immutability.
-- Steer delivery mechanics are tested under the steer PRD; here only the
+- Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
 
 ## Out of Scope
 
 - **Mid-turn message delivery mechanics** (claim/unclaim, turn-end drain,
-  backend kill-and-resume, exactly-once guarantees): owned by the steer PRD.
+  backend kill-and-resume, exactly-once guarantees): owned by the chat-steer PRD.
   This PRD owns only the dispatch-side rule that a running chat gets an append
   with no new task.
 - **Bot and tier selection policy** (which bot a dispatch resolves to, tier
-  routing, skill-to-tier defaults): owned by the bot-dispatch-tier-routing
+  routing, skill-to-tier defaults): owned by the bot-routing
   PRD. This PRD treats the resolved bot config as an input.
-- **Spend/usage accounting**: owned by the usage-tracking PRD. The per-chat
+- **Spend/usage accounting**: owned by the bot-usage PRD. The per-chat
   context-usage badge (session token counts) is in scope here; the historical
   spend time series is not.
 - **Telegram surface specifics** (forum topic binding, webhook routing,

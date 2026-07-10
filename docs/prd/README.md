@@ -6,7 +6,7 @@ near-duplicate.
 
 | PRD | Scope |
 |-----|-------|
-| [bot-dispatch-tier-routing](bot-dispatch-tier-routing.md) | Routes each dispatched session to a bot via unified filters (bot name, backend, tier) intersected over the config pool: one candidate is used directly, several are weighted-drawn, and no filters or an empty result falls back to tier2 (never a skill-derived tier); a documented policy governs which work deserves the strong tiers. |
+| [bot-routing](bot-routing.md) | Routes each dispatched session to a bot via unified filters (bot name, backend, tier) intersected over the config pool: one candidate is used directly, several are weighted-drawn, and no filters or an empty result falls back to tier2 (never a skill-derived tier); a documented policy governs which work deserves the strong tiers. |
+| [bot-usage](bot-usage.md) | Persists a per-model daily LLM spend time series (tokens/cost/requests) synced from the relay into y-agent's own database, past the relay's retention window, and exposes it via a usage API and bot-page charts. |
 | [chat-core](chat-core.md) | Owns the durable chat conversation model and its lifecycle across all surfaces: GUI chat list/detail/send, CLI dispatch (`y chat -m` fire-and-forget vs `--wait`) and REPL, and the persist-enqueue-run-stream pipeline (API → queue → worker → backend subprocess → message stream). |
-| [steer](steer.md) | Delivers user messages sent to a chat mid-turn into the already-running agent session exactly once, without spawning a duplicate worker, across backends that accept live input and those that must be killed and resumed. |
-| [usage-tracking](usage-tracking.md) | Persists a per-model daily LLM spend time series (tokens/cost/requests) synced from the relay into y-agent's own database, past the relay's retention window, and exposes it via a usage API and bot-page charts. |
+| [chat-steer](chat-steer.md) | Delivers user messages sent to a chat mid-turn into the already-running agent session exactly once, without spawning a duplicate worker, across backends that accept live input and those that must be killed and resumed. |
