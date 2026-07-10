@@ -780,6 +780,7 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-3 px-3 pt-2 pb-2">
+      <DailyUsageHeatmap time={time} metric={metric} />
       <div className="shrink-0 rounded border border-sol-base02 bg-sol-base03 p-3">
         <div className="mb-2">
           <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">
@@ -840,7 +841,6 @@ function UsageOverTimeView({ granularity, metric, time, onMetricChange }: { gran
           </table>
         </div>
       </div>
-      <DailyUsageHeatmap time={time} metric={metric} />
     </div>
   );
 }
