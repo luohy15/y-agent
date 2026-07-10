@@ -27,7 +27,7 @@ from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import rss_feed as rss_feed_service
 
 from worker.link_downloader import s3_put
-from worker.steps._scrape_extract import extract_scrape_items, fetch_html
+from worker.steps._scrape_extract import BROWSER_HEADERS, extract_scrape_items, fetch_html
 
 
 LOCK_NAME = "fetch_rss_xml"
@@ -161,7 +161,7 @@ async def handle_fetch_rss_xml() -> dict:
         semaphore = asyncio.Semaphore(rate_limit)
         timeout = int(os.environ.get("RSS_FETCH_TIMEOUT", 20))
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, headers=BROWSER_HEADERS) as client:
             async def guarded(user_id, feed):
                 async with semaphore:
                     try:

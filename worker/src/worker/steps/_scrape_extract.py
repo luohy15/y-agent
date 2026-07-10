@@ -8,6 +8,16 @@ import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
 
+# Bot-protected sites (e.g. x.ai/news) 403 the default httpx UA. Precedent:
+# storage.service.model_usage_daily._BROWSER_UA.
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 
 async def fetch_html(client: httpx.AsyncClient, url: str) -> Optional[str]:
     try:
