@@ -128,10 +128,10 @@ modes.
     provider visible, with a clear unavailable state and the last successful
     snapshot retained as stale when available, so that partial source failure
     does not blank the whole status section.
-23. As a user with multiple bot configs on the same backend account, I want
-    limit status deduplicated by provider account rather than repeated per bot,
+23. As a user with multiple relay keys or provider accounts for the same
+    backend, I want exactly one deterministically selected limit-status card,
     so that account-wide subscription limits are not presented as bot-specific
-    quotas.
+    quotas or duplicate backend cards.
 24. As an API consumer, I want a provider-neutral latest-status response that
     identifies the backend, account scope, 5-hour and 1-week windows,
     observation time, and availability state, so that future surfaces do not
@@ -356,14 +356,16 @@ modes.
   window is reported unavailable, and an old one is reported stale.
 - **Account scope and deduplication.** Status is account-wide, scoped by
   CRS's relay account UUID (the same identity CRS's own account management
-  view already tracks). Bot configs whose `cr_` relay key is bound to the
-  same Claude or OpenAI account share one snapshot; y-agent deduplicates by
-  (relay origin, backend, account id) so account-wide subscription limits are
-  never presented as bot-specific quotas. Different configured accounts
-  remain separate rows instead of being merged into a misleading average or
-  maximum. A shared-pool key with no explicit dedicated account binding
-  returns an explicit unavailable result (`no_stable_account_scope`) rather
-  than leaking or guessing a pool account.
+  view already tracks). The Usage view presents exactly one representative per
+  backend, not one row per relay key or provider account: y-agent selects the
+  best candidate deterministically, preferring a fresh available snapshot with
+  usable required windows, then stale usable data, then unavailable scope; it
+  breaks remaining ties by observation recency and stable identity fields.
+  This prevents an old relay key's unavailable shared-pool result from
+  shadowing or duplicating a newly bound dedicated account. A shared-pool key
+  with no explicit dedicated account binding still returns an explicit
+  unavailable result (`no_stable_account_scope`) when no usable candidate for
+  that backend exists, while transport failures remain separate partial errors.
 - **Refresh semantics.** Limit-window refresh is a dedicated authenticated
   read, independent from relay spend sync: manual retry and the web view's
   periodic poll both call the same safe endpoint, which performs no side
@@ -400,8 +402,8 @@ modes.
   (`GET /api/usage/limits`) fans out live to every distinct CRS relay key the
   user's bot configs reference, normalizes each returned provider-account
   entry (used/remaining percent, absolute reset time, observation time,
-  availability, freshness), and deduplicates by (relay origin, backend,
-  account id). One relay key's failure is isolated to a per-origin error list
+  availability, freshness), then selects one deterministic best candidate per
+  backend across all relay keys and account identities. One relay key's failure is isolated to a per-origin error list
   rather than failing the whole read; manual retry and the web view's
   periodic poll both call this same endpoint, with no separate refresh action
   and no persisted snapshot on the y-agent side. Responses omit internal
@@ -489,13 +491,15 @@ modes.
   replace required ones, and missing/malformed values become unavailable
   rather than 0%. y-agent's own normalization (remaining-percent derivation,
   freshness) is contract-tested against captured CRS envelope fixtures
-  covering the same cases, plus target dedup, per-origin partial failure, and
-  duplicate account-scope dedup.
+  covering the same cases, plus target dedup, per-origin partial failure,
+  available-versus-`no_stable_account_scope` candidate selection, and
+  multi-key one-card-per-backend selection.
 - **Failure and freshness behavior is tested externally:** one provider can
   fail while the other succeeds; a failed refresh retains the last successful
   snapshot as stale with an error; account-equivalent bot configs deduplicate;
-  different provider accounts remain distinct; refresh never launches a paid
-  model turn solely to obtain status.
+  multiple provider accounts and relay keys resolve to one deterministic best
+  candidate per backend while origin errors remain separate; refresh never
+  launches a paid model turn solely to obtain status.
 - **Frontend changes gate on the strict TypeScript build**, with chart and
   table consistency checked by construction (chart per-period totals equal
   table column totals because both derive from the same fold), and visual

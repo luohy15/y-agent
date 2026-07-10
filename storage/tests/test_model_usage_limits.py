@@ -3,7 +3,7 @@
 Covers the PRD Testing Decisions for subscription limit-window status:
   - distinct relay-key (target) enumeration is reused, not duplicated
   - one target's failure is isolated to `errors`, the rest still succeeds
-  - account rows shared across bots/targets are deduplicated
+  - relay-key/account candidates collapse to one best row per backend
   - stale vs fresh vs unavailable is derived from observed_at + TTL, not
     from a merely-successful CRS probe
   - missing/malformed values stay null, never coerced to 0
@@ -103,22 +103,168 @@ class GetLimitStatusDeduplicationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(result["providers"]), 1)
 
-    async def test_distinct_accounts_on_same_origin_both_kept(self):
-        async def fetch(origin, api_key):
-            return [
-                _account(backend="claude_code", account_id="acct-claude"),
-                _account(backend="codex", provider="openai", account_id="acct-codex"),
-            ]
+    async def test_available_dedicated_account_beats_no_stable_scope_from_another_key(self):
+        bots = [
+            _bot("a", "cr_old", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_bound", base_url="https://cc1.yovy.app/api"),
+        ]
 
-        bots = [_bot("claude_code", "cr_shared")]
+        async def fetch(origin, api_key):
+            if api_key == "cr_old":
+                return [_account(
+                    account_id=None,
+                    availability="unavailable",
+                    used_5h=None,
+                    used_1w=None,
+                ) | {"error": "no_stable_account_scope"}]
+            return [_account(account_id="acct-bound", observed_at=_iso(5))]
+
         with (
             patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
             patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
         ):
             result = await limits_service.get_limit_status(1)
 
-        ids = {p["account_id"] for p in result["providers"]}
-        self.assertEqual(ids, {"acct-claude", "acct-codex"})
+        self.assertEqual(len(result["providers"]), 1)
+        self.assertEqual(result["providers"][0]["account_id"], "acct-bound")
+        self.assertEqual(result["providers"][0]["freshness"], "fresh")
+
+    async def test_fresh_candidate_beats_stale_candidate_across_relay_keys(self):
+        bots = [
+            _bot("a", "cr_stale", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_fresh", base_url="https://cc2.yovy.app/api"),
+        ]
+
+        async def fetch(origin, api_key):
+            return [_account(
+                account_id=f"acct-{api_key}",
+                observed_at=_iso(600 if api_key == "cr_stale" else 5),
+            )]
+
+        with (
+            patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+            patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+        ):
+            result = await limits_service.get_limit_status(1)
+
+        self.assertEqual(len(result["providers"]), 1)
+        self.assertEqual(result["providers"][0]["account_id"], "acct-cr_fresh")
+
+    async def test_same_freshness_uses_newest_observation(self):
+        bots = [
+            _bot("a", "cr_z", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_a", base_url="https://cc2.yovy.app/api"),
+        ]
+        older = _iso(30)
+        newer = _iso(5)
+
+        async def fetch(origin, api_key):
+            return [_account(
+                account_id="acct-z" if api_key == "cr_z" else "acct-a",
+                observed_at=older if api_key == "cr_z" else newer,
+            )]
+
+        with (
+            patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+            patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+        ):
+            result = await limits_service.get_limit_status(1)
+
+        self.assertEqual(result["providers"][0]["account_id"], "acct-a")
+
+    async def test_exact_tie_uses_stable_identity_and_origin_tie_breaks(self):
+        bots = [
+            _bot("a", "cr_z", base_url="https://cc2.yovy.app/api"),
+            _bot("b", "cr_a", base_url="https://cc1.yovy.app/api"),
+        ]
+        observed_at = "2026-07-10T08:00:00Z"
+
+        async def fetch(origin, api_key):
+            return [_account(
+                account_id="acct-z" if api_key == "cr_z" else "acct-a",
+                observed_at=observed_at,
+            )]
+
+        with (
+            patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+            patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+        ):
+            result = await limits_service.get_limit_status(1, ttl_seconds=10**9)
+
+        self.assertEqual(result["providers"][0]["account_id"], "acct-a")
+
+    async def test_boundary_collision_tie_break_is_independent_of_target_order(self):
+        observed_at = "2026-07-10T08:00:00Z"
+
+        async def fetch(origin, api_key):
+            if api_key == "cr_one":
+                return [_account(account_id="a", observed_at=observed_at) | {"account_name": "bc"}]
+            return [_account(account_id="ab", observed_at=observed_at) | {"account_name": "c"}]
+
+        async def selected_account(bots):
+            with (
+                patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+                patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+            ):
+                result = await limits_service.get_limit_status(1, ttl_seconds=10**9)
+            return result["providers"][0]["account_id"]
+
+        forward = await selected_account([
+            _bot("a", "cr_one", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_two", base_url="https://cc2.yovy.app/api"),
+        ])
+        reversed_order = await selected_account([
+            _bot("b", "cr_two", base_url="https://cc2.yovy.app/api"),
+            _bot("a", "cr_one", base_url="https://cc1.yovy.app/api"),
+        ])
+
+        self.assertEqual(forward, "ab")
+        self.assertEqual(reversed_order, forward)
+
+    async def test_one_unavailable_candidate_is_retained_when_no_usable_candidate_exists(self):
+        bots = [
+            _bot("a", "cr_one", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_two", base_url="https://cc2.yovy.app/api"),
+        ]
+
+        async def fetch(origin, api_key):
+            return [_account(
+                account_id=None,
+                availability="unavailable",
+                used_5h=None,
+                used_1w=None,
+            ) | {"error": "no_stable_account_scope"}]
+
+        with (
+            patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+            patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+        ):
+            result = await limits_service.get_limit_status(1)
+
+        self.assertEqual(len(result["providers"]), 1)
+        self.assertEqual(result["providers"][0]["freshness"], "unavailable")
+        self.assertEqual(result["providers"][0]["error"], "no_stable_account_scope")
+
+    async def test_one_card_per_backend_across_multiple_accounts_and_keys(self):
+        async def fetch(origin, api_key):
+            return [
+                _account(backend="claude_code", account_id=f"acct-claude-{api_key}"),
+                _account(backend="codex", provider="openai", account_id=f"acct-codex-{api_key}"),
+            ]
+
+        bots = [
+            _bot("claude_code", "cr_one", base_url="https://cc1.yovy.app/api"),
+            _bot("codex", "cr_two", base_url="https://cc2.yovy.app/api"),
+        ]
+        with (
+            patch.object(model_usage_daily.bot_config_service, "list_configs", return_value=bots),
+            patch.object(limits_service, "_fetch_crs_limits", side_effect=fetch),
+        ):
+            result = await limits_service.get_limit_status(1)
+
+        self.assertEqual([p["backend"] for p in result["providers"]], ["claude_code", "codex"])
+        self.assertEqual(len(result["providers"]), 2)
+        self.assertEqual([p["account_id"] for p in result["providers"]], ["acct-claude-cr_two", "acct-codex-cr_two"])
 
 
 class NormalizeAccountTest(unittest.TestCase):

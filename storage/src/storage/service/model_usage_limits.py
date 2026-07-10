@@ -7,7 +7,7 @@ enumerates) and asks CRS's API-key-scoped self-service endpoint for the latest
 cached provider-account snapshot. CRS owns provider account identity, refresh
 cadence, and source-specific window mapping; this module only normalizes the
 response into a stable contract, computes derived fields (remaining percent,
-freshness), and deduplicates account rows shared by multiple bot configs.
+freshness), and selects one best account row per backend for the Usage cards.
 """
 
 import asyncio
@@ -134,15 +134,55 @@ def _normalize_account(item: dict, ttl_seconds: int) -> dict:
     }
 
 
+def _observed_timestamp(observed_at: str | None) -> float:
+    """A deterministic observation-recency value for candidate selection."""
+    try:
+        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return float("-inf")
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    return observed.timestamp()
+
+
+def _candidate_rank(account: dict, origin: str) -> tuple:
+    """Rank one backend's relay-key candidates without depending on target order.
+
+    A fresh usable snapshot always wins; an older usable snapshot is still more
+    useful than an unavailable scope. Stable lexical fields make exact ties
+    deterministic when two relay keys report the same observation.
+    """
+    freshness_rank = {"fresh": 2, "stale": 1, "unavailable": 0}.get(
+        account.get("freshness"), 0
+    )
+    return (
+        freshness_rank,
+        _has_required_window(account.get("windows") or {}),
+        account.get("availability") == "available",
+        _observed_timestamp(account.get("observed_at")),
+        tuple(
+            tuple(-ord(character) for character in str(value or ""))
+            for value in (
+                account.get("account_id"),
+                account.get("account_name"),
+                account.get("provider"),
+                account.get("source"),
+                origin,
+            )
+        ),
+    )
+
+
 # --- orchestration ----------------------------------------------------------
 
 async def get_limit_status(user_id: int, ttl_seconds: int | None = None) -> dict:
     """Every distinct CRS key's bound-account limit status, fetched
     concurrently. One target's failure never blocks the others: it is
     reported in `errors` (keyed by origin) while the rest of the read
-    proceeds. Successful account rows are deduplicated by
-    (origin, backend, account_id) so a key shared across bots (e.g. the same
-    subscription key used by claude_code + codex) is never reported twice."""
+    proceeds. Successful rows are collapsed at the product boundary to one
+    deterministic best candidate per backend, so alternate relay keys and
+    unavailable shared-pool scopes cannot duplicate or shadow the dedicated
+    Claude/Codex account cards."""
     ttl = DEFAULT_TTL_SECONDS if ttl_seconds is None else ttl_seconds
     targets = _crs_key_targets(user_id)
     if not targets:
@@ -153,9 +193,8 @@ async def get_limit_status(user_id: int, ttl_seconds: int | None = None) -> dict
         return_exceptions=True,
     )
 
-    providers: list[dict] = []
+    candidates: dict[str, dict] = {}
     errors: list[dict] = []
-    seen: set[tuple[str, str, str]] = set()
     for (origin, _api_key), result in zip(targets, results):
         if isinstance(result, BaseException):
             logger.warning("get_limit_status: fetch failed for {}: {}", origin, result)
@@ -172,10 +211,15 @@ async def get_limit_status(user_id: int, ttl_seconds: int | None = None) -> dict
                 logger.warning("get_limit_status: malformed item from {}: {}", origin, e)
                 errors.append({"origin": origin, "error": f"malformed item: {e}"})
                 continue
-            key = (origin, account.get("backend") or "", account.get("account_id") or "")
-            if key in seen:
-                continue
-            seen.add(key)
-            providers.append(account)
+            backend = account.get("backend") or ""
+            current = candidates.get(backend)
+            if current is None or _candidate_rank(account, origin) > _candidate_rank(current, current["_origin"]):
+                candidates[backend] = {**account, "_origin": origin}
 
-    return {"providers": providers, "errors": errors}
+    return {
+        "providers": [
+            {key: value for key, value in candidates[backend].items() if key != "_origin"}
+            for backend in sorted(candidates)
+        ],
+        "errors": errors,
+    }

@@ -54,6 +54,20 @@ class LimitsEndpointTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("id", result["providers"][0])
         self.assertNotIn("user_id", result["providers"][0])
 
+    async def test_returns_one_selected_card_per_backend_and_separate_partial_errors(self):
+        envelope = {
+            "providers": [
+                {"backend": "claude_code", "account_id": "acct-claude", "freshness": "fresh"},
+                {"backend": "codex", "account_id": "acct-codex", "freshness": "fresh"},
+            ],
+            "errors": [{"origin": "https://old-relay.example", "error": "timeout"}],
+        }
+        with patch.object(usage_controller.limits_service, "get_limit_status", return_value=envelope):
+            result = await usage_controller.limits(_request())
+
+        self.assertEqual([provider["backend"] for provider in result["providers"]], ["claude_code", "codex"])
+        self.assertEqual(result["errors"], envelope["errors"])
+
     async def test_returns_configured_timezone(self):
         with (
             patch.dict(os.environ, {"Y_AGENT_TIMEZONE": "America/Los_Angeles"}),
