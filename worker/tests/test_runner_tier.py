@@ -30,8 +30,8 @@ def _chat(**overrides):
 
 
 class RunChatTierTest(unittest.TestCase):
-    def _run(self, chat, **run_chat_kwargs):
-        bot_config = BotConfig(name="bot-a", backend="claude_code")
+    def _run(self, chat, bot_config=None, **run_chat_kwargs):
+        bot_config = bot_config or BotConfig(name="bot-a", backend="claude_code")
         with (
             patch("worker.runner.chat_service.get_chat", new=AsyncMock(return_value=chat)),
             patch("storage.repository.chat.save_chat_by_id", new=AsyncMock()),
@@ -55,6 +55,30 @@ class RunChatTierTest(unittest.TestCase):
         chat = _chat(skill="dev")
         resolve = self._run(chat, skill="dev", bot_tier="tier0")
         self.assertEqual(resolve.call_args.kwargs["tier"], "tier0")
+
+    def test_resolved_tier_persisted_on_chat(self):
+        """The tier actually resolved on the returned bot config (not the
+        filter passed in) is what gets persisted on the chat record."""
+        chat = _chat(skill="dev")
+        bot_config = BotConfig(name="bot-a", backend="claude_code", tier="tier1")
+        self._run(chat, bot_config=bot_config, skill="dev")
+        self.assertEqual(chat.tier, "tier1")
+
+    def test_default_tier_resolution_persisted_when_bot_config_has_no_tier(self):
+        """A bot config with no explicit tier resolves (via tier_of) to
+        tier3, and that default must still be persisted on the chat."""
+        chat = _chat(skill="dev")
+        bot_config = BotConfig(name="bot-a", backend="claude_code", tier=None)
+        self._run(chat, bot_config=bot_config, skill="dev")
+        self.assertEqual(chat.tier, "tier3")
+
+    def test_tier_not_overwritten_once_set(self):
+        """tier follows the same once-set-stays-set rule as backend/bot_name:
+        a chat's tier is fixed at first dispatch."""
+        chat = _chat(skill="dev", tier="tier1")
+        bot_config = BotConfig(name="bot-a", backend="claude_code", tier="tier2")
+        self._run(chat, bot_config=bot_config, skill="dev")
+        self.assertEqual(chat.tier, "tier1")
 
     def test_unsupported_inline_effort_resets_chat_and_records_error(self):
         chat = _chat(messages=[Message(
