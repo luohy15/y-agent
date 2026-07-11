@@ -13,6 +13,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Bot usage limit windows and Live dashboard (2754 / 2758)** — bot configuration now exposes live Claude/Codex subscription limit-window status through a new API, with responsive limit cards, usage-over-time views, and clearer model/table presentation.
+- **Desktop quick prompts** — the desktop client now supports configurable quick-prompt shortcuts for faster recurring requests.
+- **Per-dispatch reasoning-effort override** — `y chat` and the chat API accept `--reasoning-effort` / `--effort` for individual dispatches without changing the bot's saved default.
 - **`grok_build` agent backend (2734)** — xAI's Grok Build CLI added as a supported agent backend (`agent/src/agent/grok_build.py`), alongside `claude_code` / `codex` / `gemini_cli` / `pi_cli` / `claude_tui`: streaming-json converter (`text`/`thought`/`end`/`error` events), detached tmux launcher + tailer, `--resume` session continuity, worker runner/monitor wiring, and web/CLI backend pickers.
 - **FileViewer file history link (2679)** — non-todo/calendar/link/etc. file previews (and link previews with a content key) show a "History" link to the file's commit history on GitHub, path corrected to be y-history-repo-relative rather than workDir-absolute.
 - **Ctrl+S save shortcut in FileViewer** — CodeEditor now saves the current file on Ctrl/Cmd+S instead of triggering the browser's save dialog.
@@ -21,10 +24,14 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Cmd+F in-file search in FileViewer** — CodeEditor wires in CodeMirror's search extension (Solarized-themed find panel with next/prev, select-all, case/regex/word toggles, and replace).
 
 ### Changed
+- **Unified bot dispatch-tier routing** — bot configuration, CLI overrides, and worker dispatch now use one filter-resolution path for consistent tier selection.
 - **Telegram root-topic steer instead of overflow chat (2661)** — when the `manager` root chat is already mid-turn, an incoming Telegram message now steers into the running chat instead of spawning a parallel overflow chat.
 - **Claude Code background tasks disabled in worker sessions** — `claude_code` and `claude_tui` session env now sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` so remote turns don't spawn detached background subprocesses.
 
 ### Fixed
+- **Bot usage account deduplication** — limit cards now select one deterministic, best available account per backend so duplicate or unavailable relay-key snapshots do not obscure live usage.
+- **Agent self-termination reporting** — intentionally self-killed tmux sessions no longer surface misleading "Codex exited before producing output" errors.
+- **Telegram `/clear` for manager** — clearing the manager topic now reliably starts a fresh manager session rather than leaving stale topic state.
 - **Steer race dropping end-of-turn messages (2662)** — a user message sent right as a claude_code turn ends could be silently dropped: added a lock + final drain before tmux teardown, delivery-confirmed steer writes, gathered all trailing user messages (not just the latest) when seeding a fresh turn, a monitor-side safety-net reconciliation that relaunches the turn if any trailing message wasn't confirmed delivered, an unclaim on paste failure, and poll-loop resilience hardening.
 - **Gate google_login signup behind SIGNUP_ALLOWLIST (security)** — new-user creation via Google OAuth login is now blocked unless the email is on the allowlist, closing an open-signup gap; existing users can still log in.
 - **Relay base URL restores 1M context window** — `claude_code` and `claude_tui` relay sessions now set `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1`, since the CLI otherwise treats a relay host as third-party and caps natively-1M models (e.g. fable) at a 200k window.
