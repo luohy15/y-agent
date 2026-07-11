@@ -102,7 +102,7 @@ export default function DevViewer() {
     fetcher,
   );
 
-  const sorted = worktrees ? [...worktrees].sort((a, b) => (b.updated_at_unix || 0) - (a.updated_at_unix || 0)) : undefined;
+  const sorted = Array.isArray(worktrees) ? [...worktrees].sort((a, b) => (b.updated_at_unix || 0) - (a.updated_at_unix || 0)) : undefined;
 
   return (
     <div className="h-full flex bg-sol-base03 text-sm sm:text-xs">
@@ -128,7 +128,7 @@ export default function DevViewer() {
             <ListLoading className="" />
           ) : error && !worktrees ? (
             <ListError error={error} />
-          ) : !sorted || sorted.length === 0 ? (
+          ) : !Array.isArray(sorted) || sorted.length === 0 ? (
             <ListEmpty label="worktrees" className="" />
           ) : (
             <table className="w-full border-collapse">
@@ -211,7 +211,7 @@ export default function DevViewer() {
           )}
         </div>
       </div>
-      <ActivityHistory worktrees={worktrees || []} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
+      <ActivityHistory worktrees={Array.isArray(worktrees) ? worktrees : []} collapsed={historyCollapsed} onToggle={() => setHistoryCollapsed((c) => !c)} />
     </div>
   );
 }

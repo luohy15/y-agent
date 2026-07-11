@@ -6,6 +6,7 @@ import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
 import NoteList from "./NoteList";
 import LinkList, { type Link } from "./LinkList";
+import ErrorBoundary from "./ErrorBoundary";
 import { type TraceChat } from "./WaterfallChart";
 import { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
 import { topicBadgeClass, statusBadgeClass } from "./badges";
@@ -277,6 +278,7 @@ export default function PublicTraceApp() {
   );
 
   return (
+    <ErrorBoundary className="h-dvh">
     <div className="h-dvh flex flex-col overflow-hidden bg-sol-base03">
       {/* Full-width page header: centered todo title + badges, above the center|right split */}
       <div className="flex flex-wrap items-center justify-center gap-1.5 px-2 pt-2.5 pb-2 bg-sol-base03 shrink-0">
@@ -402,5 +404,6 @@ export default function PublicTraceApp() {
         </a>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

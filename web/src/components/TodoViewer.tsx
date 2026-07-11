@@ -454,7 +454,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
     return `${API}/api/todo/list?offset=${pageIndex * TABLE_PAGE_SIZE}&limit=${TABLE_PAGE_SIZE}${bottomStatusParam}${nameQueryParam}`;
   };
   const { data: bottomPages, isLoading, error, size: tableSize, setSize: setTableSize, isValidating: tableValidating, mutate: mutateTable } = useSWRInfinite<Todo[]>(getTableKey, fetcher);
-  const bottomTodos = bottomPages ? bottomPages.flat() : undefined;
+  const bottomTodos = Array.isArray(bottomPages) ? bottomPages.flat() : undefined;
   const tableReachingEnd = bottomPages && bottomPages[bottomPages.length - 1]?.length < TABLE_PAGE_SIZE;
 
   const tableObserver = useRef<IntersectionObserver | null>(null);
@@ -491,7 +491,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
     fetcher,
   );
   const kanbanTodos = viewMode === "kanban"
-    ? [...(kanbanPending || []), ...(kanbanActive || []), ...(kanbanCompleted || [])]
+    ? [...(Array.isArray(kanbanPending) ? kanbanPending : []), ...(Array.isArray(kanbanActive) ? kanbanActive : []), ...(Array.isArray(kanbanCompleted) ? kanbanCompleted : [])]
     : [];
   const kanbanError = kanbanPendingError || kanbanActiveError || kanbanCompletedError;
 
@@ -500,7 +500,7 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
     mutate((key: string) => typeof key === "string" && key.includes("/api/todo/"), undefined, { revalidate: true });
   };
 
-  const sortedTodos = bottomTodos ? sortTodos(bottomTodos, sortKey, sortDir) : undefined;
+  const sortedTodos = Array.isArray(bottomTodos) ? sortTodos(bottomTodos, sortKey, sortDir) : undefined;
 
   useEffect(() => {
     if (scrollToId.current && sortedTodos) {
@@ -599,9 +599,9 @@ export default function TodoViewer({ viewMode = "table", onChatListRefresh }: { 
 
         {isLoading ? (
           <ListLoading className="" />
-        ) : error && (!sortedTodos || sortedTodos.length === 0) ? (
+        ) : error && (!Array.isArray(sortedTodos) || sortedTodos.length === 0) ? (
           <ListError error={error} className="" />
-        ) : !sortedTodos || sortedTodos.length === 0 ? (
+        ) : !Array.isArray(sortedTodos) || sortedTodos.length === 0 ? (
           <ListEmpty label="todos" className="" />
         ) : (
           <>

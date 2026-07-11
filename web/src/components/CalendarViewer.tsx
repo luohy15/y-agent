@@ -212,7 +212,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
     const allDay: Record<number, CalendarEvent[]> = {};
     const timed: Record<number, CalendarEvent[]> = {};
     for (let i = 0; i < 7; i++) { allDay[i] = []; timed[i] = []; }
-    if (!events) return { allDayByDay: allDay, timedByDay: timed };
+    if (!Array.isArray(events)) return { allDayByDay: allDay, timedByDay: timed };
     for (const ev of events) {
       if (ev.all_day) {
         const start = new Date(ev.start_time);
@@ -239,7 +239,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
 
   const sourceColorMap = useMemo(() => {
     const map = new Map<string, string>();
-    if (events) {
+    if (Array.isArray(events)) {
       for (const ev of events) {
         if (ev.source) getSourceColor(ev.source, map);
       }
@@ -613,7 +613,7 @@ export default function CalendarViewer({ onSelectTrace, focus }: CalendarViewerP
         <ListError error={error} className="p-3" />
       ) : (
         <div className="flex-1 min-h-0 relative">
-          {(!events || events.length === 0) && (
+          {(!Array.isArray(events) || events.length === 0) && (
             <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
               <span className="px-2 py-1 rounded bg-sol-base02/80 text-sol-base01">No events this week</span>
             </div>

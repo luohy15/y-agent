@@ -310,7 +310,7 @@ export default function EmailViewer({ threadId, emailId, account }: EmailViewerP
   if (isLoading && !emails) {
     return <div className="h-full bg-sol-base03"><p className="text-sol-base01 italic text-sm p-4">Loading...</p></div>;
   }
-  if (error || !emails || emails.length === 0) {
+  if (error || !Array.isArray(emails) || emails.length === 0) {
     return <div className="h-full bg-sol-base03"><p className="text-sol-red text-sm p-4">Failed to load email</p></div>;
   }
 

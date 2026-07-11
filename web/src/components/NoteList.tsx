@@ -354,7 +354,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <ListLoading />
           ) : todoNotesError && !todoNotes ? (
             <ListError error={todoNotesError} />
-          ) : !todoNotes || todoNotes.length === 0 ? (
+          ) : !Array.isArray(todoNotes) || todoNotes.length === 0 ? (
             <ListEmpty label="notes" />
           ) : (
             <div className="space-y-0">

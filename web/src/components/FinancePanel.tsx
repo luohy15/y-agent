@@ -135,7 +135,7 @@ export default function FinancePanel({ isLoggedIn }: FinancePanelProps) {
             <ListLoading />
           ) : txnsError && !txns ? (
             <ListError error={txnsError} />
-          ) : !txns || txns.length === 0 ? (
+          ) : !Array.isArray(txns) || txns.length === 0 ? (
             <ListEmpty label="transactions" />
           ) : (
             <div className="space-y-0">

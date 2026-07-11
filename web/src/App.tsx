@@ -23,6 +23,7 @@ import ScheduleList from "./components/ScheduleList";
 import FinancePanel from "./components/FinancePanel";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 import type { ArtifactType } from "./components/ArtifactView";
 
@@ -603,6 +604,7 @@ export default function App() {
   );
 
   return (
+    <ErrorBoundary className="h-dvh">
     <div className="h-dvh flex flex-col overflow-hidden">
       {/* Mobile-only nav bar */}
       {auth.isLoggedIn && (
@@ -876,7 +878,7 @@ export default function App() {
                   </div>
                 )}
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  {body}
+                  <ErrorBoundary label="Panel">{body}</ErrorBoundary>
                 </div>
               </div>
             );
@@ -928,7 +930,9 @@ export default function App() {
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
-                <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                <ErrorBoundary label="Panel">
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                </ErrorBoundary>
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
@@ -1011,17 +1015,19 @@ export default function App() {
               </div>
               {/* Right panel content */}
               <div className="flex-1 min-h-0 overflow-hidden">
-                {rightPanel === "chats" ? (
-                  renderChatSplitPanel()
-                ) : rightPanel === "notes" ? (
-                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
-                ) : rightPanel === "links" ? (
-                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
-                ) : rightPanel === "files" ? (
-                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
-                ) : (
-                  <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
-                )}
+                <ErrorBoundary label="Panel">
+                  {rightPanel === "chats" ? (
+                    renderChatSplitPanel()
+                  ) : rightPanel === "notes" ? (
+                    <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handleOpenFile} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
+                  ) : rightPanel === "links" ? (
+                    <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
+                  ) : rightPanel === "files" ? (
+                    <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
+                  ) : (
+                    <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
+                  )}
+                </ErrorBoundary>
               </div>
             </div>
           )}
@@ -1075,17 +1081,19 @@ export default function App() {
             </div>
             {/* Mobile right panel content */}
             <div className="flex-1 min-h-0 overflow-hidden">
-              {rightPanel === "chats" ? (
-                renderChatSplitPanel(true)
-              ) : rightPanel === "notes" ? (
-                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
-              ) : rightPanel === "links" ? (
-                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
-              ) : rightPanel === "files" ? (
-                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
-              ) : (
-                <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} refreshKey={chatContextRefreshKey} />
-              )}
+              <ErrorBoundary label="Panel">
+                {rightPanel === "chats" ? (
+                  renderChatSplitPanel(true)
+                ) : rightPanel === "notes" ? (
+                  <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
+                ) : rightPanel === "links" ? (
+                  <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
+                ) : rightPanel === "files" ? (
+                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
+                ) : (
+                  <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} refreshKey={chatContextRefreshKey} />
+                )}
+              </ErrorBoundary>
             </div>
           </div>
         </div>
@@ -1099,5 +1107,6 @@ export default function App() {
         onClose={() => { setPendingLinkUrl(null); setPendingLinkStatus(null); }}
       />
     </div>
+    </ErrorBoundary>
   );
 }

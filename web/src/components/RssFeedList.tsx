@@ -288,7 +288,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
           <ListLoading />
         ) : error && !data ? (
           <ListError error={error} />
-        ) : !data || data.length === 0 ? (
+        ) : !Array.isArray(data) || data.length === 0 ? (
           <ListEmpty label="feeds" />
         ) : (
           <div className="space-y-0">
