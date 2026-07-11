@@ -235,7 +235,7 @@ class ResolveBotConfigTest(unittest.TestCase):
         self.assertEqual(config.name, "bot-a")
         mock_choices.assert_not_called()
 
-    def test_multiple_candidates_weighted_random(self):
+    def test_multiple_tier_candidates_use_persisted_weighted_round_robin(self):
         bot_a = BotConfig(name="bot-a", tier="tier1", route_weight=1)
         bot_b = BotConfig(name="bot-b", tier="tier1", route_weight=1)
         bot_c = BotConfig(name="bot-c", tier="tier1", route_weight=3)
@@ -243,19 +243,56 @@ class ResolveBotConfigTest(unittest.TestCase):
 
         with (
             patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.bot_service.select_weighted_round_robin", return_value="bot-c") as select,
             patch("agent.config.random.choices") as mock_choices,
             patch("agent.config.get_default_user_id", return_value=1),
         ):
-            mock_choices.return_value = [bot_c]
             config = resolve_bot_config(1, tier="tier1")
 
         self.assertEqual(config.name, "bot-c")
+        select.assert_called_once_with(1, "tier1", [("bot-a", 1), ("bot-b", 1), ("bot-c", 3)])
+        mock_choices.assert_not_called()
+
+    def test_tier_selection_uses_persisted_sequence_across_new_chats(self):
+        sol = BotConfig(name="sol", tier="tier1", route_weight=1)
+        opus = BotConfig(name="opus", tier="tier1", route_weight=1)
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=[sol, opus]),
+            patch("agent.config.bot_service.select_weighted_round_robin", side_effect=["sol", "opus"]),
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            first = resolve_bot_config(1, tier="tier1")
+            second = resolve_bot_config(1, tier="tier1")
+
+        self.assertEqual([first.name, second.name], ["sol", "opus"])
+
+    def test_tier_and_backend_filter_uses_persisted_weighted_round_robin(self):
+        bot_a = BotConfig(name="bot-a", backend="codex", tier="tier1", route_weight=1)
+        bot_b = BotConfig(name="bot-b", backend="codex", tier="tier1", route_weight=1)
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=[bot_a, bot_b]),
+            patch("agent.config.bot_service.select_weighted_round_robin", return_value="bot-b") as select,
+            patch("agent.config.random.choices") as mock_choices,
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            config = resolve_bot_config(1, backend="codex", tier="tier1")
+
+        self.assertEqual(config.name, "bot-b")
+        select.assert_called_once_with(1, "tier1", [("bot-a", 1), ("bot-b", 1)])
+        mock_choices.assert_not_called()
+
+    def test_backend_filter_keeps_weighted_random_selection(self):
+        bot_a = BotConfig(name="bot-a", backend="codex", tier="tier1", route_weight=1)
+        bot_b = BotConfig(name="bot-b", backend="codex", tier="tier1", route_weight=1)
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=[bot_a, bot_b]),
+            patch("agent.config.random.choices", return_value=[bot_b]) as mock_choices,
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            config = resolve_bot_config(1, backend="codex")
+
+        self.assertEqual(config.name, "bot-b")
         mock_choices.assert_called_once()
-        _, kwargs = mock_choices.call_args
-        weights = kwargs["weights"]
-        self.assertAlmostEqual(weights[0], 0.2)
-        self.assertAlmostEqual(weights[1], 0.2)
-        self.assertAlmostEqual(weights[2], 0.6)
 
     def test_name_and_backend_intersect(self):
         matching = BotConfig(name="a", backend="codex")

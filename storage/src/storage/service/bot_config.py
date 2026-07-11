@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.dto import BotConfig
 from storage.repository import bot_config as bot_repo
 from storage.repository import chat as chat_repo
+from storage.service import bot_route_state
 
 
 def list_configs(user_id: int) -> List[BotConfig]:
@@ -44,3 +45,7 @@ def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
         return False
     chat_repo.rename_bot_name(user_id, old_name, new_name)
     return True
+
+
+def select_weighted_round_robin(user_id: int, tier: str, candidates: List[tuple[str, float]]) -> Optional[str]:
+    return bot_route_state.select_weighted_round_robin(user_id, tier, candidates)

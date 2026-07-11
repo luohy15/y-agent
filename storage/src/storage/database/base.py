@@ -58,6 +58,7 @@ def init_tables():
     # Import all entities to register them with Base
     import storage.entity.user  # noqa: F401
     import storage.entity.bot_config  # noqa: F401
+    import storage.entity.bot_route_state  # noqa: F401
     import storage.entity.vm_config  # noqa: F401
     import storage.entity.chat  # noqa: F401
     import storage.entity.todo  # noqa: F401

@@ -123,17 +123,27 @@ def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
     return random.choices(choices, weights=weights, k=1)[0]
 
 
-def _select(candidates: List[BotConfig]) -> Optional[BotConfig]:
+def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None) -> Optional[BotConfig]:
     """Pick a config from a candidate pool.
 
     A sole candidate is used directly regardless of its weight; a
-    multi-candidate pool is drawn by weight (which may still come up
-    empty if every candidate has zero/unset weight).
+    multi-candidate tier pool uses persisted smooth weighted round-robin;
+    other multi-candidate pools draw by weight. Both may come up empty if
+    every candidate has zero/unset weight.
     """
     if not candidates:
         return None
     if len(candidates) == 1:
         return candidates[0]
+    if user_id is not None and tier:
+        selected_name = bot_service.select_weighted_round_robin(
+            user_id,
+            tier,
+            [(cfg.name, cfg.route_weight) for cfg in candidates if cfg.route_weight and cfg.route_weight > 0],
+        )
+        if selected_name:
+            return next(cfg for cfg in candidates if cfg.name == selected_name)
+        return None
     return _pick_by_weight(candidates)
 
 
@@ -153,14 +163,19 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
 
     Unified filter resolution (no precedence chain): bot_name / backend /
     tier intersect over the user's universe of eligible configs. Exactly
-    one match is used directly; multiple matches draw by weight. No
+    one match is used directly; multiple tier matches use persisted smooth
+    weighted round-robin. No
     filters, or an empty intersection, re-resolves against the tier2 pool;
     an empty tier2 pool falls back to the user's global default bot.
     """
     universe = _universe(user_id)
 
     if bot_name or backend or tier:
-        selected = _select(_candidates(universe, bot_name=bot_name, backend=backend, tier=tier))
+        selected = _select(
+            _candidates(universe, bot_name=bot_name, backend=backend, tier=tier),
+            user_id=user_id if tier else None,
+            tier=tier,
+        )
         if not selected and bot_name and not backend and not tier:
             # Explicit name pins keep pointer-deref semantics even though
             # ref bots are excluded from the universe: name addressing
@@ -175,7 +190,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
             bot_name, backend, tier, user_id,
         )
 
-    tier2 = _select(_candidates(universe, tier="tier2"))
+    tier2 = _select(_candidates(universe, tier="tier2"), user_id=user_id, tier="tier2")
     if tier2:
         return tier2
 
