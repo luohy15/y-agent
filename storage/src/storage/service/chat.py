@@ -22,7 +22,6 @@ async def list_chats(
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
     skill: Optional[str] = None,
-    tier: Optional[str] = None,
     status: Optional[str] = None,
     routine_id: Optional[str] = None,
     routine_name: Optional[str] = None,
@@ -40,7 +39,7 @@ async def list_chats(
     return await chat_repo.list_chats(
         user_id,
         limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic,
-        skill=skill, tier=tier, status=status, routine_id=routine_id, routine_name=routine_name,
+        skill=skill, status=status, routine_id=routine_id, routine_name=routine_name,
         routine_only=routine_only,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

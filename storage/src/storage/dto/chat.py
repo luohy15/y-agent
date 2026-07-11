@@ -132,7 +132,6 @@ class Chat:
     external_id: Optional[str] = None
     backend: Optional[str] = None  # "llm" or "claude_code"
     bot_name: Optional[str] = None
-    tier: Optional[str] = None  # resolved tier at dispatch time (tier0/tier1/tier2/tier3)
     content_hash: Optional[str] = None
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
@@ -164,7 +163,6 @@ class Chat:
             external_id=data.get('external_id'),
             backend=data.get('backend'),
             bot_name=data.get('bot_name'),
-            tier=data.get('tier'),
             content_hash=data.get('content_hash'),
             origin_chat_id=data.get('origin_chat_id'),
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
@@ -197,8 +195,6 @@ class Chat:
             result['backend'] = self.backend
         if self.bot_name is not None:
             result['bot_name'] = self.bot_name
-        if self.tier is not None:
-            result['tier'] = self.tier
         if self.content_hash is not None:
             result['content_hash'] = self.content_hash
         if self.origin_chat_id is not None:

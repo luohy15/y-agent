@@ -20,9 +20,8 @@ def get_column_widths(weights: dict):
 @click.option('--trace-id', default=None, help='Filter chats by trace_id (sorted oldest-first)')
 @click.option('--routine', 'routine_id', default=None, help='Filter chats by routine_id')
 @click.option('--routine-only', is_flag=True, default=False, help='Filter to chats triggered by any routine')
-@click.option('--tier', default=None, help='Filter chats by resolved dispatch tier (tier0/tier1/tier2/tier3)')
 @time_filter_options
-def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, tier: str,
+def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool,
                on, from_, to, created_on, created_from, created_to,
                updated_on, updated_from, updated_to):
     """List chat conversations sorted by update time (newest first).
@@ -36,8 +35,6 @@ def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, t
         params["routine_id"] = routine_id
     if routine_only:
         params["routine_only"] = True
-    if tier:
-        params["tier"] = tier
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
@@ -82,22 +79,6 @@ def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, t
             for chat in chats
         ]
         headers = ["ID", "Title", "Topic", "Routine", "Updated"]
-    elif tier:
-        # Tier listing: surface bot_name/backend alongside the resolved tier
-        # so per-tier session counts can be sanity-checked against routing.
-        weights = {"ID": 2, "Title": 4, "Bot": 2, "Backend": 2, "Updated": 3}
-        widths = get_column_widths(weights)
-        table_data = [
-            [
-                chat["chat_id"],
-                chat["title"],
-                chat.get("bot_name") or "",
-                chat.get("backend") or "",
-                utc_to_local(chat["updated_at"]),
-            ]
-            for chat in chats
-        ]
-        headers = ["ID", "Title", "Bot", "Backend", "Updated"]
     else:
         weights = {"ID": 1, "Title": 5, "Updated": 3}
         widths = get_column_widths(weights)

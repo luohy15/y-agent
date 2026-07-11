@@ -168,7 +168,6 @@ async def get_chats(
     trace_id: Optional[str] = Query(None),
     topic: Optional[str] = Query(None),
     skill: Optional[str] = Query(None),
-    tier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     routine_id: Optional[str] = Query(None),
     routine_name: Optional[str] = Query(None),
@@ -188,7 +187,7 @@ async def get_chats(
     user_id = _get_user_id(request)
     chats = await chat_service.list_chats(
         user_id, query=query, limit=limit, offset=offset,
-        trace_id=trace_id, topic=topic, skill=skill, tier=tier, status=status,
+        trace_id=trace_id, topic=topic, skill=skill, status=status,
         routine_id=routine_id, routine_name=routine_name, routine_only=routine_only,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
@@ -207,7 +206,6 @@ async def get_chats(
             "routine_name": c.routine_name,
             "backend": c.backend,
             "bot_name": c.bot_name,
-            "tier": c.tier,
             "status": c.status,
             "unread": c.unread,
         }
@@ -476,8 +474,6 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["backend"] = chat.backend
     if chat.bot_name:
         result["bot_name"] = chat.bot_name
-    if chat.tier:
-        result["tier"] = chat.tier
     if chat.context_window is not None:
         result["input_tokens"] = chat.input_tokens
         result["output_tokens"] = chat.output_tokens

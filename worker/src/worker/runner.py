@@ -564,20 +564,15 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         logger.info("Using backend from chat: {}", chat.backend)
     elif backend:
         logger.info("Using backend from queue: {}", backend)
-    resolved_tier = agent_config.tier_of(bot_config)
-    logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
+    logger.info("Resolved bot config: name={} backend={} model={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model)
 
     # Persist routing identity on first run only. A chat's backend is fixed for
     # the lifetime of the chat so changing the user's default bot does not move
-    # existing conversations between agent backends. tier follows the same
-    # once-set-stays-set rule so per-tier session counts reflect the tier a
-    # chat was actually dispatched on, including default tier resolution.
+    # existing conversations between agent backends.
     if not chat.backend:
         chat.backend = bot_config.backend or bot_config.api_type
     if not chat.bot_name:
         chat.bot_name = bot_config.name
-    if not chat.tier:
-        chat.tier = resolved_tier
     await chat_repo.save_chat_by_id(chat)
 
     effective_backend = bot_config.backend or bot_config.api_type

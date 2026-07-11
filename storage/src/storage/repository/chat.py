@@ -28,7 +28,6 @@ class ChatSummary:
     routine_name: str = ""
     backend: str = ""
     bot_name: str = ""
-    tier: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
     status: str = "idle"
@@ -43,8 +42,6 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
         chat.backend = entity.backend
     if entity.bot_name is not None:
         chat.bot_name = entity.bot_name
-    if entity.tier is not None:
-        chat.tier = entity.tier
     if entity.skill is not None:
         chat.skill = entity.skill
     if entity.routine_id is not None:
@@ -60,7 +57,6 @@ async def list_chats(
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
     skill: Optional[str] = None,
-    tier: Optional[str] = None,
     status: Optional[str] = None,
     routine_id: Optional[str] = None,
     routine_name: Optional[str] = None,
@@ -90,8 +86,6 @@ async def list_chats(
             q = q.filter(ChatEntity.topic == topic)
         if skill:
             q = q.filter(ChatEntity.skill == skill)
-        if tier:
-            q = q.filter(ChatEntity.tier == tier)
         # Routine name<->id is resolved here: chats only store routine_id, but the UI
         # filters/displays by the friendlier routine name. Build a per-user id->name
         # map once, used both to filter (name -> ids) and to annotate each row.
@@ -130,7 +124,6 @@ async def list_chats(
                 routine_name=routine_name_by_id.get(row.routine_id or "", ""),
                 backend=row.backend or "",
                 bot_name=row.bot_name or "",
-                tier=row.tier or "",
                 status=row.status or "idle",
                 unread=bool(row.unread),
             )
@@ -246,7 +239,6 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = _resolve_immutable_field(entity, chat, "backend")
             entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
-            entity.tier = _resolve_immutable_field(entity, chat, "tier")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -260,7 +252,6 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 external_id=chat.external_id,
                 backend=chat.backend,
                 bot_name=chat.bot_name,
-                tier=chat.tier,
                 origin_chat_id=chat.origin_chat_id,
                 topic=chat.topic,
                 skill=chat.skill,
@@ -316,7 +307,6 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.external_id = chat.external_id
             entity.backend = _resolve_immutable_field(entity, chat, "backend")
             entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
-            entity.tier = _resolve_immutable_field(entity, chat, "tier")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
