@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Persisted chat dispatch tiers (2766)** — chats now retain their resolved routing tier, expose it in API responses, and can be filtered with `y chat list --tier` to audit per-tier bot/backend sessions.
+- **Smooth weighted tier bot routing (2765)** — tier-routed new chats now use persisted smooth weighted round-robin selection, balancing short runs predictably while keeping each conversation pinned to its chosen bot and backend.
 - **Bot usage limit windows and Live dashboard (2754 / 2758)** — bot configuration now exposes live Claude/Codex subscription limit-window status through a new API, with responsive limit cards, usage-over-time views, and clearer model/table presentation.
 - **Desktop quick prompts** — the desktop client now supports configurable quick-prompt shortcuts for faster recurring requests.
 - **Per-dispatch reasoning-effort override** — `y chat` and the chat API accept `--reasoning-effort` / `--effort` for individual dispatches without changing the bot's saved default.
@@ -29,6 +31,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Claude Code background tasks disabled in worker sessions** — `claude_code` and `claude_tui` session env now sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` so remote turns don't spawn detached background subprocesses.
 
 ### Fixed
+- **Web crash containment (2767)** — application and panel-level error boundaries now show a recoverable fallback instead of leaving the entire web app blank after a component error.
 - **Bot usage account deduplication** — limit cards now select one deterministic, best available account per backend so duplicate or unavailable relay-key snapshots do not obscure live usage.
 - **Agent self-termination reporting** — intentionally self-killed tmux sessions no longer surface misleading "Codex exited before producing output" errors.
 - **Telegram `/clear` for manager** — clearing the manager topic now reliably starts a fresh manager session rather than leaving stale topic state.
