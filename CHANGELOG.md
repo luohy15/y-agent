@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.20] - 2026-07-12
+
+### Added
 - **Persisted chat dispatch tiers (2766)** — chats now retain their resolved routing tier, expose it in API responses, and can be filtered with `y chat list --tier` to audit per-tier bot/backend sessions.
 - **Smooth weighted tier bot routing (2765)** — tier-routed new chats now use persisted smooth weighted round-robin selection, balancing short runs predictably while keeping each conversation pinned to its chosen bot and backend.
 - **Bot usage limit windows and Live dashboard (2754 / 2758)** — bot configuration now exposes live Claude/Codex subscription limit-window status through a new API, with responsive limit cards, usage-over-time views, and clearer model/table presentation.
