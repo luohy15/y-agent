@@ -73,6 +73,29 @@ function injectTableOfContents(bodyHtml: string): string {
   return `${bodyHtml.slice(0, insertAt)}\n${toc}\n${bodyHtml.slice(insertAt)}`;
 }
 
+export async function requestPdfExport(
+  fetchImpl: (url: string, init?: RequestInit) => Promise<Response>,
+  url: string,
+  html: string,
+  filename: string
+): Promise<Blob> {
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ html, filename }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.json())?.detail ?? "";
+    } catch {
+      // response body wasn't JSON; fall through to the generic message
+    }
+    throw new Error(detail || `PDF export failed (${res.status})`);
+  }
+  return res.blob();
+}
+
 export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml: string }): string {
   return `<!doctype html>
 <html lang="en">

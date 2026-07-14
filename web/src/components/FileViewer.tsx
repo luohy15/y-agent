@@ -19,7 +19,7 @@ import rehypeSlug from "rehype-slug";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import { parseFrontMatter } from "../utils/markdown";
-import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, type MarkdownExportFormat } from "../utils/markdownExport";
+import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, requestPdfExport, type MarkdownExportFormat } from "../utils/markdownExport";
 
 
 interface FileViewerProps {
@@ -1123,7 +1123,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     }
   }, [isDirty, editContent, vmQuery]);
 
-  const handleMarkdownExport = useCallback((format: MarkdownExportFormat) => {
+  const handleMarkdownExport = useCallback(async (format: MarkdownExportFormat) => {
     if (!activeFile) return;
     const content = editContent[activeFile] ?? cache[activeFile]?.content;
     if (content === undefined || content === null) return;
@@ -1140,47 +1140,16 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         downloadFile(exportFilename(activeFile, format), { content: htmlDocument });
         return;
       }
-      const iframe = document.createElement("iframe");
-      // Off-screen rather than visibility:hidden/0x0 so the browser lays out and
-      // rasterizes the document (some engines skip rendering fully-hidden frames,
-      // which can print blank pages or tofu glyphs).
-      iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:816px;height:1056px;border:0;opacity:0";
-      iframe.onload = () => {
-        try {
-          const printWindow = iframe.contentWindow;
-          if (!printWindow) throw new Error("Unable to prepare PDF preview");
-          const cleanup = () => iframe.remove();
-          const runPrint = () => {
-            try {
-              printWindow.addEventListener("afterprint", cleanup, { once: true });
-              printWindow.focus();
-              printWindow.print();
-              window.setTimeout(cleanup, 60_000);
-            } catch (error: any) {
-              iframe.remove();
-              alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
-            }
-          };
-          // Wait for fonts (notably the CJK fallback) to be ready and one frame
-          // of layout before printing, so glyphs render instead of tofu.
-          const fonts = (printWindow.document as Document).fonts;
-          const afterFonts = () => printWindow.requestAnimationFrame(() => printWindow.requestAnimationFrame(runPrint));
-          if (fonts?.ready) {
-            fonts.ready.then(afterFonts).catch(afterFonts);
-          } else {
-            afterFonts();
-          }
-        } catch (error: any) {
-          iframe.remove();
-          alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
-        }
-      };
-      iframe.srcdoc = htmlDocument;
-      document.body.appendChild(iframe);
+      const filename = exportFilename(activeFile, format);
+      const pdfUrl = `${API}/api/file/export-pdf${vmQuery ? "?" + vmQuery.slice(1) : ""}`;
+      const pdfBlob = await requestPdfExport(authFetch, pdfUrl, htmlDocument, filename);
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      downloadFile(filename, { blobUrl });
+      URL.revokeObjectURL(blobUrl);
     } catch (error: any) {
       alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
     }
-  }, [activeFile, cache, editContent]);
+  }, [activeFile, cache, editContent, vmQuery]);
 
   if (mode === "public") {
     return (

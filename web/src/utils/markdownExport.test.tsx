@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody } from "./markdownExport";
+import { describe, expect, it, vi } from "vitest";
+import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, requestPdfExport } from "./markdownExport";
 
 describe("markdown export helpers", () => {
   it("offers HTML and PDF only for Markdown files", () => {
@@ -70,5 +70,39 @@ describe("markdown export helpers", () => {
     expect(html).toContain("<h1");
     expect(html).toContain("<table>");
     expect(html).toContain("导出");
+  });
+
+  it("posts the HTML to the export-pdf endpoint and resolves the returned blob", async () => {
+    const pdfBlob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(pdfBlob, { status: 200, headers: { "Content-Type": "application/pdf" } })
+    );
+
+    const blob = await requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf");
+
+    expect(fetchImpl).toHaveBeenCalledWith("/api/file/export-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ html: "<html></html>", filename: "note.pdf" }),
+    });
+    expect(blob.type).toBe("application/pdf");
+  });
+
+  it("rejects with the server-provided detail message on failure", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ detail: "PDF renderer (WeasyPrint) is not installed on the render host" }), { status: 503 })
+    );
+
+    await expect(requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
+      "PDF renderer (WeasyPrint) is not installed on the render host"
+    );
+  });
+
+  it("falls back to a generic status message when the failure body isn't JSON", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("gateway error", { status: 502 }));
+
+    await expect(requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
+      "PDF export failed (502)"
+    );
   });
 });
