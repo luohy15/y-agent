@@ -1,0 +1,68 @@
+import DOMPurify from "dompurify";
+import { renderToStaticMarkup } from "react-dom/server";
+import ReactMarkdown from "react-markdown";
+import rehypeSlug from "rehype-slug";
+import remarkGfm from "remark-gfm";
+
+export type MarkdownExportFormat = "md" | "html" | "pdf";
+
+export function exportFilename(path: string, format: MarkdownExportFormat): string {
+  const basename = path.replace(/\\/g, "/").split("/").pop() || "download";
+  const stem = basename.replace(/\.[^.]*$/, "") || basename;
+  return `${stem}.${format}`;
+}
+
+export function availableFormats(path: string): MarkdownExportFormat[] {
+  return /\.md$/i.test(path) ? ["md", "html", "pdf"] : ["md"];
+}
+
+export function renderMarkdownBody(markdown: string): string {
+  const html = renderToStaticMarkup(
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]}>
+      {markdown}
+    </ReactMarkdown>
+  );
+  return DOMPurify.sanitize(html);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;",
+  }[character]!));
+}
+
+export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml: string }): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { max-width: 900px; margin: 0 auto; padding: 48px 40px; color: #263238; background: #fff; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans", Arial, sans-serif; }
+    h1, h2, h3, h4, h5, h6 { color: #1b2b34; line-height: 1.25; margin: 1.75em 0 .65em; }
+    h1 { font-size: 2em; margin-top: 0; } h2 { font-size: 1.55em; } h3 { font-size: 1.25em; }
+    p, ul, ol, blockquote, pre, table { margin: 0 0 1em; }
+    ul, ol { padding-left: 1.6em; }
+    li + li { margin-top: .25em; }
+    a { color: #268bd2; text-decoration: underline; }
+    blockquote { border-left: 4px solid #93a1a1; color: #586e75; margin-left: 0; padding-left: 1em; }
+    code { padding: .1em .35em; border-radius: 3px; background: #f3f5f5; font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    pre { overflow-x: auto; padding: 1em; border-radius: 5px; background: #f3f5f5; } pre code { padding: 0; background: transparent; }
+    table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #cbd5d7; padding: .5em .7em; text-align: left; vertical-align: top; } th { background: #edf1f1; }
+    img { max-width: 100%; height: auto; }
+    hr { border: 0; border-top: 1px solid #cbd5d7; margin: 2em 0; }
+    @media print { body { max-width: none; padding: 0; font-size: 11pt; } a { color: inherit; } pre { white-space: pre-wrap; word-break: break-word; } }
+  </style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>`;
+}

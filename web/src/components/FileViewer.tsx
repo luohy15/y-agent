@@ -18,6 +18,8 @@ import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
+import { parseFrontMatter } from "../utils/markdown";
+import { availableFormats, buildHtmlDocument, exportFilename, renderMarkdownBody, type MarkdownExportFormat } from "../utils/markdownExport";
 
 
 interface FileViewerProps {
@@ -176,54 +178,6 @@ function FileContentTable({ filePath, content }: { filePath: string; content: st
       </tbody>
     </table>
   );
-}
-
-function parseFrontMatterScalar(raw: string): string {
-  let v = raw.trim();
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-    v = v.slice(1, -1);
-  }
-  return v;
-}
-
-function parseFrontMatter(content: string): { data: Record<string, unknown>; body: string } {
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
-  if (!m) return { data: {}, body: content };
-  const yaml = m[1];
-  const body = content.slice(m[0].length);
-  const data: Record<string, unknown> = {};
-  const lines = yaml.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim() === "") { i++; continue; }
-    const kv = line.match(/^([A-Za-z_][\w.-]*)\s*:\s*(.*)$/);
-    if (!kv) { i++; continue; }
-    const key = kv[1];
-    const rest = kv[2];
-    if (rest.trim() === "") {
-      const items: string[] = [];
-      let j = i + 1;
-      while (j < lines.length) {
-        const item = lines[j].match(/^\s+-\s+(.*)$/);
-        if (!item) break;
-        items.push(parseFrontMatterScalar(item[1]));
-        j++;
-      }
-      data[key] = items.length > 0 ? items : "";
-      i = items.length > 0 ? j : i + 1;
-      continue;
-    }
-    const val = rest.trim();
-    if (val.startsWith("[") && val.endsWith("]")) {
-      const inner = val.slice(1, -1).trim();
-      data[key] = inner === "" ? [] : inner.split(",").map((s) => parseFrontMatterScalar(s));
-    } else {
-      data[key] = parseFrontMatterScalar(val);
-    }
-    i++;
-  }
-  return { data, body };
 }
 
 function FrontMatterCard({ data }: { data: Record<string, unknown> }) {
@@ -980,7 +934,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   });
   const [editContent, setEditContent] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportMenuPosition, setExportMenuPosition] = useState({ top: 0, left: 0 });
   const savingRef = useRef<Record<string, boolean>>({});
+  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [zoom, setZoom] = useState(100);
   const [noteImported, setNoteImported] = useState<Record<string, boolean>>({});
@@ -1071,6 +1028,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   // Reset zoom when switching files (null = auto fit)
   useEffect(() => { setZoom(0); }, [activeFile]);
+
+  useEffect(() => { setExportMenuOpen(false); }, [activeFile]);
 
   const handleRefresh = useCallback(() => {
     if (!activeFile) return;
@@ -1164,6 +1123,46 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       setSaving((prev) => ({ ...prev, [path]: false }));
     }
   }, [isDirty, editContent, vmQuery]);
+
+  const handleMarkdownExport = useCallback((format: MarkdownExportFormat) => {
+    if (!activeFile) return;
+    const content = editContent[activeFile] ?? cache[activeFile]?.content;
+    if (content === undefined || content === null) return;
+    setExportMenuOpen(false);
+    try {
+      if (format === "md") {
+        downloadFile(exportFilename(activeFile, format), { content });
+        return;
+      }
+      const { data: frontMatter, body } = parseFrontMatter(content);
+      const title = typeof frontMatter.title === "string" ? frontMatter.title : getFileName(activeFile).replace(/\.md$/i, "");
+      const htmlDocument = buildHtmlDocument({ title, bodyHtml: renderMarkdownBody(body) });
+      if (format === "html") {
+        downloadFile(exportFilename(activeFile, format), { content: htmlDocument });
+        return;
+      }
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;width:0;height:0;border:0;visibility:hidden";
+      iframe.onload = () => {
+        try {
+          const printWindow = iframe.contentWindow;
+          if (!printWindow) throw new Error("Unable to prepare PDF preview");
+          const cleanup = () => iframe.remove();
+          printWindow.addEventListener("afterprint", cleanup, { once: true });
+          printWindow.focus();
+          printWindow.print();
+          window.setTimeout(cleanup, 60_000);
+        } catch (error: any) {
+          iframe.remove();
+          alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
+        }
+      };
+      iframe.srcdoc = htmlDocument;
+      document.body.appendChild(iframe);
+    } catch (error: any) {
+      alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
+    }
+  }, [activeFile, cache, editContent]);
 
   if (mode === "public") {
     return (
@@ -1364,18 +1363,60 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   return content === undefined ? null : { content };
                 })();
             if (!source) return null;
+            const formats = availableFormats(activeFile);
+            if (formats.length === 1) {
+              return (
+                <button
+                  onClick={() => downloadFile(getFileName(activeFile), source)}
+                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
+                  title="Download"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </button>
+              );
+            }
             return (
-              <button
-                onClick={() => downloadFile(getFileName(activeFile), source)}
-                className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
-                title="Download"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-              </button>
+              <div className="relative ml-2 shrink-0">
+                <button
+                  ref={exportButtonRef}
+                  onClick={() => {
+                    const button = exportButtonRef.current;
+                    if (button) {
+                      const rect = button.getBoundingClientRect();
+                      setExportMenuPosition({ top: rect.bottom + 4, left: Math.max(4, rect.right - 112) });
+                    }
+                    setExportMenuOpen((open) => !open);
+                  }}
+                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5"
+                  title="Export Markdown"
+                  aria-haspopup="menu"
+                  aria-expanded={exportMenuOpen}
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </button>
+                {exportMenuOpen && (
+                  <div role="menu" style={exportMenuPosition} className="fixed z-50 w-28 rounded border border-sol-base01 bg-sol-base03 py-1 shadow-lg">
+                    {formats.map((format) => (
+                      <button
+                        key={format}
+                        role="menuitem"
+                        onClick={() => handleMarkdownExport(format)}
+                        className="block w-full px-3 py-1 text-left text-xs text-sol-base0 hover:bg-sol-base02 hover:text-sol-base1 cursor-pointer"
+                      >
+                        {format === "md" ? "Markdown" : format.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })()}
           {isDirty(activeFile) && (
