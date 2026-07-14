@@ -6,6 +6,7 @@ import rehypeSlug from "rehype-slug";
 import remarkStripComments from "../utils/remarkStripComments";
 import { API } from "../api";
 import DocsToc, { type TocItem } from "./DocsToc";
+import MobileToc from "./MobileToc";
 
 interface NoteShareResponse {
   note_id: string;
@@ -186,7 +187,8 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
           </button>
         </div>
       </header>
-      <main className="max-w-6xl mx-auto px-4 py-6 lg:flex lg:gap-8">
+      <MobileToc items={tocItems} />
+      <main className="max-w-6xl mx-auto px-4 py-6 overflow-x-clip lg:flex lg:gap-8">
         <div className="min-w-0 max-w-4xl mx-auto lg:flex-1">
           {data.front_matter?.tags && data.front_matter.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-4">
@@ -195,7 +197,7 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
               ))}
             </div>
           )}
-          <article ref={articleRef} className="prose prose-invert max-w-none prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
+          <article ref={articleRef} className="prose prose-invert max-w-none break-words prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
             <ReactMarkdown remarkPlugins={[remarkGfm, remarkStripComments]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
           </article>
         </div>

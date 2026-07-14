@@ -10,7 +10,9 @@ type Props = {
   items: TocItem[];
 };
 
-export default function DocsToc({ items }: Props) {
+/** Tracks which heading is currently in view; shared by DocsToc and MobileToc
+ * so both TOC presentations agree on the active section. */
+export function useActiveTocId(items: TocItem[]): string | null {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,6 +40,12 @@ export default function DocsToc({ items }: Props) {
     return () => observer.disconnect();
   }, [items]);
 
+  return activeId;
+}
+
+export default function DocsToc({ items }: Props) {
+  const activeId = useActiveTocId(items);
+
   if (items.length === 0) {
     return null;
   }
@@ -61,7 +69,6 @@ export default function DocsToc({ items }: Props) {
                 if (el) {
                   el.scrollIntoView({ behavior: "smooth", block: "start" });
                   history.replaceState(null, "", `#${it.id}`);
-                  setActiveId(it.id);
                 }
               }}
               className={`block py-0.5 transition-colors ${
