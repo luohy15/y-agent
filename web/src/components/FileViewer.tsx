@@ -19,7 +19,7 @@ import rehypeSlug from "rehype-slug";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import { parseFrontMatter } from "../utils/markdown";
-import { availableFormats, buildHtmlDocument, exportFilename, renderMarkdownBody, type MarkdownExportFormat } from "../utils/markdownExport";
+import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, type MarkdownExportFormat } from "../utils/markdownExport";
 
 
 interface FileViewerProps {
@@ -296,8 +296,7 @@ function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkC
       return;
     }
     const raf = window.requestAnimationFrame(() => {
-      const els = Array.from(article.querySelectorAll<HTMLElement>("h2[id], h3[id]"));
-      setHeadings(els.map((el) => ({ id: el.id, text: el.textContent || "", level: el.tagName === "H3" ? 3 : 2 })));
+      setHeadings(extractMarkdownHeadings(article));
     });
     return () => window.cancelAnimationFrame(raf);
   }, [body]);

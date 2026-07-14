@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableFormats, buildHtmlDocument, exportFilename, renderMarkdownBody } from "./markdownExport";
+import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody } from "./markdownExport";
 
 describe("markdown export helpers", () => {
   it("offers HTML and PDF only for Markdown files", () => {
@@ -19,6 +19,19 @@ describe("markdown export helpers", () => {
     expect(document).toContain("<title>Export</title>");
     expect(document).toContain("<h1>Body</h1>");
     expect(document).toContain("<style>");
+  });
+
+  it("adds a compact TOC linked to the rendered heading anchors", () => {
+    const bodyHtml = renderMarkdownBody("# Title\n\n## 重复\n\n### 小节\n\n## 重复\n\n## Café & tea");
+    const document = new DOMParser().parseFromString(buildHtmlDocument({ title: "Export", bodyHtml }), "text/html");
+    const headings = extractMarkdownHeadings(document.body);
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".markdown-toc a"));
+
+    expect(document.querySelector(".markdown-toc")).not.toBeNull();
+    expect(headings.map((heading) => heading.text)).toEqual(["重复", "小节", "重复", "Café & tea"]);
+    expect(new Set(headings.map((heading) => heading.id)).size).toBe(headings.length);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(headings.map((heading) => `#${heading.id}`));
+    expect(links.map((link) => link.textContent)).toEqual(headings.map((heading) => heading.text));
   });
 
   it("embeds an explicit cross-platform CJK font fallback stack", () => {

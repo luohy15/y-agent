@@ -6,6 +6,12 @@ import remarkGfm from "remark-gfm";
 
 export type MarkdownExportFormat = "md" | "html" | "pdf";
 
+export interface MarkdownHeading {
+  id: string;
+  text: string;
+  level: 2 | 3;
+}
+
 export function exportFilename(path: string, format: MarkdownExportFormat): string {
   const basename = path.replace(/\\/g, "/").split("/").pop() || "download";
   const stem = basename.replace(/\.[^.]*$/, "") || basename;
@@ -25,6 +31,14 @@ export function renderMarkdownBody(markdown: string): string {
   return DOMPurify.sanitize(html);
 }
 
+export function extractMarkdownHeadings(root: ParentNode): MarkdownHeading[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("h2[id], h3[id]")).map((element) => ({
+    id: element.id,
+    text: element.textContent || "",
+    level: element.tagName === "H3" ? 3 : 2,
+  }));
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({
     "&": "&amp;",
@@ -33,6 +47,19 @@ function escapeHtml(value: string): string {
     "'": "&#39;",
     '"': "&quot;",
   }[character]!));
+}
+
+function renderTableOfContents(bodyHtml: string): string {
+  const document = new DOMParser().parseFromString(bodyHtml, "text/html");
+  const headings = extractMarkdownHeadings(document);
+  if (headings.length === 0) return "";
+
+  return `<nav class="markdown-toc" aria-label="Table of contents">
+  <div class="markdown-toc-title">Contents</div>
+  <ol>
+${headings.map((heading) => `    <li class="markdown-toc-level-${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`).join("\n")}
+  </ol>
+</nav>`;
 }
 
 export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml: string }): string {
@@ -58,6 +85,11 @@ export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml
     ul, ol { padding-left: 1.6em; }
     li + li { margin-top: .25em; }
     a { color: #268bd2; text-decoration: underline; }
+    .markdown-toc { break-inside: avoid; margin: 0 0 2em; padding: 1em 1.2em; border: 1px solid #cbd5d7; border-radius: 5px; background: #f8faf9; font-size: .9em; }
+    .markdown-toc-title { margin-bottom: .45em; color: #1b2b34; font-weight: 600; }
+    .markdown-toc ol { margin: 0; padding-left: 1.35em; }
+    .markdown-toc li { margin: .15em 0; }
+    .markdown-toc-level-3 { margin-left: 1.15em !important; }
     blockquote { border-left: 4px solid #93a1a1; color: #586e75; margin-left: 0; padding-left: 1em; }
     code { padding: .1em .35em; border-radius: 3px; background: #f3f5f5; font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, var(--cjk-fallback), monospace; }
     pre { overflow-x: auto; padding: 1em; border-radius: 5px; background: #f3f5f5; } pre code { padding: 0; background: transparent; }
@@ -68,6 +100,7 @@ export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml
   </style>
 </head>
 <body>
+${renderTableOfContents(bodyHtml)}
 ${bodyHtml}
 </body>
 </html>`;
