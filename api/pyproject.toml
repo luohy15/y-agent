@@ -24,6 +24,12 @@ dependencies = [
     "fava>=1.30.12",
 ]
 
+[dependency-groups]
+# pypdf is used only by tests/test_export_pdf.py to assert the PDF outline; the
+# real render itself needs weasyprint + pdftotext on the host (integration test
+# skips when they are absent).
+dev = ["pypdf>=4.0"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/api"]
 

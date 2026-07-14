@@ -289,3 +289,84 @@ async def raw_file(request: Request, path: str = Query(...), vm_name: str = Quer
     data = await _exec_bytes(user_id, ["cat", path], timeout=30, vm_name=vm_name, work_dir=work_dir)
     mime, _ = mimetypes.guess_type(path)
     return Response(content=data, media_type=mime or "application/octet-stream")
+
+
+# --- PDF export (server-side WeasyPrint render) -------------------------------
+#
+# The standalone HTML (built client-side by buildHtmlDocument) is rendered to PDF
+# on the resolved VM through the same exec channel as every other file op. The
+# HTML arrives on stdin; WeasyPrint derives a real PDF /Outlines dictionary from
+# the heading structure (its UA stylesheet sets bookmark-level on h1-h6), which
+# is what macOS Preview's sidebar reads. Only base64 (success) or a
+# "__PDF_ERR__:" sentinel (failure) is ever written to stdout, so the
+# merged-stderr local transport can't corrupt the payload; WeasyPrint's own
+# stderr/warnings are captured to a temp log and dropped. base64's alphabet never
+# contains '_', so the sentinel is unambiguous.
+_WEASYPRINT_RENDER_SCRIPT = r"""
+export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+if ! command -v weasyprint >/dev/null 2>&1; then echo "__PDF_ERR__:renderer_missing"; exit 0; fi
+d=$(mktemp -d) || { echo "__PDF_ERR__:render_failed:no_tmpdir"; exit 0; }
+trap 'rm -rf "$d"' EXIT
+if weasyprint - "$d/out.pdf" >"$d/log" 2>&1; then
+  base64 "$d/out.pdf"
+else
+  printf '__PDF_ERR__:render_failed:'
+  tail -c 400 "$d/log" 2>/dev/null | tr -d '\r' | tr '\n' ' '
+fi
+"""
+
+
+class ExportPdfRequest(BaseModel):
+    html: str
+    filename: str | None = None
+
+
+def _pdf_content_disposition(filename: str | None) -> str:
+    import re
+    from urllib.parse import quote
+    # basename, drop control chars / quotes that would break the header value,
+    # strip one trailing extension, force .pdf (mirrors the client's exportFilename)
+    name = os.path.basename((filename or "").strip())
+    name = "".join(c for c in name if c >= " " and c not in '"\\')
+    stem = (re.sub(r"\.[^.]*$", "", name) or name).strip() or "export"
+    full = f"{stem}.pdf"
+    ascii_stem = stem.encode("ascii", "ignore").decode().strip()
+    ascii_full = f"{ascii_stem}.pdf" if ascii_stem else "export.pdf"
+    return f"attachment; filename=\"{ascii_full}\"; filename*=UTF-8''{quote(full)}"
+
+
+@router.post("/export-pdf")
+async def export_pdf(request: Request, body: ExportPdfRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    if not body.html or not body.html.strip():
+        raise HTTPException(status_code=400, detail="Missing HTML payload")
+
+    from agent.config import resolve_vm_config
+    vm_config = resolve_vm_config(user_id, vm_name)
+    if work_dir:
+        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
+    runner = _get_cmd_runner_cls()(vm_config)
+    try:
+        output = await runner.run_cmd(
+            ["bash", "-c", _WEASYPRINT_RENDER_SCRIPT], stdin=body.html, timeout=60
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="PDF render timed out")
+
+    if output.startswith("__PDF_ERR__:renderer_missing"):
+        raise HTTPException(status_code=503, detail="PDF renderer (WeasyPrint) is not installed on the render host")
+    if output.startswith("__PDF_ERR__:render_failed"):
+        reason = output.split("render_failed:", 1)[-1].strip() or "unknown error"
+        raise HTTPException(status_code=502, detail=f"PDF render failed: {reason[:300]}")
+    try:
+        pdf = base64.b64decode(output)
+    except Exception:
+        raise HTTPException(status_code=502, detail="PDF render produced invalid output")
+    if pdf[:5] != b"%PDF-":
+        raise HTTPException(status_code=502, detail="PDF render produced no output")
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": _pdf_content_disposition(body.filename)},
+    )
