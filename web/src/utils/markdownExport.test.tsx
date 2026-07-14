@@ -74,9 +74,10 @@ describe("markdown export helpers", () => {
 
   it("posts the HTML to the export-pdf endpoint and resolves the returned blob", async () => {
     const pdfBlob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(pdfBlob, { status: 200, headers: { "Content-Type": "application/pdf" } })
-    );
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => pdfBlob,
+    } as Response);
 
     const blob = await requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf");
 
@@ -85,6 +86,7 @@ describe("markdown export helpers", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ html: "<html></html>", filename: "note.pdf" }),
     });
+    expect(blob).toBe(pdfBlob);
     expect(blob.type).toBe("application/pdf");
   });
 
