@@ -62,6 +62,17 @@ ${headings.map((heading) => `    <li class="markdown-toc-level-${heading.level}"
 </nav>`;
 }
 
+function injectTableOfContents(bodyHtml: string): string {
+  const toc = renderTableOfContents(bodyHtml);
+  if (!toc) return bodyHtml;
+
+  const h1Match = /<h1[^>]*>.*?<\/h1>/is.exec(bodyHtml);
+  if (!h1Match) return `${toc}\n${bodyHtml}`;
+
+  const insertAt = h1Match.index + h1Match[0].length;
+  return `${bodyHtml.slice(0, insertAt)}\n${toc}\n${bodyHtml.slice(insertAt)}`;
+}
+
 export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml: string }): string {
   return `<!doctype html>
 <html lang="en">
@@ -100,8 +111,7 @@ export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml
   </style>
 </head>
 <body>
-${renderTableOfContents(bodyHtml)}
-${bodyHtml}
+${injectTableOfContents(bodyHtml)}
 </body>
 </html>`;
 }

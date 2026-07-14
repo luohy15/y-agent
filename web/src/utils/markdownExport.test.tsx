@@ -23,7 +23,8 @@ describe("markdown export helpers", () => {
 
   it("adds a compact TOC linked to the rendered heading anchors", () => {
     const bodyHtml = renderMarkdownBody("# Title\n\n## 重复\n\n### 小节\n\n## 重复\n\n## Café & tea");
-    const document = new DOMParser().parseFromString(buildHtmlDocument({ title: "Export", bodyHtml }), "text/html");
+    const rawDocument = buildHtmlDocument({ title: "Export", bodyHtml });
+    const document = new DOMParser().parseFromString(rawDocument, "text/html");
     const headings = extractMarkdownHeadings(document.body);
     const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".markdown-toc a"));
 
@@ -32,6 +33,24 @@ describe("markdown export helpers", () => {
     expect(new Set(headings.map((heading) => heading.id)).size).toBe(headings.length);
     expect(links.map((link) => link.getAttribute("href"))).toEqual(headings.map((heading) => `#${heading.id}`));
     expect(links.map((link) => link.textContent)).toEqual(headings.map((heading) => heading.text));
+
+    // The TOC must sit immediately after the first H1, not above it.
+    const tocIndex = rawDocument.indexOf('<nav class="markdown-toc"');
+    const firstH1CloseIndex = rawDocument.indexOf("</h1>");
+    const firstH2Index = rawDocument.indexOf("<h2");
+    expect(tocIndex).toBeGreaterThan(firstH1CloseIndex);
+    expect(tocIndex).toBeLessThan(firstH2Index);
+  });
+
+  it("falls back to top-of-body placement when there is no H1", () => {
+    const bodyHtml = renderMarkdownBody("## Only a subheading\n\ncontent");
+    const rawDocument = buildHtmlDocument({ title: "Export", bodyHtml });
+
+    const tocIndex = rawDocument.indexOf('<nav class="markdown-toc"');
+    const bodyIndex = rawDocument.indexOf("<body>");
+    const firstH2Index = rawDocument.indexOf("<h2");
+    expect(tocIndex).toBeGreaterThan(bodyIndex);
+    expect(tocIndex).toBeLessThan(firstH2Index);
   });
 
   it("embeds an explicit cross-platform CJK font fallback stack", () => {
