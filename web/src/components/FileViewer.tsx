@@ -1142,16 +1142,35 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         return;
       }
       const iframe = document.createElement("iframe");
-      iframe.style.cssText = "position:fixed;width:0;height:0;border:0;visibility:hidden";
+      // Off-screen rather than visibility:hidden/0x0 so the browser lays out and
+      // rasterizes the document (some engines skip rendering fully-hidden frames,
+      // which can print blank pages or tofu glyphs).
+      iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:816px;height:1056px;border:0;opacity:0";
       iframe.onload = () => {
         try {
           const printWindow = iframe.contentWindow;
           if (!printWindow) throw new Error("Unable to prepare PDF preview");
           const cleanup = () => iframe.remove();
-          printWindow.addEventListener("afterprint", cleanup, { once: true });
-          printWindow.focus();
-          printWindow.print();
-          window.setTimeout(cleanup, 60_000);
+          const runPrint = () => {
+            try {
+              printWindow.addEventListener("afterprint", cleanup, { once: true });
+              printWindow.focus();
+              printWindow.print();
+              window.setTimeout(cleanup, 60_000);
+            } catch (error: any) {
+              iframe.remove();
+              alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
+            }
+          };
+          // Wait for fonts (notably the CJK fallback) to be ready and one frame
+          // of layout before printing, so glyphs render instead of tofu.
+          const fonts = (printWindow.document as Document).fonts;
+          const afterFonts = () => printWindow.requestAnimationFrame(() => printWindow.requestAnimationFrame(runPrint));
+          if (fonts?.ready) {
+            fonts.ready.then(afterFonts).catch(afterFonts);
+          } else {
+            afterFonts();
+          }
         } catch (error: any) {
           iframe.remove();
           alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);

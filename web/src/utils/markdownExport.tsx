@@ -43,9 +43,15 @@ export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
   <style>
-    :root { color-scheme: light; }
+    :root {
+      color-scheme: light;
+      /* Explicit CJK families across macOS / Windows / Linux+Android so glyphs
+         resolve to a real installed font instead of relying on the browser's
+         last-resort fallback (which prints tofu on some systems). */
+      --cjk-fallback: "PingFang SC", "Hiragino Sans GB", "Heiti SC", "STHeiti", "Microsoft YaHei", "微软雅黑", "SimHei", "SimSun", "Noto Sans CJK SC", "Noto Sans CJK TC", "Source Han Sans SC", "Source Han Sans CN", "WenQuanYi Micro Hei", "Droid Sans Fallback";
+    }
     * { box-sizing: border-box; }
-    body { max-width: 900px; margin: 0 auto; padding: 48px 40px; color: #263238; background: #fff; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans", Arial, sans-serif; }
+    body { max-width: 900px; margin: 0 auto; padding: 48px 40px; color: #263238; background: #fff; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, var(--cjk-fallback), sans-serif; }
     h1, h2, h3, h4, h5, h6 { color: #1b2b34; line-height: 1.25; margin: 1.75em 0 .65em; }
     h1 { font-size: 2em; margin-top: 0; } h2 { font-size: 1.55em; } h3 { font-size: 1.25em; }
     p, ul, ol, blockquote, pre, table { margin: 0 0 1em; }
@@ -53,7 +59,7 @@ export function buildHtmlDocument({ title, bodyHtml }: { title: string; bodyHtml
     li + li { margin-top: .25em; }
     a { color: #268bd2; text-decoration: underline; }
     blockquote { border-left: 4px solid #93a1a1; color: #586e75; margin-left: 0; padding-left: 1em; }
-    code { padding: .1em .35em; border-radius: 3px; background: #f3f5f5; font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { padding: .1em .35em; border-radius: 3px; background: #f3f5f5; font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, var(--cjk-fallback), monospace; }
     pre { overflow-x: auto; padding: 1em; border-radius: 5px; background: #f3f5f5; } pre code { padding: 0; background: transparent; }
     table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #cbd5d7; padding: .5em .7em; text-align: left; vertical-align: top; } th { background: #edf1f1; }
     img { max-width: 100%; height: auto; }

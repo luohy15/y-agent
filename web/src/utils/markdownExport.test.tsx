@@ -21,6 +21,18 @@ describe("markdown export helpers", () => {
     expect(document).toContain("<style>");
   });
 
+  it("embeds an explicit cross-platform CJK font fallback stack", () => {
+    const document = buildHtmlDocument({ title: "导出", bodyHtml: "<p>中文</p>" });
+    // Named families for each major OS so CJK glyphs resolve to a real installed
+    // font instead of the browser's last-resort fallback (prints tofu otherwise).
+    expect(document).toContain("PingFang SC"); // macOS
+    expect(document).toContain("Microsoft YaHei"); // Windows
+    expect(document).toContain("Noto Sans CJK SC"); // Linux / Android
+    // The fallback is applied to both body text and monospace code.
+    expect(document).toContain("var(--cjk-fallback), sans-serif");
+    expect(document).toContain("var(--cjk-fallback), monospace");
+  });
+
   it("renders Markdown with headings, tables, and CJK text", () => {
     const html = renderMarkdownBody("# Heading 导出\n\n| a | b |\n|---|---|\n| 1 | 2 |");
     expect(html).toContain("<h1");
