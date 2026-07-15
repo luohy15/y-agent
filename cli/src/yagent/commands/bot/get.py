@@ -1,36 +1,41 @@
 import click
-from storage.service import bot_config as bot_service
-from storage.service.user import get_cli_user_id
-from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+import httpx
+from storage.entity.dto import BotConfig
+from storage.service.bot_pricing import fmt_price
+from yagent.api_client import api_request
 from .tier import display_tier
 
 @click.command('get')
 @click.argument('name')
 def bot_get(name):
     """Show full details of a single bot configuration."""
-    user_id = get_cli_user_id()
-    config = bot_service.get_config(user_id, name=name)
-    if config is None or config.name != name:
-        click.echo(f"Bot '{name}' not found")
-        return
+    try:
+        config = api_request("GET", "/api/bot/config", params={"name": name}).json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            click.echo(f"Bot '{name}' not found")
+            return
+        raise
 
-    input_price, output_price = bot_prices_per_1m(config, fetch_openrouter_catalog())
+    rows = api_request("GET", "/api/bot/list").json()
+    by_name = {r['name']: BotConfig(name=r['name'], tier=r.get('tier'), ref_bot_name=r.get('ref_bot_name')) for r in rows}
+    cur = by_name.get(name) or BotConfig(name=config['name'], tier=config.get('tier'), ref_bot_name=config.get('ref_bot_name'))
 
     fields = [
-        ("Name", config.name),
-        ("Backend", config.backend or config.api_type or "N/A"),
-        ("Base URL", config.base_url),
-        ("Model", config.model or "N/A"),
-        ("API Key", config.api_key or "N/A"),
-        ("Description", config.description or "N/A"),
-        ("OpenRouter Config", config.openrouter_config or "N/A"),
-        ("Input/1M", fmt_price(input_price)),
-        ("Output/1M", fmt_price(output_price)),
-        ("Tier", display_tier(config, lambda n: bot_service.get_config(user_id, name=n))),
-        ("Type", config.type or "agent"),
-        ("Route Weight", config.route_weight if config.route_weight is not None else "N/A"),
-        ("Ref", config.ref_bot_name or "N/A"),
-        ("Enabled", "Yes" if config.enabled else "No"),
+        ("Name", config['name']),
+        ("Backend", config.get('backend') or "N/A"),
+        ("Base URL", config.get('base_url')),
+        ("Model", config.get('model') or "N/A"),
+        ("API Key", config.get('api_key_masked') or "N/A"),
+        ("Description", config.get('description') or "N/A"),
+        ("OpenRouter Config", "Yes" if config.get('has_openrouter') else "N/A"),
+        ("Input/1M", fmt_price(config.get('price_input'))),
+        ("Output/1M", fmt_price(config.get('price_output'))),
+        ("Tier", display_tier(cur, lambda n: by_name.get(n))),
+        ("Type", config.get('type') or "agent"),
+        ("Route Weight", config.get('route_weight') if config.get('route_weight') is not None else "N/A"),
+        ("Ref", config.get('ref_bot_name') or "N/A"),
+        ("Enabled", "Yes" if config.get('enabled') else "No"),
     ]
     width = max(len(label) for label, _ in fields)
     for label, value in fields:

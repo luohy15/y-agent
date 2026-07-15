@@ -1,18 +1,20 @@
 import click
-from storage.service import bot_config as bot_service
-from storage.service.user import get_cli_user_id
-from agent.pi_models import sync_pi_models
+import httpx
+from yagent.api_client import api_request
 
 @click.command('delete')
 @click.argument('name')
 def bot_delete(name):
     """Delete a bot configuration."""
-    user_id = get_cli_user_id()
-    if bot_service.delete_config(user_id, name):
-        sync_pi_models(user_id)
-        click.echo(f"Bot '{name}' deleted successfully")
-    else:
-        if name == "default":
+    try:
+        api_request("POST", "/api/bot/delete", json={"name": name})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 400:
             click.echo("Cannot delete default bot configuration")
-        else:
+            return
+        if e.response.status_code == 404:
             click.echo(f"Bot '{name}' not found")
+            return
+        raise
+
+    click.echo(f"Bot '{name}' deleted successfully")

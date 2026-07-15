@@ -38,10 +38,16 @@ class UpdateBotConfigRequest(BaseModel):
     type: Optional[str] = None
     route_weight: Optional[float] = None
     ref_bot_name: Optional[str] = None
+    clear_openrouter: bool = False
 
 
 class BotNameRequest(BaseModel):
     name: str
+
+
+class BotRenameRequest(BaseModel):
+    old_name: str
+    new_name: str
 
 
 def _get_user_id(request: Request) -> int:
@@ -83,6 +89,7 @@ async def list_bot_configs(request: Request):
                 "route_weight": c.route_weight,
                 "enabled": c.enabled,
                 "ref_bot_name": c.ref_bot_name,
+                "has_openrouter": bool(c.openrouter_config),
             }
         )
     return result
@@ -94,6 +101,7 @@ async def get_bot_config(request: Request, name: str = Query("default")):
     config = bot_service.get_config(user_id, name)
     if config is None:
         raise HTTPException(status_code=404, detail="Bot not found")
+    price_input, price_output = bot_prices_per_1m(config, fetch_openrouter_catalog())
     return {
         "name": config.name,
         "base_url": config.base_url,
@@ -104,6 +112,9 @@ async def get_bot_config(request: Request, name: str = Query("default")):
         "max_tokens": config.max_tokens,
         "custom_api_path": config.custom_api_path,
         "has_api_key": bool(config.api_key),
+        "price_input": price_input,
+        "price_output": price_output,
+        "has_openrouter": bool(config.openrouter_config),
         "tier": config.tier,
         "type": config.type or "agent",
         "route_weight": config.route_weight,
@@ -155,7 +166,7 @@ async def update_bot_config(request: Request, req: UpdateBotConfigRequest):
         backend=existing.backend if "backend" not in fields_set else (req.backend or None),
         model=existing.model if "model" not in fields_set else (req.model or "").strip(),
         description=existing.description if "description" not in fields_set else (req.description or None),
-        openrouter_config=existing.openrouter_config,
+        openrouter_config=None if req.clear_openrouter else existing.openrouter_config,
         prompts=existing.prompts,
         max_tokens=existing.max_tokens if "max_tokens" not in fields_set else req.max_tokens,
         custom_api_path=(
@@ -186,6 +197,26 @@ async def delete_bot_config(request: Request, req: BotNameRequest):
     from agent.pi_models import sync_pi_models
     sync_pi_models(user_id)
     return {"ok": True, "name": name}
+
+
+@router.post("/rename")
+async def rename_bot_config(request: Request, req: BotRenameRequest):
+    user_id = _get_user_id(request)
+    old_name = req.old_name.strip()
+    new_name = req.new_name.strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name and new_name are required")
+    if old_name == "default":
+        raise HTTPException(status_code=400, detail="Cannot rename the default bot configuration")
+    if bot_service.get_config(user_id, old_name) is None:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    if bot_service.get_config(user_id, new_name) is not None:
+        raise HTTPException(status_code=409, detail=f"Bot '{new_name}' already exists")
+    if not bot_service.rename_config(user_id, old_name, new_name):
+        raise HTTPException(status_code=404, detail="Bot not found")
+    from agent.pi_models import sync_pi_models
+    sync_pi_models(user_id)
+    return {"ok": True, "name": new_name}
 
 
 @router.post("/enable")

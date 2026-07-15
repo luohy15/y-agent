@@ -1,7 +1,6 @@
 import click
-from storage.service import bot_config as bot_service
-from storage.service.user import get_cli_user_id
-from agent.pi_models import sync_pi_models
+import httpx
+from yagent.api_client import api_request
 
 @click.command('update')
 @click.argument('name')
@@ -18,35 +17,36 @@ from agent.pi_models import sync_pi_models
 @click.option('--clear-openrouter', is_flag=True, help='Clear the OpenRouter config')
 def bot_update(name, model, api_key, base_url, backend, tier, clear_tier, type, route_weight, ref_bot_name, clear_ref_bot_name, clear_openrouter):
     """Update an existing bot configuration."""
-    user_id = get_cli_user_id()
-    config = bot_service.get_config(user_id, name)
-    if not config:
-        click.echo(f"Bot '{name}' not found")
-        return
-
+    body = {"name": name}
     if model is not None:
-        config.model = model
+        body["model"] = model
     if api_key is not None:
-        config.api_key = api_key
+        body["api_key"] = api_key
     if base_url is not None:
-        config.base_url = base_url
+        body["base_url"] = base_url
     if backend is not None:
-        config.backend = backend
+        body["backend"] = backend
     if tier is not None:
-        config.tier = tier
+        body["tier"] = tier
     if clear_tier:
-        config.tier = None
+        body["tier"] = ""
     if type is not None:
-        config.type = type
+        body["type"] = type
     if route_weight is not None:
-        config.route_weight = route_weight
+        body["route_weight"] = route_weight
     if clear_openrouter:
-        config.openrouter_config = None
+        body["clear_openrouter"] = True
     if ref_bot_name is not None:
-        config.ref_bot_name = ref_bot_name
+        body["ref_bot_name"] = ref_bot_name
     if clear_ref_bot_name:
-        config.ref_bot_name = None
+        body["ref_bot_name"] = ""
 
-    bot_service.add_config(user_id, config)
-    sync_pi_models(user_id)
+    try:
+        api_request("POST", "/api/bot/update", json=body)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            click.echo(f"Bot '{name}' not found")
+            return
+        raise
+
     click.echo(f"Bot '{name}' updated successfully")

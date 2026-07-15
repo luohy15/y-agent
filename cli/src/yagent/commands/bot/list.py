@@ -1,9 +1,9 @@
 import click
 import shutil
 from tabulate import tabulate
-from storage.service import bot_config as bot_service
-from storage.service.user import get_cli_user_id
-from storage.service.bot_pricing import fetch_openrouter_catalog, bot_prices_per_1m, fmt_price
+from storage.entity.dto import BotConfig
+from storage.service.bot_pricing import fmt_price
+from yagent.api_client import api_request
 from .tier import display_tier
 
 def truncate_text(text, max_length):
@@ -17,16 +17,16 @@ def truncate_text(text, max_length):
 @click.option('--type', '-t', 'filter_type', type=click.Choice(['agent', 'model']), help='Filter by type')
 def bot_list(full: bool = False, filter_type: str | None = None):
     """List all bot configurations (compact by default)."""
-    configs = bot_service.list_configs(get_cli_user_id())
+    rows = api_request("GET", "/api/bot/list").json()
 
     if filter_type:
-        configs = [c for c in configs if (c.type or 'agent') == filter_type]
+        rows = [r for r in rows if (r.get('type') or 'agent') == filter_type]
 
-    if not configs:
+    if not rows:
         click.echo("No bot configurations found")
         return
 
-    by_name = {c.name: c for c in configs}
+    by_name = {r['name']: BotConfig(name=r['name'], tier=r.get('tier'), ref_bot_name=r.get('ref_bot_name')) for r in rows}
 
     if full:
         # Full table: all columns
@@ -42,40 +42,38 @@ def bot_list(full: bool = False, filter_type: str | None = None):
         }
         term_width = shutil.get_terminal_size().columns
         col_widths = {k: max(10, int(term_width * ratio)) for k, ratio in width_ratios.items()}
-        catalog = fetch_openrouter_catalog()
 
         headers = ["Name", "API Key", "Backend", "Base URL", "Model", "Description",
                    "OpenRouter Config", "Ref", "Input/1M", "Output/1M", "Tier", "Type", "Enabled"]
         table_data = []
-        for bot_cfg in configs:
-            input_price, output_price = bot_prices_per_1m(bot_cfg, catalog)
+        for r in rows:
             table_data.append([
-                truncate_text(bot_cfg.name, col_widths["Name"]),
-                truncate_text(bot_cfg.api_key[:8] + "..." if bot_cfg.api_key else "N/A", col_widths["API Key"]),
-                truncate_text(bot_cfg.backend or bot_cfg.api_type or "N/A", col_widths["Backend"]),
-                truncate_text(bot_cfg.base_url, col_widths["Base URL"]),
-                truncate_text(bot_cfg.model, col_widths["Model"]),
-                truncate_text(bot_cfg.description or "N/A", col_widths["Description"]),
-                "Yes" if bot_cfg.openrouter_config else "No",
-                bot_cfg.ref_bot_name or "-",
-                fmt_price(input_price),
-                fmt_price(output_price),
-                display_tier(bot_cfg, by_name.get),
-                bot_cfg.type or "agent",
-                "Yes" if bot_cfg.enabled else "No",
+                truncate_text(r['name'], col_widths["Name"]),
+                truncate_text(r.get('api_key_masked') or "N/A", col_widths["API Key"]),
+                truncate_text(r.get('backend') or "N/A", col_widths["Backend"]),
+                truncate_text(r.get('base_url'), col_widths["Base URL"]),
+                truncate_text(r.get('model'), col_widths["Model"]),
+                truncate_text(r.get('description') or "N/A", col_widths["Description"]),
+                "Yes" if r.get('has_openrouter') else "No",
+                r.get('ref_bot_name') or "-",
+                fmt_price(r.get('price_input')),
+                fmt_price(r.get('price_output')),
+                display_tier(by_name[r['name']], lambda n: by_name.get(n)),
+                r.get('type') or "agent",
+                "Yes" if r.get('enabled') else "No",
             ])
     else:
         # Compact: Name, Backend, Model, Tier, Type, Ref
         headers = ["Name", "Backend", "Model", "Tier", "Type", "Ref"]
         table_data = []
-        for bot_cfg in configs:
+        for r in rows:
             table_data.append([
-                bot_cfg.name,
-                bot_cfg.backend or bot_cfg.api_type or "N/A",
-                bot_cfg.model or "N/A",
-                display_tier(bot_cfg, by_name.get),
-                bot_cfg.type or "agent",
-                bot_cfg.ref_bot_name or "-",
+                r['name'],
+                r.get('backend') or "N/A",
+                r.get('model') or "N/A",
+                display_tier(by_name[r['name']], lambda n: by_name.get(n)),
+                r.get('type') or "agent",
+                r.get('ref_bot_name') or "-",
             ])
 
     click.echo(tabulate(
