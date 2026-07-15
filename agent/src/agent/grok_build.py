@@ -158,17 +158,24 @@ async def start_detached_grok_ssh(
     vm_config: "VmConfig",
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
+    bot_config=None,
     ssh_client=None,
 ) -> Optional[str]:
     """Start Grok Build CLI in a detached tmux session on the remote host."""
     from agent.detach import _start_detached_tmux
+    spec = _grok_spec()
+    if bot_config and bot_config.base_url:
+        from agent.grok_config import build_grok_model_entry, write_grok_config_toml
+
+        alias, entry = build_grok_model_entry(bot_config)
+        spec.setup = lambda client, _chat_id, _prompt, _images: write_grok_config_toml(client, alias, entry)
     return await _start_detached_tmux(
         cmd=cmd,
         prompt=prompt,
         cwd=cwd,
         chat_id=chat_id,
         vm_config=vm_config,
-        spec=_grok_spec(),
+        spec=spec,
         env=env,
         images=images,
         ssh_client=ssh_client,

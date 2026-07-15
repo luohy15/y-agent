@@ -798,6 +798,14 @@ def build_grok_env(bot_config, chat_id: str = None, trace_id: str = None,
     return env
 
 
+def _grok_model(bot_config):
+    """Use the managed relay alias when the Grok bot has a custom base URL."""
+    if bot_config.base_url:
+        return "y-grok"
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    return model or None
+
+
 def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None) -> list:
     """pi resume command for a known session (used on fresh resume + steer restart)."""
     cmd = ["pi", "-p", "--mode", "json", "--session", session_id]
@@ -940,8 +948,7 @@ def _build_grok_params(chat, chat_id: str, user_id: int, bot_config, vm_name: st
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
     cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
+    model = _grok_model(bot_config)
 
     session_id = chat.external_id
     resume = bool(session_id) and chat.work_dir == cwd
@@ -1200,6 +1207,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             vm_config=params["vm_config"],
             env=params["env"],
             images=params.get("images"),
+            bot_config=bot_config,
         )
     elif effective_backend == "pi_cli":
         from agent.pi_cli import start_detached_pi_ssh

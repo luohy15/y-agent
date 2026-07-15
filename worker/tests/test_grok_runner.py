@@ -60,6 +60,25 @@ class GrokRunnerTest(unittest.TestCase):
         self.assertEqual(env["Y_TOPIC"], "dev")
         self.assertEqual(env["Y_MESSAGE_ID"], "m1")
 
+    def test_build_params_uses_relay_alias_for_custom_base_url(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_grok_params(
+                _chat(),
+                "chat-1",
+                1,
+                BotConfig(
+                    name="grok",
+                    backend="grok_build",
+                    model="grok-4.5",
+                    base_url="https://cc1.yovy.app/openai",
+                    api_key="secret",
+                ),
+            )
+
+        self.assertEqual(params["cmd"], ["grok", "--output-format", "streaming-json", "--always-approve", "-m", "y-grok"])
+        self.assertNotIn("GROK_BASE_URL", params["env"])
+
     def test_build_params_fresh_run(self):
         vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
         with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):

@@ -848,8 +848,9 @@ async def _restart_grok_with_steer(chat_id: str, proc: dict, result: dict):
     vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
     bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
 
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    cmd = build_grok_resume_cmd(session_id, model or None)
+    from worker.runner import _grok_model
+
+    cmd = build_grok_resume_cmd(session_id, _grok_model(bot_config))
 
     last_message_id = result.get("last_message_id")
     env = build_grok_env(bot_config, chat_id, proc.get("trace_id"),
@@ -863,6 +864,7 @@ async def _restart_grok_with_steer(chat_id: str, proc: dict, result: dict):
         vm_config=vm_config,
         env=env or None,
         images=result.get("steer_images") or None,
+        bot_config=bot_config,
     )
 
     prev_consumed = proc.get("consumed_steer_ids")

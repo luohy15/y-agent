@@ -44,6 +44,7 @@ class GrokSteerTest(unittest.IsolatedAsyncioTestCase):
         bot_config.name = "grok"
         bot_config.model = "grok-4.5"
         bot_config.api_key = "xai-secret"
+        bot_config.base_url = None
 
         with (
             patch("agent.config.resolve_vm_config", return_value=Mock(name="vm")),
@@ -65,6 +66,7 @@ class GrokSteerTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(captured["prompt"], "do more")
         self.assertEqual(captured["env"]["XAI_API_KEY"], "xai-secret")
+        self.assertIs(captured["bot_config"], bot_config)
 
 
 class GrokApplyCompletionMetadataTest(unittest.IsolatedAsyncioTestCase):
