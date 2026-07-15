@@ -55,11 +55,6 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 ```bash
 ./scripts/deploy.sh          # SAM build + deploy backend (Lambda + SQS + EventBridge)
 ./scripts/deploy-web.sh      # Vite build + S3 sync + CloudFront invalidation
-
-# Branch previews
-./scripts/deploy-preview.sh
-./scripts/list-previews.sh
-./scripts/delete-preview.sh <branch>
 ```
 
 SAM stack name and region live in `samconfig.toml` (`y-agent` / `us-east-1` by default). Edit before the first deploy if you want a different name or region.

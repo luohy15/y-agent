@@ -38,11 +38,6 @@ Parameters:
     Description: Security Group ID for Lambda functions to access RDS
     Default: ""
 
-  BranchName:
-    Type: String
-    Description: Branch name for preview deployments (empty = main stack)
-    Default: ""
-
   LambdaRoleName:
     Type: String
     Description: IAM role name for Lambda functions
@@ -84,7 +79,6 @@ Parameters:
     Default: ""
 
 Conditions:
-  IsMainStack: !Equals [!Ref BranchName, ""]
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
 
@@ -171,10 +165,7 @@ Resources:
       DistributionConfig:
         Aliases: !If
           - HasCustomDomain
-          - - !If
-              - IsMainStack
-              - !Ref DomainName
-              - !Sub "${BranchName}.${DomainName}"
+          - - !Ref DomainName
           - !Ref AWS::NoValue
         DefaultCacheBehavior:
           TargetOriginId: S3Origin

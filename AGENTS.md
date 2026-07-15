@@ -210,8 +210,7 @@ Grouped by feature area:
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,
   EventBridge schedules for reminders + RSS)
 - `samconfig.toml` — deploy config (stack `y-agent`, region `us-east-1`)
-- `scripts/deploy.sh`, `deploy-web.sh`, `deploy-preview.sh`, `list-previews.sh`,
-  `delete-preview.sh`
+- `scripts/deploy.sh`, `deploy-web.sh`
 
 ## Auth Flow
 
@@ -250,16 +249,11 @@ cd web && npm install && npm run dev   # port 5174+, picks the next free port pe
 # Dev worker (Celery filesystem broker)
 cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 
-# Deploy backend (main or preview by branch)
+# Deploy backend
 ./scripts/deploy.sh
 
 # Deploy web
 ./scripts/deploy-web.sh
-
-# Branch preview deploys
-./scripts/deploy-preview.sh
-./scripts/list-previews.sh
-./scripts/delete-preview.sh <branch>
 
 # Build web
 cd web && npm run build
