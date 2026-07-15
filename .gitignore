@@ -33,5 +33,10 @@ web/public/docs-content/
 # Pattern with no trailing slash matches both the real dir (main repo) and symlink (worktrees)
 /migration
 
+# Local/generated repository artifacts (not tracked; kept on disk)
+/assets/screenshots/
+/control/
+/scripts/migration-*.md
+
 # One-off backfill scripts (run manually, not part of app)
 backfill_*.py
