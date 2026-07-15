@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Server-rendered PDF export (2784)** — Markdown files can now be downloaded as server-rendered PDFs with real PDF outlines, CJK font support, and a table of contents positioned after the document H1.
+- **Shared-note navigation** — shared notes now include an on-page table of contents with a responsive mobile menu for easier long-document navigation.
 
 ### Changed
 
