@@ -83,16 +83,25 @@ def merge_grok_config_toml(existing: str, alias: str, entry: dict) -> str:
 
 
 def write_grok_config_toml(client, alias: str, entry: dict) -> None:
-    """Merge the relay model into the remote ``~/.grok/config.toml``."""
-    config_path = "~/.grok/config.toml"
-    _ssh_exec(client, "mkdir -p ~/.grok")
+    """Merge the relay model into the remote ``~/.grok/config.toml``.
+
+    Resolves ``$HOME`` explicitly and uses absolute paths for every remote op
+    (mkdir / cat / sftp write / chmod), mirroring ``_write_pi_models_json``. A
+    bare ``~`` cannot be shell-quoted: ``_shell_quote`` single-quotes it, and no
+    POSIX shell expands ``~`` inside single quotes, so ``chmod 600
+    '~/.grok/config.toml'`` fails with "cannot access ~/.grok/config.toml" and
+    ``cat`` silently reads nothing (dropping the user's existing tables).
+    """
+    home = _ssh_exec(client, 'printf %s "$HOME"').strip()
+    grok_dir = f"{home}/.grok"
+    config_path = f"{grok_dir}/config.toml"
+    _ssh_exec(client, f"mkdir -p {_shell_quote(grok_dir)}")
     existing = _ssh_exec(client, f"cat {_shell_quote(config_path)} 2>/dev/null || true")
     content = merge_grok_config_toml(existing, alias, entry)
 
     sftp = client.open_sftp()
     try:
-        remote_path = f"{sftp.normalize('.')}/.grok/config.toml"
-        with sftp.open(remote_path, "w") as config_file:
+        with sftp.open(config_path, "w") as config_file:
             config_file.write(content)
     finally:
         sftp.close()
