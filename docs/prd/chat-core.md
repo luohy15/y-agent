@@ -329,3 +329,9 @@ mode (`-i`) serves a human at a terminal.
   changes.
 - **Chat import** (`y chat import`, `import-claude`) and the legacy pandoc
   HTML export: maintenance utilities, not part of the core contract.
+
+## Delivery Records
+
+| Todo | Outcome | Design | Plan | Decisions | Review | Status |
+|------|---------|--------|------|-----------|--------|--------|
+| 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
