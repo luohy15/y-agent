@@ -30,6 +30,39 @@ class TailRetryableError(Exception):
     pass
 
 
+def _collect_tool_call_ids(messages) -> set:
+    """Assistant-side tool_call ids already present in chat history.
+
+    Belt-and-braces dedupe for the grok updates.jsonl poller: procs registered
+    before `updates_offset` persistence shipped restart the poll from byte 0
+    on a Lambda handoff, so already-emitted `tool_call` events must be
+    recognized and skipped rather than re-emitted. See `_collect_tool_result_ids`
+    for the parallel set covering completed `tool_call_update` results, which a
+    legacy replay can contain independently of the originating call.
+    """
+    ids = set()
+    for msg in messages:
+        for tool_call in (msg.tool_calls or []):
+            tool_call_id = tool_call.get("id") if isinstance(tool_call, dict) else None
+            if tool_call_id:
+                ids.add(tool_call_id)
+    return ids
+
+
+def _collect_tool_result_ids(messages) -> set:
+    """Tool result ids (`role=tool`) already present in chat history.
+
+    Parallel dedupe set to `_collect_tool_call_ids`, needed because a legacy
+    replay from byte 0 re-delivers both the `tool_call` and the completed
+    `tool_call_update` for every prior tool step.
+    """
+    ids = set()
+    for msg in messages:
+        if msg.role == "tool" and msg.tool_call_id:
+            ids.add(msg.tool_call_id)
+    return ids
+
+
 async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     """Event loop: monitor detached processes, poll for new ones, handle deadlines."""
     from agent.ssh_pool import SSHPool
@@ -235,6 +268,11 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_deadline_fn=_check_deadline,
             check_steer_fn=steer_fn,
             ssh_client=client,
+            work_dir=proc.get("work_dir"),
+            session_id=session_id,
+            updates_offset=proc.get("updates_offset", 0),
+            existing_tool_call_ids=_collect_tool_call_ids(chat.messages if chat else []),
+            existing_tool_result_ids=_collect_tool_result_ids(chat.messages if chat else []),
         )
     elif backend_type == "pi_cli":
         from agent.pi_cli import tail_pi_output
@@ -305,6 +343,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         last_message_id=result.get("last_message_id"),
         session_id=updated_session_id,
         consumed_steer_ids=all_consumed_steer_ids,
+        updates_offset=result.get("updates_offset"),
     )
 
     if result["is_done"]:
@@ -881,6 +920,9 @@ async def _restart_grok_with_steer(chat_id: str, proc: dict, result: dict):
         last_message_id=last_message_id,
         session_id=session_id,
         consumed_steer_ids=all_consumed,
+        # updates.jsonl is the same session dir file across the restart (only
+        # the stdout file resets), so carry its byte offset forward.
+        updates_offset=result.get("updates_offset", 0),
     )
     release_lease(chat_id)
     logger.info("grok steer: restarted chat_id={} session_id={}", chat_id, session_id)

@@ -1,4 +1,5 @@
 import unittest
+import uuid
 from unittest.mock import patch
 
 from storage.entity.dto import BotConfig, Chat, Message, VmConfig
@@ -76,7 +77,11 @@ class GrokRunnerTest(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(params["cmd"], ["grok", "--output-format", "streaming-json", "--always-approve", "-m", "y-grok"])
+        self.assertEqual(params["cmd"][:4], ["grok", "--output-format", "streaming-json", "--always-approve"])
+        self.assertEqual(params["cmd"][4], "-s")
+        uuid.UUID(params["cmd"][5])  # a fresh run assigns a valid session UUID up front
+        self.assertEqual(params["cmd"][6:], ["-m", "y-grok"])
+        self.assertEqual(params["session_id"], params["cmd"][5])
         self.assertNotIn("GROK_BASE_URL", params["env"])
 
     def test_build_params_fresh_run(self):
@@ -91,11 +96,14 @@ class GrokRunnerTest(unittest.TestCase):
                 topic="dev",
             )
 
-        self.assertEqual(params["cmd"], ["grok", "--output-format", "streaming-json", "--always-approve", "-m", "grok-4.5"])
+        self.assertEqual(params["cmd"][:4], ["grok", "--output-format", "streaming-json", "--always-approve"])
+        self.assertEqual(params["cmd"][4], "-s")
+        uuid.UUID(params["cmd"][5])  # a fresh run assigns a valid session UUID up front (todo 2813)
+        self.assertEqual(params["cmd"][6:], ["-m", "grok-4.5"])
         self.assertIn("load the 'impl' skill", params["prompt"])
         self.assertTrue(params["prompt"].endswith("hello"))
         self.assertFalse(params["resume"])
-        self.assertIsNone(params["session_id"])
+        self.assertEqual(params["session_id"], params["cmd"][5])
 
     def test_build_params_carries_image_paths(self):
         vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")

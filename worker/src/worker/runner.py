@@ -3,6 +3,7 @@
 import os
 import re
 import threading
+import uuid
 
 from loguru import logger
 
@@ -956,8 +957,13 @@ def _build_grok_params(chat, chat_id: str, user_id: int, bot_config, vm_name: st
     if resume and session_id:
         cmd = build_grok_resume_cmd(session_id, model)
     else:
-        cmd = ["grok", "--output-format", "streaming-json", "--always-approve"]
-        session_id = None
+        # Deterministic session id up front (`-s <uuid>`, confirmed working
+        # together with `-p` headless mode on grok 0.2.101): lets the
+        # updates.jsonl tool-step side channel be located before the run
+        # completes, instead of only learning the id from the terminal `end`
+        # event (todo 2813).
+        session_id = str(uuid.uuid4())
+        cmd = ["grok", "--output-format", "streaming-json", "--always-approve", "-s", session_id]
         if model:
             cmd.extend(["-m", model])
 
@@ -1199,7 +1205,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         )
     elif effective_backend == "grok_build":
         from agent.grok_build import start_detached_grok_ssh
-        session_id = await start_detached_grok_ssh(
+        started_session_id = await start_detached_grok_ssh(
             cmd=params["cmd"],
             prompt=params["prompt"],
             cwd=cwd,
@@ -1209,6 +1215,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             bot_config=bot_config,
         )
+        # `_build_grok_params` already knows the session id up front (fresh
+        # `-s <uuid>` or an existing resume id); the initial-stdout-line sniff
+        # in `start_detached_grok_ssh` rarely wins that race, so prefer the
+        # known id.
+        session_id = params.get("session_id") or started_session_id
     elif effective_backend == "pi_cli":
         from agent.pi_cli import start_detached_pi_ssh
         session_id = await start_detached_pi_ssh(
