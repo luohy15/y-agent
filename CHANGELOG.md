@@ -16,6 +16,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Server-rendered PDF export (2784)** — Markdown files can now be downloaded as server-rendered PDFs with real PDF outlines, CJK font support, and a table of contents positioned after the document H1.
 - **Shared-note navigation** — shared notes now include an on-page table of contents with a responsive mobile menu for easier long-document navigation.
 - **API-backed `y bot` management** — all bot CLI commands now use the authenticated API rather than direct database access, so they work without local `DATABASE_URL` / `Y_USER_ID` configuration; bot responses also expose OpenRouter presence and model pricing.
+- **Grok Build intermediate streaming and tool steps (2813)** — Grok turns now flush text/thought segments at step boundaries and surface tool calls/results live from the ACP `updates.jsonl` side channel, instead of buffering everything until the terminal `end` event; end-event usage is also captured.
 
 ### Changed
 - **Grok relay routing** — Grok Build bots with a custom relay URL now configure the Grok CLI through `~/.grok/config.toml`, preserving the account-login path; the setup hook now resolves `$HOME` correctly so it retains existing config tables.
