@@ -526,7 +526,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           {processDetailButtons}
           {contextBadge}
           <button onClick={() => setShowSteerInput(true)} className="px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30">Steer</button>
-          <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red/20 text-sol-red border border-sol-red/40 rounded text-xs font-semibold cursor-pointer hover:bg-sol-red/30">Stop</button>
+          <button onClick={stopChat} className="px-2 py-0.5 bg-sol-red/20 text-sol-red rounded text-xs font-semibold cursor-pointer hover:bg-sol-red/30">Stop</button>
         </div>
       )}
       {!snapshot && (completed || showSteerInput) && (
