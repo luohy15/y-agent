@@ -545,7 +545,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         {mobile && <span>GitHub</span>}
       </a>
       {isLoggedIn ? (
-        <UserMenu email={email ?? null} mobile={!!mobile} onLogout={() => onLogout?.()} />
+        <UserMenu email={email ?? null} isLoggedIn={isLoggedIn} mobile={!!mobile} onLogout={() => onLogout?.()} />
       ) : (
         mobile ? (
           <div ref={signinRef} className="px-3 py-1" />

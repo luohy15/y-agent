@@ -3,11 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#002b36">
+  <meta name="theme-color" content="#ffffff">
   <title>y-agent — a personal AI agent built on coding agents</title>
   <meta name="description" content="y-agent extends coding agents like Claude Code and Codex into a personal agent platform: chat, todos, notes, knowledge graph, links, RSS, finance, calendar — always-on via Lambda and Telegram.">
   <link rel="shortcut icon" type="image/x-icon">
   <link rel="manifest" href="/manifest.json">
+  <script>
+    (function () {
+      var themes = { light: '#ffffff', dark: '#0d1117', 'solarized-dark': '#002b36', 'solarized-light': '#fdf6e3' };
+      var theme = 'light';
+      try {
+        var stored = localStorage.getItem('theme');
+        if (stored && themes[stored]) theme = stored;
+      } catch (_) {}
+      document.documentElement.dataset.theme = theme;
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', themes[theme]);
+    })();
+  </script>
   <link rel="stylesheet" href="/src/style.css">
   <script async src="https://www.googletagmanager.com/gtag/js?id=%VITE_GA_MEASUREMENT_ID%"></script>
   <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','%VITE_GA_MEASUREMENT_ID%');</script>

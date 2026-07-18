@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "../hooks/useTheme";
+import SettingsModal from "./SettingsModal";
 import UserInfoModal from "./UserInfoModal";
 
 interface UserMenuProps {
   email: string | null;
+  isLoggedIn: boolean;
   mobile: boolean;
   onLogout: () => void;
 }
 
-export default function UserMenu({ email, mobile, onLogout }: UserMenuProps) {
+export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const { theme, setTheme } = useTheme(isLoggedIn);
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +96,16 @@ export default function UserMenu({ email, mobile, onLogout }: UserMenuProps) {
             </button>
             <button
               role="menuitem"
+              onClick={() => { setOpen(false); setSettingsOpen(true); }}
+              className="w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 text-sol-base1 flex items-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V20h-3v-.09a1.7 1.7 0 0 0-1.03-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 14.7a1.7 1.7 0 0 0-1.55-1.03H5v-3h.09A1.7 1.7 0 0 0 6.64 9.64a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.3 6a1.7 1.7 0 0 0 1.03-1.55V4.4h3v.09A1.7 1.7 0 0 0 15.36 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06A1.7 1.7 0 0 0 19 9.64a1.7 1.7 0 0 0 1.55 1.03h.12v3h-.09A1.7 1.7 0 0 0 19.4 15Z" />
+              </svg>
+              <span>Settings</span>
+            </button>
+            <button
+              role="menuitem"
               onClick={() => { setOpen(false); onLogout(); }}
               className="w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 text-sol-base1 flex items-center gap-2"
             >
@@ -103,6 +118,12 @@ export default function UserMenu({ email, mobile, onLogout }: UserMenuProps) {
         )}
       </div>
       <UserInfoModal open={infoOpen} email={email} onClose={() => setInfoOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        theme={theme}
+        onThemeChange={setTheme}
+        onClose={() => setSettingsOpen(false)}
+      />
     </>
   );
 }
