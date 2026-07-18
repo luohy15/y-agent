@@ -204,7 +204,7 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `assoc` / `unassoc`, plus `init` / `login` / `logout`
+  `assoc` / `unassoc`, plus `init` / `login` / `logout` / `upload`
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,
@@ -281,6 +281,11 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 # Ledger-side producer / low-level local views
 y finance beancount snapshot
 y finance beancount update-market-data
+
+# Push files from this Mac to the EC2 backup host (rsync over SSH; run on the Mac).
+# GROUPS: known group names (code docs desktop downloads creds) and/or ad-hoc
+# source paths (any token with '/' or starting with '~'/'.'). Default: code docs.
+y upload [GROUPS_OR_PATHS...] [--all] [--include-creds] [--host <user@host>] [--dest <path>] [-n|--dry-run] [--mirror] [--checksum] [--list-groups]
 ```
 
 ## Conventions
