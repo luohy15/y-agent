@@ -190,7 +190,7 @@ export default function DevViewer() {
                               )}
                             </div>
                             {w.history && w.history.length > 0 && (
-                              <div className="border-t border-sol-base01/20 pt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
+                              <div className="border-t border-sol-base01/20 pt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "var(--color-sol-base01) transparent" }}>
                                 {[...w.history].sort((a, b) => (b.unix_timestamp || 0) - (a.unix_timestamp || 0)).map((h, i) => (
                                   <div key={i} className="flex gap-1.5">
                                     <span className="text-sol-base01 shrink-0">{new Date(h.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>

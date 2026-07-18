@@ -215,22 +215,45 @@ function isAbortError(error: unknown): boolean {
   return maybeError.name === "AbortError" || (typeof maybeError.message === "string" && maybeError.message.toLowerCase().includes("abort"));
 }
 
-// Solarized dark colors
-const SOL = {
-  base03: "#002b36",
-  base02: "#073642",
-  base01: "#586e75",
-  base0: "#839496",
-  base1: "#93a1a1",
-  blue: "#268bd2",
-  red: "#dc322f",
-  green: "#859900",
-  yellow: "#b58900",
-  cyan: "#2aa198",
-  magenta: "#d33682",
-  violet: "#6c71c4",
-  orange: "#cb4b16",
+// Active theme's chart palette, read from the --color-sol-* CSS vars so Recharts
+// (which needs JS color values, not classes) tracks theme switches instead of a
+// baked-in Solarized-dark hex object.
+type ThemeColors = {
+  base03: string; base02: string; base01: string; base0: string; base1: string;
+  blue: string; red: string; green: string; yellow: string; cyan: string;
+  magenta: string; violet: string; orange: string;
 };
+
+function readThemeColors(): ThemeColors {
+  const style = getComputedStyle(document.documentElement);
+  const v = (name: string) => style.getPropertyValue(`--color-sol-${name}`).trim();
+  return {
+    base03: v("base03"), base02: v("base02"), base01: v("base01"), base0: v("base0"), base1: v("base1"),
+    blue: v("blue"), red: v("red"), green: v("green"), yellow: v("yellow"), cyan: v("cyan"),
+    magenta: v("magenta"), violet: v("violet"), orange: v("orange"),
+  };
+}
+
+let SOL: ThemeColors = readThemeColors();
+const themeColorListeners = new Set<() => void>();
+if (typeof MutationObserver !== "undefined") {
+  new MutationObserver(() => {
+    SOL = readThemeColors();
+    themeColorListeners.forEach((listener) => listener());
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+
+// Re-renders the calling component whenever the active theme changes, so JSX below
+// that reads the module-level SOL picks up the new palette.
+function useThemeColors(): ThemeColors {
+  const [colors, setColors] = useState(SOL);
+  useEffect(() => {
+    const listener = () => setColors(SOL);
+    themeColorListeners.add(listener);
+    return () => { themeColorListeners.delete(listener); };
+  }, []);
+  return colors;
+}
 
 function formatAmount(amount: number): string {
   return (amount === 0 ? 0 : amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1176,7 +1199,11 @@ type ModeTab = "balance-sheet" | "income-statement" | "investment-returns" | "ho
 type ViewMode = "live" | "over-time";
 type SharedGranularity = "weekly" | "monthly" | "yearly";
 type ISChartTab = "net-profit" | "income" | "expenses";
-const ACCOUNT_COLORS = [SOL.blue, SOL.cyan, SOL.green, SOL.orange, SOL.magenta, SOL.violet, SOL.yellow, SOL.red];
+// Recomputed per call (not a frozen module-scope array) so it always reflects the
+// current theme.
+function accountColors(): string[] {
+  return [SOL.blue, SOL.cyan, SOL.green, SOL.orange, SOL.magenta, SOL.violet, SOL.yellow, SOL.red];
+}
 
 function isModeTab(tab: Tab): tab is ModeTab {
   return tab === "balance-sheet" || tab === "income-statement" || tab === "investment-returns" || tab === "holdings";
@@ -1370,7 +1397,11 @@ function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null
   );
 }
 
-const HOLDINGS_PIE_COLORS = [SOL.blue, SOL.green, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.red];
+// Recomputed per call (not a frozen module-scope array) so it always reflects the
+// current theme.
+function holdingsPieColors(): string[] {
+  return [SOL.blue, SOL.green, SOL.yellow, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.red];
+}
 
 function AccountPieTooltip({ active, payload }: {
   active?: boolean;
@@ -1411,9 +1442,10 @@ function AccountPieChart({ title, subtitle, data, emptyLabel = "No data yet" }: 
               const payload = props.payload as { label?: string; allocation?: number } | undefined;
               return (payload?.allocation ?? 0) >= 0.03 ? (payload?.label ?? "") : "";
             }} labelLine={false} isAnimationActive={false}>
-              {data.map((entry, index) => (
-                <Cell key={entry.name} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
-              ))}
+              {data.map((entry, index) => {
+                const colors = holdingsPieColors();
+                return <Cell key={entry.name} fill={colors[index % colors.length]} />;
+              })}
             </Pie>
             <Tooltip content={<AccountPieTooltip />} />
           </PieChart>
@@ -1541,9 +1573,10 @@ function HoldingsPieChart({ positions }: { positions: HoldingPosition[] }) {
             labelLine={false}
             isAnimationActive={false}
           >
-            {chartData.map((entry, index) => (
-              <Cell key={entry.symbol} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
-            ))}
+            {chartData.map((entry, index) => {
+              const colors = holdingsPieColors();
+              return <Cell key={entry.symbol} fill={colors[index % colors.length]} />;
+            })}
           </Pie>
           <Tooltip content={<HoldingsPieTooltip />} />
         </PieChart>
@@ -1817,8 +1850,9 @@ function AssetsOverTimeChart({ data, positions }: { data: BalanceSheetPositionsH
             {hasRiskyData && <YAxis yAxisId="risky" orientation="right" domain={[0, 100]} tick={{ fill: SOL.yellow, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${v}%`} />}
             <Tooltip content={<AssetsOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
             {positions.map((account, index) => {
+              const colors = accountColors();
               return (
-                <Bar key={account} dataKey={account} yAxisId="assets" stackId="assets" fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
+                <Bar key={account} dataKey={account} yAxisId="assets" stackId="assets" fill={colors[index % colors.length]} isAnimationActive={false} />
               );
             })}
             {hasRiskyData && <Line type="linear" dataKey="RiskyPct" yAxisId="risky" stroke={SOL.yellow} strokeDasharray="4 4" dot={false} strokeWidth={2} isAnimationActive={false} />}
@@ -2111,9 +2145,10 @@ function IncomeStatementCategoriesPieChart({ item, categories, kind }: { item?: 
             const payload = props.payload as { label?: string; allocation?: number } | undefined;
             return (payload?.allocation ?? 0) >= 0.03 ? (payload?.label ?? "") : "";
           }} labelLine={false} isAnimationActive={false}>
-            {chartData.map((entry, index) => (
-              <Cell key={entry.category} fill={HOLDINGS_PIE_COLORS[index % HOLDINGS_PIE_COLORS.length]} />
-            ))}
+            {chartData.map((entry, index) => {
+              const colors = holdingsPieColors();
+              return <Cell key={entry.category} fill={colors[index % colors.length]} />;
+            })}
           </Pie>
           <Tooltip content={<ExpensesPieTooltip />} />
         </PieChart>
@@ -2196,9 +2231,10 @@ function IncomeStatementCategoriesOverTimeChart({ data, categories, kind }: { da
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
             <Tooltip content={<ExpensesOverTimeTooltip />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            {categories.map((category, index) => (
-              <Bar key={category} dataKey={category} stackId={kind} fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} isAnimationActive={false} />
-            ))}
+            {categories.map((category, index) => {
+              const colors = accountColors();
+              return <Bar key={category} dataKey={category} stackId={kind} fill={colors[index % colors.length]} isAnimationActive={false} />;
+            })}
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -2814,6 +2850,7 @@ interface FinanceViewerProps {
 }
 
 export default function FinanceViewer({ vmName }: FinanceViewerProps) {
+  useThemeColors(); // re-render this subtree (and its chart colors) on theme change
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem("finance-tab") as Tab) || "balance-sheet");
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
   const [committedTime, setCommittedTime] = useState(() => localStorage.getItem("finance-time") || "year");

@@ -225,7 +225,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
       )}
 
       {notes.length > 0 && (
-        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-1 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
+        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-1 overflow-y-auto max-h-40" style={{ scrollbarColor: "var(--color-sol-base01) transparent" }}>
           <span className="text-xs text-sol-base01 font-medium">Notes</span>
           {notes.map((n) => (
             <div key={n.note_id} className="text-xs bg-sol-base03 rounded px-2 py-1 border border-sol-base01/10">
@@ -242,7 +242,7 @@ function TodoDetail({ t, onClose, onSaved }: { t: Todo; onClose: () => void; onS
       )}
 
       {t.history && t.history.length > 0 && (
-        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "#586e75 transparent" }}>
+        <div className="border-t border-sol-base01/20 pt-2 mt-2 space-y-0.5 overflow-y-auto max-h-40" style={{ scrollbarColor: "var(--color-sol-base01) transparent" }}>
           {[...t.history].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((h, i) => (
             <div key={i} className="text-xs text-sol-base01 flex gap-1.5">
               <span className="shrink-0">{new Date(h.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>

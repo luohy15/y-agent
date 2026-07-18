@@ -187,25 +187,52 @@ function localDateStr(d: Date): string {
 
 // --- Over-time helpers (local copies; FinanceViewer keeps the originals private) ---
 
-// Solarized dark palette (local copy of FinanceViewer's SOL).
-const SOL = {
-  base03: "#002b36",
-  base02: "#073642",
-  base01: "#586e75",
-  base0: "#839496",
-  base1: "#93a1a1",
-  blue: "#268bd2",
-  red: "#dc322f",
-  green: "#859900",
-  yellow: "#b58900",
-  cyan: "#2aa198",
-  magenta: "#d33682",
-  violet: "#6c71c4",
-  orange: "#cb4b16",
+// Active theme's chart palette (local copy of FinanceViewer's SOL), read from the
+// --color-sol-* CSS vars so Recharts (which needs JS color values, not classes)
+// tracks theme switches instead of a baked-in Solarized-dark hex object.
+type ThemeColors = {
+  base03: string; base02: string; base01: string; base0: string; base1: string;
+  blue: string; red: string; green: string; yellow: string; cyan: string;
+  magenta: string; violet: string; orange: string;
 };
 
-// One color per stacked model series (+ Other).
-const MODEL_COLORS = [SOL.blue, SOL.green, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.yellow, SOL.red];
+function readThemeColors(): ThemeColors {
+  const style = getComputedStyle(document.documentElement);
+  const v = (name: string) => style.getPropertyValue(`--color-sol-${name}`).trim();
+  return {
+    base03: v("base03"), base02: v("base02"), base01: v("base01"), base0: v("base0"), base1: v("base1"),
+    blue: v("blue"), red: v("red"), green: v("green"), yellow: v("yellow"), cyan: v("cyan"),
+    magenta: v("magenta"), violet: v("violet"), orange: v("orange"),
+  };
+}
+
+let SOL: ThemeColors = readThemeColors();
+const themeColorListeners = new Set<() => void>();
+if (typeof MutationObserver !== "undefined") {
+  new MutationObserver(() => {
+    SOL = readThemeColors();
+    themeColorListeners.forEach((listener) => listener());
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+
+// Re-renders the calling component whenever the active theme changes, so JSX below
+// that reads the module-level SOL picks up the new palette.
+function useThemeColors(): ThemeColors {
+  const [colors, setColors] = useState(SOL);
+  useEffect(() => {
+    const listener = () => setColors(SOL);
+    themeColorListeners.add(listener);
+    return () => { themeColorListeners.delete(listener); };
+  }, []);
+  return colors;
+}
+
+// One color per stacked model series (+ Other); recomputed per call so it always
+// reflects the current theme (module-scope SOL is live, but was frozen at import
+// time if captured once into a plain array).
+function modelColors(): string[] {
+  return [SOL.blue, SOL.green, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.yellow, SOL.red];
+}
 
 // Local copy of FinanceViewer.formatPeriodLabel: YYYY-MM-DD -> "Mon D, YYYY", YYYY-MM -> "Mon YYYY".
 function formatPeriodLabel(period: string, fullYear = true): string {
@@ -788,9 +815,10 @@ function UsageOverTimeView({ granularity, metric, time }: { granularity: Granula
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} width={56} tickFormatter={(v) => formatMetric(v, metric)} />
             <Tooltip content={<UsageChartTooltip metric={metric} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            {models.map((model, index) => (
-              <Bar key={model} dataKey={model} stackId="usage" fill={MODEL_COLORS[index % MODEL_COLORS.length]} isAnimationActive={false} />
-            ))}
+            {models.map((model, index) => {
+              const colors = modelColors();
+              return <Bar key={model} dataKey={model} stackId="usage" fill={colors[index % colors.length]} isAnimationActive={false} />;
+            })}
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -943,7 +971,8 @@ function DonutCenterLabel({ totals }: {
 // built from pieData in its existing share-descending order, and each dot's color is
 // keyed on the same global index as the matching <Cell>, so legend and slices align.
 function UsagePieLegend({ pieData }: { pieData: PieSlice[] }) {
-  const items = pieData.map((d, i) => ({ model: d.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
+  const colors = modelColors();
+  const items = pieData.map((d, i) => ({ model: d.model, color: colors[i % colors.length] }));
   const rows: (typeof items)[] = [];
   for (let i = 0; i < items.length; i += 3) rows.push(items.slice(i, i + 3));
   return (
@@ -1221,9 +1250,10 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
             <ResponsiveContainer width="100%" height={DONUT_HEIGHT}>
               <PieChart margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
                 <Pie data={pieData} dataKey="value" nameKey="model" cx="50%" cy={DONUT_CY} outerRadius={80} innerRadius={52} stroke={SOL.base03} isAnimationActive={false}>
-                  {pieData.map((d, i) => (
-                    <Cell key={d.model} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
-                  ))}
+                  {pieData.map((d, i) => {
+                    const colors = modelColors();
+                    return <Cell key={d.model} fill={colors[i % colors.length]} />;
+                  })}
                 </Pie>
                 <Tooltip content={<UsagePieTooltip metric={metric} total={pieTotal} />} wrapperStyle={{ zIndex: 20 }} isAnimationActive={false} />
               </PieChart>
@@ -1239,7 +1269,7 @@ function UsageTable({ time, metric, onMetricChange }: { time: string; metric: Us
         {/* Legend rendered as a normal HTML block in document flow below the fixed-height
             chart (not via recharts <Legend>, which is absolutely positioned inside the
             fixed-height ResponsiveContainer and would overlap the donut when it wraps to 3 rows).
-            Built from pieData so dots index into MODEL_COLORS the same way as the slices. */}
+            Built from pieData so dots index into modelColors() the same way as the slices. */}
         {pieData.length > 0 && <UsagePieLegend pieData={pieData} />}
         <MetricToggle metric={metric} onChange={onMetricChange} />
       </div>
@@ -1368,6 +1398,7 @@ export function UsageLimits() {
 }
 
 export default function BotViewer() {
+  useThemeColors(); // re-render this subtree (and its chart colors) on theme change
   const { mutate: globalMutate } = useSWRConfig();
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>(
