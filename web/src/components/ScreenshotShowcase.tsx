@@ -111,6 +111,16 @@ export default function ScreenshotShowcase() {
           </div>
         </PanelFrame>
 
+        <PanelFrame name="chat-running" title="chat · ChatView (running, Stop button)" width={560} height={680}>
+          <div className="flex flex-col h-full w-full">
+            <ChatView
+              mode="live"
+              isLoggedIn={false}
+              chatId="showcase-chat-running"
+            />
+          </div>
+        </PanelFrame>
+
         <PanelFrame name="file-viewer" title="files · FileViewer" width={760} height={680}>
           <FileViewer
             openFiles={["pages/plan-2827-theming.md"]}

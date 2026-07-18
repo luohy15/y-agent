@@ -643,6 +643,9 @@ function matchFixture(rawUrl: string): unknown | undefined {
     return undefined;
   }
 
+  if (pathname === "/api/chat/messages/snapshot" && search.get("chat_id") === "showcase-chat-running") {
+    return { messages: CHAT_MESSAGES_FIXTURE, running: true };
+  }
   if (pathname === "/api/todo/list") return TODOS_FIXTURE;
   if (pathname === "/api/trace/chats") return TRACE_CHATS_FIXTURE;
   if (pathname === "/api/trace/share/mine") return null; // no existing share
