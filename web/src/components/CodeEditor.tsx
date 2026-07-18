@@ -5,7 +5,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, keymap } from "@codemirror/view";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
-import { solarizedDarkTheme, solarizedDarkSyntaxHighlight } from "./codeEditorTheme";
+import { getCodeEditorThemeExtensions, isDark } from "./codeEditorTheme";
 import { loadLanguage, getCachedLanguage, resolveLangKey } from "./codeEditorLangs";
 
 interface CodeEditorProps {
@@ -33,6 +33,9 @@ export default function CodeEditor({
   const [langExtension, setLangExtension] = useState<Extension | null>(
     () => getCachedLanguage(langKey) ?? null,
   );
+  // Track data-theme so editor chrome/syntax switch without reload.
+  // Local isDark until ST2 lands utils/theme.ts; MutationObserver covers ST2 applyTheme.
+  const [dark, setDark] = useState(() => isDark());
 
   const onSaveRef = useRef(onSave);
   const editorViewRef = useRef<EditorView | null>(null);
@@ -56,6 +59,15 @@ export default function CodeEditor({
   useEffect(() => {
     jumpToLine(initialLine);
   }, [initialLine, value, jumpToLine]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setDark(isDark(root.dataset.theme));
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,12 +119,11 @@ export default function CodeEditor({
         ...historyKeymap,
       ]),
       EditorState.readOnly.of(readOnly),
-      solarizedDarkSyntaxHighlight,
-      solarizedDarkTheme,
+      ...getCodeEditorThemeExtensions(dark),
     ];
     if (langExtension) exts.push(langExtension);
     return exts;
-  }, [filePath, readOnly, langExtension]);
+  }, [filePath, readOnly, langExtension, dark]);
 
   return (
     <CodeMirror

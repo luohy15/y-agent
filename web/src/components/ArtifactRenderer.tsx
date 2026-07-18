@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 
 export type ArtifactType = "mermaid" | "vega-lite" | "artifact-svg";
@@ -8,7 +8,7 @@ interface ArtifactRendererProps {
   spec: string;
 }
 
-// Module-level cache of already-rendered artifact HTML, keyed by type+spec.
+// Module-level cache of already-rendered artifact HTML, keyed by type+theme+spec.
 // Rendering is async (dynamic import + mermaid/vega), so without a cache every
 // remount of a bubble (which happens on each streamed chunk, since the displayed
 // "last assistant" message index advances) collapses the container back to the
@@ -16,10 +16,22 @@ interface ArtifactRendererProps {
 // collapse makes MessageList's scroll-to-bottom measure a too-small scrollHeight
 // and strands the view near the top. Caching lets a remount restore the rendered
 // SVG synchronously (in a layout effect, before paint), so the height never
-// collapses and scroll stays put.
+// collapses and scroll stays put. Theme darkness is part of the key so a light↔dark
+// switch re-renders instead of restoring a stale palette.
 const renderCache = new Map<string, string>();
 
 let artifactSeq = 0;
+
+/** Local isDark until ST2 lands utils/theme.ts (ST5 stays independent). */
+const DARK_THEMES = new Set(["dark", "solarized-dark"]);
+
+function isDark(theme?: string | null): boolean {
+  const t =
+    theme ??
+    (typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined) ??
+    "light";
+  return DARK_THEMES.has(t);
+}
 
 function artifactLabel(type: ArtifactType): string {
   if (type === "vega-lite") return "chart";
@@ -64,12 +76,25 @@ function ArtifactError({ type, error, spec }: { type: ArtifactType; error: strin
 
 export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const cacheKey = `${type}:${spec}`;
+  const [dark, setDark] = useState(() => isDark());
+  const cacheKey = `${type}:${dark ? "dark" : "light"}:${spec}`;
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     () => (renderCache.has(cacheKey) ? "ready" : "loading"),
   );
   const [error, setError] = useState<string | null>(null);
-  const renderId = useMemo(() => `artifact-${type}-${artifactSeq++}`, [type, spec]);
+  const renderId = useMemo(
+    () => `artifact-${type}-${dark ? "d" : "l"}-${artifactSeq++}`,
+    [type, spec, dark],
+  );
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setDark(isDark(root.dataset.theme));
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
 
   // Layout effect (runs before paint, child-before-parent) so a cached restore
   // is in place before MessageList's scroll-to-bottom reads scrollHeight.
@@ -92,10 +117,12 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
     setError(null);
 
     async function renderArtifact() {
+      const el = containerRef.current;
+      if (!el) return;
       try {
         if (type === "artifact-svg") {
           const html = sanitizeSvg(spec);
-          container.innerHTML = html;
+          el.innerHTML = html;
           renderCache.set(cacheKey, html);
           setStatus("ready");
           return;
@@ -106,14 +133,14 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
           mermaid.initialize({
             startOnLoad: false,
             securityLevel: "strict",
-            theme: "dark",
+            theme: dark ? "dark" : "default",
             suppressErrorRendering: true,
           });
           await mermaid.parse(spec);
           const { svg } = await mermaid.render(renderId, spec);
           if (cancelled) return;
           const html = sanitizeSvg(svg);
-          container.innerHTML = html;
+          el.innerHTML = html;
           renderCache.set(cacheKey, html);
           setStatus("ready");
           return;
@@ -121,16 +148,18 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
 
         const vegaEmbed = (await import("vega-embed")).default;
         const parsedSpec = JSON.parse(spec);
-        await vegaEmbed(container, parsedSpec, {
+        await vegaEmbed(el, parsedSpec, {
           actions: { export: false, source: false, compiled: false, editor: false },
           renderer: "svg",
+          // vega-themes: 'dark' for dark palettes; omit for light default.
+          ...(dark ? { theme: "dark" as const } : {}),
         });
         if (cancelled) return;
-        renderCache.set(cacheKey, container.innerHTML);
+        renderCache.set(cacheKey, el.innerHTML);
         setStatus("ready");
       } catch (err) {
         if (cancelled) return;
-        container.innerHTML = "";
+        el.innerHTML = "";
         setError(err instanceof Error ? err.message : String(err));
         setStatus("error");
       }
@@ -141,7 +170,7 @@ export default function ArtifactRenderer({ type, spec }: ArtifactRendererProps) 
     return () => {
       cancelled = true;
     };
-  }, [renderId, spec, type, cacheKey]);
+  }, [renderId, spec, type, cacheKey, dark]);
 
   if (status === "error") {
     return <ArtifactError type={type} error={error || "unknown error"} spec={spec} />;
