@@ -5,7 +5,75 @@ html {
   font-size: 110%;
 }
 
+/*
+ * Theme tokens.
+ * @theme registers the sol-* color names for Tailwind utilities and emits
+ * default :root values (Light). Each :root[data-theme="…"] block overrides
+ * all 16 --color-sol-* vars. Utilities reference var(--color-sol-*) at
+ * runtime, so overriding these rethemes the whole app.
+ */
 @theme {
+  /* Light (default) */
+  --color-sol-base03: #ffffff;
+  --color-sol-base02: #f3f4f6;
+  --color-sol-base01: #6b7280;
+  --color-sol-base00: #57606a;
+  --color-sol-base0: #24292f;
+  --color-sol-base1: #1f2328;
+  --color-sol-base2: #0d1117;
+  --color-sol-base3: #000000;
+  --color-sol-yellow: #9a6700;
+  --color-sol-orange: #bc4c00;
+  --color-sol-red: #cf222e;
+  --color-sol-magenta: #bf3989;
+  --color-sol-violet: #8250df;
+  --color-sol-blue: #0969da;
+  --color-sol-cyan: #1b7c83;
+  --color-sol-green: #1a7f37;
+}
+
+/* Explicit light (same as :root default; wins when data-theme is set) */
+:root,
+:root[data-theme="light"] {
+  --color-sol-base03: #ffffff;
+  --color-sol-base02: #f3f4f6;
+  --color-sol-base01: #6b7280;
+  --color-sol-base00: #57606a;
+  --color-sol-base0: #24292f;
+  --color-sol-base1: #1f2328;
+  --color-sol-base2: #0d1117;
+  --color-sol-base3: #000000;
+  --color-sol-yellow: #9a6700;
+  --color-sol-orange: #bc4c00;
+  --color-sol-red: #cf222e;
+  --color-sol-magenta: #bf3989;
+  --color-sol-violet: #8250df;
+  --color-sol-blue: #0969da;
+  --color-sol-cyan: #1b7c83;
+  --color-sol-green: #1a7f37;
+}
+
+:root[data-theme="dark"] {
+  --color-sol-base03: #0d1117;
+  --color-sol-base02: #161b22;
+  --color-sol-base01: #6e7681;
+  --color-sol-base00: #7d8590;
+  --color-sol-base0: #c9d1d9;
+  --color-sol-base1: #e6edf3;
+  --color-sol-base2: #f0f6fc;
+  --color-sol-base3: #ffffff;
+  --color-sol-yellow: #d29922;
+  --color-sol-orange: #db6d28;
+  --color-sol-red: #f85149;
+  --color-sol-magenta: #e685b5;
+  --color-sol-violet: #a371f7;
+  --color-sol-blue: #4493f8;
+  --color-sol-cyan: #39c5cf;
+  --color-sol-green: #3fb950;
+}
+
+/* Exact previous app palette (Solarized Dark) */
+:root[data-theme="solarized-dark"] {
   --color-sol-base03: #002b36;
   --color-sol-base02: #073642;
   --color-sol-base01: #586e75;
@@ -24,36 +92,55 @@ html {
   --color-sol-green: #859900;
 }
 
-/* Scrollbar — solarized dark */
+:root[data-theme="solarized-light"] {
+  --color-sol-base03: #fdf6e3;
+  --color-sol-base02: #eee8d5;
+  --color-sol-base01: #93a1a1;
+  --color-sol-base00: #839496;
+  --color-sol-base0: #657b83;
+  --color-sol-base1: #586e75;
+  --color-sol-base2: #073642;
+  --color-sol-base3: #002b36;
+  --color-sol-yellow: #b58900;
+  --color-sol-orange: #cb4b16;
+  --color-sol-red: #dc322f;
+  --color-sol-magenta: #d33682;
+  --color-sol-violet: #6c71c4;
+  --color-sol-blue: #268bd2;
+  --color-sol-cyan: #2aa198;
+  --color-sol-green: #859900;
+}
+
+/* Scrollbar — driven by theme tokens */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #073642 #002b36;
+  scrollbar-color: var(--color-sol-base02) var(--color-sol-base03);
 }
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #002b36;
+  background: var(--color-sol-base03);
 }
 ::-webkit-scrollbar-thumb {
-  background: #073642;
+  background: var(--color-sol-base02);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #586e75;
+  background: var(--color-sol-base01);
 }
 
-/* highlight.js — transparent bg to match our solarized theme */
+/* highlight.js — transparent bg to match theme */
 .hljs { background: transparent !important; }
 
 /* Status badges — dynamic class names from JS */
-.badge-pending { background: #073642; color: #839496; }
-.badge-running { background: #073642; color: #268bd2; }
-.badge-completed { background: #073642; color: #859900; }
-.badge-failed { background: #073642; color: #dc322f; }
+.badge-pending { background: var(--color-sol-base02); color: var(--color-sol-base0); }
+.badge-running { background: var(--color-sol-base02); color: var(--color-sol-blue); }
+.badge-completed { background: var(--color-sol-base02); color: var(--color-sol-green); }
+.badge-failed { background: var(--color-sol-base02); color: var(--color-sol-red); }
 
-/* Prose — solarized dark overrides */
+/* Prose — theme-token overrides */
 .prose pre {
   overflow-x: auto;
   max-width: 100%;
@@ -68,20 +155,20 @@ html {
 }
 
 .prose {
-  --tw-prose-body: #839496;           /* base0 */
-  --tw-prose-headings: #93a1a1;       /* base1 */
-  --tw-prose-links: #268bd2;          /* blue */
-  --tw-prose-bold: #93a1a1;           /* base1 */
-  --tw-prose-counters: #586e75;       /* base01 */
-  --tw-prose-bullets: #586e75;        /* base01 */
-  --tw-prose-hr: #073642;            /* base02 */
-  --tw-prose-quotes: #93a1a1;        /* base1 */
-  --tw-prose-quote-borders: #586e75; /* base01 */
-  --tw-prose-code: #2aa198;          /* cyan */
-  --tw-prose-pre-code: #839496;      /* base0 */
-  --tw-prose-pre-bg: #073642;        /* base02 */
-  --tw-prose-th-borders: #586e75;    /* base01 */
-  --tw-prose-td-borders: #073642;    /* base02 */
+  --tw-prose-body: var(--color-sol-base0);
+  --tw-prose-headings: var(--color-sol-base1);
+  --tw-prose-links: var(--color-sol-blue);
+  --tw-prose-bold: var(--color-sol-base1);
+  --tw-prose-counters: var(--color-sol-base01);
+  --tw-prose-bullets: var(--color-sol-base01);
+  --tw-prose-hr: var(--color-sol-base02);
+  --tw-prose-quotes: var(--color-sol-base1);
+  --tw-prose-quote-borders: var(--color-sol-base01);
+  --tw-prose-code: var(--color-sol-cyan);
+  --tw-prose-pre-code: var(--color-sol-base0);
+  --tw-prose-pre-bg: var(--color-sol-base02);
+  --tw-prose-th-borders: var(--color-sol-base01);
+  --tw-prose-td-borders: var(--color-sol-base02);
 }
 
 /* Hide native caret — we render a custom block cursor */
