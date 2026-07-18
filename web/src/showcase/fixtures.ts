@@ -554,10 +554,10 @@ const CHAT_VEGA_SPEC = JSON.stringify(
         { panel: "chat", rows: 4 },
       ],
     },
-    mark: { type: "bar", cornerRadiusEnd: 3, color: "#2aa198" },
+    mark: { type: "bar", cornerRadiusEnd: 3 },
     encoding: {
-      x: { field: "panel", type: "nominal", sort: null, axis: { labelAngle: 0, title: null, labelColor: "#93a1a1" } },
-      y: { field: "rows", type: "quantitative", title: "fixture rows", axis: { titleColor: "#93a1a1", labelColor: "#93a1a1" } },
+      x: { field: "panel", type: "nominal", sort: null, axis: { labelAngle: 0, title: null } },
+      y: { field: "rows", type: "quantitative", title: "fixture rows" },
     },
   },
 );
@@ -648,6 +648,33 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/trace/share/mine") return null; // no existing share
   if (pathname === "/api/note/list") return NOTES_FIXTURE;
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
+  if (pathname === "/api/file/read") {
+    return {
+      content: [
+        "---",
+        "title: Theme Integration QA",
+        "status: active",
+        "---",
+        "",
+        "# Theme Integration QA",
+        "",
+        "The final gate checks every main screen in all four themes.",
+        "",
+        "## Screenshot matrix",
+        "",
+        "- Chat, todo, file viewer, finance, trace, settings, and landing",
+        "- Light, dark, Solarized Dark, and Solarized Light",
+        "- No hardcoded render-path colors or stuck-dark regions",
+        "",
+        "> Theme changes must apply instantly through the Settings picker.",
+        "",
+        "```ts",
+        "applyTheme(theme);",
+        "document.documentElement.dataset.theme = theme;",
+        "```",
+      ].join("\n"),
+    };
+  }
   if (pathname === "/api/finance/holdings") return HOLDINGS_FIXTURE;
   if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
   if (pathname === "/api/usage/daily-totals") return DAILY_TOTALS_FIXTURE;

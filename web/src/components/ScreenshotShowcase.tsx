@@ -11,6 +11,8 @@ import LinkList from "./LinkList";
 import FinanceViewer from "./FinanceViewer";
 import ChatView from "./ChatView";
 import BotViewer from "./BotViewer";
+import FileViewer from "./FileViewer";
+import UserMenu from "./UserMenu";
 
 // Install the fetch mock + force deterministic panel state before any panel
 // mounts and fires its SWR fetch. Runs once when this lazy chunk is imported.
@@ -59,7 +61,12 @@ function PanelFrame({ name, title, width, height, children }: PanelFrameProps) {
 export default function ScreenshotShowcase() {
   return (
     <div className="min-h-dvh bg-sol-base03 text-sol-base0 font-mono p-8">
-      <h1 className="text-sol-base1 text-lg mb-6">y-agent panel showcase (mock data)</h1>
+      <div className="flex items-center gap-4 mb-6">
+        <h1 className="text-sol-base1 text-lg">y-agent panel showcase (mock data)</h1>
+        <div data-theme-picker>
+          <UserMenu email="qa@y-agent.local" isLoggedIn={false} mobile={false} onLogout={noop} />
+        </div>
+      </div>
       <div className="flex flex-wrap gap-10">
         <PanelFrame name="todo" title="todo & trace · TodoList" width={420} height={620}>
           <TodoList isLoggedIn onSelectTodo={noop} onSelectTrace={noop} onChatListRefresh={noop} />
@@ -102,6 +109,17 @@ export default function ScreenshotShowcase() {
               snapshotMessages={CHAT_MESSAGES_FIXTURE}
             />
           </div>
+        </PanelFrame>
+
+        <PanelFrame name="file-viewer" title="files · FileViewer" width={760} height={680}>
+          <FileViewer
+            openFiles={["pages/plan-2827-theming.md"]}
+            activeFile="pages/plan-2827-theming.md"
+            onSelectFile={noop}
+            onCloseFile={noop}
+            onReorderFiles={noop}
+            isLoggedIn={false}
+          />
         </PanelFrame>
       </div>
     </div>

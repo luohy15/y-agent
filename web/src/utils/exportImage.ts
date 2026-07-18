@@ -5,8 +5,6 @@ import MessageExportView from "../components/MessageExportView";
 import type { Message } from "../components/MessageList";
 import { buildExportFilename, pickImageDelivery } from "./messageExport";
 
-const SOL_BASE03 = "#002b36";
-
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -76,7 +74,10 @@ export async function exportMessagesToPng(
     await nextFrame();
 
     const target = host.firstElementChild as HTMLElement;
-    const dataUrl = await domToPng(target, { scale: 2, backgroundColor: SOL_BASE03 });
+    const backgroundColor = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-sol-base03")
+      .trim();
+    const dataUrl = await domToPng(target, { scale: 2, backgroundColor });
     const blob = await (await fetch(dataUrl)).blob();
     return { blob, dataUrl };
   } finally {

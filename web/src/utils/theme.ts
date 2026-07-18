@@ -1,17 +1,13 @@
 export const THEMES = [
-  { value: "light", label: "Light", themeColor: "#ffffff" },
-  { value: "dark", label: "Dark", themeColor: "#0d1117" },
-  { value: "solarized-dark", label: "Solarized Dark", themeColor: "#002b36" },
-  { value: "solarized-light", label: "Solarized Light", themeColor: "#fdf6e3" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "solarized-dark", label: "Solarized Dark" },
+  { value: "solarized-light", label: "Solarized Light" },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["value"];
 
 export const DEFAULT_THEME: Theme = "light";
-
-const themeColors: Record<Theme, string> = Object.fromEntries(
-  THEMES.map(({ value, themeColor }) => [value, themeColor]),
-) as Record<Theme, string>;
 
 export function isTheme(value: unknown): value is Theme {
   return typeof value === "string" && THEMES.some((theme) => theme.value === value);
@@ -23,7 +19,10 @@ export function isDark(theme: Theme): boolean {
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColors[theme]);
+  const themeColor = getComputedStyle(document.documentElement)
+    .getPropertyValue("--color-sol-base03")
+    .trim();
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
 }
 
 export function loadTheme(): Theme {
