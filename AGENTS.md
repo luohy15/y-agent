@@ -282,10 +282,8 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 y finance beancount snapshot
 y finance beancount update-market-data
 
-# Push files from this Mac to the EC2 backup host (rsync over SSH; run on the Mac).
-# GROUPS: known group names (code docs desktop downloads creds) and/or ad-hoc
-# source paths (any token with '/' or starting with '~'/'.'). Default: code docs.
-y upload [GROUPS_OR_PATHS...] [--all] [--include-creds] [--host <user@host>] [--dest <path>] [-n|--dry-run] [--mirror] [--checksum] [--list-groups]
+# Push one or more local files/directories from this Mac to the EC2 host (rsync over SSH).
+y upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
 ```
 
 ## Conventions
