@@ -10,14 +10,48 @@
   <link rel="manifest" href="/manifest.json">
   <script>
     (function () {
-      var themes = { light: '#ffffff', dark: '#0d1117', 'solarized-dark': '#002b36', 'solarized-light': '#fdf6e3' };
-      var theme = 'light';
+      var themeColors = { light: '#ffffff', dark: '#0d1117', 'solarized-dark': '#002b36', 'solarized-light': '#fdf6e3' };
+      var legacyMap = {
+        light: { mode: 'light', lightVariant: 'light', darkVariant: 'dark' },
+        'solarized-light': { mode: 'light', lightVariant: 'solarized-light', darkVariant: 'dark' },
+        dark: { mode: 'dark', lightVariant: 'light', darkVariant: 'dark' },
+        'solarized-dark': { mode: 'dark', lightVariant: 'light', darkVariant: 'solarized-dark' },
+      };
+      var defaultPrefs = { mode: 'system', lightVariant: 'light', darkVariant: 'dark' };
+
+      function isPrefs(value) {
+        return value && typeof value === 'object'
+          && (value.mode === 'system' || value.mode === 'light' || value.mode === 'dark')
+          && (value.lightVariant === 'light' || value.lightVariant === 'solarized-light')
+          && (value.darkVariant === 'dark' || value.darkVariant === 'solarized-dark');
+      }
+
+      var prefs = null;
       try {
-        var stored = localStorage.getItem('theme');
-        if (stored && themes[stored]) theme = stored;
+        var stored = localStorage.getItem('themePrefs');
+        if (stored) {
+          var parsed = JSON.parse(stored);
+          if (isPrefs(parsed)) prefs = parsed;
+        }
       } catch (_) {}
+      if (!prefs) {
+        try {
+          var legacy = localStorage.getItem('theme');
+          if (legacy && legacyMap[legacy]) prefs = legacyMap[legacy];
+        } catch (_) {}
+      }
+      if (!prefs) prefs = defaultPrefs;
+
+      var osPrefersDark = false;
+      try {
+        osPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      } catch (_) {}
+
+      var effective = prefs.mode === 'system' ? (osPrefersDark ? 'dark' : 'light') : prefs.mode;
+      var theme = effective === 'dark' ? prefs.darkVariant : prefs.lightVariant;
+
       document.documentElement.dataset.theme = theme;
-      document.querySelector('meta[name="theme-color"]').setAttribute('content', themes[theme]);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', themeColors[theme]);
     })();
   </script>
   <link rel="stylesheet" href="/src/style.css">

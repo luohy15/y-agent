@@ -34,7 +34,7 @@ html {
 
 /* Explicit light (same as :root default; wins when data-theme is set) */
 :root,
-:root[data-theme="light"] {
+[data-theme="light"] {
   --color-sol-base03: #ffffff;
   --color-sol-base02: #f3f4f6;
   --color-sol-base01: #6b7280;
@@ -53,7 +53,7 @@ html {
   --color-sol-green: #1a7f37;
 }
 
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   --color-sol-base03: #0d1117;
   --color-sol-base02: #161b22;
   --color-sol-base01: #6e7681;
@@ -73,7 +73,7 @@ html {
 }
 
 /* Exact previous app palette (Solarized Dark) */
-:root[data-theme="solarized-dark"] {
+[data-theme="solarized-dark"] {
   --color-sol-base03: #002b36;
   --color-sol-base02: #073642;
   --color-sol-base01: #586e75;
@@ -92,7 +92,7 @@ html {
   --color-sol-green: #859900;
 }
 
-:root[data-theme="solarized-light"] {
+[data-theme="solarized-light"] {
   --color-sol-base03: #fdf6e3;
   --color-sol-base02: #eee8d5;
   --color-sol-base01: #93a1a1;
