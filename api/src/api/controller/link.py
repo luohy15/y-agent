@@ -193,7 +193,7 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     timestamp = int(time.time() * 1000)
     link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
     if req.content:
-        content_key = f"links/{link.link_id}/content.md"
+        content_key = link_service.build_content_key(link.link_id)
         await _write_vm_content(user_id, content_key, req.content)
         link_service.update_download_status(link.link_id, "done", content_key=content_key)
     else:
@@ -271,11 +271,11 @@ async def generate_link_tldr(req: TldrRequest, request: Request):
 
     summary = await _call_tldr_bot(user_id, content, result.get("title"), result.get("url") or result.get("base_url"))
     if req.activity_id:
-        summary_key = f"links/{result['link_id']}/{req.activity_id}/summary.md"
+        summary_key = link_service.build_summary_key(result["link_id"], req.activity_id)
         await _write_vm_content(user_id, summary_key, summary)
         link_service.update_summary_content_key(req.activity_id, summary_key, is_activity=True)
     else:
-        summary_key = f"links/{result['link_id']}/summary.md"
+        summary_key = link_service.build_summary_key(result["link_id"])
         await _write_vm_content(user_id, summary_key, summary)
         link_service.update_summary_content_key(result["link_id"], summary_key, is_activity=False)
     return {

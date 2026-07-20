@@ -66,7 +66,7 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
-- **Link archive** — EC2 is the single source of truth: `~/luohy15/links/<link_id>/{content,summary}.md` is canonical, `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links.
+- **Link archive** — EC2 is the single source of truth: `~/luohy15/lifelog/link/<link_id>/{content,summary}.md` is canonical (legacy `links/` paths remain valid until data is moved), `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links.
 - **Browser cookies** — `y cookies sync` stores local browser cookies in the API/DB so remote `y link fetch` can pass them to `yt-dlp`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
@@ -323,7 +323,7 @@ Every entity has two kinds of identifier:
 **Rules:**
 - API controllers MUST NOT expose integer `id` or integer FK fields (e.g. `user_id` as int) in request/response payloads or URL path params.
 - JWT tokens MUST use the string `user_id` (from `UserEntity.user_id`), not the integer PK.
-- S3 keys and cache keys MUST use public string IDs (e.g. `links/<activity_id>/...`).
+- S3 keys and cache keys MUST use public string IDs (e.g. `lifelog/link/<link_id>/...`).
 - DTOs returned to the API layer MUST omit internal integer IDs; use dedicated response dicts or filter fields in the controller.
 - Entities without a public string ID (`BotConfig`, `VmConfig`, `TgTopic`, `PipelineLock`) should be addressed by their natural key (e.g. `name`, `group_id + topic_name`) rather than exposing the integer PK.
 

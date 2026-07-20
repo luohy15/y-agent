@@ -7,7 +7,7 @@ Routes to per-source handlers based on URL host:
 - x.com / twitter.com → Jina AI reader
 - everything else → Oxylabs + generic HTML extractor
 
-Output is written to `$Y_AGENT_HOME/links/<link_id>/content.md`.
+Output is written to `$Y_AGENT_HOME/lifelog/link/<link_id>/content.md`.
 """
 
 import asyncio
@@ -24,6 +24,7 @@ import click
 import httpx
 from dotenv import load_dotenv
 
+from storage.service import link as link_service
 from yagent.api_client import api_request
 
 from ._bilibili import bv2av
@@ -40,9 +41,7 @@ CURRENT_ACTIVITY_ID: str | None = None
 def _content_key() -> str:
     if not CURRENT_LINK_ID:
         raise RuntimeError("link_id is required before writing content")
-    if CURRENT_ACTIVITY_ID:
-        return f"links/{CURRENT_LINK_ID}/{CURRENT_ACTIVITY_ID}/content.md"
-    return f"links/{CURRENT_LINK_ID}/content.md"
+    return link_service.build_content_key(CURRENT_LINK_ID, CURRENT_ACTIVITY_ID)
 
 
 def _write_markdown(content: str) -> Path:
@@ -503,7 +502,7 @@ def _extract_title(md: str) -> str:
 def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None):
     """Fetch URL content and save as markdown.
 
-    Output: $Y_AGENT_HOME/links/<link_id>/content.md
+    Output: $Y_AGENT_HOME/lifelog/link/<link_id>/content.md
 
     Source dispatch:
 

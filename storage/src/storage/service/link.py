@@ -4,6 +4,24 @@ from typing import List, Optional
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.repository import link as link_repo
 
+# Canonical relative path under Y_AGENT_HOME for link archive files.
+# New writes use lifelog/link/; existing DB rows under links/ remain valid until data is moved.
+LINK_STORAGE_PREFIX = "lifelog/link"
+
+
+def build_content_key(link_id: str, activity_id: Optional[str] = None) -> str:
+    """Relative content_key for a link (and optional per-activity content)."""
+    if activity_id:
+        return f"{LINK_STORAGE_PREFIX}/{link_id}/{activity_id}/content.md"
+    return f"{LINK_STORAGE_PREFIX}/{link_id}/content.md"
+
+
+def build_summary_key(link_id: str, activity_id: Optional[str] = None) -> str:
+    """Relative summary_content_key for a link (and optional per-activity summary)."""
+    if activity_id:
+        return f"{LINK_STORAGE_PREFIX}/{link_id}/{activity_id}/summary.md"
+    return f"{LINK_STORAGE_PREFIX}/{link_id}/summary.md"
+
 
 def add_link(
     user_id: int,
