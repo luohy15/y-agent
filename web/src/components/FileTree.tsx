@@ -22,6 +22,7 @@ interface ContextMenuState {
   x: number;
   y: number;
   path: string;
+  type: FileEntry["type"];
 }
 
 interface FileTreeNodeProps {
@@ -36,7 +37,7 @@ interface FileTreeNodeProps {
   dirRefreshMap: DirRefreshMap;
   visiblePathsRef: MutableRefObject<string[]>;
   collapseVersion: number;
-  onContextMenu: (e: React.MouseEvent, path: string) => void;
+  onContextMenu: (e: React.MouseEvent, path: string, type: FileEntry["type"]) => void;
   vmQuery: string;
   onUpload: (files: File[], destDir: string) => void;
 }
@@ -130,8 +131,8 @@ function FileTreeNode({
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    onCtxMenu(e, path);
-  }, [path, onCtxMenu]);
+    onCtxMenu(e, path, type);
+  }, [path, type, onCtxMenu]);
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
     const paths = selectedPaths.has(path) ? Array.from(selectedPaths) : [path];
@@ -236,12 +237,13 @@ function FileTreeNode({
 interface FileTreeProps {
   isLoggedIn: boolean;
   onSelectFile?: (path: string) => void;
+  onDeleteFile?: (path: string) => void;
   vmName?: string | null;
   workDir?: string;
   refreshKey?: number;
 }
 
-export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, refreshKey }: FileTreeProps) {
+export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmName, workDir, refreshKey }: FileTreeProps) {
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -249,6 +251,9 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{ path: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [uploadDialog, setUploadDialog] = useState<{ dir: string } | null>(null);
   const [newFileDialog, setNewFileDialog] = useState<{ path: string } | null>(null);
@@ -456,8 +461,8 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
     }
   }, []);
 
-  const handleNodeContextMenu = useCallback((e: React.MouseEvent, path: string) => {
-    setCtxMenu({ x: e.clientX, y: e.clientY, path });
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, path: string, type: FileEntry["type"]) => {
+    setCtxMenu({ x: e.clientX, y: e.clientY, path, type });
   }, []);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
@@ -469,14 +474,63 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
     setCtxMenu(null);
   }, [ctxMenu]);
 
+  const openDeleteDialog = useCallback(() => {
+    if (!ctxMenu || ctxMenu.type !== "file") return;
+    setDeleteError(null);
+    setDeleteDialog({ path: ctxMenu.path });
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const dismissDeleteDialog = useCallback(() => {
+    if (!deleting) {
+      setDeleteDialog(null);
+      setDeleteError(null);
+    }
+  }, [deleting]);
+
+  const deleteFile = useCallback(async () => {
+    if (!deleteDialog || deleting) return;
+    const path = deleteDialog.path;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await authFetch(`${API}/api/file/delete${vmQuery ? `?${vmQuery.slice(1)}` : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setDeleteError(data?.detail || `Delete failed (${res.status})`);
+        return;
+      }
+      setSelectedPaths(prev => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+      if (anchorRef.current === path) anchorRef.current = null;
+      const parentDir = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) || rootPath : rootPath;
+      const refresh = dirRefreshMapRef.current.get(parentDir) ?? dirRefreshMapRef.current.get(rootPath);
+      if (refresh) refresh();
+      setDeleteDialog(null);
+      onDeleteFile?.(path);
+    } catch {
+      setDeleteError("Delete failed. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteDialog, deleting, vmQuery, rootPath, onDeleteFile]);
+
   useEffect(() => {
-    if (!ctxMenu) return;
+    if (!ctxMenu && !deleteDialog) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setCtxMenu(null);
+      if (e.key === "Escape") dismissDeleteDialog();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [ctxMenu]);
+  }, [ctxMenu, deleteDialog, dismissDeleteDialog]);
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
@@ -715,6 +769,46 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
         </div>,
         document.body
       )}
+      {deleteDialog && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={dismissDeleteDialog}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-file-title"
+          >
+            <div className="px-4 py-3 border-b border-sol-base02">
+              <div id="delete-file-title" className="text-sol-base1 text-sm font-semibold">Delete file?</div>
+              <div className="text-sol-base01 text-xs mt-1">This permanently removes the file.</div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-3">
+              <div className="text-sm text-sol-base1 font-mono break-all">{deleteDialog.path}</div>
+              {deleteError && <div className="text-xs text-sol-red bg-sol-red/10 border border-sol-red/30 rounded px-2 py-1.5">{deleteError}</div>}
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={dismissDeleteDialog}
+                  disabled={deleting}
+                  className="px-3 py-1.5 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={deleteFile}
+                  disabled={deleting}
+                  className="px-3 py-1.5 rounded text-sm bg-sol-red/20 text-sol-red hover:bg-sol-red/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-red/40"
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {ctxMenu && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
@@ -728,6 +822,14 @@ export default function FileTree({ isLoggedIn, onSelectFile, vmName, workDir, re
             >
               Copy Path
             </button>
+            {ctxMenu.type === "file" && (
+              <button
+                className="w-full text-left px-3 py-1 text-xs text-sol-red hover:bg-sol-base03 cursor-pointer"
+                onClick={openDeleteDialog}
+              >
+                Delete
+              </button>
+            )}
           </div>
         </>,
         document.body

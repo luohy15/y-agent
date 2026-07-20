@@ -651,6 +651,15 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/trace/share/mine") return null; // no existing share
   if (pathname === "/api/note/list") return NOTES_FIXTURE;
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
+  if (pathname === "/api/file/list") {
+    return {
+      path: search.get("path") || "/workspace/project",
+      entries: [
+        { name: "README.md", type: "file" },
+        { name: "src", type: "directory" },
+      ],
+    };
+  }
   if (pathname === "/api/file/read") {
     return {
       content: [

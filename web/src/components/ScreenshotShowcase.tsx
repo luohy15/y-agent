@@ -11,6 +11,7 @@ import LinkList from "./LinkList";
 import FinanceViewer from "./FinanceViewer";
 import ChatView from "./ChatView";
 import BotViewer from "./BotViewer";
+import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import UserMenu from "./UserMenu";
 
@@ -130,6 +131,10 @@ export default function ScreenshotShowcase() {
             onReorderFiles={noop}
             isLoggedIn={false}
           />
+        </PanelFrame>
+
+        <PanelFrame name="file-tree" title="files · FileTree" width={420} height={360}>
+          <FileTree isLoggedIn onDeleteFile={noop} workDir="/workspace/project" />
         </PanelFrame>
       </div>
     </div>

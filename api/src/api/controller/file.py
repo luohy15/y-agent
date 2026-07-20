@@ -5,6 +5,7 @@ import fnmatch
 import json
 import mimetypes
 import os
+from pathlib import Path
 
 from loguru import logger
 
@@ -13,6 +14,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/file")
+
+Y_AGENT_HOME = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expanduser().resolve()
 
 
 def _get_user_id(request: Request) -> int:
@@ -199,6 +202,103 @@ async def touch_file(request: Request, body: TouchRequest, vm_name: str = Query(
     user_id = _get_user_id(request)
     await _exec(user_id, ["touch", "-a", body.path], vm_name=vm_name, work_dir=work_dir)
     return {"path": body.path, "success": True}
+
+
+class DeleteRequest(BaseModel):
+    path: str
+
+
+_SAFE_UNLINK_SCRIPT = r"""
+import json
+import os
+import stat
+import sys
+
+
+def emit(status, detail=""):
+    print(json.dumps({"status": status, "detail": detail}))
+
+
+requested_path = sys.argv[1] if len(sys.argv) > 1 else ""
+if not requested_path or "\0" in requested_path:
+    emit("invalid", "Path must not be empty or contain NUL bytes")
+    raise SystemExit
+
+agent_home = sys.argv[2] if len(sys.argv) > 2 else ""
+if not agent_home:
+    emit("invalid", "Y_AGENT_HOME is not configured")
+    raise SystemExit
+
+root = os.path.realpath(os.path.expanduser(agent_home))
+candidate = requested_path if os.path.isabs(requested_path) else os.path.join(os.getcwd(), requested_path)
+candidate = os.path.normpath(candidate)
+if candidate == root:
+    emit("unsupported", "Y_AGENT_HOME cannot be deleted")
+    raise SystemExit
+parent = os.path.realpath(os.path.dirname(candidate))
+
+try:
+    inside_root = os.path.commonpath([root, parent]) == root
+except ValueError:
+    inside_root = False
+if not inside_root:
+    emit("invalid", "Path is outside Y_AGENT_HOME")
+    raise SystemExit
+
+entry = os.path.join(parent, os.path.basename(candidate))
+try:
+    entry_stat = os.lstat(entry)
+except FileNotFoundError:
+    emit("missing", "File does not exist")
+    raise SystemExit
+except OSError as exc:
+    emit("error", str(exc))
+    raise SystemExit
+
+if stat.S_ISDIR(entry_stat.st_mode):
+    emit("unsupported", "Directories cannot be deleted")
+    raise SystemExit
+if not (stat.S_ISREG(entry_stat.st_mode) or stat.S_ISLNK(entry_stat.st_mode)):
+    emit("unsupported", "Only files and symlinks can be deleted")
+    raise SystemExit
+
+try:
+    os.unlink(entry)
+except FileNotFoundError:
+    emit("missing", "File does not exist")
+except OSError as exc:
+    emit("error", str(exc))
+else:
+    emit("deleted")
+"""
+
+
+@router.post("/delete")
+async def delete_file(request: Request, body: DeleteRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    try:
+        output = await _exec(
+            user_id,
+            ["python3", "-c", _SAFE_UNLINK_SCRIPT, body.path, str(Y_AGENT_HOME)],
+            vm_name=vm_name,
+            work_dir=work_dir,
+        )
+        result = json.loads(output.strip())
+    except Exception as exc:
+        logger.exception("safe delete failed")
+        raise HTTPException(status_code=500, detail="Unable to delete file") from exc
+
+    status = result.get("status")
+    detail = result.get("detail") or "Unable to delete file"
+    if status == "deleted":
+        return {"path": body.path, "deleted": True}
+    if status == "invalid":
+        raise HTTPException(status_code=400, detail=detail)
+    if status == "missing":
+        raise HTTPException(status_code=404, detail=detail)
+    if status == "unsupported":
+        raise HTTPException(status_code=409, detail=detail)
+    raise HTTPException(status_code=500, detail=detail)
 
 
 class MoveRequest(BaseModel):
