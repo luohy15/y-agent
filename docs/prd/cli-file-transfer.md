@@ -187,6 +187,6 @@ and adds the inverse `y file download`. After 2833, the public contract is the
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 2826 | Ship Mac→EC2 `y upload` (rsync/SSH, API host resolve, tilde-safe mkdir, generic SOURCE paths) | - | `pages/plan-2826-y-upload.md` | - | `pages/review-2826-y-upload.md` | shipped |
-| 2833 | Regroup under `y file`; add EC2→Mac `y file download` mirroring upload | - | - | - | - | planned |
+| 2833 | Regroup under `y file`; add EC2→Mac `y file download` mirroring upload | - | - | - | `pages/review-2833-cli-file-transfer.md` | shipped |
 
 Related private context (not requirement text): `pages/mac-cleanup-backup-plan.md`.

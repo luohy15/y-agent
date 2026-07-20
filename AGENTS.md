@@ -204,7 +204,7 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `assoc` / `unassoc`, plus `init` / `login` / `logout` / `upload`
+  `file`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,
@@ -282,8 +282,9 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 y finance beancount snapshot
 y finance beancount update-market-data
 
-# Push one or more local files/directories from this Mac to the EC2 host (rsync over SSH).
-y upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
+# Push/pull files between this Mac and the EC2 host (rsync over SSH).
+y file upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
+y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
 ```
 
 ## Conventions
