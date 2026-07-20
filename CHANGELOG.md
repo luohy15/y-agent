@@ -13,8 +13,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **Multi-theme web UI (2827)** — four CSS-variable palettes with runtime switching, localStorage persistence, and a Settings picker; Recharts, CodeMirror, Mermaid/Vega-Lite artifacts, and scrollbars are theme-aware, with a visual QA sweep, residual hard-coded color leak fixes, and Stop-button polish to match sibling chat controls.
-- **`y upload` CLI** — push valuable Mac files to the EC2 backup host over SSH/rsync (`y upload [GROUPS...] [--all] ...`).
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.21] - 2026-07-19
+
+### Added
+- **Multi-theme web UI (2827)** — four CSS-variable palettes with runtime switching, localStorage persistence, and a Settings picker; Recharts, CodeMirror, Mermaid/Vega-Lite artifacts, and scrollbars are theme-aware, with a visual QA sweep, residual hard-coded color leak fixes, and Stop-button polish to match sibling chat controls. Settings modal now offers Codex-style system/light/dark mode plus per-mode variant dropdowns with "Aa" preview swatches.
+- **`y upload` CLI** — push valuable Mac files to the EC2 backup host over SSH/rsync; simplified to a basic file/dir upload (`y upload SOURCE... [--host] [--dest] [-n|--dry-run] [--mirror] [--checksum] [--exclude]`), dropping the earlier named-groups model.
 - **Server-rendered PDF export (2784)** — Markdown files can now be downloaded as server-rendered PDFs with real PDF outlines, CJK font support, and a table of contents positioned after the document H1.
 - **Shared-note navigation** — shared notes now include an on-page table of contents with a responsive mobile menu for easier long-document navigation.
 - **API-backed `y bot` management** — all bot CLI commands now use the authenticated API rather than direct database access, so they work without local `DATABASE_URL` / `Y_USER_ID` configuration; bot responses also expose OpenRouter presence and model pricing.
