@@ -37,7 +37,7 @@ interface FileTreeNodeProps {
   dirRefreshMap: DirRefreshMap;
   visiblePathsRef: MutableRefObject<string[]>;
   collapseVersion: number;
-  onContextMenu: (e: React.MouseEvent, path: string, type: FileEntry["type"]) => void;
+  onContextMenu: (x: number, y: number, path: string, type: FileEntry["type"]) => void;
   vmQuery: string;
   onUpload: (files: File[], destDir: string) => void;
 }
@@ -60,19 +60,20 @@ function FileTreeNode({
   const [dragOver, setDragOver] = useState(false);
   const [moving, setMoving] = useState(false);
 
-  // Touch long-press selection. Two things must both hold on iOS Safari:
+  // Touch long-press opens the SAME context menu as desktop right-click
+  // (Copy Path / Delete). Two things must both hold on iOS Safari:
   //   1. Native HTML5 drag must be off *for the touch gesture*. A `draggable`
   //      element hijacks a stationary long-press for WebKit's native drag,
   //      which fires `pointercancel` mid-hold (aborting our timer below) and
-  //      surfaces the native selection/callout — so selection never fired.
+  //      surfaces the native selection/callout — so the menu never opened.
   //      We decide draggability per interaction from the live pointer type
   //      (`nativeDraggable` below), not from a one-time `matchMedia` check:
   //      that keeps native drag available for mouse/pen on hybrid devices and
   //      never goes stale when pointer capabilities change. Touch has no
   //      working HTML5 DnD to lose anyway.
-  //   2. An explicit pointer timer selects the item (mirroring
-  //      TodoList/RssFeedList), and the ensuing click is suppressed so
-  //      long-press selects without opening/toggling.
+  //   2. An explicit pointer timer opens the context menu at the touch point,
+  //      and the ensuing click is suppressed so long-press does not also
+  //      open/toggle/select the node.
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   // Start draggable (desktop default); each pointerdown re-derives this from
@@ -154,16 +155,20 @@ function FileTreeNode({
     // long-presses, so clearing here is always safe.
     longPressTriggeredRef.current = false;
     if (!isTouch) return;
+    // Capture the touch point now; the synthetic event is recycled before the
+    // timer fires, so we anchor the menu at these coordinates.
+    const { clientX, clientY } = e;
     cancelLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
-      selection.onPlainSelect(path);
+      onCtxMenu(clientX, clientY, path, type);
     }, 500);
-  }, [path, selection, cancelLongPress]);
+  }, [path, type, onCtxMenu, cancelLongPress]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    // A completed long-press already selected the item; swallow the trailing
-    // click so it doesn't also open the file / toggle the folder.
+    // A completed long-press already opened the context menu; swallow the
+    // trailing click so it doesn't also open the file / toggle the folder /
+    // select the node.
     if (longPressTriggeredRef.current) {
       longPressTriggeredRef.current = false;
       e.preventDefault();
@@ -186,7 +191,7 @@ function FileTreeNode({
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    onCtxMenu(e, path, type);
+    onCtxMenu(e.clientX, e.clientY, path, type);
   }, [path, type, onCtxMenu]);
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
@@ -520,8 +525,8 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
     }
   }, []);
 
-  const handleNodeContextMenu = useCallback((e: React.MouseEvent, path: string, type: FileEntry["type"]) => {
-    setCtxMenu({ x: e.clientX, y: e.clientY, path, type });
+  const handleNodeContextMenu = useCallback((x: number, y: number, path: string, type: FileEntry["type"]) => {
+    setCtxMenu({ x, y, path, type });
   }, []);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
