@@ -263,5 +263,80 @@ class GenericWriteCliServiceTest(EntityTagTestCase):
         self.assertEqual(tag_service.get_by_tag(1, "work/y-agent"), {})
 
 
+class BackfillTagsTest(EntityTagTestCase):
+    """S5: project pre-existing authoring-surface tags into entity_tag."""
+
+    def _seed_without_projection(self):
+        """Create note/entity/todo rows with tags but no entity_tag projection.
+
+        create_todo always projects; note/entity create do not. For todos we
+        wipe projection after create to simulate pre-entity_tag data.
+        """
+        note = note_service.create_note(
+            1, "pages/backfill.md", front_matter={"tags": ["work/y-agent", "meta/systems"]}
+        )
+        entity = entity_service.create_entity(
+            1, "backfill-entity", "project", front_matter={"tags": ["life/health"]}
+        )
+        todo = todo_service.create_todo(1, "Backfill todo", tags=["y-agent", "tags"])
+        # Simulate pre-projection state: wipe entity_tag rows for the todo that create_todo wrote.
+        tag_repo.delete_for_entity(1, "todo", todo.todo_id)
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), [])
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), [])
+        self.assertEqual(tag_repo.list_tags(1, "todo", todo.todo_id), [])
+        return note, entity, todo
+
+    def test_dry_run_does_not_write(self):
+        note, entity, todo = self._seed_without_projection()
+        result = tag_service.backfill_tags(1, dry_run=True)
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["by_type"]["note"]["with_tags"], 1)
+        self.assertEqual(result["by_type"]["entity"]["with_tags"], 1)
+        self.assertEqual(result["by_type"]["todo"]["with_tags"], 1)
+        self.assertEqual(result["total_synced"], 3)
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), [])
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), [])
+        self.assertEqual(tag_repo.list_tags(1, "todo", todo.todo_id), [])
+
+    def test_backfill_projects_all_three_carriers(self):
+        note, entity, todo = self._seed_without_projection()
+        result = tag_service.backfill_tags(1, dry_run=False)
+        self.assertFalse(result["dry_run"])
+        self.assertEqual(result["total_synced"], 3)
+        self.assertEqual(
+            sorted(tag_repo.list_tags(1, "note", note.note_id)),
+            ["meta/systems", "work/y-agent"],
+        )
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), ["life/health"])
+        self.assertEqual(sorted(tag_repo.list_tags(1, "todo", todo.todo_id)), ["tags", "y-agent"])
+        hydrated = tag_service.get_by_tag(1, "work/y-agent")
+        self.assertEqual(hydrated["note"], [{"id": note.note_id, "title": "pages/backfill.md"}])
+
+    def test_backfill_is_idempotent(self):
+        self._seed_without_projection()
+        tag_service.backfill_tags(1)
+        first = tag_service.list_vocabulary(1)
+        tag_service.backfill_tags(1)
+        second = tag_service.list_vocabulary(1)
+        self.assertEqual(first, second)
+
+    def test_backfill_type_filter_and_limit(self):
+        note_service.create_note(1, "pages/a.md", front_matter={"tags": ["work/a"]})
+        note_service.create_note(1, "pages/b.md", front_matter={"tags": ["work/b"]})
+        entity_service.create_entity(1, "e1", "project", front_matter={"tags": ["life/x"]})
+        result = tag_service.backfill_tags(1, entity_types=["note"], limit=1)
+        self.assertEqual(set(result["by_type"].keys()), {"note"})
+        self.assertEqual(result["by_type"]["note"]["synced"], 1)
+        self.assertEqual(result["total_synced"], 1)
+
+    def test_backfill_skips_untagged_items(self):
+        note_service.create_note(1, "pages/plain.md", front_matter={"title": "no tags"})
+        todo_service.create_todo(1, "No tags")
+        result = tag_service.backfill_tags(1, dry_run=True)
+        self.assertEqual(result["by_type"]["note"]["with_tags"], 0)
+        self.assertEqual(result["by_type"]["todo"]["with_tags"], 0)
+        self.assertEqual(result["total_synced"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
