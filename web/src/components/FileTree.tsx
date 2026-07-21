@@ -60,13 +60,25 @@ function FileTreeNode({
   const [dragOver, setDragOver] = useState(false);
   const [moving, setMoving] = useState(false);
 
-  // Touch long-press: the node is `draggable`, so on mobile a stationary
-  // long-press is otherwise consumed by the native drag/callout gesture and
-  // never reaches selection. Mirror the TodoList/RssFeedList pattern: an
-  // explicit pointer timer selects the item, and the ensuing click is
-  // suppressed so long-press selects without opening/toggling.
+  // Touch long-press selection. Two things must both hold on iOS Safari:
+  //   1. Native HTML5 drag must be off *for the touch gesture*. A `draggable`
+  //      element hijacks a stationary long-press for WebKit's native drag,
+  //      which fires `pointercancel` mid-hold (aborting our timer below) and
+  //      surfaces the native selection/callout — so selection never fired.
+  //      We decide draggability per interaction from the live pointer type
+  //      (`nativeDraggable` below), not from a one-time `matchMedia` check:
+  //      that keeps native drag available for mouse/pen on hybrid devices and
+  //      never goes stale when pointer capabilities change. Touch has no
+  //      working HTML5 DnD to lose anyway.
+  //   2. An explicit pointer timer selects the item (mirroring
+  //      TodoList/RssFeedList), and the ensuing click is suppressed so
+  //      long-press selects without opening/toggling.
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  // Start draggable (desktop default); each pointerdown re-derives this from
+  // the actual pointer type, so a touch gesture drops draggability before its
+  // long-press threshold while mouse/pen interactions keep it.
+  const [nativeDraggable, setNativeDraggable] = useState(true);
 
   // Register this path in visible order during render
   visiblePathsRef.current.push(path);
@@ -129,8 +141,19 @@ function FileTreeNode({
   }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType !== "touch") return;
+    // Re-derive draggability from this gesture's pointer type. Mouse/pen keep
+    // native drag; touch drops it (before the long-press threshold below) so
+    // WebKit can't steal the long-press. The next pointerdown restores the
+    // right value, so this never goes stale across mixed input on one device.
+    const isTouch = e.pointerType === "touch";
+    setNativeDraggable(!isTouch);
+    // Clear any stale click-suppression flag at the start of every gesture. A
+    // completed touch long-press arms it (to swallow the trailing click), but
+    // iOS/WebKit may never emit that click; without this reset a later
+    // mouse/pen click would be wrongly swallowed. Non-touch gestures are never
+    // long-presses, so clearing here is always safe.
     longPressTriggeredRef.current = false;
+    if (!isTouch) return;
     cancelLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
@@ -225,7 +248,7 @@ function FileTreeNode({
   return (
     <div>
       <div
-        draggable
+        draggable={nativeDraggable}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
