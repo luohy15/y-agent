@@ -13,12 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **File-tree Delete (2831)**: right-click Delete on files in the web FileTree with a confirm dialog, plus a safe backend delete endpoint that refuses paths outside `Y_AGENT_HOME`, directories, and the home root itself.
+- **`y file upload` / `y file download` (2833)**: bidirectional rsync-over-SSH transfers against the API default VmConfig host (`--host`, `--dest`, dry-run, mirror, checksum, exclude); replaces the standalone `y upload` command.
 
 ### Changed
 
 ### Fixed
+- **Link archive path**: new link content and summary keys are written under `lifelog/link/<link_id>/` (legacy `links/` rows remain readable until data is moved).
 
 ### Removed
+- **Standalone `y upload` CLI**: superseded by `y file upload` under the grouped `y file` transfer surface.
 
 ## [0.5.21] - 2026-07-19
 
