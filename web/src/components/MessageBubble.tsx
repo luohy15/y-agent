@@ -10,6 +10,7 @@ import { citationDomain, citationHostname } from "./citationDomain";
 import { normalizeLinks, type NormalizedCitationLink } from "./citationLinks";
 import type { CitationLink } from "./MessageList";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
+import ImageLightbox from "./ImageLightbox";
 
 type BubbleRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 
@@ -191,6 +192,7 @@ function isS3ImagePath(imagePath: string): boolean {
 
 function MessageImages({ images }: { images?: string[] }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
 
   useEffect(() => {
     if (!images?.length) {
@@ -241,14 +243,16 @@ function MessageImages({ images }: { images?: string[] }) {
 
   if (!images?.length) return null;
   const loggedIn = !!getToken();
+  const resolvedUrls = images.map((imagePath) => urls[imagePath]).filter((url): url is string => Boolean(url));
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {images.map((imagePath) => {
         if (isS3ImagePath(imagePath) && !pickImageSrc(imagePath)) return null;
         const url = urls[imagePath];
         if (url) {
+          const lightboxPos = resolvedUrls.indexOf(url);
           return (
-            <button key={imagePath} type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")} className="block cursor-zoom-in">
+            <button key={imagePath} type="button" onClick={() => setLightboxIndex(lightboxPos)} className="block cursor-zoom-in">
               <img src={url} alt={imagePath.split("/").pop() || "attached image"} className="max-h-64 max-w-full rounded border border-sol-base02 object-contain" />
             </button>
           );
@@ -263,6 +267,13 @@ function MessageImages({ images }: { images?: string[] }) {
         }
         return <div key={imagePath} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02 animate-pulse" />;
       })}
+      <ImageLightbox
+        images={resolvedUrls}
+        index={lightboxIndex}
+        onClose={() => setLightboxIndex(-1)}
+        onNext={() => setLightboxIndex((i) => (i < 0 || resolvedUrls.length === 0 ? i : (i + 1) % resolvedUrls.length))}
+        onPrev={() => setLightboxIndex((i) => (i < 0 || resolvedUrls.length === 0 ? i : (i - 1 + resolvedUrls.length) % resolvedUrls.length))}
+      />
     </div>
   );
 }
