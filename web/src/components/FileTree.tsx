@@ -315,6 +315,14 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
   const [collapseVersion, setCollapseVersion] = useState(0);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const [copyPathPressed, setCopyPathPressed] = useState(false);
+  const [copyPathStatus, setCopyPathStatus] = useState<"idle" | "success" | "error">("idle");
+  const copyPathTimeoutRef = useRef<number | null>(null);
+  // Bumped on every dismissal / reopen (new node) / unmount so a clipboard
+  // promise or scheduled timeout that settles later can tell it's stale and
+  // no-op instead of mutating a menu instance it no longer belongs to.
+  const copyPathOpIdRef = useRef(0);
+  const isMountedRef = useRef(true);
   const [deleteDialog, setDeleteDialog] = useState<{ path: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -525,25 +533,72 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
     }
   }, []);
 
-  const handleNodeContextMenu = useCallback((x: number, y: number, path: string, type: FileEntry["type"]) => {
-    setCtxMenu({ x, y, path, type });
+  const clearCopyPathFeedback = useCallback(() => {
+    // Invalidate whatever copy request is in flight: its .then/.catch (and any
+    // timeout it schedules) will see a stale opId and no-op instead of
+    // mutating this now-dismissed/reopened menu instance.
+    copyPathOpIdRef.current += 1;
+    if (copyPathTimeoutRef.current !== null) {
+      window.clearTimeout(copyPathTimeoutRef.current);
+      copyPathTimeoutRef.current = null;
+    }
+    setCopyPathStatus("idle");
+    setCopyPathPressed(false);
   }, []);
 
-  const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      copyPathOpIdRef.current += 1;
+      if (copyPathTimeoutRef.current !== null) window.clearTimeout(copyPathTimeoutRef.current);
+    };
+  }, []);
+
+  const handleNodeContextMenu = useCallback((x: number, y: number, path: string, type: FileEntry["type"]) => {
+    clearCopyPathFeedback();
+    setCtxMenu({ x, y, path, type });
+  }, [clearCopyPathFeedback]);
+
+  const dismissCtxMenu = useCallback(() => {
+    clearCopyPathFeedback();
+    setCtxMenu(null);
+  }, [clearCopyPathFeedback]);
 
   const copyPath = useCallback(() => {
     if (!ctxMenu) return;
     const cleanPath = ctxMenu.path.startsWith("./") ? ctxMenu.path.slice(2) : ctxMenu.path;
-    navigator.clipboard.writeText(cleanPath);
-    setCtxMenu(null);
+    // Snapshot the operation id this request belongs to; any dismissal /
+    // reopen / unmount bumps copyPathOpIdRef past it, so a late-settling
+    // promise or its scheduled timeout can detect it's stale below.
+    const opId = ++copyPathOpIdRef.current;
+    const isStale = () => !isMountedRef.current || copyPathOpIdRef.current !== opId;
+    Promise.resolve(navigator.clipboard.writeText(cleanPath)).then(() => {
+      if (isStale()) return;
+      setCopyPathStatus("success");
+      copyPathTimeoutRef.current = window.setTimeout(() => {
+        copyPathTimeoutRef.current = null;
+        if (isStale()) return;
+        setCopyPathStatus("idle");
+        setCtxMenu(null);
+      }, 700);
+    }).catch(() => {
+      if (isStale()) return;
+      setCopyPathStatus("error");
+      copyPathTimeoutRef.current = window.setTimeout(() => {
+        copyPathTimeoutRef.current = null;
+        if (isStale()) return;
+        setCopyPathStatus("idle");
+      }, 1200);
+    });
   }, [ctxMenu]);
 
   const openDeleteDialog = useCallback(() => {
     if (!ctxMenu || ctxMenu.type !== "file") return;
     setDeleteError(null);
     setDeleteDialog({ path: ctxMenu.path });
-    setCtxMenu(null);
-  }, [ctxMenu]);
+    dismissCtxMenu();
+  }, [ctxMenu, dismissCtxMenu]);
 
   const dismissDeleteDialog = useCallback(() => {
     if (!deleting) {
@@ -589,12 +644,12 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
   useEffect(() => {
     if (!ctxMenu && !deleteDialog) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCtxMenu(null);
+      if (e.key === "Escape") dismissCtxMenu();
       if (e.key === "Escape") dismissDeleteDialog();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [ctxMenu, deleteDialog, dismissDeleteDialog]);
+  }, [ctxMenu, deleteDialog, dismissCtxMenu, dismissDeleteDialog]);
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
@@ -881,10 +936,23 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
             <button
-              className="w-full text-left px-3 py-1 text-xs text-sol-base1 hover:bg-sol-base03 cursor-pointer"
+              className={`w-full text-left px-3 py-1 text-xs cursor-pointer transition-colors disabled:cursor-default ${
+                copyPathStatus === "success"
+                  ? "text-sol-green"
+                  : copyPathStatus === "error"
+                  ? "text-sol-red"
+                  : `text-sol-base1 ${copyPathPressed ? "bg-sol-base03" : "hover:bg-sol-base03"}`
+              }`}
               onClick={copyPath}
+              onPointerDown={() => setCopyPathPressed(true)}
+              onPointerUp={() => setCopyPathPressed(false)}
+              onPointerCancel={() => setCopyPathPressed(false)}
+              onPointerLeave={() => setCopyPathPressed(false)}
+              disabled={copyPathStatus !== "idle"}
+              aria-live="polite"
+              aria-label={copyPathStatus === "success" ? "Copied path" : copyPathStatus === "error" ? "Copy path failed" : "Copy Path"}
             >
-              Copy Path
+              {copyPathStatus === "success" ? "Copied ✓" : copyPathStatus === "error" ? "Copy failed" : "Copy Path"}
             </button>
             {ctxMenu.type === "file" && (
               <button

@@ -24,6 +24,19 @@ async function flushMicrotasks() {
   for (let i = 0; i < 6; i++) await Promise.resolve();
 }
 
+// A manually-settleable promise, used to hold a clipboard write "in flight"
+// while the test dismisses/reopens the menu or unmounts, so we can prove the
+// eventual resolution/rejection is treated as stale.
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 // A pointer event carrying an explicit `pointerType` (touch / mouse / pen). The
 // node re-derives its draggability from this value on every pointerdown.
 function pointerEvent(type: string, pointerType: string, extra: Record<string, unknown> = {}) {
@@ -178,6 +191,252 @@ describe("FileTree context menu (desktop right-click + touch long-press)", () =>
 
     act(() => root.unmount());
     container.remove();
+  });
+
+  // Touch visual feedback: an immediate pressed state while the finger is
+  // down, distinct from desktop hover (which needs no JS state).
+  it("shows immediate pressed feedback on Copy Path while the pointer is down, and clears it on release", async () => {
+    const { container, root } = await mountTree();
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+
+    const copyBtn = menuButton("Copy Path")!;
+    expect(copyBtn.className.split(" ")).not.toContain("bg-sol-base03");
+
+    await act(async () => {
+      copyBtn.dispatchEvent(touchEvent("pointerdown"));
+    });
+    expect(menuButton("Copy Path")!.className.split(" ")).toContain("bg-sol-base03");
+
+    await act(async () => {
+      copyBtn.dispatchEvent(touchEvent("pointerup"));
+    });
+    expect(menuButton("Copy Path")!.className.split(" ")).not.toContain("bg-sol-base03");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // Successful-copy acknowledgement: a brief "Copied" state, then the menu
+  // auto-dismisses since the user's task (copying the path) is complete.
+  it("shows a brief accessible Copied acknowledgement after a successful copy, then auto-closes the menu", async () => {
+    const { container, root } = await mountTree();
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const copiedBtn = menuButton("Copied ✓");
+    expect(copiedBtn).toBeTruthy();
+    expect(copiedBtn!.getAttribute("aria-label")).toBe("Copied path");
+    expect(copiedBtn!.getAttribute("aria-live")).toBe("polite");
+    expect(copiedBtn!.disabled).toBe(true);
+
+    // Brief window, then the menu closes on its own.
+    await act(async () => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(menuButton("Copy Path")).toBeFalsy();
+    expect(menuButton("Copied ✓")).toBeFalsy();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // Clipboard failure: an accessible "Copy failed" state so the user can see
+  // the copy didn't happen, but the menu stays open so they can retry.
+  it("shows an accessible Copy failed acknowledgement when the clipboard write rejects, and keeps the menu open to retry", async () => {
+    clipboardWrite.mockRejectedValue(new Error("clipboard denied"));
+    const { container, root } = await mountTree();
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const failedBtn = menuButton("Copy failed");
+    expect(failedBtn).toBeTruthy();
+    expect(failedBtn!.getAttribute("aria-label")).toBe("Copy path failed");
+    expect(failedBtn!.disabled).toBe(true);
+
+    // Resets to the plain label after a brief window; menu never auto-closed.
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(menuButton("Copy Path")).toBeTruthy();
+    expect(menuButton("Copy failed")).toBeFalsy();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // Lifecycle isolation: a clipboard promise from an earlier Copy Path click
+  // must not be able to mutate a later, unrelated menu instance.
+  it("ignores a stale successful clipboard resolution after the menu is dismissed and reopened on another node", async () => {
+    const pending = deferred<void>();
+    clipboardWrite.mockImplementationOnce(() => pending.promise);
+    const { container, root } = await mountTree();
+
+    // Open on a.txt, click Copy Path -> clipboard write left pending.
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+    expect(clipboardWrite).toHaveBeenCalledTimes(1);
+    expect(menuButton("Copied ✓")).toBeFalsy(); // still pending, no feedback yet
+
+    // Dismiss (Escape) then reopen a fresh menu on b.txt before the a.txt
+    // write resolves.
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(menuButton("Copy Path")).toBeFalsy();
+
+    await act(async () => {
+      nodeByName(container, "b.txt").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    });
+    const freshBtn = menuButton("Copy Path");
+    expect(freshBtn).toBeTruthy(); // fresh, idle menu for b.txt
+
+    // The stale a.txt write now resolves.
+    await act(async () => {
+      pending.resolve();
+      await flushMicrotasks();
+    });
+
+    // b.txt's fresh menu must be unaffected: still idle "Copy Path", never
+    // flipped to "Copied", never auto-closed by the stale success.
+    expect(menuButton("Copy Path")).toBeTruthy();
+    expect(menuButton("Copied ✓")).toBeFalsy();
+    await act(async () => {
+      vi.advanceTimersByTime(700); // past the would-be auto-close window
+    });
+    expect(menuButton("Copy Path")).toBeTruthy();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("ignores a stale clipboard rejection after the menu is dismissed and reopened on another node", async () => {
+    const pending = deferred<void>();
+    clipboardWrite.mockImplementationOnce(() => pending.promise);
+    const { container, root } = await mountTree();
+
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await act(async () => {
+      nodeByName(container, "b.txt").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    });
+    expect(menuButton("Copy Path")).toBeTruthy();
+
+    // The stale a.txt write now rejects.
+    await act(async () => {
+      pending.reject(new Error("clipboard denied"));
+      await flushMicrotasks();
+    });
+
+    // b.txt's fresh menu must stay idle, not show "Copy failed".
+    expect(menuButton("Copy Path")).toBeTruthy();
+    expect(menuButton("Copy failed")).toBeFalsy();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("clears the pending success auto-close timer on unmount and ignores a clipboard settlement that arrives after", async () => {
+    const pending = deferred<void>();
+    clipboardWrite.mockImplementationOnce(() => pending.promise);
+    const { container, root } = await mountTree();
+
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+    const baseline = vi.getTimerCount();
+
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(clipboardWrite).toHaveBeenCalledTimes(1);
+    // Still pending: no auto-close timer scheduled yet (that only happens
+    // once the write resolves).
+    expect(vi.getTimerCount()).toBe(baseline);
+
+    act(() => root.unmount());
+    container.remove();
+
+    // The stale write now resolves after unmount. The isMountedRef/opId
+    // guard must block it from touching state or scheduling a new timer;
+    // no exception should propagate either.
+    await act(async () => {
+      pending.resolve();
+      await flushMicrotasks();
+    });
+    expect(vi.getTimerCount()).toBe(baseline);
+  });
+
+  it("clears an already-scheduled success auto-close timer on unmount", async () => {
+    const { container, root } = await mountTree();
+
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(touchEvent("pointerdown", { clientX: 10, clientY: 10 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+    const baseline = vi.getTimerCount();
+
+    await act(async () => {
+      menuButton("Copy Path")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+    // The clipboard write resolved synchronously (default mock): the 700ms
+    // auto-close timer is now armed.
+    expect(vi.getTimerCount()).toBe(baseline + 1);
+
+    act(() => root.unmount());
+    container.remove();
+
+    // Unmount must clear that armed timer instead of leaving it to fire
+    // (and touch state) against an unmounted tree.
+    expect(vi.getTimerCount()).toBe(baseline);
   });
 
   it("Delete opens and acts on the exact file path of the node that opened the menu", async () => {
