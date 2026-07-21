@@ -6,6 +6,7 @@ from typing import List, Optional, Set
 from sqlalchemy import and_, func, or_
 
 from storage.entity.link import LinkEntity, LinkActivityEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id, generate_long_id
@@ -52,6 +53,7 @@ def list_links(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -73,6 +75,11 @@ def list_links(
             q = q.filter(LinkEntity.link_id.in_(link_ids))
         if activity_ids is not None:
             q = q.filter(LinkActivityEntity.activity_id.in_(activity_ids))
+        if tag is not None:
+            tagged_activity_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="link", tag=tag,
+            )
+            q = q.filter(LinkActivityEntity.activity_id.in_(tagged_activity_ids))
         if source_feed_id is not None:
             q = q.filter(LinkActivityEntity.source_feed_id == source_feed_id)
         if source is not None:

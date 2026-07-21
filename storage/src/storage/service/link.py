@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.repository import link as link_repo
+from storage.service import tag as tag_service
 
 # Canonical relative path under Y_AGENT_HOME for link archive files.
 # New writes use lifelog/link/; existing DB rows under links/ remain valid until data is moved.
@@ -104,6 +105,7 @@ def list_links(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
         user_id, query=query,
@@ -114,6 +116,7 @@ def list_links(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+        tag=tag,
     )
 
 
@@ -145,7 +148,10 @@ def resolve_url(user_id: int, url: str) -> dict:
 
 
 def delete_link(user_id: int, activity_id: str) -> bool:
-    return link_repo.delete_link(user_id, activity_id)
+    deleted = link_repo.delete_link(user_id, activity_id)
+    if deleted:
+        tag_service.delete_for_entity(user_id, "link", activity_id)
+    return deleted
 
 
 def request_downloads(urls: List[str]) -> List[dict]:
@@ -223,3 +229,11 @@ def trigger_batch_download() -> None:
 
     from storage.service.chat import _get_celery_app
     _get_celery_app().send_task("worker.tasks.trigger_batch_download")
+
+
+def _resolve_tagged_link(user_id: int, activity_id: str) -> Optional[dict]:
+    link = get_link(user_id, activity_id)
+    return {"id": link.activity_id, "title": link.title or link.base_url} if link else None
+
+
+tag_service.register_resolver("link", _resolve_tagged_link)

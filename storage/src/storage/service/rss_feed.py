@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from storage.dto.rss_feed import RssFeed
 from storage.repository import rss_feed as rss_feed_repo
+from storage.service import tag as tag_service
 
 
 def list_feeds(
@@ -18,12 +19,14 @@ def list_feeds(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[RssFeed]:
     return rss_feed_repo.list_feeds(
         user_id, include_deleted=include_deleted,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+        tag=tag,
     )
 
 
@@ -99,7 +102,10 @@ def record_fetch_failure(rss_feed_id: str) -> Optional[RssFeed]:
 
 
 def delete_feed(user_id: int, rss_feed_id: str) -> bool:
-    return rss_feed_repo.delete_feed(user_id, rss_feed_id)
+    deleted = rss_feed_repo.delete_feed(user_id, rss_feed_id)
+    if deleted:
+        tag_service.delete_for_entity(user_id, "rss_feed", rss_feed_id)
+    return deleted
 
 
 def restore_feed(user_id: int, rss_feed_id: str) -> bool:
@@ -108,3 +114,11 @@ def restore_feed(user_id: int, rss_feed_id: str) -> bool:
 
 def list_deleted_feeds(user_id: int, limit: int = 50) -> List[RssFeed]:
     return rss_feed_repo.list_deleted_feeds(user_id, limit=limit)
+
+
+def _resolve_tagged_rss_feed(user_id: int, rss_feed_id: str) -> Optional[dict]:
+    feed = get_feed(user_id, rss_feed_id)
+    return {"id": feed.rss_feed_id, "title": feed.title or feed.url} if feed else None
+
+
+tag_service.register_resolver("rss_feed", _resolve_tagged_rss_feed)

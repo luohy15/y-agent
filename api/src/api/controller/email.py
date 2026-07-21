@@ -83,6 +83,7 @@ async def list_emails(
     request: Request,
     query: Optional[str] = Query(None),
     account: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
     on: Optional[str] = Query(None),
@@ -97,7 +98,7 @@ async def list_emails(
 ):
     user_id = _get_user_id(request)
     emails = email_service.list_emails(
-        user_id, query=query, account=account, limit=limit, offset=offset,
+        user_id, query=query, account=account, tag=tag, limit=limit, offset=offset,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

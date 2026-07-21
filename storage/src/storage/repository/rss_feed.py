@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from storage.entity.rss_feed import RssFeedEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.rss_feed import RssFeed
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
@@ -55,11 +56,17 @@ def list_feeds(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[RssFeed]:
     with get_db() as session:
         query = session.query(RssFeedEntity).filter_by(user_id=user_id)
         if not include_deleted:
             query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        if tag is not None:
+            tagged_feed_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="rss_feed", tag=tag,
+            )
+            query = query.filter(RssFeedEntity.rss_feed_id.in_(tagged_feed_ids))
         query = apply_time_filter(query, RssFeedEntity.last_fetched_at, on=on, from_=from_, to=to)
         query = apply_time_filter(query, RssFeedEntity.created_at, on=created_on, from_=created_from, to=created_to)
         query = apply_time_filter(query, RssFeedEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

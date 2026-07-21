@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.dto.email import Email
 from storage.repository import email as email_repo
+from storage.service import tag as tag_service
 
 
 def add_emails_batch(user_id: int, emails: List[dict], account: Optional[str] = None) -> int:
@@ -25,12 +26,14 @@ def list_emails(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[Email]:
     return email_repo.list_emails(
         user_id, query=query, account=account, limit=limit, offset=offset,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+        tag=tag,
     )
 
 
@@ -64,3 +67,11 @@ def get_email(user_id: int, email_id: str) -> Optional[Email]:
 
 def get_emails_by_thread(user_id: int, thread_id: str, account: Optional[str] = None) -> List[Email]:
     return email_repo.get_emails_by_thread(user_id, thread_id, account=account)
+
+
+def _resolve_tagged_email(user_id: int, email_id: str) -> Optional[dict]:
+    email = get_email(user_id, email_id)
+    return {"id": email.email_id, "title": email.subject or email.from_addr} if email else None
+
+
+tag_service.register_resolver("email", _resolve_tagged_email)

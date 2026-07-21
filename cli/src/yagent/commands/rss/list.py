@@ -6,8 +6,9 @@ from yagent.time_filter import collect_time_params, time_filter_options
 
 
 @click.command("list")
+@click.option('--tag', default=None, help='Filter by tag')
 @time_filter_options
-def rss_list(on, from_, to, created_on, created_from, created_to,
+def rss_list(tag, on, from_, to, created_on, created_from, created_to,
              updated_on, updated_from, updated_to):
     """List RSS feeds. Canonical time field: last_fetched_at."""
     params = collect_time_params(
@@ -15,6 +16,8 @@ def rss_list(on, from_, to, created_on, created_from, created_to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
+    if tag is not None:
+        params["tag"] = tag
     resp = api_request("GET", "/api/rss-feed/list", params=params or None)
     feeds = resp.json()
     if not feeds:

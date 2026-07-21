@@ -3,6 +3,7 @@
 from typing import List, Optional
 from sqlalchemy import func
 from storage.entity.email import EmailEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.email import Email
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
@@ -83,6 +84,7 @@ def list_emails(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[Email]:
     with get_db() as session:
         q = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
@@ -95,6 +97,11 @@ def list_emails(
                 | (EmailEntity.from_addr.like(pattern))
                 | (EmailEntity.content.like(pattern))
             )
+        if tag is not None:
+            tagged_email_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="email", tag=tag,
+            )
+            q = q.filter(EmailEntity.email_id.in_(tagged_email_ids))
         q = apply_time_filter(q, EmailEntity.date, on=on, from_=from_, to=to, field_type="unix_ms")
         q = apply_time_filter(q, EmailEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, EmailEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

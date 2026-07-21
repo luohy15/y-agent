@@ -76,6 +76,7 @@ class FeedIdRequest(BaseModel):
 @router.get("/list")
 async def list_feeds(
     request: Request,
+    tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
@@ -92,6 +93,7 @@ async def list_feeds(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+        tag=tag,
     )
     return [f.to_dict() for f in feeds]
 
