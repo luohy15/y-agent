@@ -33,6 +33,7 @@ def list_events(
     todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -47,6 +48,13 @@ def list_events(
         query = session.query(CalendarEventEntity).filter_by(user_id=user_id)
         if not include_deleted:
             query = query.filter(CalendarEventEntity.deleted_at.is_(None))
+        if tag:
+            from storage.entity.entity_tag import EntityTagEntity
+            query = query.filter(CalendarEventEntity.event_id.in_(
+                session.query(EntityTagEntity.entity_id).filter_by(
+                    user_id=user_id, entity_type="calendar_event", tag=tag
+                )
+            ))
         query = apply_time_filter(query, CalendarEventEntity.start_time, on=on, from_=from_, to=to)
         query = apply_time_filter(query, CalendarEventEntity.created_at, on=created_on, from_=created_from, to=created_to)
         query = apply_time_filter(query, CalendarEventEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

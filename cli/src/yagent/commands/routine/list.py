@@ -17,9 +17,10 @@ def _format_target(r: dict) -> str:
 @click.command('list')
 @click.option('--enabled', 'enabled_flag', is_flag=True, default=False, help='Only enabled routines')
 @click.option('--disabled', 'disabled_flag', is_flag=True, default=False, help='Only disabled routines')
+@click.option('--tag', default=None, help='Filter routines by entity_tag (exact tag match)')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def routine_list(enabled_flag, disabled_flag, on, from_, to, created_on, created_from, created_to,
+def routine_list(enabled_flag, disabled_flag, tag, on, from_, to, created_on, created_from, created_to,
                  updated_on, updated_from, updated_to, limit):
     """List routines. Canonical time field: last_run_at."""
     if enabled_flag and disabled_flag:
@@ -30,6 +31,8 @@ def routine_list(enabled_flag, disabled_flag, on, from_, to, created_on, created
         params["enabled"] = "true"
     elif disabled_flag:
         params["enabled"] = "false"
+    if tag:
+        params["tag"] = tag
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

@@ -7,14 +7,17 @@ from yagent.time_util import utc_to_local
 
 @click.command('list')
 @click.option('--status', '-s', default=None, help='Filter by status (pending/sent/cancelled)')
+@click.option('--tag', default=None, help='Filter reminders by entity_tag (exact tag match)')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def reminder_list(status, on, from_, to, created_on, created_from, created_to,
+def reminder_list(status, tag, on, from_, to, created_on, created_from, created_to,
                   updated_on, updated_from, updated_to, limit):
     """List reminders. Canonical time field: remind_at."""
     params = {"limit": limit}
     if status is not None:
         params["status"] = status
+    if tag:
+        params["tag"] = tag
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

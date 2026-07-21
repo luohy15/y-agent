@@ -27,6 +27,7 @@ async def list_chats(
     routine_id: Optional[str] = None,
     routine_name: Optional[str] = None,
     routine_only: Optional[bool] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -41,7 +42,7 @@ async def list_chats(
         user_id,
         limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic,
         skill=skill, tier=tier, status=status, routine_id=routine_id, routine_name=routine_name,
-        routine_only=routine_only,
+        routine_only=routine_only, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
@@ -248,7 +249,24 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:
-    return await chat_repo.delete_chat(user_id, chat_id)
+    deleted = await chat_repo.delete_chat(user_id, chat_id)
+    if deleted:
+        from storage.service import tag as tag_service
+        tag_service.delete_for_entity(user_id, "chat", chat_id)
+    return deleted
+
+
+def _resolve_chat_for_tag(user_id: int, entity_id: str):
+    """Hydration resolver for y tag get (public id + title)."""
+    meta = chat_repo.get_chat_meta(user_id, entity_id)
+    if not meta:
+        return None
+    chat_id, title = meta
+    return {"id": chat_id, "title": title}
+
+
+from storage.service.tag import register_resolver  # noqa: E402
+register_resolver("chat", _resolve_chat_for_tag)
 
 
 def mark_chat_read(chat_id: str) -> None:

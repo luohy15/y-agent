@@ -85,6 +85,7 @@ def list_reminders(
     user_id: int,
     status: Optional[str] = None,
     limit: int = 50,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -96,11 +97,23 @@ def list_reminders(
     updated_to: Optional[str] = None,
 ) -> List[Reminder]:
     return reminder_repo.list_reminders(
-        user_id, status=status, limit=limit,
+        user_id, status=status, limit=limit, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
+
+
+def _resolve_reminder_for_tag(user_id: int, entity_id: str):
+    """Hydration resolver for y tag get (public id + title)."""
+    reminder = reminder_repo.get_reminder(user_id, entity_id)
+    if not reminder:
+        return None
+    return {"id": reminder.reminder_id, "title": reminder.title or ""}
+
+
+from storage.service.tag import register_resolver  # noqa: E402
+register_resolver("reminder", _resolve_reminder_for_tag)
 
 
 def get_pending_reminders(before: Optional[str] = None) -> List[dict]:

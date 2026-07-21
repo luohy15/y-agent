@@ -11,9 +11,10 @@ from yagent.time_util import utc_to_local
 @click.option('--source', default=None, help='Filter by source')
 @click.option('--todo-id', default=None, type=int, help='Filter by linked todo')
 @click.option('--include-deleted', is_flag=True, default=False, help='Include deleted events')
+@click.option('--tag', default=None, help='Filter events by entity_tag (exact tag match)')
 def calendar_list(on, from_, to, created_on, created_from, created_to,
                   updated_on, updated_from, updated_to,
-                  limit, source, todo_id, include_deleted):
+                  limit, source, todo_id, include_deleted, tag):
     """List calendar events. Canonical time field: start_time."""
     params = {"limit": limit}
     if source is not None:
@@ -22,6 +23,8 @@ def calendar_list(on, from_, to, created_on, created_from, created_to,
         params["todo_id"] = todo_id
     if include_deleted:
         params["include_deleted"] = True
+    if tag:
+        params["tag"] = tag
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

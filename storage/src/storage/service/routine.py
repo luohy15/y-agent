@@ -104,7 +104,11 @@ def disable_routine(user_id: int, routine_id: str) -> Optional[Routine]:
 
 
 def delete_routine(user_id: int, routine_id: str) -> bool:
-    return routine_repo.delete_routine(user_id, routine_id)
+    deleted = routine_repo.delete_routine(user_id, routine_id)
+    if deleted:
+        from storage.service import tag as tag_service
+        tag_service.delete_for_entity(user_id, "routine", routine_id)
+    return deleted
 
 
 def get_routine(user_id: int, routine_id: str) -> Optional[Routine]:
@@ -115,6 +119,7 @@ def list_routines(
     user_id: int,
     enabled: Optional[bool] = None,
     limit: int = 50,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -126,11 +131,23 @@ def list_routines(
     updated_to: Optional[str] = None,
 ) -> List[Routine]:
     return routine_repo.list_routines(
-        user_id, enabled=enabled, limit=limit,
+        user_id, enabled=enabled, limit=limit, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
+
+
+def _resolve_routine_for_tag(user_id: int, entity_id: str):
+    """Hydration resolver for y tag get (public id + name)."""
+    routine = routine_repo.get_routine(user_id, entity_id)
+    if not routine:
+        return None
+    return {"id": routine.routine_id, "title": routine.name or ""}
+
+
+from storage.service.tag import register_resolver  # noqa: E402
+register_resolver("routine", _resolve_routine_for_tag)
 
 
 def list_due_routines(now: Optional[datetime] = None) -> List[dict]:

@@ -21,8 +21,9 @@ def get_column_widths(weights: dict):
 @click.option('--routine', 'routine_id', default=None, help='Filter chats by routine_id')
 @click.option('--routine-only', is_flag=True, default=False, help='Filter to chats triggered by any routine')
 @click.option('--tier', default=None, help='Filter chats by resolved dispatch tier (tier0/tier1/tier2/tier3)')
+@click.option('--tag', default=None, help='Filter chats by entity_tag (exact tag match)')
 @time_filter_options
-def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, tier: str,
+def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, tier: str, tag: str,
                on, from_, to, created_on, created_from, created_to,
                updated_on, updated_from, updated_to):
     """List chat conversations sorted by update time (newest first).
@@ -38,6 +39,8 @@ def list_chats(limit: int, trace_id: str, routine_id: str, routine_only: bool, t
         params["routine_only"] = True
     if tier:
         params["tier"] = tier
+    if tag:
+        params["tag"] = tag
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

@@ -65,6 +65,7 @@ async def list_chats(
     routine_id: Optional[str] = None,
     routine_name: Optional[str] = None,
     routine_only: Optional[bool] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -83,6 +84,13 @@ async def list_chats(
             q = q.filter(or_(
                 ChatEntity.title.ilike(f"%{query}%"),
                 ChatEntity.search_text.ilike(f"%{query}%"),
+            ))
+        if tag:
+            from storage.entity.entity_tag import EntityTagEntity
+            q = q.filter(ChatEntity.chat_id.in_(
+                session.query(EntityTagEntity.entity_id).filter_by(
+                    user_id=user_id, entity_type="chat", tag=tag
+                )
             ))
         if trace_id:
             q = q.filter(ChatEntity.trace_id == trace_id)
@@ -165,6 +173,19 @@ async def delete_chat(user_id: int, chat_id: str) -> bool:
     with get_db() as session:
         count = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).delete()
         return count > 0
+
+
+def get_chat_meta(user_id: int, chat_id: str) -> Optional[tuple]:
+    """Return (chat_id, title) for tag hydration, or None if missing."""
+    with get_db() as session:
+        row = (
+            session.query(ChatEntity.chat_id, ChatEntity.title)
+            .filter_by(user_id=user_id, chat_id=chat_id)
+            .first()
+        )
+        if not row:
+            return None
+        return (row.chat_id, row.title or "")
 
 
 def _extract_content_text(content) -> str:

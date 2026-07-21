@@ -38,6 +38,7 @@ async def list_reminders(
     request: Request,
     status: Optional[str] = Query(None),
     limit: int = Query(50),
+    tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
@@ -50,7 +51,7 @@ async def list_reminders(
 ):
     user_id = _get_user_id(request)
     reminders = reminder_service.list_reminders(
-        user_id, status=status, limit=limit,
+        user_id, status=status, limit=limit, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

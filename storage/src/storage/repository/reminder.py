@@ -28,6 +28,7 @@ def list_reminders(
     user_id: int,
     status: Optional[str] = None,
     limit: int = 50,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -42,6 +43,13 @@ def list_reminders(
         query = session.query(ReminderEntity).filter_by(user_id=user_id)
         if status:
             query = query.filter_by(status=status)
+        if tag:
+            from storage.entity.entity_tag import EntityTagEntity
+            query = query.filter(ReminderEntity.reminder_id.in_(
+                session.query(EntityTagEntity.entity_id).filter_by(
+                    user_id=user_id, entity_type="reminder", tag=tag
+                )
+            ))
         query = apply_time_filter(query, ReminderEntity.remind_at, on=on, from_=from_, to=to)
         query = apply_time_filter(query, ReminderEntity.created_at, on=created_on, from_=created_from, to=created_to)
         query = apply_time_filter(query, ReminderEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

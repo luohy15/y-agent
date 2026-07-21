@@ -108,7 +108,10 @@ def delete_event(user_id: int, event_id: str) -> Optional[CalendarEvent]:
     if not event:
         return None
     event.deleted_at = get_utc_iso8601_timestamp()
-    return event_repo.save_event(user_id, event)
+    saved = event_repo.save_event(user_id, event)
+    from storage.service import tag as tag_service
+    tag_service.delete_for_entity(user_id, "calendar_event", event_id)
+    return saved
 
 
 def restore_event(user_id: int, event_id: str) -> Optional[CalendarEvent]:
@@ -129,6 +132,7 @@ def list_events(
     todo_id: Optional[str] = None,
     include_deleted: bool = False,
     limit: int = 50,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -141,11 +145,23 @@ def list_events(
 ) -> List[CalendarEvent]:
     return event_repo.list_events(
         user_id, source=source, todo_id=todo_id,
-        include_deleted=include_deleted, limit=limit,
+        include_deleted=include_deleted, limit=limit, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
+
+
+def _resolve_calendar_event_for_tag(user_id: int, entity_id: str):
+    """Hydration resolver for y tag get (public id + summary)."""
+    event = event_repo.get_event(user_id, entity_id, include_deleted=True)
+    if not event:
+        return None
+    return {"id": event.event_id, "title": event.summary or ""}
+
+
+from storage.service.tag import register_resolver  # noqa: E402
+register_resolver("calendar_event", _resolve_calendar_event_for_tag)
 
 
 def list_deleted_events(user_id: int, limit: int = 50) -> List[CalendarEvent]:
