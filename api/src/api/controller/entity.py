@@ -92,6 +92,7 @@ async def list_entities(
     note_id: Optional[str] = Query(None),
     rss_feed_id: Optional[str] = Query(None),
     activity_id: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
@@ -122,7 +123,7 @@ async def list_entities(
         entities = entity_service.get_entities_by_ids(user_id, entity_ids)
         return [e.to_dict() for e in entities]
     entities = entity_service.list_entities(
-        user_id, limit=limit, offset=offset, type=type,
+        user_id, limit=limit, offset=offset, type=type, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

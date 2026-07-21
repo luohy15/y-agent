@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional
 from storage.dto.entity import Entity
 from storage.repository import entity as entity_repo
+from storage.repository import entity_tag as tag_repo
 from storage.util import generate_id
 
 
@@ -38,7 +39,10 @@ def update_entity(
         existing.type = type
     if front_matter is not None:
         existing.front_matter = front_matter
-    return entity_repo.save_entity(user_id, existing)
+    entity = entity_repo.save_entity(user_id, existing)
+    if front_matter is not None:
+        tag_repo.sync_tags(user_id, "entity", entity.entity_id, front_matter.get("tags") or [])
+    return entity
 
 
 def import_entity(
@@ -52,12 +56,19 @@ def import_entity(
     if existing:
         if front_matter is not None:
             existing.front_matter = front_matter
-        return entity_repo.save_entity(user_id, existing)
-    return create_entity(user_id, name, type, front_matter=front_matter)
+        entity = entity_repo.save_entity(user_id, existing)
+    else:
+        entity = create_entity(user_id, name, type, front_matter=front_matter)
+    if front_matter is not None:
+        tag_repo.sync_tags(user_id, "entity", entity.entity_id, front_matter.get("tags") or [])
+    return entity
 
 
 def delete_entity(user_id: int, entity_id: str) -> bool:
-    return entity_repo.delete_entity(user_id, entity_id)
+    deleted = entity_repo.delete_entity(user_id, entity_id)
+    if deleted:
+        tag_repo.delete_for_entity(user_id, "entity", entity_id)
+    return deleted
 
 
 def get_entity(user_id: int, entity_id: str) -> Optional[Entity]:
@@ -69,6 +80,7 @@ def list_entities(
     limit: int = 50,
     offset: int = 0,
     type: Optional[str] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -80,7 +92,7 @@ def list_entities(
     updated_to: Optional[str] = None,
 ) -> List[Entity]:
     return entity_repo.list_entities(
-        user_id, limit=limit, offset=offset, type=type,
+        user_id, limit=limit, offset=offset, type=type, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

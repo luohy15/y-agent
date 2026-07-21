@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 from storage.entity.entity import EntityEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.entity import Entity
 from storage.database.base import get_db
 from storage.util import apply_time_filter
@@ -25,6 +26,7 @@ def list_entities(
     limit: int = 50,
     offset: int = 0,
     type: Optional[str] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -39,6 +41,11 @@ def list_entities(
         q = session.query(EntityEntity).filter_by(user_id=user_id)
         if type:
             q = q.filter_by(type=type)
+        if tag:
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="entity", tag=tag
+            )
+            q = q.filter(EntityEntity.entity_id.in_(tagged_ids))
         q = apply_time_filter(q, EntityEntity.updated_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, EntityEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, EntityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from storage.entity.note import NoteEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.note import Note
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
@@ -26,6 +27,7 @@ def list_notes(
     limit: int = 50,
     offset: int = 0,
     include_deleted: bool = False,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -40,6 +42,11 @@ def list_notes(
         query = session.query(NoteEntity).filter_by(user_id=user_id)
         if not include_deleted:
             query = query.filter(NoteEntity.deleted_at.is_(None))
+        if tag:
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="note", tag=tag
+            )
+            query = query.filter(NoteEntity.note_id.in_(tagged_ids))
         query = apply_time_filter(query, NoteEntity.updated_at, on=on, from_=from_, to=to)
         query = apply_time_filter(query, NoteEntity.created_at, on=created_on, from_=created_from, to=created_to)
         query = apply_time_filter(query, NoteEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

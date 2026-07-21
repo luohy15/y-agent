@@ -5,6 +5,7 @@ from storage.dto.note import Note
 from storage.repository import note as note_repo
 from storage.repository import note_todo_relation as note_todo_repo
 from storage.repository import entity_note_relation as entity_note_repo
+from storage.repository import entity_tag as tag_repo
 from storage.util import generate_id
 
 
@@ -22,7 +23,10 @@ def update_note(user_id: int, note_id: str, content_key: Optional[str] = None, f
         existing.content_key = content_key
     if front_matter is not None:
         existing.front_matter = front_matter
-    return note_repo.save_note(user_id, existing)
+    note = note_repo.save_note(user_id, existing)
+    if front_matter is not None:
+        tag_repo.sync_tags(user_id, "note", note.note_id, front_matter.get("tags") or [])
+    return note
 
 
 def import_note(user_id: int, content_key: str, front_matter: Optional[Dict] = None) -> Note:
@@ -30,8 +34,12 @@ def import_note(user_id: int, content_key: str, front_matter: Optional[Dict] = N
     if existing:
         if front_matter is not None:
             existing.front_matter = front_matter
-        return note_repo.save_note(user_id, existing)
-    return create_note(user_id, content_key, front_matter=front_matter)
+        note = note_repo.save_note(user_id, existing)
+    else:
+        note = create_note(user_id, content_key, front_matter=front_matter)
+    if front_matter is not None:
+        tag_repo.sync_tags(user_id, "note", note.note_id, front_matter.get("tags") or [])
+    return note
 
 
 def delete_note(user_id: int, note_id: str, force: bool = False) -> Dict[str, Any]:
@@ -73,6 +81,8 @@ def delete_note(user_id: int, note_id: str, force: bool = False) -> Dict[str, An
             note_todo_repo.delete_relation(user_id, note_id, todo_id)
 
     deleted = note_repo.delete_note(user_id, note_id)
+    if deleted:
+        tag_repo.delete_for_entity(user_id, "note", note_id)
     return {"ok": True, "deleted": deleted}
 
 
@@ -85,6 +95,7 @@ def list_notes(
     limit: int = 50,
     offset: int = 0,
     include_deleted: bool = False,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -100,6 +111,7 @@ def list_notes(
         limit=limit,
         offset=offset,
         include_deleted=include_deleted,
+        tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

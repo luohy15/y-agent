@@ -147,6 +147,7 @@ async def list_notes(
     offset: int = Query(0),
     todo_id: Optional[str] = Query(None),
     include_deleted: bool = Query(False),
+    tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
@@ -165,7 +166,7 @@ async def list_notes(
         notes = note_service.get_notes_by_ids(user_id, note_ids, include_deleted=include_deleted)
         return [n.to_dict() for n in notes]
     notes = note_service.list_notes(
-        user_id, limit=limit, offset=offset, include_deleted=include_deleted,
+        user_id, limit=limit, offset=offset, include_deleted=include_deleted, tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,

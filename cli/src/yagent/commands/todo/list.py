@@ -7,9 +7,10 @@ from yagent.time_filter import collect_time_params, time_filter_options
 @click.command('list')
 @click.option('--status', '-s', default=None, help='Filter by status')
 @click.option('--priority', '-p', default=None, help='Filter by priority')
+@click.option('--tag', default=None, help='Filter by tag (via entity_tag)')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def todo_list(status, priority, on, from_, to, created_on, created_from, created_to,
+def todo_list(status, priority, tag, on, from_, to, created_on, created_from, created_to,
               updated_on, updated_from, updated_to, limit):
     """List todos. Canonical time field: completed_at."""
     params = {"limit": limit}
@@ -17,6 +18,8 @@ def todo_list(status, priority, on, from_, to, created_on, created_from, created
         params["status"] = status
     if priority is not None:
         params["priority"] = priority
+    if tag is not None:
+        params["tag"] = tag
     params.update(collect_time_params(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,

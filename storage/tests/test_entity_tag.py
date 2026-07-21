@@ -159,5 +159,109 @@ class GetByTagHydrationTest(EntityTagTestCase):
         self.assertEqual(grouped["chat"], [{"id": "c-1"}])
 
 
+class NoteProjectionTest(EntityTagTestCase):
+    """S1: front_matter.tags -> entity_tag on import/update, plus --tag list filter."""
+
+    def test_import_projects_tags(self):
+        note = note_service.import_note(1, "pages/x.md", front_matter={"tags": ["work/y-agent", "meta/systems"]})
+        self.assertEqual(sorted(tag_repo.list_tags(1, "note", note.note_id)), ["meta/systems", "work/y-agent"])
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent")["note"], [{"id": note.note_id, "title": "pages/x.md"}])
+
+    def test_reimport_reconciles_tags(self):
+        note = note_service.import_note(1, "pages/x.md", front_matter={"tags": ["work/y-agent"]})
+        note_service.import_note(1, "pages/x.md", front_matter={"tags": ["life/health"]})
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), ["life/health"])
+
+    def test_import_without_front_matter_does_not_touch_tags(self):
+        note = note_service.import_note(1, "pages/x.md", front_matter={"tags": ["work/y-agent"]})
+        note_service.import_note(1, "pages/x.md")
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), ["work/y-agent"])
+
+    def test_update_projects_tags(self):
+        note = note_service.create_note(1, "pages/x.md", front_matter={"tags": ["work/y-agent"]})
+        note_service.update_note(1, note.note_id, front_matter={"tags": ["life/health"]})
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), ["life/health"])
+
+    def test_list_notes_tag_filter(self):
+        tagged = note_service.import_note(1, "pages/a.md", front_matter={"tags": ["work/y-agent"]})
+        note_service.import_note(1, "pages/b.md", front_matter={"tags": ["life/health"]})
+        results = note_service.list_notes(1, tag="work/y-agent")
+        self.assertEqual([n.note_id for n in results], [tagged.note_id])
+
+    def test_delete_note_clears_entity_tag_rows(self):
+        note = note_service.import_note(1, "pages/a.md", front_matter={"tags": ["work/y-agent"]})
+        note_service.delete_note(1, note.note_id)
+        self.assertEqual(tag_repo.list_tags(1, "note", note.note_id), [])
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent"), {})
+        self.assertEqual(tag_service.list_vocabulary(1), [])
+
+
+class TodoProjectionTest(EntityTagTestCase):
+    """S2: todo.tags -> entity_tag on create/update, plus --tag list filter."""
+
+    def test_create_projects_tags(self):
+        todo = todo_service.create_todo(1, "Ship it", tags=["work/y-agent", "meta/systems"])
+        self.assertEqual(sorted(tag_repo.list_tags(1, "todo", todo.todo_id)), ["meta/systems", "work/y-agent"])
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent")["todo"], [{"id": todo.todo_id, "title": "Ship it"}])
+
+    def test_update_reconciles_tags(self):
+        todo = todo_service.create_todo(1, "Ship it", tags=["work/y-agent"])
+        todo_service.update_todo(1, todo.todo_id, tags=["life/health"])
+        self.assertEqual(tag_repo.list_tags(1, "todo", todo.todo_id), ["life/health"])
+
+    def test_update_other_field_does_not_touch_tags(self):
+        todo = todo_service.create_todo(1, "Ship it", tags=["work/y-agent"])
+        todo_service.update_todo(1, todo.todo_id, desc="new desc")
+        self.assertEqual(tag_repo.list_tags(1, "todo", todo.todo_id), ["work/y-agent"])
+
+    def test_list_todos_tag_filter(self):
+        tagged = todo_service.create_todo(1, "Ship it", tags=["work/y-agent"])
+        todo_service.create_todo(1, "Other", tags=["life/health"])
+        results = todo_service.list_todos(1, tag="work/y-agent")
+        self.assertEqual([t.todo_id for t in results], [tagged.todo_id])
+
+
+class EntityProjectionTest(EntityTagTestCase):
+    """S3: entity.front_matter.tags -> entity_tag on import/update, plus --tag list filter."""
+
+    def test_import_projects_tags(self):
+        entity = entity_service.import_entity(1, "y-agent", "project", front_matter={"tags": ["work/y-agent"]})
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), ["work/y-agent"])
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent")["entity"], [{"id": entity.entity_id, "title": "y-agent"}])
+
+    def test_reimport_reconciles_tags(self):
+        entity = entity_service.import_entity(1, "y-agent", "project", front_matter={"tags": ["work/y-agent"]})
+        entity_service.import_entity(1, "y-agent", "project", front_matter={"tags": ["life/health"]})
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), ["life/health"])
+
+    def test_update_projects_tags(self):
+        entity = entity_service.create_entity(1, "y-agent", "project", front_matter={"tags": ["work/y-agent"]})
+        entity_service.update_entity(1, entity.entity_id, front_matter={"tags": ["life/health"]})
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), ["life/health"])
+
+    def test_list_entities_tag_filter(self):
+        tagged = entity_service.import_entity(1, "y-agent", "project", front_matter={"tags": ["work/y-agent"]})
+        entity_service.import_entity(1, "other", "project", front_matter={"tags": ["life/health"]})
+        results = entity_service.list_entities(1, tag="work/y-agent")
+        self.assertEqual([e.entity_id for e in results], [tagged.entity_id])
+
+    def test_delete_entity_clears_entity_tag_rows(self):
+        entity = entity_service.import_entity(1, "y-agent", "project", front_matter={"tags": ["work/y-agent"]})
+        entity_service.delete_entity(1, entity.entity_id)
+        self.assertEqual(tag_repo.list_tags(1, "entity", entity.entity_id), [])
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent"), {})
+        self.assertEqual(tag_service.list_vocabulary(1), [])
+
+
+class GenericWriteCliServiceTest(EntityTagTestCase):
+    """Underlying service.tag.add_tag/remove_tag exercised by the generic `y tag add/rm` CLI."""
+
+    def test_add_then_remove_round_trip(self):
+        self.assertTrue(tag_service.add_tag(1, "chat", "c-1", "work/y-agent"))
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent")["chat"], [{"id": "c-1"}])
+        self.assertTrue(tag_service.remove_tag(1, "chat", "c-1", "work/y-agent"))
+        self.assertEqual(tag_service.get_by_tag(1, "work/y-agent"), {})
+
+
 if __name__ == "__main__":
     unittest.main()

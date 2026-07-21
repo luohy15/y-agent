@@ -5,6 +5,7 @@ from typing import List, Optional
 from sqlalchemy import case, func
 from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
+from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
 from storage.util import apply_time_filter
@@ -45,6 +46,7 @@ def list_todos(
     priority: Optional[str] = None,
     query: Optional[str] = None,
     unread: Optional[bool] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -93,6 +95,11 @@ def list_todos(
                 .exists()
             )
             q = q.filter(unread_exists)
+        if tag:
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="todo", tag=tag
+            )
+            q = q.filter(TodoEntity.todo_id.in_(tagged_ids))
         if on is not None or from_ is not None or to is not None:
             q = q.filter(TodoEntity.completed_at.isnot(None))
             q = apply_time_filter(q, TodoEntity.completed_at, on=on, from_=from_, to=to)

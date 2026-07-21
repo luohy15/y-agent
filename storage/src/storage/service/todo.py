@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
+from storage.repository import entity_tag as tag_repo
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 
@@ -12,6 +13,7 @@ def list_todos(
     priority: Optional[str] = None,
     query: Optional[str] = None,
     unread: Optional[bool] = None,
+    tag: Optional[str] = None,
     on: Optional[str] = None,
     from_: Optional[str] = None,
     to: Optional[str] = None,
@@ -30,6 +32,7 @@ def list_todos(
         priority=priority,
         query=query,
         unread=unread,
+        tag=tag,
         on=on,
         from_=from_,
         to=to,
@@ -78,7 +81,9 @@ def create_todo(
         status="pending",
         history=[TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created")],
     )
-    return todo_repo.save_todo(user_id, todo)
+    saved = todo_repo.save_todo(user_id, todo)
+    tag_repo.sync_tags(user_id, "todo", saved.todo_id, saved.tags or [])
+    return saved
 
 
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
@@ -99,7 +104,9 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
             note=f"changed: {', '.join(f'{k}={getattr(todo, k)!r}' for k in changed)}",
         ))
         todo.history = history
-        return todo_repo.save_todo(user_id, todo)
+        todo = todo_repo.save_todo(user_id, todo)
+    if "tags" in fields:
+        tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
     return todo
 
 
