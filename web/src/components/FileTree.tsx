@@ -60,6 +60,14 @@ function FileTreeNode({
   const [dragOver, setDragOver] = useState(false);
   const [moving, setMoving] = useState(false);
 
+  // Touch long-press: the node is `draggable`, so on mobile a stationary
+  // long-press is otherwise consumed by the native drag/callout gesture and
+  // never reaches selection. Mirror the TodoList/RssFeedList pattern: an
+  // explicit pointer timer selects the item, and the ensuing click is
+  // suppressed so long-press selects without opening/toggling.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+
   // Register this path in visible order during render
   visiblePathsRef.current.push(path);
 
@@ -113,7 +121,31 @@ function FileTreeNode({
 
   const icon = isDir ? (expanded ? "\u25BE" : "\u25B8") : " ";
 
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    longPressTriggeredRef.current = false;
+    cancelLongPress();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      selection.onPlainSelect(path);
+    }, 500);
+  }, [path, selection, cancelLongPress]);
+
   const handleClick = useCallback((e: React.MouseEvent) => {
+    // A completed long-press already selected the item; swallow the trailing
+    // click so it doesn't also open the file / toggle the folder.
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      e.preventDefault();
+      return;
+    }
     if (e.shiftKey) {
       e.preventDefault();
       selection.onRangeSelect(path);
@@ -200,7 +232,11 @@ function FileTreeNode({
         onDrop={handleDrop}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1 px-2 py-0.5 text-sm truncate cursor-pointer hover:bg-sol-base02 ${
+        onPointerDown={handlePointerDown}
+        onPointerMove={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+        onPointerUp={(e) => { if (e.pointerType === "touch") cancelLongPress(); }}
+        onPointerCancel={cancelLongPress}
+        className={`flex items-center gap-1 px-2 py-0.5 text-sm truncate cursor-pointer select-none [-webkit-touch-callout:none] hover:bg-sol-base02 ${
           isDir ? "" : "text-sol-base0"
         } ${selected ? "bg-sol-base02 text-sol-base1" : ""} ${
           dragOver ? "bg-sol-base02 outline outline-1 outline-sol-blue" : ""
