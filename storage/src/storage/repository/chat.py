@@ -61,6 +61,7 @@ async def list_chats(
     topic: Optional[str] = None,
     skill: Optional[str] = None,
     tier: Optional[str] = None,
+    bot_name: Optional[str] = None,
     status: Optional[str] = None,
     routine_id: Optional[str] = None,
     routine_name: Optional[str] = None,
@@ -100,6 +101,8 @@ async def list_chats(
             q = q.filter(ChatEntity.skill == skill)
         if tier:
             q = q.filter(ChatEntity.tier == tier)
+        if bot_name:
+            q = q.filter(ChatEntity.bot_name == bot_name)
         # Routine name<->id is resolved here: chats only store routine_id, but the UI
         # filters/displays by the friendlier routine name. Build a per-user id->name
         # map once, used both to filter (name -> ids) and to annotate each row.

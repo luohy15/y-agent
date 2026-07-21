@@ -169,6 +169,7 @@ async def get_chats(
     topic: Optional[str] = Query(None),
     skill: Optional[str] = Query(None),
     tier: Optional[str] = Query(None),
+    bot_name: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     routine_id: Optional[str] = Query(None),
     routine_name: Optional[str] = Query(None),
@@ -189,7 +190,7 @@ async def get_chats(
     user_id = _get_user_id(request)
     chats = await chat_service.list_chats(
         user_id, query=query, limit=limit, offset=offset,
-        trace_id=trace_id, topic=topic, skill=skill, tier=tier, status=status,
+        trace_id=trace_id, topic=topic, skill=skill, tier=tier, bot_name=bot_name, status=status,
         routine_id=routine_id, routine_name=routine_name, routine_only=routine_only,
         tag=tag,
         on=on, from_=from_, to=to,

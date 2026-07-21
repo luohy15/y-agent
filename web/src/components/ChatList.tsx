@@ -16,6 +16,7 @@ interface Chat {
   routine_id?: string;
   routine_name?: string;
   skill?: string;
+  bot_name?: string;
   status?: string;
   unread?: boolean;
 }
@@ -48,6 +49,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [internalTraceId, setInternalTraceId] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
+  const [botFilter, setBotFilter] = useState("");
   const [internalRoutineName, setInternalRoutineName] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => hideFilters ? "" : (localStorage.getItem("chatStatusFilter") || ""));
   const traceId = externalTraceId || internalTraceId;
@@ -56,6 +58,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
   const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
   const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
+  const botParam = botFilter.trim() ? `&bot_name=${encodeURIComponent(botFilter.trim())}` : "";
   const routineNameParam = routineName.trim() ? `&routine_name=${encodeURIComponent(routineName.trim())}` : "";
   const routineOnlyParam = routineOnly ? `&routine_only=true` : "";
   const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : "";
@@ -63,7 +66,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
+    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${botParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
@@ -99,7 +102,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, skillFilter, externalRoutineName, internalRoutineName, routineOnly, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, topicFilter, skillFilter, botFilter, externalRoutineName, internalRoutineName, routineOnly, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -118,6 +121,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const filterByTrace = (id: string) => { if (hideFilters) return; if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
   const filterByTopic = (t: string) => { if (hideFilters) return; setTopicFilter(t); };
   const filterBySkill = (s: string) => { if (hideFilters) return; setSkillFilter(s); };
+  const filterByBot = (name: string) => { if (hideFilters) return; setBotFilter(name); };
   const filterByRoutine = (name: string) => { if (hideFilters) return; if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(name); };
 
   const handleClick = (id: string) => {
@@ -197,7 +201,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       {!hideFilters && (
-        // Filter row inputs: search, trace_id (todo), topic, routine, status. routine_id
+        // Filter row inputs: search, trace_id (todo), topic, routine, skill, bot, status. routine_id
         // can be typed directly here or supplied externally via the routineId prop (e.g.
         // RoutineList "Chats" handoff); either way it renders in the routine input with a
         // clear button. Row badges also set these filters on click (filterBy* helpers).
@@ -255,6 +259,12 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                   ✕
                 </button>
               )}
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <input type="text" placeholder="Bot..." value={botFilter} onChange={(e) => setBotFilter(e.target.value)} className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue" />
+              {botFilter && <button onClick={() => setBotFilter("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer" title="Clear bot filter">✕</button>}
             </div>
           </div>
           <div className="flex gap-1.5">
@@ -412,6 +422,11 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                           title={`Filter by skill ${c.skill}`}
                         >
                           {c.skill}
+                        </button>
+                      )}
+                      {c.bot_name && (
+                        <button onClick={(e) => { e.stopPropagation(); filterByBot(c.bot_name!); }} className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-violet/20 text-sol-violet cursor-pointer" title={`Filter by bot ${c.bot_name}`}>
+                          {c.bot_name}
                         </button>
                       )}
                       {c.routine_id && (
