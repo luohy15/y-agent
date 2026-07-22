@@ -15,11 +15,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Added
 - **File-tree Delete (2831)**: right-click Delete on files in the web FileTree with a confirm dialog, plus a safe backend delete endpoint that refuses paths outside `Y_AGENT_HOME`, directories, and the home root itself.
 - **`y file upload` / `y file download` (2833)**: bidirectional rsync-over-SSH transfers against the API default VmConfig host (`--host`, `--dest`, dry-run, mirror, checksum, exclude); replaces the standalone `y upload` command.
+- **Unified tag system (2838)**: new queryable `entity_tag` store with `y tag` CLI/API (`list`/`get`/`add`/`rm`), tag projection and generic add/rm write support for note/todo/entity, tag support extended to chat/calendar/reminder/routine and link/email/rss_feed carriers, plus an idempotent `y tag backfill` for note/entity/todo authoring surfaces.
+- **In-app image lightbox (2845)**: ChatView images now open in a sanitized in-app lightbox instead of a new browser tab.
+- **Filter chat list by bot (2847)**: `y chat list` and the web chat panel can filter conversations by bot.
+- Touch feedback when long-pressing to copy a file path in the mobile FileTree.
 
 ### Changed
 
 ### Fixed
 - **Link archive path**: new link content and summary keys are written under `lifelog/link/<link_id>/` (legacy `links/` rows remain readable until data is moved).
+- **Mobile FileTree long-press**: restored selection handling, fixed iOS drag interference, and corrected opening file actions on long-press.
 
 ### Removed
 - **Standalone `y upload` CLI**: superseded by `y file upload` under the grouped `y file` transfer surface.
