@@ -36,7 +36,7 @@ interface NoteListProps {
   onSelectNote?: (note: Note) => void;
 }
 
-type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog";
+type NoteTab = "finance" | "skills" | "journals" | "pages" | "blog" | "prd";
 type BlogLang = "en" | "zhs" | "zht" | "ja";
 type FinanceSubTab = "notes" | "forex" | "tickers" | "topics";
 
@@ -45,6 +45,12 @@ const FINANCE_DIR = "/Users/roy/luohy15/finance";
 interface SkillEntry {
   name: string;
   description: string;
+  path: string;
+}
+
+interface PrdEntry {
+  project: string;
+  name: string;
   path: string;
 }
 
@@ -88,7 +94,7 @@ function groupByMonth(files: string[]): [string, string[]][] {
 export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todoId, hideFilters, refreshKey, items, onSelectNote }: NoteListProps) {
   const [tab, setTab] = useState<NoteTab>(() => {
     const saved = localStorage.getItem("noteListTab");
-    return saved === "finance" || saved === "skills" || saved === "journals" || saved === "pages" || saved === "blog" ? saved : "journals";
+    return saved === "finance" || saved === "skills" || saved === "journals" || saved === "pages" || saved === "blog" || saved === "prd" ? saved : "journals";
   });
   const [searchInput, setSearchInput] = useState("");
   const [journalYear, setJournalYear] = useState<string>(() => localStorage.getItem("noteListJournalYear") || "");
@@ -102,6 +108,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     if (saved === "notes" || saved === "forex" || saved === "tickers" || saved === "topics") return saved;
     return "notes";
   });
+  const [prdProject, setPrdProject] = useState(() => localStorage.getItem("noteListPrdProject") || "");
 
   const handleTabChange = useCallback((t: NoteTab) => {
     setTab(t);
@@ -116,6 +123,11 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const handleFinanceSubTabChange = useCallback((s: FinanceSubTab) => {
     setFinanceSubTab(s);
     localStorage.setItem("noteListFinanceSubTab", s);
+  }, []);
+
+  const handlePrdProjectChange = useCallback((project: string) => {
+    setPrdProject(project);
+    localStorage.setItem("noteListPrdProject", project);
   }, []);
 
   const journalsParams = new URLSearchParams();
@@ -139,11 +151,15 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const skillsParams = new URLSearchParams();
   if (vmName) skillsParams.set("vm_name", vmName);
 
+  const prdParams = new URLSearchParams();
+  if (vmName) prdParams.set("vm_name", vmName);
+
   const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
   const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
   const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/file/read?${blogParams.toString()}` : null;
   const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/file/list?${financeParams.toString()}` : null;
   const skillsKey = isLoggedIn && tab === "skills" ? `${API}/api/file/skills?${skillsParams.toString()}` : null;
+  const prdKey = isLoggedIn && tab === "prd" ? `${API}/api/file/prd?${prdParams.toString()}` : null;
 
   // NOTE: gate the loading UI on `isLoading` only (true solely on first load /
   // empty-cache tab switch), never on `isValidating`. SWR keeps stale data during
@@ -154,6 +170,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const { data: blogData, isLoading: blogLoading, error: blogError, mutate: mutateBlog } = useSWR<{ path: string; content: string }>(blogKey, fetcher, { revalidateOnFocus: false });
   const { data: financeData, isLoading: financeLoading, error: financeError, mutate: mutateFinance } = useSWR<{ path: string; entries: FileEntry[] }>(financeKey, fetcher, { revalidateOnFocus: false });
   const { data: skillsData, isLoading: skillsLoading, error: skillsError, mutate: mutateSkills } = useSWR<{ skills: SkillEntry[] }>(skillsKey, fetcher, { revalidateOnFocus: false });
+  const { data: prdData, isLoading: prdLoading, error: prdError, mutate: mutatePrd } = useSWR<{ entries: PrdEntry[] }>(prdKey, fetcher, { revalidateOnFocus: false });
 
   const todoNotesKey = isLoggedIn && todoId ? `${API}/api/note/list?todo_id=${encodeURIComponent(todoId)}` : null;
   const { data: todoNotes, isLoading: todoNotesLoading, error: todoNotesError, mutate: mutateTodoNotes } = useSWR<Note[]>(todoNotesKey, fetcher, { revalidateOnFocus: false });
@@ -174,7 +191,8 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
     else if (tab === "blog") mutateBlog();
     else if (tab === "finance") mutateFinance();
     else if (tab === "skills") mutateSkills();
-  }, [refreshKey, showTodoMode, tab, mutateTodoNotes, mutateJournals, mutatePages, mutateBlog, mutateFinance, mutateSkills]);
+    else if (tab === "prd") mutatePrd();
+  }, [refreshKey, showTodoMode, tab, mutateTodoNotes, mutateJournals, mutatePages, mutateBlog, mutateFinance, mutateSkills, mutatePrd]);
 
   const dismissCtxMenu = useCallback(() => setCtxMenu(null), []);
 
@@ -269,6 +287,15 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
       (s) => s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q),
     );
   }, [skillsData, searchInput]);
+
+  const prdProjects = useMemo(() => [...new Set(prdData?.entries.map((entry) => entry.project) || [])], [prdData]);
+
+  const prdEntries = useMemo(() => prdData?.entries.filter((entry) => entry.project === prdProject) || [], [prdData, prdProject]);
+
+  useEffect(() => {
+    if (!prdProjects.length || prdProjects.includes(prdProject)) return;
+    handlePrdProjectChange(prdProjects[0]);
+  }, [prdProjects, prdProject, handlePrdProjectChange]);
 
   const financeFiles = useMemo(() => {
     if (!financeData?.entries) return [];
@@ -404,8 +431,9 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
           <button onClick={() => handleTabChange("journals")} className={tabClass(tab === "journals")}>Journals</button>
           <button onClick={() => handleTabChange("pages")} className={tabClass(tab === "pages")}>Pages</button>
           <button onClick={() => handleTabChange("blog")} className={tabClass(tab === "blog")}>Blog</button>
+          <button onClick={() => handleTabChange("prd")} className={tabClass(tab === "prd")}>PRD</button>
           <button
-            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else if (tab === "blog") mutateBlog(); else if (tab === "skills") mutateSkills(); else mutateFinance(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+            onClick={() => { if (tab === "journals") mutateJournals(); else if (tab === "pages") mutatePages(); else if (tab === "blog") mutateBlog(); else if (tab === "skills") mutateSkills(); else if (tab === "prd") mutatePrd(); else mutateFinance(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
             className="ml-auto px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
@@ -443,6 +471,13 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
             <button onClick={() => handleFinanceSubTabChange("forex")} className={pillClass(financeSubTab === "forex")}>forex</button>
             <button onClick={() => handleFinanceSubTabChange("tickers")} className={pillClass(financeSubTab === "tickers")}>tickers</button>
             <button onClick={() => handleFinanceSubTabChange("topics")} className={pillClass(financeSubTab === "topics")}>topics</button>
+          </div>
+        )}
+        {tab === "prd" && prdProjects.length > 0 && (
+          <div className="flex gap-1 flex-wrap">
+            {prdProjects.map((project) => (
+              <button key={project} onClick={() => handlePrdProjectChange(project)} className={pillClass(prdProject === project)}>{project}</button>
+            ))}
           </div>
         )}
         {tab === "skills" && (
@@ -539,6 +574,27 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                   {skill.description && (
                     <span className="text-sol-base01 text-[0.6rem] truncate">{skill.description}</span>
                   )}
+                </button>
+              ))}
+            </div>
+          )
+        ) : tab === "prd" ? (
+          prdLoading ? (
+            <ListLoading />
+          ) : prdError && !prdData ? (
+            <ListError error={prdError} />
+          ) : prdProjects.length === 0 ? (
+            <ListEmpty label="PRDs" />
+          ) : (
+            <div className="space-y-0">
+              {prdEntries.map((entry) => (
+                <button
+                  key={entry.path}
+                  onClick={() => onOpenFile(entry.path)}
+                  onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, path: entry.path }); }}
+                  className="w-full text-left flex items-center gap-1.5 py-1 px-1 rounded hover:bg-sol-base02/50 text-sol-base0 hover:text-sol-blue text-[0.7rem] cursor-pointer"
+                >
+                  <span className="truncate flex-1">{entry.name.replace(/\.md$/, "")}</span>
                 </button>
               ))}
             </div>

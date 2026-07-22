@@ -120,6 +120,31 @@ async def read_file(request: Request, path: str = Query(...), vm_name: str = Que
 _SKILLS_DIR = "/Users/roy/luohy15/.agents/skills"
 
 
+@router.get("/prd")
+async def list_prd(request: Request, vm_name: str = Query(None)):
+    user_id = _get_user_id(request)
+    code_dir = f"{Y_AGENT_HOME}/code"
+    script = (
+        f"find {code_dir} -maxdepth 4 -type f -path '*/docs/prd/*.md' -print | "
+        "while IFS= read -r path; do "
+        f'rel=${{path#"{code_dir}/"}}; '
+        'project=${rel%%/*}; '
+        'name=${path##*/}; '
+        'printf "%s\\t%s\\t%s\\n" "$project" "$name" "$path"; '
+        "done"
+    )
+    output = await _exec(user_id, ["bash", "-c", script], vm_name=vm_name, timeout=15)
+    entries = []
+    for line in output.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        project, name, path = parts
+        entries.append({"project": project, "name": name, "path": path})
+    entries.sort(key=lambda entry: (entry["project"], entry["name"] != "README.md", entry["name"]))
+    return {"entries": entries}
+
+
 @router.get("/skills")
 async def list_skills(request: Request, vm_name: str = Query(None)):
     user_id = _get_user_id(request)
