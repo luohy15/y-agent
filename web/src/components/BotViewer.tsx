@@ -425,11 +425,9 @@ function loadTypeFilter(): TypeFilter {
   return saved === "agent" || saved === "model" ? saved : "all";
 }
 
-const COL_COUNT = COLUMNS.length + 1; // +1 for "On" column
-
 const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
 
-// Inline detail/edit panel shown below an expanded table row.
+// Detail/edit panel for a selected bot (rendered inside the config modal).
 function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => void; onSaved: () => void }) {
   const { data: detail } = useSWR<BotConfig>(
     `${API}/api/bot/config?name=${encodeURIComponent(bot.name)}`,
@@ -1438,7 +1436,7 @@ export default function BotViewer() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>(loadTypeFilter());
   const [sortKey, setSortKey] = useState<SortKey>(loadSortKey());
   const [sortDir, setSortDir] = useState<SortDir>(loadSortDir());
-  const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const [form, setForm] = useState<BotFormState | null>(null);
   const [editing, setEditing] = useState<BotConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1463,13 +1461,16 @@ export default function BotViewer() {
     }
   };
 
+  // Escape closes only the bot-detail modal. BotForm owns its own overlay; skip
+  // while the create form is open so the two surfaces do not share one handler.
   useEffect(() => {
+    if (!selectedName || form) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setExpandedName(null); if (!form) setExpandedName(null); }
+      if (e.key === "Escape") setSelectedName(null);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [form]);
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [selectedName, form]);
 
   const { data, error: loadError, isLoading, mutate } = useSWR<BotConfig[]>(
     `${API}/api/bot/list`,
@@ -1477,6 +1478,10 @@ export default function BotViewer() {
   );
 
   const bots = useMemo(() => data || [], [data]);
+  const selectedBot = useMemo(
+    () => (selectedName ? bots.find((b) => b.name === selectedName) ?? null : null),
+    [bots, selectedName],
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return bots.filter((b) => {
@@ -1689,7 +1694,7 @@ export default function BotViewer() {
         )}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto" onClick={(e) => { if (expandedName && !(e.target as HTMLElement).closest('[data-bot-card]')) setExpandedName(null); }}>
+      <div className="flex-1 min-h-0 overflow-auto">
         {view === "usage" ? (
           <div className="flex min-h-full flex-col gap-3 p-3">
             {usageMode === "over-time" ? (
@@ -1732,57 +1737,78 @@ export default function BotViewer() {
               </thead>
               <tbody>
                 {sorted.map((bot) => (
-                  <Fragment key={bot.name}>
-                    <tr
-                      className={`border-b border-sol-base02/40 hover:bg-sol-base02/50 cursor-pointer ${expandedName === bot.name ? "bg-sol-base02/50" : ""}`}
-                      onClick={() => setExpandedName(expandedName === bot.name ? null : bot.name)}
-                    >
-                      <td className="px-1.5 py-1">
-                        <span className="inline-flex items-center gap-1 min-w-0">
-                          <span className="text-sol-base1 font-medium">{bot.name}</span>
-                          {bot.name === "default" && <span className="text-[0.55rem] px-1 rounded bg-sol-base02 text-sol-base01 shrink-0">def</span>}
-                          {bot.has_api_key && <span className="text-[0.55rem] px-1 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
-                          {bot.ref_bot_name && <span className="text-[0.55rem] px-1 rounded bg-sol-blue/15 text-sol-blue shrink-0" title={bot.ref_bot_name}>ref</span>}
-                        </span>
-                      </td>
-                      <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>
-                      <td className="px-1.5 py-1 font-mono text-sol-base01">{bot.model || "-"}</td>
-                      <td className="px-1.5 py-1 text-sol-base0 whitespace-nowrap">{bot.type || "agent"}</td>
-                      <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.tier || "-"}</td>
-                      <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.route_weight)}</td>
-                      <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_input)}</td>
-                      <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_output)}</td>
-                      <td className="px-1.5 py-1 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const action = bot.enabled !== false ? "disable" : "enable";
-                            apiJson(`/api/bot/${action}`, { name: bot.name }).then(revalidate).catch(() => {});
-                          }}
-                          disabled={bot.name === "default"}
-                          className={`w-3 h-3 rounded-full cursor-pointer border ${
-                            bot.enabled !== false
-                              ? "bg-sol-green/60 border-sol-green"
-                              : "bg-sol-red/40 border-sol-red"
-                          } ${bot.name === "default" ? "opacity-50 cursor-not-allowed" : "hover:scale-110"}`}
-                          title={bot.enabled !== false ? "Enabled — click to disable" : "Disabled — click to enable"}
-                        />
-                      </td>
-                    </tr>
-                    {expandedName === bot.name && (
-                      <tr className="border-b border-sol-base02">
-                        <td colSpan={COL_COUNT} className="p-2">
-                          <BotDetail bot={bot} onClose={() => setExpandedName(null)} onSaved={revalidate} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  <tr
+                    key={bot.name}
+                    className={`border-b border-sol-base02/40 hover:bg-sol-base02/50 cursor-pointer ${selectedName === bot.name ? "bg-sol-base02/50" : ""}`}
+                    onClick={() => setSelectedName(bot.name)}
+                  >
+                    <td className="px-1.5 py-1">
+                      <span className="inline-flex items-center gap-1 min-w-0">
+                        <span className="text-sol-base1 font-medium">{bot.name}</span>
+                        {bot.name === "default" && <span className="text-[0.55rem] px-1 rounded bg-sol-base02 text-sol-base01 shrink-0">def</span>}
+                        {bot.has_api_key && <span className="text-[0.55rem] px-1 rounded bg-sol-green/15 text-sol-green shrink-0">key</span>}
+                        {bot.ref_bot_name && <span className="text-[0.55rem] px-1 rounded bg-sol-blue/15 text-sol-blue shrink-0" title={bot.ref_bot_name}>ref</span>}
+                      </span>
+                    </td>
+                    <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.backend || "-"}</td>
+                    <td className="px-1.5 py-1 font-mono text-sol-base01">{bot.model || "-"}</td>
+                    <td className="px-1.5 py-1 text-sol-base0 whitespace-nowrap">{bot.type || "agent"}</td>
+                    <td className="px-1.5 py-1 text-sol-base01 whitespace-nowrap">{bot.tier || "-"}</td>
+                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.route_weight)}</td>
+                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_input)}</td>
+                    <td className="px-1.5 py-1 text-right text-sol-base0 whitespace-nowrap tabular-nums">{fmtPrice(bot.price_output)}</td>
+                    <td className="px-1.5 py-1 text-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const action = bot.enabled !== false ? "disable" : "enable";
+                          apiJson(`/api/bot/${action}`, { name: bot.name }).then(revalidate).catch(() => {});
+                        }}
+                        disabled={bot.name === "default"}
+                        className={`w-3 h-3 rounded-full cursor-pointer border ${
+                          bot.enabled !== false
+                            ? "bg-sol-green/60 border-sol-green"
+                            : "bg-sol-red/40 border-sol-red"
+                        } ${bot.name === "default" ? "opacity-50 cursor-not-allowed" : "hover:scale-110"}`}
+                        title={bot.enabled !== false ? "Enabled — click to disable" : "Disabled — click to enable"}
+                      />
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
+      {/* Config detail modal */}
+      {selectedBot && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedName(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bot-detail-title"
+            className="w-full max-w-lg bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden text-xs max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-sol-base02 flex items-center justify-between shrink-0">
+              <h2 id="bot-detail-title" className="text-sol-base1 text-sm font-semibold">{selectedBot.name}</h2>
+              <button
+                onClick={() => setSelectedName(null)}
+                className="text-sol-base01 hover:text-sol-base1 cursor-pointer text-sm leading-none"
+                title="Close"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              <BotDetail bot={selectedBot} onClose={() => setSelectedName(null)} onSaved={revalidate} />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Only show modal for creating new bots */}
       {form && (
         <BotForm
