@@ -223,4 +223,104 @@ describe("BotViewer Config detail modal", () => {
       root.unmount();
     });
   });
+
+  it("cold-open seeds detail-only fields from the config endpoint, not the list", async () => {
+    // List row omits detail-only fields (mirrors /api/bot/list's payload shape).
+    const listBot = { name: "alpha", backend: "claude_code", model: "claude-sonnet", type: "agent", tier: "tier1", price_input: 3, price_output: 15, enabled: true };
+    const configBot = { ...listBot, max_tokens: 4096, custom_api_path: "/v1/custom", route_weight: 3 };
+    const configMutateMock = vi.fn();
+    let configLoaded = false;
+    useSWRMock.mockImplementation((key: string | null) => {
+      if (typeof key === "string" && key.includes("/api/bot/list")) {
+        return { data: [listBot], isLoading: false, error: undefined, mutate: mutateMock };
+      }
+      if (typeof key === "string" && key.includes("/api/bot/config")) {
+        return { data: configLoaded ? configBot : undefined, isLoading: !configLoaded, error: undefined, mutate: configMutateMock };
+      }
+      return { data: undefined, isLoading: false, error: undefined, mutate: mutateMock };
+    });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(React.createElement(BotViewer));
+    });
+    openAlphaRow(container);
+
+    // Cold: config fetch not yet resolved, form must not seed from the list fallback.
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Loading");
+    expect(container.querySelector('[role="dialog"] input[type="number"][step="any"]')).toBeNull();
+
+    // Config resolves; force a re-render so the SWR mock's new return value is picked up.
+    configLoaded = true;
+    await act(async () => {
+      root.render(React.createElement(BotViewer));
+    });
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    const maxTokensInput = Array.from(dialog.querySelectorAll("input")).find(
+      (i) => i.getAttribute("type") === "number" && i.getAttribute("min") === "1",
+    ) as HTMLInputElement;
+    const weightInput = dialog.querySelector('input[step="any"]') as HTMLInputElement;
+    const apiPathInput = Array.from(dialog.querySelectorAll("input")).find(
+      (i) => i.getAttribute("placeholder") === "/chat/completions",
+    ) as HTMLInputElement;
+    expect(maxTokensInput.value).toBe("4096");
+    expect(apiPathInput.value).toBe("/v1/custom");
+    expect(weightInput.value).toBe("3");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("invalidates the config detail cache on save so a reopen would show the new weight", async () => {
+    const configMutateMock = vi.fn();
+    useSWRMock.mockImplementation((key: string | null) => {
+      if (typeof key === "string" && key.includes("/api/bot/list")) {
+        return { data: bots, isLoading: false, error: undefined, mutate: mutateMock };
+      }
+      if (typeof key === "string" && key.includes("/api/bot/config")) {
+        const name = new URL(key, "http://local").searchParams.get("name") || bots[0].name;
+        const bot = bots.find((b) => b.name === name) || bots[0];
+        return { data: bot, isLoading: false, error: undefined, mutate: configMutateMock };
+      }
+      if (typeof key === "string" && key.includes("/api/usage/model-daily")) {
+        return { data: [], isLoading: false, error: undefined, mutate: mutateMock };
+      }
+      return { data: undefined, isLoading: false, error: undefined, mutate: mutateMock };
+    });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(React.createElement(BotViewer));
+    });
+    openAlphaRow(container);
+
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    const weightInput = dialog.querySelector('input[step="any"]') as HTMLInputElement;
+    expect(weightInput.value).toBe("1");
+
+    await act(async () => {
+      weightInput.dispatchEvent(new Event("focusin", { bubbles: true }));
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(weightInput, "5");
+      weightInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const saveBtn = Array.from(dialog.querySelectorAll("button")).find((b) => b.textContent === "Save") as HTMLButtonElement;
+    expect(saveBtn).toBeTruthy();
+    await act(async () => {
+      saveBtn.click();
+      await Promise.resolve();
+    });
+
+    expect(apiJsonMock).toHaveBeenCalledWith("/api/bot/update", expect.objectContaining({ name: "alpha", route_weight: 5 }));
+    // Defect 2 regression guard: the config detail SWR key must be invalidated on save,
+    // not just the list key, or a warm reopen would keep serving the pre-save weight.
+    expect(configMutateMock).toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });

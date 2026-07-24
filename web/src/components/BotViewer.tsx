@@ -428,13 +428,29 @@ function loadTypeFilter(): TypeFilter {
 const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
 
 // Detail/edit panel for a selected bot (rendered inside the config modal).
+// Gates on the authoritative `/api/bot/config` fetch so the inner form only mounts
+// (and seeds its useState fields) once the complete, fresh config is available:
+// never from the list row, which omits some fields and can be stale after a save.
 function BotDetail({ bot, onClose, onSaved }: { bot: BotConfig; onClose: () => void; onSaved: () => void }) {
-  const { data: detail } = useSWR<BotConfig>(
+  const { data: detail, mutate: mutateDetail } = useSWR<BotConfig>(
     `${API}/api/bot/config?name=${encodeURIComponent(bot.name)}`,
     fetcher,
   );
-  const full = detail || bot;
 
+  if (!detail) {
+    return <div className="text-xs text-sol-base01/70 italic p-2">Loading...</div>;
+  }
+
+  return (
+    <BotDetailForm
+      full={detail}
+      onClose={onClose}
+      onSaved={() => { void mutateDetail(); onSaved(); }}
+    />
+  );
+}
+
+function BotDetailForm({ full, onClose, onSaved }: { full: BotConfig; onClose: () => void; onSaved: () => void }) {
   // Today's per-model usage; SWR dedupes this key across all expanded rows.
   const { data: usageRows } = useSWR<ModelUsageRow[]>(
     full.model ? `${API}/api/usage/model-daily` : null,
