@@ -16,9 +16,9 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. Backends
-that accept mid-run input (Claude Code print mode, Claude Code TUI) receive the
-message live; backends that cannot (Codex, Gemini CLI, Pi CLI) are killed and
-resumed with the message as the next prompt. Delivery is exactly-once: a
+that accept mid-run input (Claude Code print mode) receive the message live;
+backends that cannot (Codex, Gemini CLI, Pi CLI) are killed and resumed with
+the message as the next prompt. Delivery is exactly-once: a
 claim/unclaim protocol plus a turn-end drain and a post-turn reconciliation
 pass guarantee a steer message is neither delivered twice nor silently dropped,
 even across Lambda handoffs and turn-end races.
@@ -89,11 +89,11 @@ even across Lambda handoffs and turn-end races.
 - **Per-backend delivery, two families.** Live injection: Claude Code print
   mode appends a stream-json user message to a remote stdin file that is piped
   into the process via a follow-tail, with the SSH write's exit status as
-  delivery confirmation; Claude Code TUI pastes the text into the tmux pane.
-  Kill-and-resume: Codex, Gemini CLI, and Pi CLI cannot accept mid-run input,
-  so the first steer kills the tmux session, the tailer returns a steer status
-  with the collected messages, and the monitor restarts the run via the
-  backend's resume command using the steer text as the new prompt.
+  delivery confirmation. Kill-and-resume: Codex, Gemini CLI, and Pi CLI cannot
+  accept mid-run input, so the first steer kills the tmux session, the tailer
+  returns a steer status with the collected messages, and the monitor
+  restarts the run via the backend's resume command using the steer text as
+  the new prompt.
 - **Turn-end race is closed by a shared lock plus final drain.** Live steer
   writes and session teardown are serialized by one lock. Teardown first drains
   the checker one last time and delivers any straggler before killing the
@@ -114,8 +114,8 @@ even across Lambda handoffs and turn-end races.
   pipe never reaches EOF, the process does not exit on its own after the result
   event; the tailer kills the tmux session and removes the temp files itself.
 - **Images ride along.** Steer tuples carry the message's image list; live
-  backends deliver them as image content blocks (or upload-then-reference for
-  the TUI), and restart backends include them in the resume prompt.
+  backends deliver them as image content blocks, and restart backends include
+  them in the resume prompt.
 - **Telegram root-topic steer only.** Steering an incoming topic message into a
   busy chat applies to root topics (the long-lived inbox); non-root topics
   serialize naturally because each is scoped to a single task.

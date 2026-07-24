@@ -251,11 +251,11 @@ mode (`-i`) serves a human at a terminal.
   can set it.
 - **Backend dispatch in the worker**: Perplexity and OpenAI-style backends run
   inline (message-list in, reply out, no VM). All CLI agent backends
-  (claude_code, claude_tui, codex, gemini_cli, pi_cli) launch as detached tmux
+  (claude_code, codex, gemini_cli, pi_cli) launch as detached tmux
   subprocesses on the user's EC2 VM over SSH, are registered in a process
   table (DynamoDB) for monitoring, and are tailed by a monitor loop that
-  appends each streamed event as a chat message. An unset or unrecognized
-  backend defaults to claude_tui (subscription usage rather than API budget).
+  appends each streamed event as a chat message. An unset backend defaults to
+  claude_code; an unrecognized backend is rejected with a clear launch error.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir

@@ -115,7 +115,6 @@ y finance beancount update-market-data
 | `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |
 | `bot` | Manage backend configs (Claude Code / Codex / Gemini CLI): add / enable / disable / update |
 | `trace` | `share` / `unshare` a trace as a public read-only page |
-| `claude` | `usage` — scrape Claude Code 5h + weekly limit-window usage |
 | `dev` | Worktree lifecycle: `wt add` / `wt rm` / `commit` |
 | `telegram` | Send a Telegram message via the API |
 | `init` / `login` / `logout` | Config bootstrap + auth against the hosted instance |
@@ -140,9 +139,8 @@ y assoc note pages/plan-foo.md --todo <todo_id>
 y image tinify shot.png
 y pdf parse paper.pdf
 
-# Trace share + Claude usage
+# Trace share
 y trace share <trace_id>
-y claude usage
 ```
 
 ## Where to next

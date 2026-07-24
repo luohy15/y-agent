@@ -29,6 +29,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Removed
 - **Standalone `y upload` CLI**: superseded by `y file upload` under the grouped `y file` transfer surface.
+- **`claude_tui` backend and Claude subscription usage tooling (2873)**: removed the interactive-TUI-over-tmux backend, its runner/monitor integration, backend selection references, and the `y claude usage` scraper CLI/parser; unset or unknown detached backends now default to (or explicitly reject in favor of) `claude_code` instead of silently falling back to the removed backend. Preserves all other backends, generic tmux detach, steer/PollLoop resilience, Claude status monitoring, and the provider/model usage-limit subsystem. Persisted `claude_tui` config/chat/routine rows are migrated to `claude_code` via `migration/2873_remove_claude_tui_backend.sql`.
 
 ## [0.5.21] - 2026-07-19
 

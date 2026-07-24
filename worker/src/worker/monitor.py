@@ -287,21 +287,6 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_steer_fn=steer_fn,
             ssh_client=client,
         )
-    elif backend_type == "claude_tui":
-        from agent.claude_tui import tail_claude_tui_output
-        result = await tail_claude_tui_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            work_dir=proc.get("work_dir"),
-            session_id=session_id,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-        )
     else:
         from agent.claude_code import tail_ssh_output
         result = await tail_ssh_output(
@@ -367,15 +352,15 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             except Exception as e:
                 logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
 
-            # Safety net: a claude_code / claude_tui turn can end with a
-            # trailing user message that was never confirmed delivered via
-            # the live steer path (e.g. it raced turn-end teardown and
-            # _on_steer / _on_steer_detached returned False). Don't finalize
-            # as done — relaunch a continuation turn so the message isn't
-            # silently dropped forever (see plan-2662-steer-race.md,
+            # Safety net: a claude_code turn can end with a trailing user
+            # message that was never confirmed delivered via the live steer
+            # path (e.g. it raced turn-end teardown and _on_steer /
+            # _on_steer_detached returned False). Don't finalize as done —
+            # relaunch a continuation turn so the message isn't silently
+            # dropped forever (see plan-2662-steer-race.md,
             # plan-2704-steer-prd-gap.md). codex/gemini/grok_build/pi already
             # reconcile via their own status="steer" restart branch above.
-            if backend_type in ("claude_code", "claude_tui") and result["status"] != "error" and not fresh.interrupted:
+            if backend_type == "claude_code" and result["status"] != "error" and not fresh.interrupted:
                 confirmed_delivered = initial_msg_ids | set(all_consumed_steer_ids)
                 has_undelivered_trailing = False
                 for msg in reversed(fresh.messages):
@@ -565,36 +550,6 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
                 unix_timestamp=get_unix_timestamp(),
             )
             fresh.messages.append(error_msg)
-    elif backend_type == "claude_tui":
-        # Claude Code TUI: usage comes straight from the final assistant record's
-        # `message.usage` block (raw anthropic field names), not a `result` event.
-        effective_session_id = result.get("session_id") or proc.get("session_id")
-        if effective_session_id:
-            if cwd_matches:
-                fresh.external_id = effective_session_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude_tui session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
-                )
-        if result_data and not result_data.get("is_error"):
-            usage = result_data.get("usage") or {}
-            if usage:
-                fresh.input_tokens = usage.get("input_tokens")
-                fresh.output_tokens = usage.get("output_tokens")
-                fresh.cache_read_input_tokens = usage.get("cache_read_input_tokens")
-                fresh.cache_creation_input_tokens = usage.get("cache_creation_input_tokens")
-
-        if result["status"] == "error":
-            error_text = (result_data.get("result") if result_data else None) or "Claude Code TUI exited with an error."
-            error_msg = Message(
-                id=generate_message_id(),
-                role="assistant",
-                content=error_text,
-                timestamp=get_utc_iso8601_timestamp(),
-                unix_timestamp=get_unix_timestamp(),
-            )
-            fresh.messages.append(error_msg)
     else:
         # Claude Code: existing logic
         effective_session_id = result.get("session_id") or proc.get("session_id")
@@ -668,8 +623,8 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
     tmux launch, and DynamoDB registration as any other turn — `resume` is
     computed from `chat.external_id` (already persisted by
     `_apply_completion_metadata` above) and `chat.work_dir`. `backend`
-    defaults to `claude_code` but callers pass the actual backend_type
-    (e.g. `claude_tui`) so the relaunch stays on the same backend.
+    defaults to `claude_code` but callers pass the actual backend_type so
+    the relaunch stays on the same backend.
     """
     from worker.runner import run_chat
 

@@ -32,8 +32,8 @@ class PollLoopUnclaimTest(unittest.TestCase):
         check_steer_fn.unclaim.assert_not_called()
 
     def test_unclaim_not_called_when_on_steer_returns_none(self):
-        # Backends (codex/gemini/pi/claude_tui) that can't confirm delivery
-        # return None from on_steer — must be treated as success, not failure.
+        # Backends (codex/gemini/pi) that can't confirm delivery return None
+        # from on_steer — must be treated as success, not failure.
         check_steer_fn = self._run_loop(on_steer_result=None)
         check_steer_fn.unclaim.assert_not_called()
 

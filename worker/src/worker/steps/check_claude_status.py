@@ -52,14 +52,14 @@ ACROSS_MODELS_RE = re.compile(r"across\s+(?:all\s+)?models", re.IGNORECASE)
 # right `y bot update` command. Hard-coded per plan; revisit when bot configs
 # change.
 MODEL_BOT_MAP: dict[str, list[str]] = {
-    "opus": ["claude_tui", "claude_code"],
+    "opus": ["claude_code"],
     "sonnet": ["pi"],
     "haiku": [],
     "fable": [],
     "mythos": [],
 }
 
-ALL_CLAUDE_BOTS = ["claude_tui", "claude_code", "pi"]
+ALL_CLAUDE_BOTS = ["claude_code", "pi"]
 
 
 def _parse_latest_status(description_html: str) -> Optional[str]:
