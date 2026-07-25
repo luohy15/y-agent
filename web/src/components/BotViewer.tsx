@@ -676,7 +676,11 @@ function bucketByPeriodModel(rows: ModelUsageRow[], granularity: Granularity, me
   return byPeriod;
 }
 
-// One chart object per period: { period, rawPeriod, <model>: value, …, Other, Total }.
+// One chart object per period: { period, rawPeriod, rank0, rank0Model, rank1, …, Total }.
+// Each bar's segments are ordered independently by descending share within that
+// bar (largest at the bottom): the value for a given model is assigned to the
+// rank slot matching its position in that period's own sort, so a model can sit
+// at a different rank (and thus a different position in the stack) across bars.
 function usageChartRows(byPeriod: Map<string, Map<string, number>>, models: string[], periods: string[]) {
   const named = new Set(models.filter((m) => m !== "Other"));
   return periods.map((pk) => {
@@ -684,15 +688,22 @@ function usageChartRows(byPeriod: Map<string, Map<string, number>>, models: stri
     const row: Record<string, string | number> = { period: formatPeriodLabel(pk), rawPeriod: pk };
     let total = 0;
     for (const v of modelMap.values()) total += v;
+
+    const values = new Map<string, number>();
     for (const model of models) {
       if (model === "Other") continue;
-      row[model] = modelMap.get(model) || 0;
+      values.set(model, modelMap.get(model) || 0);
     }
     if (models.includes("Other")) {
       let other = 0;
       for (const [model, v] of modelMap) if (!named.has(model)) other += v;
-      row.Other = other;
+      values.set("Other", other);
     }
+    const ranked = [...values.entries()].sort((a, b) => b[1] - a[1]);
+    ranked.forEach(([model, v], rank) => {
+      row[`rank${rank}`] = v;
+      row[`rank${rank}Model`] = model;
+    });
     row.Total = total;
     return row;
   });
@@ -720,16 +731,28 @@ function usageTableRows(byPeriod: Map<string, Map<string, number>>, models: stri
 }
 
 // Stacked-bar tooltip (local minimal copy of FinanceViewer's ExpensesOverTimeTooltip).
-function UsageChartTooltip({ active, payload, label, metric }: {
+// Segments are rank-slotted (see usageChartRows), so each payload entry's actual
+// model name/color is resolved via its `rank<N>Model` sibling field rather than
+// the raw dataKey/name (which is just the rank slot).
+function UsageChartTooltip({ active, payload, label, metric, models, colors }: {
   active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string; payload?: any }>;
+  payload?: Array<{ dataKey?: string; value: number; payload?: any }>;
   label?: string;
   metric: UsageMetric;
+  models: string[];
+  colors: string[];
 }) {
   if (!active || !payload?.length) return null;
   const rawPeriod = payload[0]?.payload?.rawPeriod;
   const totalValue = Number(payload[0]?.payload?.Total || 0);
-  const rows = payload.filter((p) => Number(p.value || 0) > 0).sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  const rows = payload
+    .map((p) => {
+      const model = p.payload?.[`${p.dataKey}Model`] as string | undefined;
+      const colorIndex = model ? models.indexOf(model) : -1;
+      return { model: model ?? String(p.dataKey), value: Number(p.value || 0), color: colorIndex >= 0 ? colors[colorIndex % colors.length] : SOL.base01 };
+    })
+    .filter((p) => p.value > 0)
+    .sort((a, b) => b.value - a.value);
   return (
     <div className="rounded px-2 py-1.5 text-xs" style={{ background: SOL.base02, border: `1px solid ${SOL.base01}` }}>
       <div style={{ color: SOL.base1 }} className="mb-1">{rawPeriod ? formatPeriodLabel(rawPeriod) : label}</div>
@@ -740,7 +763,7 @@ function UsageChartTooltip({ active, payload, label, metric }: {
       {rows.map((p, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span style={{ color: SOL.base0 }}>{p.name}: {formatMetric(p.value, metric)}</span>
+          <span style={{ color: SOL.base0 }}>{p.model}: {formatMetric(p.value, metric)}</span>
         </div>
       ))}
     </div>
@@ -828,10 +851,18 @@ function UsageOverTimeView({ granularity, metric, time }: { granularity: Granula
             <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
             <XAxis dataKey="period" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
             <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} width={56} tickFormatter={(v) => formatMetric(v, metric)} />
-            <Tooltip content={<UsageChartTooltip metric={metric} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
-            {models.map((model, index) => {
+            <Tooltip content={<UsageChartTooltip metric={metric} models={models} colors={modelColors()} />} cursor={{ fill: "rgba(147, 161, 161, 0.15)" }} />
+            {models.map((_, rank) => {
               const colors = modelColors();
-              return <Bar key={model} dataKey={model} stackId="usage" fill={colors[index % colors.length]} isAnimationActive={false} />;
+              return (
+                <Bar key={`rank${rank}`} dataKey={`rank${rank}`} stackId="usage" isAnimationActive={false}>
+                  {chartRows.map((row, i) => {
+                    const rowModel = row[`rank${rank}Model`] as string | undefined;
+                    const colorIndex = rowModel ? models.indexOf(rowModel) : -1;
+                    return <Cell key={i} fill={colorIndex >= 0 ? colors[colorIndex % colors.length] : "transparent"} />;
+                  })}
+                </Bar>
+              );
             })}
           </BarChart>
         </ResponsiveContainer>
