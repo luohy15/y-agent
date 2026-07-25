@@ -23,7 +23,7 @@ class _FakeSshClient:
     def __init__(self, lines):
         self._lines = lines
 
-    def exec_command(self, _cmd):
+    def exec_command(self, _cmd, **kwargs):
         return None, _FakeStream(self._lines), _FakeStream([])
 
 

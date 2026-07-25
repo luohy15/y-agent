@@ -26,7 +26,7 @@ class _FakeClient:
     def open_sftp(self):
         return self.sftp
 
-    def exec_command(self, command):
+    def exec_command(self, command, **kwargs):
         self.exec_commands.append(command)
 
         class _Channel:

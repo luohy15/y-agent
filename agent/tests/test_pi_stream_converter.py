@@ -27,7 +27,7 @@ class _FakeSshClient:
         self._lines = lines
         self._tmux_alive = tmux_alive
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         if "tmux has-session" in cmd:
             data = b"alive\n" if self._tmux_alive else b"dead\n"
             return None, _ExecStream(data, 0), _ExecStream(b"")
@@ -268,7 +268,7 @@ class _ModelsJsonClient:
         self.writes = {}
         self.commands = []
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         self.commands.append(cmd)
         exit_status = 0
         if "$HOME" in cmd:

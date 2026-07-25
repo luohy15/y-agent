@@ -73,7 +73,7 @@ def _make_client(gate: threading.Event, write_exit_code: int = 0):
     calls = []
     tail_stdout = _GatedLine(json.dumps({"type": "result", "session_id": "sess-1"}) + "\n", gate)
 
-    def exec_command(cmd):
+    def exec_command(cmd, **kwargs):
         calls.append(cmd)
         if cmd.startswith("tail -n"):
             return (Mock(), tail_stdout, Mock())

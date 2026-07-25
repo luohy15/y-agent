@@ -58,7 +58,7 @@ class _FakeSSHClient:
         self.commands: list[str] = []
         self.writes: dict[str, str] = {}
 
-    def exec_command(self, cmd: str):
+    def exec_command(self, cmd: str, **kwargs):
         self.commands.append(cmd)
         if 'printf %s "$HOME"' in cmd:
             return None, _FakeStd(self._home), _FakeStd()

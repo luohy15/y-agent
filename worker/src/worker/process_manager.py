@@ -13,6 +13,30 @@ def _get_dynamodb():
     return boto3.client("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 
+def _carried_updates_offset(chat_id: str, session_id: str) -> int:
+    """Prior `updates_offset` when this registration resumes the same session.
+
+    Unlike `/tmp/cc-<chat>.stdout`, which is truncated per turn, grok's
+    `updates.jsonl` is cumulative for the life of the session. `register_process`
+    rewrites the whole record, so without this a new turn on a resumed session
+    restarts the poller at byte 0 and re-reads the entire file: O(n^2) in turns,
+    and past paramiko's channel window it used to hang the tail outright
+    (see plan-2885). `_restart_grok_with_steer` carries the offset forward for
+    the same reason.
+
+    Keyed on `session_id`: a new session writes to its own directory, so its
+    poll must start at 0.
+    """
+    resp = _get_dynamodb().get_item(
+        TableName=TABLE_NAME,
+        Key={"id": {"S": f"proc-{chat_id}"}},
+    )
+    item = resp.get("Item") or {}
+    if item.get("session_id", {}).get("S") != session_id:
+        return 0
+    return int(item.get("updates_offset", {}).get("N", 0))
+
+
 def register_process(chat_id: str, user_id: int, vm_name: str,
                      bot_name: str = None, trace_id: str = None,
                      topic: str = None, post_hooks: list = None,
@@ -41,6 +65,9 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["work_dir"] = {"S": work_dir}
     if session_id:
         item["session_id"] = {"S": session_id}
+        carried = _carried_updates_offset(chat_id, session_id)
+        if carried:
+            item["updates_offset"] = {"N": str(carried)}
     if post_hooks is not None:
         item["post_hooks"] = {"S": json.dumps(post_hooks)}
     if backend_type:

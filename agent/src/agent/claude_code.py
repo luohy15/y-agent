@@ -30,6 +30,10 @@ from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_uni
 from agent.poll_loop import PollLoop
 
 
+# Per-read inactivity timeout for one-shot SSH commands (`_ssh_exec`).
+_SSH_EXEC_TIMEOUT_SECONDS = 60
+
+
 # ---------------------------------------------------------------------------
 # Stream-json message converters
 # ---------------------------------------------------------------------------
@@ -408,12 +412,21 @@ def _claude_resume_session_id(cmd: List[str]) -> Optional[str]:
 
 
 def _ssh_exec(client, cmd: str) -> str:
-    """Execute a command via SSH and return stdout. Raises on non-zero exit."""
-    stdin, stdout, stderr = client.exec_command(cmd)
-    exit_code = stdout.channel.recv_exit_status()
+    """Execute a command via SSH and return stdout. Raises on non-zero exit.
+
+    Drain both streams *before* waiting for the exit status. The remote command
+    can only exit once it has written all of its output, and it blocks as soon
+    as it fills paramiko's channel window (~2 MiB) if nothing is reading, so
+    waiting for the exit status first deadlocks forever on any output larger
+    than that window (see plan-2885). The read timeout turns a future stall into
+    a socket.timeout the caller can handle instead of an infinite block; every
+    call site here is a quick command or a bounded file read.
+    """
+    stdin, stdout, stderr = client.exec_command(cmd, timeout=_SSH_EXEC_TIMEOUT_SECONDS)
     output = stdout.read().decode("utf-8", errors="replace")
+    err = stderr.read().decode("utf-8", errors="replace")
+    exit_code = stdout.channel.recv_exit_status()
     if exit_code != 0:
-        err = stderr.read().decode("utf-8", errors="replace")
         if "no server running" not in err and "session not found" not in err:
             raise RuntimeError(f"SSH command failed (exit {exit_code}): {err}")
     return output

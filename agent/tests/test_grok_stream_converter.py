@@ -41,7 +41,7 @@ class _FakeSshClient:
     def __init__(self, lines):
         self._lines = lines
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         if "has-session" in cmd:
             return None, _FakeStream(["dead\n"]), _FakeStream([])
         return None, _FakeStream(self._lines), _FakeStream([])
@@ -64,7 +64,7 @@ class _GrowingFileSshClient:
     def append(self, text: str) -> None:
         self.content += text
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         self.calls += 1
         if "has-session" in cmd:
             return None, _FakeStream(["dead\n"]), _FakeStream([])
@@ -116,7 +116,7 @@ class _RaceSshClient:
         self.updates_content = updates_content
         self.home = home
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         if "has-session" in cmd:
             return None, _FakeStream(["dead\n"]), _FakeStream([])
         if "echo $HOME" in cmd:

@@ -59,7 +59,7 @@ class _ModelsJsonClient:
         self.writes = {}
         self.commands = []
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **kwargs):
         self.commands.append(cmd)
         exit_status = 0
         if "$HOME" in cmd:
