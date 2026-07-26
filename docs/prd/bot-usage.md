@@ -533,6 +533,13 @@ modes.
 - Prior art to mirror: the finance test suite's derived-view style and the
   finance price table's upsert tests.
 
+## Delivery Records
+
+| Todo | Outcome | Design | Plan | Decisions | Review | Status |
+|------|---------|--------|------|-----------|--------|--------|
+| 2887 | Stacked bar segments ordered by per-bar descending share | - | - | - | `pages/review-2887-usage-stack-order.md` | shipped |
+| 2890 | Daily tokens heatmap weeks start Monday instead of Sunday | - | - | - | - | shipped |
+
 ## Out of Scope
 
 - **Per-key, per-account, or per-bot usage attribution.** Only the global
