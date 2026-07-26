@@ -267,6 +267,34 @@ export default function App() {
     }
   }, []);
 
+  // A renamed path may be the exact path of an open tab, or (for a directory
+  // rename) a prefix of one. Both sides are normalized with the same `./`
+  // strip FileTree paths carry, so a match doesn't depend on that prefix
+  // being present on either side.
+  const handleRenamedFile = useCallback((oldPath: string, newPath: string) => {
+    const normOld = oldPath.replace(/^\.\//, "");
+    const normNew = newPath.replace(/^\.\//, "");
+    const remap = (path: string) => {
+      const norm = path.replace(/^\.\//, "");
+      if (norm === normOld) return normNew;
+      if (norm.startsWith(normOld + "/")) return normNew + norm.slice(normOld.length);
+      return path;
+    };
+    setOpenFiles((files) => files.map(remap));
+    setActiveFile((cur) => (cur === null ? cur : remap(cur)));
+    setPreviewFile((cur) => (cur === null ? cur : remap(cur)));
+    setPendingLines((prev) => {
+      let changed = false;
+      const next: Record<string, number | undefined> = {};
+      for (const [path, line] of Object.entries(prev)) {
+        const remapped = remap(path);
+        if (remapped !== path) changed = true;
+        next[remapped] = line;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   const handleCloseAllFiles = useCallback(() => {
     setOpenFiles([]);
     setActiveFile(null);
@@ -576,7 +604,7 @@ export default function App() {
             refreshKey={chatContextRefreshKey}
           />
         ) : chatContextPanel === "files" ? (
-          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={mobile ? (path) => { handlePreviewFile(path); setChatListOpen(false); } : handlePreviewFile} onDeleteFile={handleCloseFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
+          <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={mobile ? (path) => { handlePreviewFile(path); setChatListOpen(false); } : handlePreviewFile} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
         ) : (
           <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={mobile ? (path) => { handleOpenDiffFile(path); setChatListOpen(false); } : handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
         )}
@@ -859,7 +887,7 @@ export default function App() {
                   }}
                 />
               ) : sidebarPanel === "files" ? (
-                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} onDeleteFile={handleCloseFile} vmName={null} workDir={currentVmWorkDir} />
+                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={null} workDir={currentVmWorkDir} />
               ) : null;
             return (
               <div className="flex flex-col h-full min-h-0">
@@ -1023,7 +1051,7 @@ export default function App() {
                   ) : rightPanel === "links" ? (
                     <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
                   ) : rightPanel === "files" ? (
-                    <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} onDeleteFile={handleCloseFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
+                    <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handlePreviewFile} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
                   ) : (
                     <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={handleOpenDiffFile} refreshKey={chatContextRefreshKey} />
                   )}
@@ -1089,7 +1117,7 @@ export default function App() {
                 ) : rightPanel === "links" ? (
                   <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); setChatListOpen(false); }} todoId={chatListTraceId} hideFilters refreshKey={chatContextRefreshKey} />
                 ) : rightPanel === "files" ? (
-                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} onDeleteFile={handleCloseFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
+                  <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); setChatListOpen(false); }} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={chatContextRefreshKey} />
                 ) : (
                   <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); setChatListOpen(false); }} refreshKey={chatContextRefreshKey} />
                 )}

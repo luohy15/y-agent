@@ -15,6 +15,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Added
 - **PRD tab in note sidebar (2855)**: NoteList gains a PRD tab that scans `code/*/docs/prd` and lists feature PRD docs next to other note surfaces.
 - **File-tree Delete (2831)**: right-click Delete on files in the web FileTree with a confirm dialog, plus a safe backend delete endpoint that refuses paths outside `Y_AGENT_HOME`, directories, and the home root itself.
+- **File-tree Rename (2888)**: right-click Rename on files and directories in the web FileTree, with a dialog prefilled to the current name (only the stem preselected, so the extension survives an accidental Enter) and open tabs following the renamed path. The backend refuses the rename when any note's `content_key` still points at the target path, naming the blocking note(s) instead of silently breaking them.
 - **`y file upload` / `y file download` (2833)**: bidirectional rsync-over-SSH transfers against the API default VmConfig host (`--host`, `--dest`, dry-run, mirror, checksum, exclude); replaces the standalone `y upload` command.
 - **Unified tag system (2838)**: new queryable `entity_tag` store with `y tag` CLI/API (`list`/`get`/`add`/`rm`), tag projection and generic add/rm write support for note/todo/entity, tag support extended to chat/calendar/reminder/routine and link/email/rss_feed carriers, plus an idempotent `y tag backfill` for note/entity/todo authoring surfaces.
 - **In-app image lightbox (2845)**: ChatView images now open in a sanitized in-app lightbox instead of a new browser tab.

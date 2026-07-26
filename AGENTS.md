@@ -60,7 +60,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   root topics (they are conversations, not function calls).
 - **Note** — `note` + `note_todo_relation` tables. A note has a `content_key` file
   pointer (relative to Y_AGENT_HOME) plus JSON `front_matter`; used for plan /
-  requirement / decision / journal context tied to todos.
+  requirement / decision / journal context tied to todos. The file-tree Rename
+  endpoint (`POST /api/file/rename`) refuses to rename a path while any live
+  note's `content_key` still points at it (or, for a directory, lives under
+  it) — `content_key` is never auto-fixed, so the user must retarget the note
+  first. `/file/move` has the same hazard with no guard yet (todo 2888 follow-up).
 - **Entity (knowledge graph)** — `entity` + `entity_note_relation` + `entity_rss_relation`.
   Web sidebar exposes entities as a first-class panel.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
@@ -144,7 +148,7 @@ Grouped by feature area:
 
 - **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (CRUD + SSE streaming +
   share + stop + steer + cross-skill notify dispatch), `trace.py` (listing,
-  share, lookup by chat_id), `file.py` (list/read/search/upload, local + SSH),
+  share, lookup by chat_id), `file.py` (list/read/search/upload/rename, local + SSH),
   `git.py` (status/diff/discard), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
   `note_todo_relation.py`, `entity.py`, `entity_note_relation.py`, `entity_rss_relation.py`

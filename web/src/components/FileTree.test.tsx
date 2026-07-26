@@ -73,14 +73,28 @@ function menuAnchor(): { left: string; top: string } {
   return { left: menu.style.left, top: menu.style.top };
 }
 
+// Set a controlled <input>'s value via the native setter so React's onChange
+// listener fires (a plain `.value = ...` assignment is swallowed by React).
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("FileTree context menu (desktop right-click + touch long-press)", () => {
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     authFetchMock.mockReset();
-    authFetchMock.mockImplementation(async (url: string) => {
+    authFetchMock.mockImplementation(async (url: string, opts?: { body?: string }) => {
       const u = decodeURIComponent(String(url));
       if (u.includes("/api/file/delete")) return { ok: true, json: async () => ({}) };
+      if (u.includes("/api/file/rename")) {
+        const body = opts?.body ? JSON.parse(opts.body) : {};
+        const parent = body.path?.includes("/") ? body.path.slice(0, body.path.lastIndexOf("/")) : "";
+        const newPath = parent ? `${parent}/${body.new_name}` : body.new_name;
+        return { ok: true, json: async () => ({ path: body.path, new_path: newPath, renamed: true }) };
+      }
       if (u.includes("/api/file/list")) {
         if (u.includes("path=./sub")) {
           return { ok: true, json: async () => ({ entries: [{ name: "child.txt", type: "file" }] }) };
@@ -681,5 +695,223 @@ describe("FileTree context menu (desktop right-click + touch long-press)", () =>
       act(() => root.unmount());
       container.remove();
     });
+  });
+});
+
+describe("FileTree rename", () => {
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    authFetchMock.mockReset();
+    authFetchMock.mockImplementation(async (url: string, opts?: { body?: string }) => {
+      const u = decodeURIComponent(String(url));
+      if (u.includes("/api/file/rename")) {
+        const body = opts?.body ? JSON.parse(opts.body) : {};
+        const parent = body.path?.includes("/") ? body.path.slice(0, body.path.lastIndexOf("/")) : "";
+        const newPath = parent ? `${parent}/${body.new_name}` : body.new_name;
+        return { ok: true, json: async () => ({ path: body.path, new_path: newPath, renamed: true }) };
+      }
+      if (u.includes("/api/file/list")) {
+        if (u.includes("path=./sub")) {
+          return { ok: true, json: async () => ({ entries: [{ name: "child.txt", type: "file" }] }) };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            entries: [
+              { name: "sub", type: "directory" },
+              { name: "a.txt", type: "file" },
+              { name: "b.txt", type: "file" },
+            ],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function mountTree(onRenameFile: (o: string, n: string) => void = vi.fn()) {
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(React.createElement(FileTree, { isLoggedIn: true, onRenameFile }));
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(container.textContent).toContain("a.txt");
+    expect(container.textContent).toContain("sub");
+    return { container, root, onRenameFile };
+  }
+
+  async function openRenameDialogFor(container: HTMLElement, name: string) {
+    await act(async () => {
+      nodeByName(container, name).dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 1 }),
+      );
+    });
+    await act(async () => {
+      menuButton("Rename")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return document.querySelector('[role="dialog"]') as HTMLElement;
+  }
+
+  it("shows Rename for a file and for a directory, while Delete stays file-only", async () => {
+    const { container, root } = await mountTree();
+
+    await act(async () => {
+      nodeByName(container, "a.txt").dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 1 }),
+      );
+    });
+    expect(menuButton("Rename")).toBeTruthy();
+    expect(menuButton("Delete")).toBeTruthy();
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    await act(async () => {
+      nodeByName(container, "sub").dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 1 }),
+      );
+    });
+    expect(menuButton("Rename")).toBeTruthy();
+    expect(menuButton("Delete")).toBeFalsy();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("prefills the dialog with the current basename", async () => {
+    const { container, root } = await mountTree();
+    const dialog = await openRenameDialogFor(container, "a.txt");
+    expect(dialog).toBeTruthy();
+    const input = dialog.querySelector("input") as HTMLInputElement;
+    expect(input.value).toBe("a.txt");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("disables Confirm for an empty name, the unchanged name, and a name containing a slash", async () => {
+    const { container, root } = await mountTree();
+    const dialog = await openRenameDialogFor(container, "a.txt");
+    const input = dialog.querySelector("input") as HTMLInputElement;
+    const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent === "Rename",
+    ) as HTMLButtonElement;
+
+    // Unchanged (prefilled) name.
+    expect(confirmBtn.disabled).toBe(true);
+
+    await act(async () => {
+      setInputValue(input, "");
+    });
+    expect(confirmBtn.disabled).toBe(true);
+
+    await act(async () => {
+      setInputValue(input, "a/b");
+    });
+    expect(confirmBtn.disabled).toBe(true);
+
+    await act(async () => {
+      setInputValue(input, "b.txt");
+    });
+    expect(confirmBtn.disabled).toBe(false);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("confirming POSTs {path, new_name} to /api/file/rename", async () => {
+    const { container, root } = await mountTree();
+    const dialog = await openRenameDialogFor(container, "a.txt");
+    const input = dialog.querySelector("input") as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(input, "renamed.txt");
+    });
+    const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent === "Rename",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      confirmBtn.click();
+      await flushMicrotasks();
+    });
+
+    const renameCall = authFetchMock.mock.calls.find((c) => String(c[0]).includes("/api/file/rename"));
+    expect(renameCall).toBeTruthy();
+    expect(JSON.parse((renameCall![1] as { body: string }).body)).toEqual({ path: "./a.txt", new_name: "renamed.txt" });
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders the server detail on a 409 and keeps the dialog open", async () => {
+    authFetchMock.mockImplementation(async (url: string) => {
+      const u = decodeURIComponent(String(url));
+      if (u.includes("/api/file/rename")) {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ detail: "Cannot rename: notes still point at this path via content_key: pages/x.md" }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ entries: [{ name: "a.txt", type: "file" }, { name: "sub", type: "directory" }] }),
+      };
+    });
+    const { container, root } = await mountTree();
+    const dialog = await openRenameDialogFor(container, "a.txt");
+    const input = dialog.querySelector("input") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(input, "renamed.txt");
+    });
+    const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent === "Rename",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      confirmBtn.click();
+      await flushMicrotasks();
+    });
+
+    const dialogAfter = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialogAfter).toBeTruthy(); // stays open
+    expect(dialogAfter.textContent).toContain("pages/x.md");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("on success closes the dialog, calls onRenameFile, and re-lists the parent directory", async () => {
+    const { container, root, onRenameFile } = await mountTree();
+    const dialog = await openRenameDialogFor(container, "a.txt");
+    const input = dialog.querySelector("input") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(input, "renamed.txt");
+    });
+    const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent === "Rename",
+    ) as HTMLButtonElement;
+
+    authFetchMock.mockClear();
+    await act(async () => {
+      confirmBtn.click();
+      await flushMicrotasks();
+    });
+
+    expect(document.querySelector('[role="dialog"]')).toBeFalsy();
+    expect(onRenameFile).toHaveBeenCalledWith("./a.txt", "./renamed.txt");
+    const relistCall = authFetchMock.mock.calls.find((c) => decodeURIComponent(String(c[0])).includes("/api/file/list"));
+    expect(relistCall).toBeTruthy();
+
+    act(() => root.unmount());
+    container.remove();
   });
 });

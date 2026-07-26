@@ -120,3 +120,7 @@ def list_notes(
 
 def get_notes_by_ids(user_id: int, note_ids: List[str], include_deleted: bool = False) -> List[Note]:
     return note_repo.get_notes_by_ids(user_id, note_ids, include_deleted=include_deleted)
+
+
+def list_notes_at_path(user_id: int, content_key: str) -> List[Note]:
+    return note_repo.list_notes_at_path(user_id, content_key)

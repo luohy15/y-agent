@@ -302,12 +302,13 @@ interface FileTreeProps {
   isLoggedIn: boolean;
   onSelectFile?: (path: string) => void;
   onDeleteFile?: (path: string) => void;
+  onRenameFile?: (oldPath: string, newPath: string) => void;
   vmName?: string | null;
   workDir?: string;
   refreshKey?: number;
 }
 
-export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmName, workDir, refreshKey }: FileTreeProps) {
+export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, onRenameFile, vmName, workDir, refreshKey }: FileTreeProps) {
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [roots, setRoots] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -326,6 +327,10 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
   const [deleteDialog, setDeleteDialog] = useState<{ path: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [renameDialog, setRenameDialog] = useState<{ path: string; name: string } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [uploadDialog, setUploadDialog] = useState<{ dir: string } | null>(null);
   const [newFileDialog, setNewFileDialog] = useState<{ path: string } | null>(null);
@@ -641,15 +646,96 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
     }
   }, [deleteDialog, deleting, vmQuery, rootPath, onDeleteFile]);
 
+  const openRenameDialog = useCallback(() => {
+    if (!ctxMenu) return;
+    const currentName = ctxMenu.path.substring(ctxMenu.path.lastIndexOf("/") + 1);
+    setRenameError(null);
+    setRenameDialog({ path: ctxMenu.path, name: currentName });
+    dismissCtxMenu();
+  }, [ctxMenu, dismissCtxMenu]);
+
+  const dismissRenameDialog = useCallback(() => {
+    if (!renaming) {
+      setRenameDialog(null);
+      setRenameError(null);
+    }
+  }, [renaming]);
+
+  // Focus the input and select only the stem (not the extension) so the
+  // common case — renaming without changing the extension — needs no manual
+  // re-selection, while still allowing an extension change without a prompt.
   useEffect(() => {
-    if (!ctxMenu && !deleteDialog) return;
+    if (!renameDialog) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    const dotIdx = renameDialog.name.lastIndexOf(".");
+    const selectEnd = dotIdx > 0 ? dotIdx : renameDialog.name.length;
+    input.setSelectionRange(0, selectEnd);
+  }, [renameDialog?.path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renameCurrentName = renameDialog ? renameDialog.path.substring(renameDialog.path.lastIndexOf("/") + 1) : "";
+  const renameTrimmed = renameDialog ? renameDialog.name.trim() : "";
+  const renameDisabled = !renameDialog || renaming || !renameTrimmed || renameTrimmed === renameCurrentName || renameTrimmed.includes("/");
+
+  const renameFile = useCallback(async () => {
+    if (!renameDialog || renaming) return;
+    const trimmed = renameDialog.name.trim();
+    const currentName = renameDialog.path.substring(renameDialog.path.lastIndexOf("/") + 1);
+    if (!trimmed || trimmed === currentName || trimmed.includes("/")) return;
+    const oldPath = renameDialog.path;
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      const res = await authFetch(`${API}/api/file/rename${vmQuery ? `?${vmQuery.slice(1)}` : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: oldPath, new_name: trimmed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setRenameError(data?.detail || `Rename failed (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      const newPath: string = data.new_path;
+      setSelectedPaths(prev => {
+        if (prev.size === 0) return prev;
+        const next = new Set<string>();
+        for (const p of prev) {
+          if (p === oldPath) next.add(newPath);
+          else if (p.startsWith(oldPath + "/")) next.add(newPath + p.slice(oldPath.length));
+          else next.add(p);
+        }
+        return next;
+      });
+      if (anchorRef.current === oldPath) {
+        anchorRef.current = newPath;
+      } else if (anchorRef.current?.startsWith(oldPath + "/")) {
+        anchorRef.current = newPath + anchorRef.current.slice(oldPath.length);
+      }
+      const parentDir = oldPath.includes("/") ? oldPath.substring(0, oldPath.lastIndexOf("/")) || rootPath : rootPath;
+      const refresh = dirRefreshMapRef.current.get(parentDir) ?? dirRefreshMapRef.current.get(rootPath);
+      if (refresh) refresh();
+      setRenameDialog(null);
+      onRenameFile?.(oldPath, newPath);
+    } catch {
+      setRenameError("Rename failed. Please try again.");
+    } finally {
+      setRenaming(false);
+    }
+  }, [renameDialog, renaming, vmQuery, rootPath, onRenameFile]);
+
+  useEffect(() => {
+    if (!ctxMenu && !deleteDialog && !renameDialog) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") dismissCtxMenu();
       if (e.key === "Escape") dismissDeleteDialog();
+      if (e.key === "Escape") dismissRenameDialog();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [ctxMenu, deleteDialog, dismissCtxMenu, dismissDeleteDialog]);
+  }, [ctxMenu, deleteDialog, renameDialog, dismissCtxMenu, dismissDeleteDialog, dismissRenameDialog]);
 
   return (
     <div className="h-full bg-sol-base03 flex flex-col">
@@ -928,6 +1014,56 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
         </div>,
         document.body
       )}
+      {renameDialog && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={dismissRenameDialog}
+        >
+          <div
+            className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-file-title"
+          >
+            <div className="px-4 py-3 border-b border-sol-base02">
+              <div id="rename-file-title" className="text-sol-base1 text-sm font-semibold">Rename</div>
+              <div className="text-sol-base01 text-xs mt-1 font-mono break-all">{renameDialog.path}</div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-3">
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={renameDialog.name}
+                onChange={(e) => setRenameDialog({ ...renameDialog, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") renameFile();
+                  if (e.key === "Escape") dismissRenameDialog();
+                }}
+                className="px-2 py-1 bg-sol-base02 text-sol-base1 text-sm rounded border border-sol-base01 focus:outline-none focus:border-sol-blue"
+              />
+              {renameError && <div className="text-xs text-sol-red bg-sol-red/10 border border-sol-red/30 rounded px-2 py-1.5">{renameError}</div>}
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={dismissRenameDialog}
+                  disabled={renaming}
+                  className="px-3 py-1.5 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={renameFile}
+                  disabled={renameDisabled}
+                  className="px-3 py-1.5 rounded text-sm bg-sol-blue/20 text-sol-blue hover:bg-sol-blue/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border border-sol-blue/40"
+                >
+                  {renaming ? "Renaming..." : "Rename"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {ctxMenu && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={dismissCtxMenu} onContextMenu={(e) => { e.preventDefault(); dismissCtxMenu(); }} />
@@ -953,6 +1089,12 @@ export default function FileTree({ isLoggedIn, onSelectFile, onDeleteFile, vmNam
               aria-label={copyPathStatus === "success" ? "Copied path" : copyPathStatus === "error" ? "Copy path failed" : "Copy Path"}
             >
               {copyPathStatus === "success" ? "Copied ✓" : copyPathStatus === "error" ? "Copy failed" : "Copy Path"}
+            </button>
+            <button
+              className="w-full text-left px-3 py-1 text-xs text-sol-base1 hover:bg-sol-base03 cursor-pointer"
+              onClick={openRenameDialog}
+            >
+              Rename
             </button>
             {ctxMenu.type === "file" && (
               <button

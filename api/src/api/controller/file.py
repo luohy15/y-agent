@@ -13,6 +13,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from storage.service import note as note_service
+
 router = APIRouter(prefix="/file")
 
 Y_AGENT_HOME = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expanduser().resolve()
@@ -324,6 +326,172 @@ async def delete_file(request: Request, body: DeleteRequest, vm_name: str = Quer
     if status == "unsupported":
         raise HTTPException(status_code=409, detail=detail)
     raise HTTPException(status_code=500, detail=detail)
+
+
+_SAFE_RENAME_SCRIPT = r"""
+import json
+import os
+import stat
+import sys
+
+
+def emit(status, detail="", **extra):
+    payload = {"status": status, "detail": detail}
+    payload.update(extra)
+    print(json.dumps(payload))
+
+
+mode = sys.argv[1] if len(sys.argv) > 1 else ""
+requested_path = sys.argv[2] if len(sys.argv) > 2 else ""
+new_name = sys.argv[3] if len(sys.argv) > 3 else ""
+agent_home = sys.argv[4] if len(sys.argv) > 4 else ""
+
+if mode not in ("resolve", "apply"):
+    emit("invalid", "Unknown mode")
+    raise SystemExit
+
+if not requested_path or "\0" in requested_path:
+    emit("invalid", "Path must not be empty or contain NUL bytes")
+    raise SystemExit
+
+if not new_name or "\0" in new_name or "/" in new_name or new_name in (".", ".."):
+    emit("invalid", "new_name must be a plain, non-empty basename")
+    raise SystemExit
+
+if not agent_home:
+    emit("invalid", "Y_AGENT_HOME is not configured")
+    raise SystemExit
+
+root = os.path.realpath(os.path.expanduser(agent_home))
+candidate = requested_path if os.path.isabs(requested_path) else os.path.join(os.getcwd(), requested_path)
+candidate = os.path.normpath(candidate)
+if candidate == root:
+    emit("unsupported", "Y_AGENT_HOME cannot be renamed")
+    raise SystemExit
+parent = os.path.realpath(os.path.dirname(candidate))
+
+try:
+    inside_root = os.path.commonpath([root, parent]) == root
+except ValueError:
+    inside_root = False
+if not inside_root:
+    emit("invalid", "Path is outside Y_AGENT_HOME")
+    raise SystemExit
+
+entry = os.path.join(parent, os.path.basename(candidate))
+try:
+    entry_stat = os.lstat(entry)
+except FileNotFoundError:
+    emit("missing", "File does not exist")
+    raise SystemExit
+except OSError as exc:
+    emit("error", str(exc))
+    raise SystemExit
+
+if not (stat.S_ISDIR(entry_stat.st_mode) or stat.S_ISREG(entry_stat.st_mode) or stat.S_ISLNK(entry_stat.st_mode)):
+    emit("unsupported", "Only files, directories, and symlinks can be renamed")
+    raise SystemExit
+
+current_name = os.path.basename(entry)
+if new_name == current_name:
+    emit("unchanged", "new_name is the same as the current name")
+    raise SystemExit
+
+dst = os.path.normpath(os.path.join(parent, new_name))
+
+dst_stat = None
+is_same_entry = False
+try:
+    dst_stat = os.lstat(dst)
+    is_same_entry = os.path.samestat(entry_stat, dst_stat)
+except FileNotFoundError:
+    pass
+
+if dst_stat is not None and not is_same_entry:
+    emit("exists", "An entry with that name already exists")
+    raise SystemExit
+
+content_key = os.path.relpath(entry, root)
+is_dir = stat.S_ISDIR(entry_stat.st_mode)
+
+if mode == "resolve":
+    emit("ok", src=entry, dst=dst, content_key=content_key, is_dir=is_dir)
+    raise SystemExit
+
+try:
+    os.rename(entry, dst)
+except FileNotFoundError:
+    emit("missing", "File does not exist")
+except OSError as exc:
+    emit("error", str(exc))
+else:
+    emit("renamed", src=entry, dst=dst, content_key=content_key, is_dir=is_dir)
+"""
+
+
+def _rename_status_exception(status: str, detail: str) -> HTTPException:
+    if status in ("invalid", "unchanged"):
+        return HTTPException(status_code=400, detail=detail)
+    if status == "missing":
+        return HTTPException(status_code=404, detail=detail)
+    if status in ("exists", "unsupported"):
+        return HTTPException(status_code=409, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
+
+
+class RenameRequest(BaseModel):
+    path: str
+    new_name: str
+
+
+@router.post("/rename")
+async def rename_file(request: Request, body: RenameRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
+    user_id = _get_user_id(request)
+    try:
+        resolve_output = await _exec(
+            user_id,
+            ["python3", "-c", _SAFE_RENAME_SCRIPT, "resolve", body.path, body.new_name, str(Y_AGENT_HOME)],
+            vm_name=vm_name,
+            work_dir=work_dir,
+        )
+        resolved = json.loads(resolve_output.strip())
+    except Exception as exc:
+        logger.exception("rename resolve failed")
+        raise HTTPException(status_code=500, detail="Unable to rename file") from exc
+
+    status = resolved.get("status")
+    if status != "ok":
+        raise _rename_status_exception(status, resolved.get("detail") or "Unable to rename file")
+
+    blocking = note_service.list_notes_at_path(user_id, resolved.get("content_key") or "")
+    if blocking:
+        keys = [n.content_key for n in blocking[:5]]
+        remainder = len(blocking) - len(keys)
+        listed = ", ".join(keys) + (f", and {remainder} more" if remainder > 0 else "")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot rename: notes still point at this path via content_key: {listed}",
+        )
+
+    try:
+        apply_output = await _exec(
+            user_id,
+            ["python3", "-c", _SAFE_RENAME_SCRIPT, "apply", body.path, body.new_name, str(Y_AGENT_HOME)],
+            vm_name=vm_name,
+            work_dir=work_dir,
+        )
+        applied = json.loads(apply_output.strip())
+    except Exception as exc:
+        logger.exception("rename apply failed")
+        raise HTTPException(status_code=500, detail="Unable to rename file") from exc
+
+    status = applied.get("status")
+    if status != "renamed":
+        raise _rename_status_exception(status, applied.get("detail") or "Unable to rename file")
+
+    parent_dir = os.path.dirname(body.path)
+    new_path = os.path.join(parent_dir, body.new_name) if parent_dir else body.new_name
+    return {"path": body.path, "new_path": new_path, "renamed": True}
 
 
 class MoveRequest(BaseModel):

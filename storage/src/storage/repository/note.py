@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import List, Optional
+from sqlalchemy import or_
 from storage.entity.note import NoteEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.note import Note
@@ -79,6 +80,30 @@ def get_note_by_content_key(user_id: int, content_key: str, include_deleted: boo
         if not entity:
             return None
         return _entity_to_dto(entity)
+
+
+def list_notes_at_path(user_id: int, content_key: str) -> List[Note]:
+    """Live notes whose content_key equals `content_key` or lives under it.
+
+    Used by the filetree rename guard: renaming a path is refused while any
+    note still points at it. `_`/`%` are legal filename characters and SQL
+    LIKE wildcards, so the prefix is escaped before the descendant match.
+    """
+    escaped = content_key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    with get_db() as session:
+        rows = (
+            session.query(NoteEntity)
+            .filter(
+                NoteEntity.user_id == user_id,
+                NoteEntity.deleted_at.is_(None),
+                or_(
+                    NoteEntity.content_key == content_key,
+                    NoteEntity.content_key.like(escaped + "/%", escape="\\"),
+                ),
+            )
+            .all()
+        )
+        return [_entity_to_dto(r) for r in rows]
 
 
 def get_notes_by_ids(user_id: int, note_ids: List[str], include_deleted: bool = False) -> List[Note]:
