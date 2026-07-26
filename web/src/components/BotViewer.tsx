@@ -318,7 +318,7 @@ function aggregateByModel(rows: ModelUsageRow[]): ModelUsageAgg[] {
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Cell geometry (px). Columns are weeks; each column is Sun(top)->Sat(bottom).
+// Cell geometry (px). Columns are weeks; each column is Mon(top)->Sun(bottom).
 const HEATMAP_CELL = 11;
 const HEATMAP_GAP = 3;
 const HEATMAP_WEEKDAY_W = 24; // left gutter for the Mon/Wed/Fri labels
@@ -349,11 +349,12 @@ function heatmapLevel(value: number, max: number): number {
 
 interface HeatCell { date: string; value: number; }
 
-// Build a GitHub-style week grid (Sun(top)->Sat(bottom) columns) whose span is fixed by
-// the active time filter, not by which days have data: a bare 4-digit year (e.g. "2024")
-// spans that whole calendar year (Jan 1 -> Dec 31), anything else spans the month-aligned
-// past 12 months. `dailyTotals` only supplies values, so every day in the window renders
-// and days with no usage fall to value 0 (empty bucket).
+// Build a week grid (Mon(top)->Sun(bottom) columns) whose span is fixed by the active
+// time filter, not by which days have data: a bare 4-digit year (e.g. "2024") spans that
+// whole calendar year (Jan 1 -> Dec 31), anything else spans the month-aligned past 12
+// months. `dailyTotals` only supplies values, so every day in the window renders and days
+// with no usage fall to value 0 (empty bucket). Weeks start on Monday (ISO); the partial
+// current week pads forward through Sunday with empty cells.
 function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { weeks: HeatCell[][]; max: number } {
   const year = /^\d{4}$/.test(time.trim()) ? parseInt(time.trim(), 10) : null;
   let start: Date;
@@ -364,14 +365,16 @@ function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { we
   } else {
     // Month-aligned past-12-month window: start at the 1st of the month 11 months back
     // (12 whole months incl. the current one) so the leftmost month is a full month, not
-    // a few-day sliver. The grid then pads out to whole Sun..Sat weeks below.
+    // a few-day sliver. The grid then pads out to whole Mon..Sun weeks below.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     end = today;
     start = new Date(today.getFullYear(), today.getMonth() - 11, 1);
   }
-  start.setDate(start.getDate() - start.getDay()); // back to Sunday of its week
-  end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday of its week
+  // Pad to ISO week boundaries: Monday start, Sunday end.
+  // getDay(): 0=Sun..6=Sat; days-since-Monday = (getDay() + 6) % 7.
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  end.setDate(end.getDate() + ((7 - end.getDay()) % 7));
   const weeks: HeatCell[][] = [];
   let max = 0;
   let col: HeatCell[] = [];
@@ -380,7 +383,7 @@ function buildHeatmapWeeks(dailyTotals: Map<string, number>, time: string): { we
     const value = dailyTotals.get(ds) || 0;
     if (value > max) max = value;
     col.push({ date: ds, value });
-    if (d.getDay() === 6) { weeks.push(col); col = []; }
+    if (d.getDay() === 0) { weeks.push(col); col = []; } // close column on Sunday
   }
   if (col.length) weeks.push(col);
   return { weeks, max };
@@ -1059,9 +1062,9 @@ function MetricToggle({ metric, onChange }: { metric: UsageMetric; onChange: (m:
   );
 }
 
-// GitHub-style daily contribution heatmap, driven by the same selected metric as the
-// donut/table. Columns are weeks (left=oldest), each column Sun(top)->Sat(bottom); cell
-// color intensity scales with that day's metric value. Hover shows the date + exact value.
+// Daily contribution heatmap, driven by the same selected metric as the donut/table.
+// Columns are weeks (left=oldest), each column Mon(top)->Sun(bottom); cell color intensity
+// scales with that day's metric value. Hover shows the date + exact value.
 function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number; metric: UsageMetric }) {
   const [hover, setHover] = useState<{ date: string; value: number; x: number; y: number } | null>(null);
   const fitRef = useRef<HTMLDivElement>(null);
@@ -1072,7 +1075,7 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
   // and UP (capped at HEATMAP_MAX_SCALE) on wide ones so it fills the card instead of
   // sitting small in the top-left. scale() doesn't change the layout box, so the wrapper
   // height is set explicitly (overflow:hidden hides the reserved space); ceil + 2px keeps
-  // the bottom (Sat) row from being clipped by sub-pixel rounding. Re-measure on panel
+  // the bottom (Sun) row from being clipped by sub-pixel rounding. Re-measure on panel
   // resize via ResizeObserver.
   useEffect(() => {
     const fit = fitRef.current;
@@ -1102,12 +1105,12 @@ function UsageHeatmap({ weeks, max, metric }: { weeks: HeatCell[][]; max: number
     const firstOfMonth = col.find((cell) => cell.date.slice(8, 10) === "01");
     return firstOfMonth ? MONTHS_SHORT[parseInt(firstOfMonth.date.slice(5, 7), 10) - 1] : "";
   });
-  const weekdayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]; // index 0=Sun..6=Sat
+  const weekdayLabels = ["Mon", "", "Wed", "", "Fri", "", ""]; // index 0=Mon..6=Sun
 
   return (
     <div className="relative">
       {/* line-height/font-size 0 so baseline leading doesn't push the inline-flex grid past
-          the JS-computed height and clip the bottom Sat row. */}
+          the JS-computed height and clip the bottom Sun row. */}
       <div ref={fitRef} className="overflow-hidden" style={{ lineHeight: 0, fontSize: 0 }}>
         <div ref={innerRef} className="inline-flex flex-col align-top" style={{ gap: HEATMAP_GAP, transformOrigin: "top left" }}>
           {/* Month labels row, offset past the weekday gutter */}

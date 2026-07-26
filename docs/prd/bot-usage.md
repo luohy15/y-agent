@@ -189,7 +189,7 @@ modes.
     width, so that the layout adapts to the resizable panel rather than the
     viewport.
 37. As a web user, I want a GitHub-style daily contribution heatmap (one cell
-    per day, weeks as columns left to right, Sunday at top, a five-bucket
+    per day, weeks as columns left to right, Monday at top, a five-bucket
     sequential color scale, month labels, weekday gutter, hover tooltip with
     date and exact value, and a Less-to-More legend), so that heavy and idle
     days are visible over a year at a glance.
@@ -454,7 +454,7 @@ modes.
   internal scroll area sized to about five data rows; progressive column
   reveal driven by container (panel) width, not viewport width.
 - **Heatmap.** GitHub contribution semantics: week columns left to right,
-  Sunday to Saturday top to bottom, month labels on the column containing each
+  Monday to Sunday top to bottom, month labels on the column containing each
   month's first day, Mon/Wed/Fri gutter labels, five-bucket sequential
   Solarized-green scale where bucket boundaries are ratios of the window
   maximum (0 empty, then quartile-style thresholds at 25/50/75 percent), hover
