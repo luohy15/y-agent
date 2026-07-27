@@ -528,6 +528,59 @@ export const USAGE_LIMITS_UNAVAILABLE_FIXTURE = {
   errors: [],
 };
 
+// --- /api/tag/list -> TagVocabularyEntry[] ------------------------------------
+
+export const TAG_VOCAB_FIXTURE = [
+  { tag: "design", count: 6 },
+  { tag: "knowledge/technical/web", count: 4 },
+  { tag: "life/travel", count: 3 },
+  { tag: "lifelog/cli", count: 7 },
+  { tag: "meta/decisions", count: 2 },
+  { tag: "meta/reviews", count: 1 },
+  { tag: "meta/systems", count: 3 },
+  { tag: "ui", count: 3 },
+  { tag: "work/log", count: 5 },
+  { tag: "work/personal/y-agent", count: 37 },
+  { tag: "work/personal/y-blog", count: 8 },
+];
+
+// --- /api/tag?tag=work/personal/y-agent -> mixed-type drill-down --------------
+
+export const TAG_RESULTS_FIXTURE = {
+  todo: [
+    { id: "2854", title: "Frontend tag management feature" },
+    { id: "2838", title: "Cross-entity tag system" },
+  ],
+  note: [
+    { id: "n-plan-2854", title: "pages/plan-2854-tag-management-ui.md" },
+    { id: "n-tag-system", title: "pages/tag-system.md" },
+  ],
+  entity: [
+    { id: "e-y-agent", title: "y-agent" },
+  ],
+  chat: [
+    { id: "b92b8112", title: "design tag panel" },
+  ],
+  calendar_event: [
+    { id: "ev-1", title: "y-agent tag system review" },
+  ],
+  reminder: [
+    { id: "rem-1", title: "Follow up on tag merge UX" },
+  ],
+  routine: [
+    { id: "rt-1", title: "Weekly y-agent changelog" },
+  ],
+  link: [
+    { id: "lk-1", title: "TailwindCSS v4 docs" },
+  ],
+  email: [
+    { id: "em-1", title: "Re: tag system design review" },
+  ],
+  rss_feed: [
+    { id: "rf-1", title: "y-agent releases" },
+  ],
+};
+
 // --- /showcase chat panel: snapshot raw messages ------------------------------
 // Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
 // uses to project mock chat messages). Snapshot mode short-circuits every
@@ -651,6 +704,8 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/trace/share/mine") return null; // no existing share
   if (pathname === "/api/note/list") return NOTES_FIXTURE;
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
+  if (pathname === "/api/tag/list") return TAG_VOCAB_FIXTURE;
+  if (pathname === "/api/tag") return TAG_RESULTS_FIXTURE;
   if (pathname === "/api/file/list") {
     return {
       path: search.get("path") || "/workspace/project",

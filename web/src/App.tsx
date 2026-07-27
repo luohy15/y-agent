@@ -16,6 +16,9 @@ import NoteList from "./components/NoteList";
 import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
+import TagList from "./components/TagList";
+import type { TagResultItem } from "./api";
+import { navigateTag, openTodo } from "./utils/tagNavigate";
 import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
@@ -76,7 +79,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "calendar", "finance", "email", "dev"];
+    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "calendar", "finance", "email", "dev", "tags"];
     return valid.includes(saved) ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -522,6 +525,32 @@ export default function App() {
     setSelectedFeedLabel(null);
   }, []);
 
+  // Tags panel click-to-navigate: one type-dispatch callback covering all 10
+  // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts (unit
+  // tested there against a mocked authFetch); this just supplies the bound
+  // setters and closes the mobile sidebar drawer after navigating.
+  const handleTagNavigate = useCallback((entityType: string, item: TagResultItem) => {
+    navigateTag(entityType, item, {
+      requestSelectTraceId,
+      setChatListTraceId,
+      setSelectedChatId,
+      setChatHide,
+      handleOpenFile,
+      handlePreviewFile,
+      defaultWorkDir,
+      setSelectedEntityId,
+      setSelectedLinkId,
+      setSelectedLinkLinkId,
+      setSelectedLinkContentKey,
+      handleSelectFeed,
+      setCalendarFocus,
+      setSelectedThreadId,
+      setSelectedThreadAccount,
+      setSidebarPanel,
+    });
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [requestSelectTraceId, handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
+
   const handleExternalLinkClick = useCallback(async (url: string) => {
     try {
       const res = await authFetch(`${API}/api/link/resolve?url=${encodeURIComponent(url)}`);
@@ -842,7 +871,7 @@ export default function App() {
             const panelFile = panelFileMap[sidebarPanel];
             const body =
               sidebarPanel === "todo" ? (
-                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { requestSelectTraceId(todoId); setChatListTraceId(todoId); setSidebarOpen(false); authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`).then(r => r.json()).then(d => { if (d.chat_id) { setSelectedChatId(d.chat_id); setChatHide(false);} else { handleOpenFile("trace.md"); } }).catch(() => {}); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
+                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { openTodo(todoId, { requestSelectTraceId, setChatListTraceId, setSelectedChatId, setChatHide, handleOpenFile }); setSidebarOpen(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
                 <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineName={chatListRoutineName} onClearRoutineName={() => setChatListRoutineName(null)} routineOnly={chatListRoutineOnly} onToggleRoutineOnly={() => setChatListRoutineOnly((v) => !v)} onClearRoutineOnly={() => setChatListRoutineOnly(false)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : sidebarPanel === "notes" ? (
@@ -855,6 +884,8 @@ export default function App() {
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
               ) : sidebarPanel === "entity" ? (
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
+              ) : sidebarPanel === "tags" ? (
+                <TagList isLoggedIn={auth.isLoggedIn} onNavigate={handleTagNavigate} />
               ) : sidebarPanel === "bots" ? (
                 <BotList isLoggedIn={auth.isLoggedIn} onChange={refreshBotList} />
               ) : sidebarPanel === "calendar" ? (

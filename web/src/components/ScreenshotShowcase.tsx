@@ -8,6 +8,7 @@ import TodoList from "./TodoList";
 import TraceView from "./TraceView";
 import NoteList from "./NoteList";
 import LinkList from "./LinkList";
+import TagList from "./TagList";
 import FinanceViewer from "./FinanceViewer";
 import ChatView from "./ChatView";
 import BotViewer from "./BotViewer";
@@ -89,6 +90,17 @@ export default function ScreenshotShowcase() {
 
         <PanelFrame name="link" title="link · LinkList" width={420} height={540}>
           <LinkList isLoggedIn onPreview={noop} />
+        </PanelFrame>
+
+        {/* Two separate TagList instances: "tags-vocabulary" stays in the default
+            tree state; "tags-drilldown" is driven into the selected-tag state by
+            the screenshot script clicking a tag row after mount. */}
+        <PanelFrame name="tags-vocabulary" title="tags · TagList (vocabulary)" width={320} height={560}>
+          <TagList isLoggedIn onNavigate={noop} />
+        </PanelFrame>
+
+        <PanelFrame name="tags-drilldown" title="tags · TagList (drill-down)" width={320} height={560}>
+          <TagList isLoggedIn onNavigate={noop} />
         </PanelFrame>
 
         <PanelFrame name="finance" title="finance · FinanceViewer" width={900} height={760}>
