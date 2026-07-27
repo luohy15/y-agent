@@ -13,6 +13,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+- **`y todo get` History opt-in**: History is hidden by default (it drowned out todo content on long tasks) and only shown when `--history` is passed.
+
+### Fixed
+- **Daily tokens heatmap week start**: BotViewer Daily tokens heatmap weeks now start Monday (Mon-top / Sun-bottom columns, padding, close-on-Sunday, weekday gutter labels) instead of Sunday.
+
+### Removed
+
+## [0.5.22] - 2026-07-26
+
+### Added
 - **PRD tab in note sidebar (2855)**: NoteList gains a PRD tab that scans `code/*/docs/prd` and lists feature PRD docs next to other note surfaces.
 - **File-tree Delete (2831)**: right-click Delete on files in the web FileTree with a confirm dialog, plus a safe backend delete endpoint that refuses paths outside `Y_AGENT_HOME`, directories, and the home root itself.
 - **File-tree Rename (2888)**: right-click Rename on files and directories in the web FileTree, with a dialog prefilled to the current name (only the stem preselected, so the extension survives an accidental Enter) and open tabs following the renamed path. The backend refuses the rename when any note's `content_key` still points at the target path, naming the blocking note(s) instead of silently breaking them.
