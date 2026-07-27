@@ -174,4 +174,4 @@ this delivery.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 2871 | PRD drafted: hourly routine-driven skill, new `english_correction` entity/CLI/panel, dismiss in v1, exercises deferred | - | - | - | - | requirements-defined |
+| 2871 | PRD and standalone English Corrections panel design approved; implementation deferred | `pages/design-2871.html` | - | - | - | designed |
