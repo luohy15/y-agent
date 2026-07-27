@@ -30,8 +30,14 @@ function makeDeps(): TagNavigateDeps {
   };
 }
 
-async function flush() {
-  for (let i = 0; i < 6; i++) await Promise.resolve();
+// Poll until async authFetch callbacks settle. A fixed microtask-tick spin
+// (old flush) is enough on a fast local machine but starves on slower/loaded
+// CI runners, so assertions fire with "Number of calls: 0". vi.waitFor keeps
+// the same contract checks timing-robust rather than tick-count-dependent.
+async function waitForCall(fn: { mock: { calls: unknown[][] } }) {
+  await vi.waitFor(() => {
+    expect(fn.mock.calls.length).toBeGreaterThan(0);
+  });
 }
 
 describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
@@ -46,11 +52,11 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({ chat_id: "chat-abc" }));
     const deps = makeDeps();
     navigateTag("todo", { id: "2854", title: "Frontend tag management" }, deps);
-    await flush();
 
     expect(deps.requestSelectTraceId).toHaveBeenCalledWith("2854");
     expect(deps.setChatListTraceId).toHaveBeenCalledWith("2854");
     expect(authFetchMock).toHaveBeenCalledWith("/api/trace/latest_chat?trace_id=2854");
+    await waitForCall(deps.setSelectedChatId as ReturnType<typeof vi.fn>);
     expect(deps.setSelectedChatId).toHaveBeenCalledWith("chat-abc");
     expect(deps.setChatHide).toHaveBeenCalledWith(false);
     expect(deps.handleOpenFile).not.toHaveBeenCalled();
@@ -60,7 +66,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({}));
     const deps = makeDeps();
     openTodo("2838", deps);
-    await flush();
+    await waitForCall(deps.handleOpenFile as ReturnType<typeof vi.fn>);
 
     expect(deps.handleOpenFile).toHaveBeenCalledWith("trace.md");
     expect(deps.setSelectedChatId).not.toHaveBeenCalled();
@@ -111,9 +117,9 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({ event_id: "ev-1", start_time: "2026-07-27T10:00:00Z" }));
     const deps = makeDeps();
     navigateTag("calendar_event", { id: "ev-1", title: "y-agent tag review" }, deps);
-    await flush();
 
     expect(authFetchMock).toHaveBeenCalledWith("/api/calendar/detail?event_id=ev-1");
+    await waitForCall(deps.setCalendarFocus as ReturnType<typeof vi.fn>);
     expect(deps.setCalendarFocus).toHaveBeenCalledWith({ date: "2026-07-27T10:00:00Z" });
     expect(deps.handleOpenFile).toHaveBeenCalledWith("calendar.md");
     expect(deps.setSidebarPanel).not.toHaveBeenCalled();
@@ -123,7 +129,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({ event_id: "ev-2" }));
     const deps = makeDeps();
     navigateTag("calendar_event", { id: "ev-2" }, deps);
-    await flush();
+    await waitForCall(deps.setSidebarPanel as ReturnType<typeof vi.fn>);
 
     expect(deps.setCalendarFocus).not.toHaveBeenCalled();
     expect(deps.setSidebarPanel).toHaveBeenCalledWith("calendar");
@@ -133,7 +139,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockRejectedValue(new Error("Event not found"));
     const deps = makeDeps();
     navigateTag("calendar_event", { id: "ev-deleted" }, deps);
-    await flush();
+    await waitForCall(deps.setSidebarPanel as ReturnType<typeof vi.fn>);
 
     expect(deps.setSidebarPanel).toHaveBeenCalledWith("calendar");
     expect(deps.handleOpenFile).not.toHaveBeenCalled();
@@ -143,9 +149,9 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({ email_id: "em-1", thread_id: "th-1", account: "roy@example.com" }));
     const deps = makeDeps();
     navigateTag("email", { id: "em-1", title: "Re: tag system design review" }, deps);
-    await flush();
 
     expect(authFetchMock).toHaveBeenCalledWith("/api/email/em-1");
+    await waitForCall(deps.setSelectedThreadId as ReturnType<typeof vi.fn>);
     expect(deps.setSelectedThreadId).toHaveBeenCalledWith("th-1");
     expect(deps.setSelectedThreadAccount).toHaveBeenCalledWith("roy@example.com");
     expect(deps.handleOpenFile).toHaveBeenCalledWith("email.md");
@@ -155,7 +161,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockResolvedValue(jsonResponse({ email_id: "em-2", account: null }));
     const deps = makeDeps();
     navigateTag("email", { id: "em-2" }, deps);
-    await flush();
+    await waitForCall(deps.setSelectedThreadId as ReturnType<typeof vi.fn>);
 
     expect(deps.setSelectedThreadId).toHaveBeenCalledWith("em-2");
     expect(deps.setSelectedThreadAccount).toHaveBeenCalledWith(null);
@@ -165,7 +171,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     authFetchMock.mockRejectedValue(new Error("network error"));
     const deps = makeDeps();
     navigateTag("email", { id: "em-3" }, deps);
-    await flush();
+    await waitForCall(deps.setSidebarPanel as ReturnType<typeof vi.fn>);
 
     expect(deps.setSidebarPanel).toHaveBeenCalledWith("email");
     expect(deps.handleOpenFile).not.toHaveBeenCalled();
