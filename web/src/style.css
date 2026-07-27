@@ -140,6 +140,21 @@ html {
 .badge-completed { background: var(--color-sol-base02); color: var(--color-sol-green); }
 .badge-failed { background: var(--color-sol-base02); color: var(--color-sol-red); }
 
+/* English correction inline word-level diff (design-2871) */
+.diff-del {
+  background: rgba(220, 50, 47, 0.18);
+  color: var(--color-sol-red);
+  text-decoration: line-through;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.diff-ins {
+  background: rgba(133, 153, 0, 0.22);
+  color: var(--color-sol-green);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* Prose — theme-token overrides */
 .prose pre {
   overflow-x: auto;

@@ -14,6 +14,7 @@ export type SidebarPanel =
   | "files"
   | "reminder"
   | "routine"
+  | "english"
   | "calendar"
   | "finance"
   | "email"
@@ -87,6 +88,11 @@ const PANEL_ITEMS: PanelItem[] = [
   { key: "routine", label: "Routines", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
+    </svg>
+  )},
+  { key: "english", label: "English", icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   )},
   { key: "files", label: "Files", icon: (

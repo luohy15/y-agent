@@ -12,6 +12,7 @@ import BotViewer from "./BotViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
+import EnglishView from "./EnglishView";
 import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -39,6 +40,7 @@ interface FileViewerProps {
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
   selectedEntityId?: string | null;
+  selectedCorrectionId?: string | null;
   selectedThreadId?: string | null;
   selectedThreadAccount?: string | null;
   selectedFeedId?: string | null;
@@ -923,7 +925,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectTrace, onSelectCalendarEvent, calendarFocus, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectTrace, onSelectCalendarEvent, calendarFocus, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -953,6 +955,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
   const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
   const isEntityPreview = !isDiff && !isTrace && activeFileName === "entity.md";
+  const isEnglishPreview = !isDiff && !isTrace && activeFileName === "english.md";
   const isFinance = !isDiff && !isTrace && activeFileName.endsWith("finance.bean");
   const isEmail = !isDiff && !isTrace && activeFileName === "email.md";
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
@@ -962,7 +965,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   useEffect(() => {
     if (mode === "public") return;
     if (!activeFile) return;
-    if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isFinance || isEmail || isDev || isBot) return;
+    if (isDiff || isArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isFinance || isEmail || isDev || isBot) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -993,7 +996,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery, mode]);
+  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isFinance, isLinkPreview, isLinksMd, isTodo, isTrace, vmQuery, mode]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -1063,6 +1066,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && (key.includes("/api/entity/") || key.includes("/api/entity-note/") || key.includes("/api/entity-rss/")));
       return;
     }
+    if (isEnglishPreview) {
+      mutate((key) => typeof key === "string" && key.includes("/api/english/"));
+      return;
+    }
     if (isFinance) {
       mutate((key) => typeof key === "string" && key.includes("/api/finance/"));
       return;
@@ -1089,7 +1096,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isFinance, isEmail, isDev, isBot, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isFinance, isEmail, isDev, isBot, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -1318,7 +1325,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               )}
             </button>
           )}
-          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && (
+          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
@@ -1327,7 +1334,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (
             <a
               href={`https://github.com/luohy15/y-history/commits/main/${historyFilePath}`}
               target="_blank"
@@ -1338,7 +1345,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               History
             </a>
           )}
-          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (() => {
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isFinance && !isDev && !isBot && !isArtifact && !isLinksMd && (() => {
             const fileData = cache[activeFile];
             if (!fileData) return null;
             // Binary files (images/PDFs) load into blobUrl with no text content;
@@ -1454,6 +1461,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
           const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
           const fileEntityPreview = !fileDiff && !fileTrace && fileName === "entity.md";
+          const fileEnglishPreview = !fileDiff && !fileTrace && fileName === "english.md";
           const fileFinance = !fileDiff && !fileTrace && fileName.endsWith("finance.bean");
           const fileEmail = !fileDiff && !fileTrace && fileName === "email.md";
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
@@ -1467,7 +1475,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileArtifact || fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileBot || fileDiff || fileTrace || fileLinksMd || fileEntityPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileArtifact || fileTodo || fileCalendar || fileFinance || fileEmail || fileDev || fileBot || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -1509,6 +1517,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     else if (onPreviewLink) onPreviewLink(activityId);
                   }}
                 />
+              ) : fileEnglishPreview ? (
+                <EnglishView correctionId={selectedCorrectionId || ""} />
               ) : fileFinance ? (
                 <FinanceViewer vmName={vmName} />
               ) : fileEmail ? (

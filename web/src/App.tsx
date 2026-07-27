@@ -22,6 +22,7 @@ import { navigateTag, openTodo } from "./utils/tagNavigate";
 import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
+import EnglishList from "./components/EnglishList";
 import ScheduleList from "./components/ScheduleList";
 import FinancePanel from "./components/FinancePanel";
 import GitPanel from "./components/GitPanel";
@@ -79,7 +80,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "calendar", "finance", "email", "dev", "tags"];
+    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "english", "calendar", "finance", "email", "dev", "tags"];
     return valid.includes(saved) ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -95,6 +96,7 @@ export default function App() {
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
   const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(() => localStorage.getItem("selectedEntityId") || null);
+  const [selectedCorrectionId, setSelectedCorrectionId] = useState<string | null>(() => localStorage.getItem("selectedCorrectionId") || null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => localStorage.getItem("selectedThreadId") || null);
   const [selectedThreadAccount, setSelectedThreadAccount] = useState<string | null>(() => localStorage.getItem("selectedThreadAccount") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
@@ -161,6 +163,7 @@ export default function App() {
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
   useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
+  useEffect(() => { if (selectedCorrectionId) localStorage.setItem("selectedCorrectionId", selectedCorrectionId); else localStorage.removeItem("selectedCorrectionId"); }, [selectedCorrectionId]);
   useEffect(() => { if (selectedThreadId) localStorage.setItem("selectedThreadId", selectedThreadId); else localStorage.removeItem("selectedThreadId"); }, [selectedThreadId]);
   useEffect(() => { if (selectedThreadAccount) localStorage.setItem("selectedThreadAccount", selectedThreadAccount); else localStorage.removeItem("selectedThreadAccount"); }, [selectedThreadAccount]);
 
@@ -917,6 +920,15 @@ export default function App() {
                     }
                   }}
                 />
+              ) : sidebarPanel === "english" ? (
+                <EnglishList
+                  isLoggedIn={auth.isLoggedIn}
+                  selectedCorrectionId={selectedCorrectionId}
+                  onSelectCorrection={(id) => {
+                    setSelectedCorrectionId(id);
+                    handleOpenFile("english.md");
+                  }}
+                />
               ) : sidebarPanel === "files" ? (
                 <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={null} workDir={currentVmWorkDir} />
               ) : null;
@@ -990,7 +1002,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
