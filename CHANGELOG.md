@@ -13,6 +13,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **English correction subsystem (2871)**: new `english_correction` entity/repository/service/controller plus `y english` CLI (`add`/`list`/`get`/`click`/`dismiss`/`pending`/`mark-scanned`) and a web `EnglishList`/`EnglishView` panel with inline word-diff rendering, for hourly offline grammar-correction scans of the user's own chat prose.
+- **Tags panel (2838)**: read-only Tags activity-bar panel over the `entity_tag` store, with a slash-hierarchy vocabulary tree, search, prefix roll-up counts, and click-to-navigate drill-down across all ten carrier types.
 
 ### Changed
 - **`y todo get` History opt-in**: History is hidden by default (it drowned out todo content on long tasks) and only shown when `--history` is passed.
