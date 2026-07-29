@@ -33,6 +33,14 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    // Dev-server only (rollup inlines the JSON regardless at build time):
+    // web/src/host/contract.ts imports cli/src/yagent/sdk/contract.json,
+    // outside Vite's default workspace-root fs.allow (web/package-lock.json
+    // is the only lockfile, so the search stops at web/). Without this,
+    // `GET /@fs/…/cli/…` 403s. See pages/review-2412-web-host-sdk.md.
+    fs: {
+      allow: [".."],
+    },
     allowedHosts: ["488e-52-205-167-181.ngrok-free.app", "unreached-choppier-lakita.ngrok-free.dev", "y-agent.ngrok.app", "f9fb-52-205-167-181.ngrok-free.app", "971f-52-205-167-181.ngrok-free.app", "93bc-52-205-167-181.ngrok-free.app", "3121-52-205-167-181.ngrok-free.app", "7f86-52-205-167-181.ngrok-free.app", "da84-52-205-167-181.ngrok-free.app", "7155-52-205-167-181.ngrok-free.app", "df62-52-205-167-181.ngrok-free.app", "80c5-52-205-167-181.ngrok-free.app", "d0c4-52-205-167-181.ngrok-free.app", "591e-52-205-167-181.ngrok-free.app", "5c43-52-205-167-181.ngrok-free.app", "5462-52-205-167-181.ngrok-free.app", "luohy15.ngrok.app", "luohy15.ngrok.dev"],
     proxy: {
       "/api": "http://localhost:8001",

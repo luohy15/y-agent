@@ -13,6 +13,7 @@ import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
 import { localStorageProvider } from "./utils/swrPersistedCache";
 import { API } from "./api";
+import "./host/registry";
 
 // Lazy, unauthenticated route used only by the doc-screenshot pipeline.
 const ScreenshotShowcase = lazy(() => import("./components/ScreenshotShowcase"));
