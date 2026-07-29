@@ -39,6 +39,10 @@ def list_versions(user_id: int, artifact_id: str) -> List[UiArtifactVersion]:
     return version_repo.list_versions(user_id, artifact_id)
 
 
+def get_version(user_id: int, version_id: str) -> Optional[UiArtifactVersion]:
+    return version_repo.get_version(user_id, version_id)
+
+
 def publish(
     user_id: int,
     artifact_id: str,
@@ -49,8 +53,14 @@ def publish(
     min_host_version: int = 1,
     source_digest: Optional[str] = None,
     activate: bool = True,
-) -> UiArtifactVersion:
-    """Insert a new immutable version; move the active pointer unless activate=False."""
+) -> Optional[UiArtifactVersion]:
+    """Insert a new immutable version; move the active pointer unless activate=False.
+
+    Returns None when artifact_id does not name an artifact owned by user_id,
+    so a bogus id cannot insert an orphan version row.
+    """
+    if not artifact_repo.get_artifact(user_id, artifact_id):
+        return None
     next_no = version_repo.get_max_version_no(user_id, artifact_id) + 1
     version = version_repo.create_version(
         user_id,
@@ -87,7 +97,9 @@ def rollback(user_id: int, artifact_id: str) -> Optional[UiArtifact]:
     current = next((v for v in versions if v.version_id == artifact.active_version_id), None)
     if not current:
         return None
-    previous = next((v for v in versions if v.version_no == current.version_no - 1), None)
+    # Greatest version_no below current (list is descending); gap-proof if a
+    # pruned version ever leaves a hole in the numbering.
+    previous = next((v for v in versions if v.version_no < current.version_no), None)
     if not previous:
         return None
     return artifact_repo.set_active_version(user_id, artifact_id, previous.version_id)

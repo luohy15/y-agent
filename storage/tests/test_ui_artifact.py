@@ -79,6 +79,12 @@ class PublishTest(UiArtifactTestCase):
         self.assertEqual(v1_after.built_at, v1.built_at)
 
 
+    def test_publish_to_unknown_artifact_returns_none_and_inserts_nothing(self):
+        result = artifact_service.publish(1, "nope99", sha256="aaa", storage_key="ui/x/aaa.js")
+        self.assertIsNone(result)
+        self.assertEqual(artifact_service.list_versions(1, "nope99"), [])
+
+
 class RollbackTest(UiArtifactTestCase):
     def test_rollback_repoints_without_inserting_a_row(self):
         artifact = artifact_service.create_artifact(1, "finance")
@@ -93,6 +99,21 @@ class RollbackTest(UiArtifactTestCase):
 
         after = artifact_service.list_versions(1, artifact.artifact_id)
         self.assertEqual(len(after), 2)
+
+    def test_rollback_targets_greatest_version_below_current_across_a_gap(self):
+        artifact = artifact_service.create_artifact(1, "finance")
+        artifact_service.publish(1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js")
+        artifact_service.publish(1, artifact.artifact_id, sha256="bbb", storage_key="ui/finance/bbb.js")
+        artifact_service.publish(1, artifact.artifact_id, sha256="ccc", storage_key="ui/finance/ccc.js")
+        # Simulate a pruned v4: jump straight to version_no 5.
+        version_repo.create_version(
+            1, version_id="v5", artifact_id=artifact.artifact_id, version_no=5,
+            sha256="eee", storage_key="ui/finance/eee.js",
+        )
+        artifact_service.activate(1, artifact.artifact_id, 5)
+
+        updated = artifact_service.rollback(1, artifact.artifact_id)
+        self.assertEqual(updated.active_version_id, version_repo.get_version_by_no(1, artifact.artifact_id, 3).version_id)
 
     def test_rollback_with_no_previous_version_is_a_noop(self):
         artifact = artifact_service.create_artifact(1, "finance")
