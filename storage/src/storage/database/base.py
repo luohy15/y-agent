@@ -89,6 +89,8 @@ def init_tables():
     import storage.entity.finance_price  # noqa: F401
     import storage.entity.finance_realtime_quote  # noqa: F401
     import storage.entity.model_usage_daily  # noqa: F401
+    import storage.entity.ui_artifact  # noqa: F401
+    import storage.entity.ui_artifact_version  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 
