@@ -1,0 +1,32 @@
+/*
+ * Host theme tokens for artifact Tailwind builds.
+ *
+ * Registers the host's `sol-*` color names so Tailwind can generate
+ * `bg-sol-*` / `text-sol-*` / `ring-sol-*` utilities WITHOUT emitting a
+ * `:root { --color-sol-*: … }` block. `@theme reference` is the mechanism
+ * (decision D3): utilities emit `var(--color-sol-…)` and inherit whatever
+ * the host currently has set, so a host theme switch retints the artifact
+ * with no reload.
+ *
+ * Values below are fallbacks only (F4): they must never force a palette on
+ * the host. Renaming a host token does not break the artifact loudly — it
+ * silently pins the stale colour via the fallback.
+ */
+@theme reference {
+  --color-sol-base03: #ffffff;
+  --color-sol-base02: #f3f4f6;
+  --color-sol-base01: #6b7280;
+  --color-sol-base00: #57606a;
+  --color-sol-base0: #24292f;
+  --color-sol-base1: #1f2328;
+  --color-sol-base2: #0d1117;
+  --color-sol-base3: #000000;
+  --color-sol-yellow: #9a6700;
+  --color-sol-orange: #bc4c00;
+  --color-sol-red: #cf222e;
+  --color-sol-magenta: #bf3989;
+  --color-sol-violet: #8250df;
+  --color-sol-blue: #0969da;
+  --color-sol-cyan: #1b7c83;
+  --color-sol-green: #1a7f37;
+}

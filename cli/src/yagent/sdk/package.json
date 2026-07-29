@@ -1,0 +1,11 @@
+{
+  "name": "y-ui-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "VM-side build toolchain for y-agent UI artifacts (todo 2412)",
+  "type": "module",
+  "dependencies": {
+    "@tailwindcss/cli": "4.1.18",
+    "esbuild": "0.28.1"
+  }
+}
