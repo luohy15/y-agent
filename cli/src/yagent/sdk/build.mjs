@@ -72,6 +72,7 @@ try {
       "react/jsx-runtime": shim("react-jsx-runtime.cjs"),
       swr: shim("swr.cjs"),
       recharts: shim("recharts.cjs"),
+      "lightweight-charts": shim("lightweight-charts.cjs"),
       "@y/host": shim("y-host.cjs"),
     },
   });

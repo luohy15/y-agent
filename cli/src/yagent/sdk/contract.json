@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "externals": [
     "react",
     "react-dom",
@@ -7,6 +7,7 @@
     "react/jsx-runtime",
     "swr",
     "recharts",
+    "lightweight-charts",
     "@y/host"
   ]
 }

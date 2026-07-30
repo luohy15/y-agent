@@ -1,6 +1,6 @@
 import ReactDefault from "react";
 import { describe, expect, it } from "vitest";
-import { EXTERNALS } from "./contract";
+import { EXTERNALS, HOST_CONTRACT_VERSION } from "./contract";
 import "./registry";
 
 describe("host runtime registry", () => {
@@ -10,6 +10,15 @@ describe("host runtime registry", () => {
     for (const specifier of EXTERNALS) {
       expect(registry!.modules[specifier]).toBeDefined();
     }
+  });
+
+  it("registers a module for every contract external, including lightweight-charts", () => {
+    const registry = globalThis.__Y_HOST__!;
+    expect(EXTERNALS.every((specifier) => specifier in registry.modules)).toBe(true);
+  });
+
+  it("bumps the host contract version to 2 for the lightweight-charts external", () => {
+    expect(HOST_CONTRACT_VERSION).toBe(2);
   });
 
   it("registers a react whose default export is reference-identical to the app's own react import", () => {

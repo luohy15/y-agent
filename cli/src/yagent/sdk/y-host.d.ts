@@ -108,6 +108,42 @@ declare module "recharts" {
   export const Label: any;
 }
 
+declare module "lightweight-charts" {
+  export const AreaSeries: any;
+  export enum ColorType {
+    Solid = "solid",
+    VerticalGradient = "gradient",
+  }
+  export function createChart(container: HTMLElement, options?: any): IChartApi;
+  export function createSeriesMarkers<T = Time>(
+    series: ISeriesApi<any>,
+    markers?: SeriesMarker<T>[],
+  ): ISeriesMarkersPluginApi<T>;
+
+  export interface IChartApi {
+    addSeries<T = unknown>(definition: any, options?: any): ISeriesApi<T>;
+    applyOptions(options: any): void;
+    timeScale(): { fitContent(): void; [key: string]: any };
+    remove(): void;
+  }
+  export interface ISeriesApi<T = unknown> {
+    setData(data: any[]): void;
+    [key: string]: any;
+  }
+  export interface ISeriesMarkersPluginApi<T = Time> {
+    setMarkers(markers: SeriesMarker<T>[]): void;
+  }
+  export interface SeriesMarker<T = Time> {
+    time: T;
+    position: "aboveBar" | "belowBar" | "inBar";
+    color: string;
+    shape: "arrowUp" | "arrowDown" | "circle" | "square";
+    text?: string;
+  }
+  export type Time = number | { year: number; month: number; day: number } | string;
+  export type UTCTimestamp = number & { readonly __brand: "UTCTimestamp" };
+}
+
 /**
  * `@y/host` surface — must match the runtime `hostSdk` object published by
  * the web host (`web/src/host/sdk.ts`). Names that are not on that object

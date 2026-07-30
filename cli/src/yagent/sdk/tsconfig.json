@@ -15,7 +15,8 @@
       "react": ["./y-host.d.ts"],
       "react-dom": ["./y-host.d.ts"],
       "swr": ["./y-host.d.ts"],
-      "recharts": ["./y-host.d.ts"]
+      "recharts": ["./y-host.d.ts"],
+      "lightweight-charts": ["./y-host.d.ts"]
     }
   },
   "include": ["../*.tsx", "./y-host.d.ts"]
