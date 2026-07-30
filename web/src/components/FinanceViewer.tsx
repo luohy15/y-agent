@@ -5,6 +5,20 @@ import {
   LineChart, Line, BarChart, Bar, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, PieChart, Pie, Cell,
 } from "recharts";
+import {
+  amountsFromMap,
+  buildTickerUniverse,
+  classifyTxnType,
+  entryPrice,
+  entryShares,
+  entryTicker,
+  isIbkrStockLeg,
+  type PostingRow,
+  type TransactionAmount,
+  type TransactionRow,
+  type TxnType,
+} from "../lib/financeTransactions";
+import { formatAmount, PRICE_RANGES, type FinancePriceRow, type PriceRange } from "../lib/finance";
 
 interface AccountNode {
   account: string;
@@ -99,53 +113,6 @@ interface RiskyAllocationSummaryData {
   risky_base: number;
   risky_pct: number | null;
   base_currency: string;
-}
-
-interface TransactionAmount {
-  amount: number;
-  currency: string;
-}
-
-interface PostingRow {
-  account: string;
-  symbol: string;
-  side: string;
-  quantity: number | null;
-  price: number | null;
-  price_currency: string;
-  amount: number | null;
-  amount_currency: string;
-  cost: number | null;
-  cost_currency: string;
-  commission: number | null;
-  commission_currency: string;
-}
-
-interface TransactionRow {
-  transaction_date: string;
-  entry_id?: string;
-  symbol: string;
-  side: string;
-  symbols?: string[];
-  sides?: string[];
-  quantity: number | TransactionAmount[] | null;
-  price: number | null;
-  price_currency: string;
-  amount: number | TransactionAmount[] | null;
-  amount_currency?: string;
-  commission: number | null;
-  commission_currency: string;
-  payee: string;
-  narration: string;
-  postings: PostingRow[];
-  source?: string;
-}
-
-interface FinancePriceRow {
-  symbol: string;
-  price_date: string;
-  price: number;
-  currency: string;
 }
 
 interface InvestmentReturnsPosition {
@@ -253,10 +220,6 @@ function useThemeColors(): ThemeColors {
   return colors;
 }
 
-function formatAmount(amount: number): string {
-  return (amount === 0 ? 0 : amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 function formatPeriodLabel(period: string, fullYear = true): string {
   const [year, month, day] = period.split("-");
   if (!month) return year;
@@ -287,16 +250,6 @@ function formatCompactUsd(value: number): string {
   if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(0)}k`;
   return `${sign}${abs.toFixed(0)}`;
 }
-
-type PriceRange = "1M" | "3M" | "1Y" | "YTD" | "ALL";
-
-const PRICE_RANGES: Array<{ label: PriceRange; value: string }> = [
-  { label: "1M", value: "1M" },
-  { label: "3M", value: "3M" },
-  { label: "1Y", value: "1Y" },
-  { label: "YTD", value: "YTD" },
-  { label: "ALL", value: "" },
-];
 
 function formatPriceDate(date: string): string {
   const [year, month, day] = date.split("-");
@@ -610,7 +563,7 @@ function liveQuotesLabel(rows: HoldingRow[]): string | null {
   return oldestLabel === newestLabel ? `live quotes as of ${oldestLabel}` : `live quotes as of ${oldestLabel}–${newestLabel}`;
 }
 
-function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null }) {
+function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName, onOpenTicker }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null; onOpenTicker?: (symbol: string) => void }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
@@ -762,7 +715,20 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                 {isExpanded ? (
                   <tr className="border-y border-sol-base02 bg-sol-base03">
                     <td colSpan={9} className="px-3 py-3">
-                      <PriceChart symbol={symbol} vmName={vmName} />
+                      <div className="space-y-2">
+                        <PriceChart symbol={symbol} vmName={vmName} />
+                        {onOpenTicker ? (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); onOpenTicker(symbol); }}
+                              className="text-xs text-sol-blue hover:underline cursor-pointer"
+                            >
+                              Analyze →
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ) : null}
@@ -795,7 +761,6 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
 }
 
 type TransactionSortKey = "date" | "type" | "symbol" | "quantity" | "amount";
-type TxnType = "buy" | "sell" | "income" | "fee" | "other";
 type TxnGroupBy = "flat" | "month" | "symbol";
 type TxnScope = "stock" | "all";
 
@@ -814,51 +779,7 @@ function formatTransactionValue(value: number | TransactionAmount[] | null | und
   return <>{formatAmount(value)} {currency && <span className="text-sol-base01 text-xs">{currency}</span>}</>;
 }
 
-// The only account in the ledger that holds non-fiat (share) units — the
-// ticker is carried as the posting's symbol, not a per-symbol subaccount.
-// startsWith rather than === so a future per-symbol split keeps working.
-// Deliberately narrower than the ":Stock" substring test used elsewhere
-// (classifyTxnType / entryPrice / primarySymbol), which also matches
-// Assets:Stock:MPF and the non-IBKR A-share accounts.
-function isIbkrStockLeg(p: PostingRow): boolean {
-  return p.account.startsWith("Assets:Stock:IBKR");
-}
-
 // --- Derived fields (computed client-side from postings[]) ---
-// Classify an entry into a semantic type. Trades are identified by the security
-// leg (Assets:Stock) side; dividend/interest credited to an Income account are
-// income; entries made up only of fee/tax legs plus their settling cash leg are
-// fees (e.g. foreign tax withholding: a Taxes-and-fees expense leg + an
-// Assets:Cash Withdrawal leg); the rest (transfers, FX conversions, salary,
-// expenses) are "other".
-function classifyTxnType(row: TransactionRow): TxnType {
-  const postings = row.postings || [];
-  const stockLeg = postings.find((p) => p.account.includes(":Stock") && (p.side === "Buy" || p.side === "Sell"));
-  if (stockLeg) return stockLeg.side === "Buy" ? "buy" : "sell";
-  if (postings.some((p) => (p.side === "Dividend" || p.side === "Interest") && p.account.startsWith("Income"))) return "income";
-  const isFeeLeg = (p: PostingRow) => p.side === "Taxes and fees" || p.account.startsWith("Expenses:Fees") || p.account.startsWith("Expenses:Interest");
-  const isSettlingCashLeg = (p: PostingRow) => p.account.startsWith("Assets:Cash") && p.side === "Withdrawal";
-  if (postings.some((p) => p.side === "Taxes and fees") && postings.every((p) => isFeeLeg(p) || isSettlingCashLeg(p))) return "fee";
-  return "other";
-}
-
-// Entry-level price = the security leg's per-unit price (entry.price is null).
-function entryPrice(postings: PostingRow[]): TransactionAmount | null {
-  const leg = (postings || []).find((p) => p.price != null && p.account.includes(":Stock"));
-  return leg && leg.price != null ? { amount: leg.price, currency: leg.price_currency } : null;
-}
-
-// Shares: the IBKR security legs' unit deltas, summed per ticker.
-function entryShares(postings: PostingRow[]): TransactionAmount[] {
-  const totals: Record<string, number> = {};
-  for (const p of postings || []) {
-    if (isIbkrStockLeg(p) && p.quantity != null) {
-      totals[p.symbol] = (totals[p.symbol] || 0) + p.quantity;
-    }
-  }
-  return amountsFromMap(totals);
-}
-
 // Amount: money legs only, per currency. A money leg is any non-security leg
 // that isn't an Income:/Expenses:/Equity: leg. On a trade the fee legs are
 // added back in — the fee's own cash leg cancels to zero and disappears (it
@@ -919,45 +840,6 @@ function primarySymbol(row: TransactionRow, tickers: Set<string>): string {
   if (ticker) return ticker;
   if (row.symbols && row.symbols.length) return row.symbols[0];
   return row.symbol || "—";
-}
-
-// Ticker universe: the set of IBKR stock symbols actually present in the
-// fetched rows, so it never needs separate maintenance.
-function buildTickerUniverse(rows: TransactionRow[]): Set<string> {
-  const set = new Set<string>();
-  for (const row of rows) {
-    for (const p of row.postings || []) {
-      if (isIbkrStockLeg(p) && p.symbol) set.add(p.symbol);
-    }
-  }
-  return set;
-}
-
-// Ticker for an entry: the IBKR security leg's symbol if present; else, for
-// an IBKR-touching entry only (plan §0 scopes option B to "IBKR-touching"
-// entries whose narration names a held ticker — a bare cash leg on some
-// other account must not qualify), the first known IBKR ticker matched as a
-// whole word in narration/payee (cash-only dividend / foreign-tax-
-// withholding entries have no security leg).
-function entryTicker(row: TransactionRow, tickers: Set<string>): string | null {
-  const postings = row.postings || [];
-  const stockLeg = postings.find((p) => isIbkrStockLeg(p) && p.symbol);
-  if (stockLeg) return stockLeg.symbol;
-  if (!postings.some((p) => p.account.includes(":IBKR"))) return null;
-  const haystack = `${row.narration || ""} ${row.payee || ""}`;
-  for (const ticker of tickers) {
-    const escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`\\b${escaped}\\b`).test(haystack)) return ticker;
-  }
-  return null;
-}
-
-// Cutoff raised from 1e-6 to 0.005 so a sub-cent residue can never render as
-// "0.00" (audited: 0 residuals fall in that range across the live dataset).
-function amountsFromMap(m: Record<string, number>): TransactionAmount[] {
-  return Object.entries(m)
-    .filter(([, v]) => Math.abs(v) > 0.005)
-    .map(([currency, amount]) => ({ amount, currency }));
 }
 
 const TXN_TYPE_META: Record<TxnType, { label: string; cls: string }> = {
@@ -1143,7 +1025,7 @@ function TransactionSubtotalRow({ items }: { items: TypedTxn[] }) {
   );
 }
 
-function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedAt?: string }) {
+function TransactionsTable({ rows, syncedAt, onOpenTicker }: { rows: TransactionRow[]; syncedAt?: string; onOpenTicker?: (symbol: string) => void }) {
   const [sortKey, setSortKey] = useState<TransactionSortKey>(() => (localStorage.getItem("transactions-sort-key") as TransactionSortKey) || "date");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("transactions-sort-dir") as SortDir) || "desc");
   const [symbolFilter, setSymbolFilter] = useState("");
@@ -1307,7 +1189,21 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
                         <span className="ml-1">{row.transaction_date}</span>
                       </td>
                       <td className="py-0.5 px-3"><TxnTypeBadge type={type} /></td>
-                      <td className="py-0.5 px-3 text-sol-base1">{symbol}</td>
+                      <td className="py-0.5 px-3 text-sol-base1">
+                        <span className="inline-flex items-center gap-1.5">
+                          {symbol}
+                          {onOpenTicker && symbol && symbol !== "—" ? (
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); onOpenTicker(symbol); }}
+                              className="text-[10px] text-sol-blue hover:underline cursor-pointer"
+                              title={`Analyze ${symbol}`}
+                            >
+                              Analyze →
+                            </button>
+                          ) : null}
+                        </span>
+                      </td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatShares(shares)}</td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{price ? formatTransactionValue(price.amount, price.currency) : "—"}</td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(money)}</td>
@@ -2985,9 +2881,10 @@ function InvestmentReturnsOverTimeView({ data }: { data: InvestmentReturnsHistor
 
 interface FinanceViewerProps {
   vmName?: string | null;
+  onOpenTicker?: (symbol: string) => void;
 }
 
-export default function FinanceViewer({ vmName }: FinanceViewerProps) {
+export default function FinanceViewer({ vmName, onOpenTicker }: FinanceViewerProps) {
   useThemeColors(); // re-render this subtree (and its chart colors) on theme change
   const [tab, setTab] = useState<Tab>(() => (localStorage.getItem("finance-tab") as Tab) || "balance-sheet");
   const [timeInput, setTimeInput] = useState(() => localStorage.getItem("finance-time") || "year");
@@ -3273,7 +3170,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
                 <div className="flex items-center justify-between gap-3 px-2 py-3">
                   <RiskyAllocationSummary summary={holdings.data?.summary} loading={holdings.isLoading} />
                 </div>
-                <HoldingsTable holdings={holdingRows} totals={holdingTotals(holdingRows)} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} />
+                <HoldingsTable holdings={holdingRows} totals={holdingTotals(holdingRows)} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} onOpenTicker={onOpenTicker} />
               </>
             ) : null
           )
@@ -3281,7 +3178,7 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
           transactions.isLoading ? (
             <p className="text-sol-base01 italic px-3">Loading...</p>
           ) : transactionsData ? (
-            <TransactionsTable rows={transactionsData} syncedAt={transactions.data?.synced_at} />
+            <TransactionsTable rows={transactionsData} syncedAt={transactions.data?.synced_at} onOpenTicker={onOpenTicker} />
           ) : null
         ) : tab === "fire" ? (
           <>

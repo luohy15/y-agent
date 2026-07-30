@@ -112,6 +112,88 @@ def render_prices(envelope: dict) -> None:
     click.echo(tabulate(table, headers=["Symbol", "Date", "Price", "Currency"], tablefmt="simple"))
 
 
+def _fmt_metric(value, kind: str = "number") -> str:
+    if value is None or value == "":
+        return "-"
+    if kind == "money":
+        return fmt_money(value)
+    if kind == "pct":
+        return f"{value:.2f}%"
+    if kind == "ratio":
+        return f"{value:.2f}x"
+    if isinstance(value, float):
+        if abs(value) >= 1_000_000:
+            return f"{value:,.0f}"
+        return f"{value:,.4g}"
+    return str(value)
+
+
+def render_fundamentals(envelope: dict) -> None:
+    data = envelope.get("data") or {}
+    metrics = data.get("metrics") or {}
+    symbol = data.get("symbol") or "-"
+    source = envelope.get("source") or "-"
+    fetched_at = envelope.get("fetched_at") or "-"
+    click.echo(f"{symbol} fundamentals  source={source}  fetched_at={fetched_at}")
+    click.echo()
+
+    sections = [
+        ("Market", metrics.get("market") or {}, {
+            "market_cap": ("Market Cap", "money"),
+            "dividend_yield": ("Dividend Yield", "pct"),
+        }),
+        ("Valuation", metrics.get("valuation") or {}, {
+            "pe_ratio": ("P/E", "number"),
+            "ps_ratio": ("P/S", "number"),
+            "pb_ratio": ("P/B", "number"),
+            "roe": ("ROE", "pct"),
+        }),
+        ("Balance Sheet", metrics.get("balance_sheet") or {}, {
+            "assets": ("Assets", "money"),
+            "liabilities": ("Liabilities", "money"),
+            "equity": ("Equity", "money"),
+            "leverage_ratio": ("Leverage", "ratio"),
+        }),
+        ("Income Statement", metrics.get("income_statement") or {}, {
+            "revenue": ("Revenue", "money"),
+            "expenses": ("Expenses", "money"),
+            "net_income": ("Net Income", "money"),
+            "expense_ratio": ("Expense Ratio", "pct"),
+        }),
+        ("Profitability", metrics.get("profitability") or {}, {
+            "gross_margin": ("Gross Margin", "pct"),
+            "net_margin": ("Net Margin", "pct"),
+            "sga_expense_ratio": ("SG&A / Revenue", "pct"),
+            "rd_expense_ratio": ("R&D / Revenue", "pct"),
+            "finance_expense_ratio": ("Interest / Revenue", "pct"),
+            "roa": ("ROA", "pct"),
+            "roe": ("ROE", "pct"),
+        }),
+        ("Growth", metrics.get("growth") or {}, {
+            "revenue_growth": ("Revenue Growth", "pct"),
+            "profit_growth": ("Profit Growth", "pct"),
+            "equity_growth": ("Equity Growth", "pct"),
+            "asset_growth": ("Asset Growth", "pct"),
+            "peg": ("PEG", "number"),
+        }),
+        ("Cash Flow", metrics.get("cash_flow") or {}, {
+            "operating_cash_flow": ("Operating CF", "money"),
+            "free_cash_flow": ("FCF", "money"),
+        }),
+        ("Solvency", metrics.get("solvency") or {}, {
+            "debt_to_asset": ("Debt/Asset", "pct"),
+            "years_to_clear_debt": ("Years to Clear Debt", "number"),
+            "current_ratio": ("Current Ratio", "ratio"),
+            "quick_ratio": ("Quick Ratio", "ratio"),
+        }),
+    ]
+    table = []
+    for section, values, fields in sections:
+        for key, (label, kind) in fields.items():
+            table.append([section, label, _fmt_metric(values.get(key), kind)])
+    click.echo(tabulate(table, headers=["Category", "Metric", "Value"], tablefmt="simple"))
+
+
 def render_transactions(envelope: dict) -> None:
     rows = envelope.get("data") or []
     table = []

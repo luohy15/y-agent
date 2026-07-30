@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from storage.service import finance_holding as holding_service
 from storage.service import finance_derived as derived_service
+from storage.service import finance_fundamentals as fundamentals_service
 from storage.service import finance_price as price_service
 from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
@@ -172,6 +173,22 @@ async def realtime_quotes(
         "fetched_at": fetched_at,
         "source": result.source,
     }
+
+
+@router.get("/fundamentals")
+async def fundamentals(
+    symbol: str = Query(""),
+    include_raw: bool = Query(False),
+    vm_name: str = Query(None),
+):
+    del vm_name
+    normalized = (symbol or "").strip().upper()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    if not fundamentals_service.api_key():
+        raise HTTPException(status_code=503, detail="ALPHAVANTAGE_API_KEY is not configured")
+    result = fundamentals_service.fetch(normalized)
+    return result.to_envelope(include_raw=include_raw)
 
 
 @router.get("/transactions")

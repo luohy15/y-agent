@@ -4,6 +4,7 @@ from yagent.commands.beancount.click import beancount_group
 
 from .balance_sheet import balance_sheet
 from .fire_progress import fire_progress
+from .fundamentals import fundamentals
 from .income_statement import income_statement
 from .investment_returns import investment_returns
 from .holdings import holdings
@@ -26,5 +27,6 @@ finance_group.add_command(investment_returns)
 finance_group.add_command(holdings)
 finance_group.add_command(transactions)
 finance_group.add_command(prices)
+finance_group.add_command(fundamentals)
 finance_group.add_command(fire_progress)
 finance_group.add_command(beancount_group)

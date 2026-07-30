@@ -39,6 +39,7 @@
     "@uiw/react-codemirror": "^4.25.9",
     "dompurify": "^3.4.6",
     "highlight.js": "^11.11.1",
+    "lightweight-charts": "^5.2.0",
     "mermaid": "^11.15.0",
     "modern-screenshot": "^4.7.0",
     "react": "^19.1.0",
