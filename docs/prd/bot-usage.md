@@ -13,10 +13,14 @@ wants usage queryable and chartable alongside the other y-agent subsystems:
 which models dominate spend, how usage trends week over week, and whether a
 given day was heavy or idle, without the numbers silently rolling off. Spend
 history also does not answer the operational question that matters before
-starting another long agent turn: how much of the active Claude or GPT (Codex)
-subscription allowance remains in the rolling 5-hour and 1-week windows, and
-when each window resets. Those provider-native limits need a current status
-surface of their own rather than being inferred from token or dollar totals.
+starting another long agent turn: how much of each paid subscription (Claude,
+GPT (Codex), and Grok) is still available, and when it recovers. Those
+provider-native limits need a current status surface of their own rather than
+being inferred from token or dollar totals. They also should not depend on a
+relay: routing limit status through claude-relay-service made the numbers a
+function of a separate service staying deployed, configured, and in sync, and
+it structurally could not answer for a provider the relay had no usage concept
+for at all.
 
 ## Solution
 
@@ -37,20 +41,30 @@ daily / weekly / monthly granularity), with a Tokens / Cost / Requests metric
 toggle shared across both.
 
 The Live mode of that bot-page Usage view also presents a current
-subscription-limit status section for the Claude and GPT (Codex) backends.
-Each provider shows its
-rolling 5-hour and 1-week windows with percent used, percent remaining, reset
-time, freshness, and explicit unavailable/stale states. Both providers are
-read live through claude-relay-service (CRS), which already owns the
-provider account identities behind the user's relay keys: Claude status
-comes from CRS's cached Anthropic OAuth usage snapshot, and Codex status
-comes from CRS's cached structured rate-limit snapshot captured passively
-off ordinary Codex response headers. A dedicated, API-key-scoped CRS
-self-service endpoint normalizes both providers' bound-account windows into
-one contract that y-agent reads live on every request; y-agent does not add
-a second persistence layer of its own. Refresh is independent from spend
+subscription-limit status section for the Claude, GPT (Codex), and Grok
+backends, read **directly from each provider** rather than through any relay.
+Each provider reports whichever windows it actually defines (Claude and Codex
+report rolling windows, `five_hour` / `one_week`; Grok reports its current
+billing period), with percent used, percent remaining, reset time, freshness,
+and explicit unavailable / stale / re-auth states. The three reads run in the
+`y` CLI **on the user's VM** (stable source IP, already known to these
+vendors), behind one `y usage limits --json` envelope; the API SSH-execs that
+command and normalizes the result, so no provider request originates from
+Lambda and no snapshot is persisted on the y-agent side. Refresh is independent from spend
 sync because the two datasets have different sources, cadence, and failure
 modes.
+
+Credentials are not y-agent's to own. For OpenAI and xAI the **vendor CLI's own
+credential file** (`~/.codex/auth.json`, `~/.grok/auth.json`) is the single
+source of truth: y-agent reads it live and, when the access token has expired,
+refreshes it at the provider's OAuth endpoint and writes the rotated grant back
+into that same vendor file, in that file's exact original shape: precisely
+what the vendor CLI would have done itself. There is no y-agent credential
+store and no y-agent login command. Anthropic handles no token here at all: its
+reader drives the `claude` CLI's own `/usage` view, and that CLI owns its grant
+end to end. Re-authentication is therefore always a **vendor** action
+(`claude login` / `codex login` / `grok login`), which is exactly what the
+expired-login card tells the user to run.
 
 ## User Stories
 
@@ -108,139 +122,186 @@ modes.
 ### Subscription limit-window status
 
 16. As a web user, I want the Live tab of the bot Usage view to show
-    subscription-limit status for both Claude and GPT (Codex), so that I can
-    choose a backend with enough available capacity before starting work
-    without adding operational status to the historical Over-time tab.
-17. As a web user, I want each provider to show both its rolling 5-hour window
-    and its rolling 1-week window, so that short-session and sustained-week
-    pressure are visible together.
-18. As a web user, I want each window to show percent used, percent remaining,
+    subscription-limit status for all three subscriptions I pay for
+    (Claude, GPT (Codex), and Grok), so that I can choose a backend with enough
+    available capacity before starting work without adding operational status
+    to the historical Over-time tab.
+17. As a user, I want each provider's numbers read straight from that provider,
+    so that limit status does not depend on a relay service staying deployed,
+    configured, and in sync, and so that a provider the relay has no usage
+    concept for can still be shown.
+18. As a web user, I want each provider to show whichever windows it actually
+    defines (Claude: rolling 5-hour and 1-week; Codex: its rolling rate-limit
+    windows; Grok: the current billing period) rather than every provider being
+    forced into one window shape, so that no card shows a permanently empty row
+    for a window its provider does not have.
+19. As a web user, I want each window to show percent used, percent remaining,
     and the reset time, so that I can judge both current headroom and how long I
     need to wait for recovery.
-19. As a web user, I want reset times rendered in my configured timezone with
+20. As a web user, I want reset times rendered in my configured timezone with
     a concise relative-time companion, so that provider timestamps are
     immediately actionable without manual conversion.
-20. As a web user, I want the status to show when it was observed and whether
+21. As a web user, I want the status to show when it was observed and whether
     it is fresh or stale, so that an old successful probe is never mistaken for
     current capacity.
-21. As a web user, I want a manual refresh control for limit-window status
-    that is separate from the spend-data refresh, so that checking subscription
-    headroom does not trigger an unrelated relay sync.
-22. As a web user, I want one provider's probe failure to leave the other
-    provider visible, with a clear unavailable state and the last successful
-    snapshot retained as stale when available, so that partial source failure
-    does not blank the whole status section.
-23. As a user with multiple relay keys or provider accounts for the same
-    backend, I want exactly one deterministically selected limit-status card,
-    so that account-wide subscription limits are not presented as bot-specific
-    quotas or duplicate backend cards.
-24. As an API consumer, I want a provider-neutral latest-status response that
-    identifies the backend, account scope, 5-hour and 1-week windows,
-    observation time, and availability state, so that future surfaces do not
-    need to parse provider-native output.
-25. As a user, I want provider-native extra windows, such as Claude's optional
+22. As a web user, I want a manual refresh control for limit-window status
+    that is separate from the spend-data refresh and that actually performs a
+    fresh read rather than replaying a cached result, so that retrying after a
+    failure is meaningful and checking headroom never triggers an unrelated
+    spend sync.
+23. As a web user, I want one provider's failure to leave the other providers
+    visible, with a clear unavailable state and the last successful snapshot
+    retained as stale when available, so that partial source failure does not
+    blank the whole status section.
+24. As a user with several accounts for the same backend, I want exactly one
+    deterministically selected limit-status card per backend, so that
+    account-wide subscription limits are not presented as bot-specific quotas
+    or duplicate backend cards.
+25. As an API consumer, I want a provider-neutral latest-status response that
+    identifies the backend, provider, account scope, the windows that provider
+    reports, observation time, and availability state, so that future surfaces
+    do not need to parse provider-native output.
+26. As a user, I want provider-native extra windows, such as Claude's optional
     model-specific weekly limit, preserved as optional metadata without
-    displacing the required 5-hour and all-model 1-week display, so that useful
-    detail is not lost while the primary comparison stays consistent.
+    displacing the primary window display, so that useful detail is not lost
+    while the cross-provider comparison stays consistent.
+27. As a user, I want a status read to never spend model tokens, so that
+    looking at my remaining allowance never consumes it.
+
+### Provider credentials
+
+28. As a user, I want y-agent to read each vendor CLI's own credential file
+    instead of keeping its own copy of my logins, so that there is exactly one
+    grant per provider and nothing for me to keep in sync.
+29. As a user, I want an expired access token refreshed automatically and the
+    rotated grant written back into that same vendor file, so that the panel
+    keeps working between my own uses of the vendor CLI and the vendor CLI
+    picks up the refresh on its next run.
+30. As a user, I want my vendor credential file left byte-identical whenever a
+    refresh fails, and never observed half-written by a vendor CLI running at
+    the same moment, so that reading a status number can never cost me a login.
+31. As a user, I want an expired or absent login surfaced as an actionable card
+    naming the **vendor** command to re-run (`claude login`, `codex login`,
+    `grok login`), so that I can fix it without knowing y-agent's internals.
+32. As a user, I want a CLI command that reports each provider's credential
+    state without ever printing token material, so that I can diagnose a dark
+    card from a terminal safely.
+33. As a user, I want Anthropic's monthly re-authentication to be the only
+    lifecycle work I do for it, with y-agent implementing no Anthropic token
+    handling at all, so that its 30-day session cap costs one login and nothing
+    more.
+
+### Read cost and availability
+
+34. As a user, I want the provider calls made from my own VM rather than from
+    Lambda, so that requests come from a stable source IP these vendors already
+    know instead of shared cloud egress.
+35. As a user, I want a stopped VM to answer the status poll immediately with
+    an explicit unreachable state instead of being started, so that opening a
+    panel never boots an instance.
+36. As a user, I want the expensive Anthropic reading cached on the VM for a
+    few minutes while the two cheap HTTP reads always run fresh, and the cached
+    reading to keep its original observation time, so that a 60-second poll
+    does not spawn a terminal session every minute and freshness never lies.
 
 ### Usage API
 
-26. As an API consumer, I want per-model daily rows filtered by source and date
+37. As an API consumer, I want per-model daily rows filtered by source and date
     range, so that any client (web, future CLI) can build its own views from
     the raw grain.
-27. As an API consumer, I want to pass a single free-text time expression using
+38. As an API consumer, I want to pass a single free-text time expression using
     the same grammar as the finance views (day, week, month, year, 2024-05,
     2024-q2, a specific date, "day-7 to day", ytd/mtd/all), so that one
     authoritative parser serves both subsystems and the usage view is not stuck
     with a weaker dialect.
-28. As an API consumer, I want the default query (no range given) to return
+39. As an API consumer, I want the default query (no range given) to return
     today's snapshot, so that the common "what is happening now" case needs no
     parameters.
-29. As an API consumer, I want a per-day totals endpoint (tokens, cost,
+40. As an API consumer, I want a per-day totals endpoint (tokens, cost,
     requests summed across models) over a rolling 12-month or single-calendar-
     year window, so that the contribution heatmap renders its full window
     independently of the Live time filter.
-30. As an API consumer, I want responses to carry only public fields (no
+41. As an API consumer, I want responses to carry only public fields (no
     internal integer ids), so that the ID convention holds on this surface like
     every other.
 
 ### Live view
 
-31. As a web user, I want a donut chart of each model's share of the selected
+42. As a web user, I want a donut chart of each model's share of the selected
     metric over the selected time range, top seven models plus an "Other"
     slice, sorted by share descending, so that I can see at a glance which
     models dominate.
-32. As a web user, I want the range totals for tokens, cost, and requests
+43. As a web user, I want the range totals for tokens, cost, and requests
     displayed inside the donut's center hole, so that headline numbers and the
     breakdown share one compact card.
-33. As a web user, I want a clean donut with a bottom dot-legend (no on-slice
+44. As a web user, I want a clean donut with a bottom dot-legend (no on-slice
     labels) and hover tooltips showing model, value, and percent share, with
     the tooltip rendering above the center overlay, so that the chart reads
     like the relay dashboard's distribution chart the user prefers.
-34. As a web user, I want a per-model table with a percent column computed
+45. As a web user, I want a per-model table with a percent column computed
     against whichever numeric column is the active sort column, so that
     "share of tokens" and "share of cost" are one click apart.
-35. As a web user, I want the table columns ordered metric-first (Tokens, Cost,
+46. As a web user, I want the table columns ordered metric-first (Tokens, Cost,
     Requests, then Input, Output, Cache), clickable-sortable, with a sticky
     header and a sticky bottom Total row, and about five rows visible before
     internal scrolling, so that the table stays compact inside the panel.
-36. As a web user on a narrow panel, I want less-important table columns
+47. As a web user on a narrow panel, I want less-important table columns
     (input/output, then cache) to hide progressively based on the panel's own
     width, so that the layout adapts to the resizable panel rather than the
     viewport.
-37. As a web user, I want a GitHub-style daily contribution heatmap (one cell
+48. As a web user, I want a GitHub-style daily contribution heatmap (one cell
     per day, weeks as columns left to right, Monday at top, a five-bucket
     sequential color scale, month labels, weekday gutter, hover tooltip with
     date and exact value, and a Less-to-More legend), so that heavy and idle
     days are visible over a year at a glance.
-38. As a web user, I want the heatmap driven by the same selected metric as the
+49. As a web user, I want the heatmap driven by the same selected metric as the
     donut and table, so that switching Tokens / Cost / Requests re-colors
     everything consistently.
-39. As a web user, I want the heatmap window decoupled from the Live time
+50. As a web user, I want the heatmap window decoupled from the Live time
     filter: a rolling month-aligned past 12 months by default, or a whole
     calendar year when the time input is a bare four-digit year, so that
     narrowing the donut to "today" never blanks the heatmap.
-40. As a web user, I want the heatmap to scale to the panel width (down to fit,
+51. As a web user, I want the heatmap to scale to the panel width (down to fit,
     up to a cap on wide panels) without horizontal scrolling, so that the full
     12-month grid is always visible.
 
 ### Over-time view
 
-41. As a web user, I want a Live | Over-time mode toggle on the usage view
+52. As a web user, I want a Live | Over-time mode toggle on the usage view
     styled after the finance viewer's mode toggle, so that the two analytics
     panels feel like one system.
-42. As a web user, I want an over-time stacked chart of the selected metric per
+53. As a web user, I want an over-time stacked chart of the selected metric per
     period, top seven models plus "Other", with daily / weekly / monthly
     granularity bucketed client-side, so that trends are visible at the grain I
     choose (the finance views stop at weekly; usage goes down to daily).
-43. As a web user, I want one metric charted at a time via a Tokens | Cost |
+54. As a web user, I want one metric charted at a time via a Tokens | Cost |
     Requests toggle, so that the axis and stacking stay meaningful.
-44. As a web user, I want a per-model-by-period table under the chart with a
+55. As a web user, I want a per-model-by-period table under the chart with a
     range-sum column and a per-column totals row consistent with the chart's
     per-period totals, so that chart and table never disagree.
-45. As a web user, I want the over-time table to open scrolled to the most
+56. As a web user, I want the over-time table to open scrolled to the most
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
-46. As a web user, I want the Daily tokens contribution widget to appear in
+57. As a web user, I want the Daily tokens contribution widget to appear in
     the Over-time tab rather than the Live tab, so that all day-by-day trend
     analysis is grouped with the other historical analytics.
-47. As a web user, I want the Over-time tab to omit Subscription limits
+58. As a web user, I want the Over-time tab to omit Subscription limits
     entirely, so that it remains focused on spend history instead of current
     provider capacity.
 
 ### Controls and state
 
-48. As a web user, I want a free-text time input accepting the shared grammar,
+59. As a web user, I want a free-text time input accepting the shared grammar,
     with independent per-mode values (Live defaults to today, Over-time
     defaults to the current month) persisted across sessions, so that each mode
     remembers its own natural window.
-49. As a web user, I want the usage view's mode, view toggle, granularity, and
+60. As a web user, I want the usage view's mode, view toggle, granularity, and
     time inputs persisted in local storage, so that the panel reopens the way I
     left it.
-50. As a web user, I want wide ranges ("all", a full year) to return complete
+61. As a web user, I want wide ranges ("all", a full year) to return complete
     data rather than silently truncating at a small row limit, so that
     long-window charts are trustworthy.
-51. As a web user, I want tokens formatted compactly (K / M / B), costs as
+62. As a web user, I want tokens formatted compactly (K / M / B), costs as
     dollars with cents, and requests as plain numbers, consistently across
     cards, charts, tooltips, and tables, so that numbers are readable at every
     scale.
@@ -327,60 +388,150 @@ modes.
 
 ### Subscription limit-window status
 
-- **Separate operational dataset, no new persistence.** Subscription limit
-  windows are current provider-account status, not spend history. They do not
-  share the daily per-model table, relay sync, date filtering, or historical
-  analytics, and y-agent does not add a second persistence layer for this
-  data: every read is a live call through CRS's self-service endpoint, which
-  is itself backed by CRS's own Redis-cached provider snapshots (refreshed on
-  CRS's own cadence). Nothing is written to y-agent's PostgreSQL and this
-  feature has no migration SQL.
-- **Normalized window contract.** Every required window exposes a stable kind
-  (`five_hour` or `one_week`), provider label, used percent, derived remaining
-  percent, absolute reset timestamp when supplied, and observation timestamp.
-  The API also reports provider/account availability and freshness. Unknown or
-  missing values stay null and visible as unavailable; they are never coerced
-  to zero. Provider-specific extra windows remain optional metadata.
-- **Claude source.** Claude status comes from CRS's cached Anthropic OAuth
-  usage snapshot (`claudeAccountService.fetchOAuthUsage()` /
-  `updateClaudeUsageSnapshot()`), which CRS already refreshes when its cache
-  is older than about a minute. The snapshot's `five_hour` value maps to the
-  required 5-hour window and `seven_day` maps to the required 1-week window;
-  the optional `seven_day_sonnet` value, when present, is retained as an extra
-  window. This is a zero-model-turn provider API read, not TUI or `/usage`
-  scraping: CRS accounts using setup-token auth cannot call the OAuth usage
-  endpoint and correctly report the required windows as unavailable rather
-  than inferring quota from session timing, tokens, costs, or response
-  warning headers.
-- **Codex source.** GPT (Codex) status comes from CRS's cached structured
-  rate-limit snapshot, captured passively from response headers on ordinary
-  Codex chat-completions traffic through the relay and stored on the selected
-  OpenAI account. CRS identifies the required windows by `windowMinutes`
-  (`300` maps to the 5-hour window, `10080` maps to the 1-week window) rather
-  than assuming primary/secondary window order, and derives the absolute
-  reset time from the snapshot's observation time. Collection is entirely
-  passive: refreshing status never issues a synthetic request and never
-  deliberately spends model tokens; if CRS holds no header snapshot yet the
-  window is reported unavailable, and an old one is reported stale.
-- **Account scope and deduplication.** Status is account-wide, scoped by
-  CRS's relay account UUID (the same identity CRS's own account management
-  view already tracks). The Usage view presents exactly one representative per
-  backend, not one row per relay key or provider account: y-agent selects the
-  best candidate deterministically, preferring a fresh available snapshot with
-  usable required windows, then stale usable data, then unavailable scope; it
-  breaks remaining ties by observation recency and stable identity fields.
-  This prevents an old relay key's unavailable shared-pool result from
-  shadowing or duplicating a newly bound dedicated account. A shared-pool key
-  with no explicit dedicated account binding still returns an explicit
-  unavailable result (`no_stable_account_scope`) when no usable candidate for
-  that backend exists, while transport failures remain separate partial errors.
-- **Refresh semantics.** Limit-window refresh is a dedicated authenticated
-  read, independent from relay spend sync: manual retry and the web view's
-  periodic poll both call the same safe endpoint, which performs no side
-  effects beyond CRS's own short-TTL cache refresh for Claude. Providers
-  refresh independently and return partial success when one target fails.
-  Freshness is determined from the snapshot's observation time and a
-  configurable status TTL, not from page-load time.
+- **Separate operational dataset, no persistence.** Subscription limit windows
+  are current provider-account status, not spend history. They do not share the
+  daily per-model table, relay sync, date filtering, or historical analytics,
+  and y-agent stores nothing: every read is live. Nothing is written to
+  PostgreSQL and this feature has no migration SQL.
+- **Three providers, three readers, one envelope.** `claude_tui_usage` for
+  anthropic (drive the `claude` CLI's own `/usage` view in an ephemeral tmux
+  session and parse the rendered pane), `codex_usage_api` for openai/codex
+  (authenticated GET of the Codex usage endpoint), `xai_billing_credits` for
+  xai (authenticated GET of the xAI CLI's billing endpoint). The three run
+  concurrently; one reader's failure is isolated into the envelope's `errors[]`
+  and can never take the other two down. There is no provider-selector flag:
+  callers take the whole envelope or nothing.
+- **claude-relay-service is not in this path at all.** The earlier design read
+  both providers through a CRS self-service endpoint backed by CRS's Redis
+  snapshots. That was removed, not wrapped: CRS's per-key fan-out, its
+  passive Codex response-header snapshot, its relay-account scoping, and the
+  `no_stable_account_scope` result no longer exist here. The daily **spend**
+  sync still runs on CRS and is untouched. CRS remains the meter for relayed
+  traffic; it is simply no longer the source of subscription status.
+- **Window kinds are per provider, not a fixed pair.** Contract kinds are
+  `five_hour`, `one_week`, and `billing_period`. Anthropic reports 5-hour and
+  1-week; Codex reports its rolling rate-limit windows, keyed on each window's
+  own reported duration and **never** on primary/secondary position (a live
+  sample returned the one-week window as "primary" with the secondary null);
+  xAI reports one `billing_period` credit-usage row with the period end as its
+  reset. A row is usable when **any** window carries a real percentage.
+  Demanding the 5-hour/1-week pair would leave Grok permanently unavailable.
+  Claude's optional model-specific weekly window is retained under
+  `extra_windows`, and a provider-specific `extra` map (xAI's prepaid balance,
+  on-demand cap/used, unified-billing flag) rides along on the window.
+- **Execution on the VM, not in Lambda.** All provider HTTP and the scrape live
+  in `y usage limits [--json] [--refresh]`, which runs on the user's VM;
+  `GET /api/usage/limits` SSH-execs it and normalizes the returned envelope.
+  The reason is source IP: shared cloud egress already drew a rate-limit
+  response from one vendor on an unauthenticated probe and another vendor is
+  Cloudflare-fronted, while the VM's address is stable and already known to all
+  three. The CLI emits exactly the envelope shape the normalizer consumes, so
+  the envelope *is* the boundary contract, pinned from both sides.
+- **Layering: transport in `agent`, normalization in `storage`.** SSH
+  orchestration, the poll memo, and the VM-asleep guard live in the `agent`
+  package; `storage` keeps pure normalization behind one public
+  `normalize_envelope(raw, ttl_seconds, origin)`: dict in, dict out, no
+  transport vocabulary. Putting the SSH call in `storage` was infeasible rather
+  than merely inelegant: `storage` declares no dependency on `agent`, the
+  dependency runs the other way, and CI resolves each package's environment
+  separately, so a `storage` import of `agent` would fail its own test job.
+- **Error vocabulary is a closed set of codes, never free text.** The CLI's
+  provider-level codes are exactly `not_logged_in`, `reauth_required`,
+  `parse_failed`, `transport_error`. The backend wrapper adds transport-level
+  codes `vm_unreachable`, `cli_failed`, `bad_payload`, plus `malformed_item` at
+  envelope level. Availability is `available`, `unavailable`, or
+  `reauth_required`. Raw exception text (which can carry a private IP or
+  hostname) reaches logs only, never a caller-visible field, and the web maps
+  every code to human copy with a generic fallback for anything unmapped.
+- **Malformed data is never a number.** Missing, non-numeric, NaN, or infinite
+  percentages normalize to null and render as unavailable; an unrecognized
+  provider response shape becomes `parse_failed`. A vendor changing its schema
+  must produce a dark card, never a fabricated 0%.
+- **Degradation rules.** Any non-`available` availability collapses to
+  `unavailable` freshness. A transient SSH/CLI failure degrades only rows that
+  were `available` into `stale` with their last percentages retained; it must
+  not overwrite an actionable per-row code such as a dead grant. A stopped EC2
+  instance answers `vm_unreachable` immediately and is never started to serve a
+  status poll; the last good snapshot returns intact on the next successful
+  read.
+- **Poll-cost guard, two layers.** A ~60s per-user in-process memo collapses a
+  burst of panel polls into one SSH round trip; the CLI separately owns a ~240s
+  on-VM cache for the scrape alone (a TUI spawn costs seconds; the two HTTP
+  reads are cheap and always run fresh). The scrape TTL sits under the 300s
+  freshness TTL so a cached reading never surfaces as stale, and a cache hit
+  keeps the **original** observation time, since restamping it would make
+  freshness lie. `--refresh` / `?refresh=true` bypasses both layers and is reachable only
+  by explicit user action: the periodic poll keys on the bare URL, and the
+  retry control is a one-shot fetch that seeds the cache without revalidating.
+- **Never spend tokens for status.** The Anthropic reader launches its
+  ephemeral session with no provider env vars, so it reads the subscription
+  grant, runs no model turn, and cannot disturb concurrent relay-backed agent
+  turns; the other two readers are plain authenticated GETs.
+- **Account scope.** Status is account-wide, and the Usage view presents
+  exactly one deterministically selected representative per backend, preferring
+  a fresh available row with usable windows, then stale usable data, then an
+  unavailable row (so a dead-grant card still renders), with ties broken by
+  observation recency and stable identity fields.
+
+### Provider credential lifecycle
+
+- **The vendor's own credential file is the single source of truth.**
+  `~/.codex/auth.json` (openai) and `~/.grok/auth.json` (xai) are read directly
+  and live. y-agent keeps **no credential store of its own** and has **no login
+  command**: `y usage login` and `$Y_AGENT_HOME/.credentials/provider-usage.json`
+  were built, shipped once, and then deliberately deleted.
+- **Anthropic handles no token at all.** Its reader asks the `claude` CLI to
+  render a number that CLI already knows, so there is no PKCE flow, no refresh
+  path, and no credential file on y-agent's side for this provider. The 30-day
+  session cap on the subscription grant still applies; y-agent implements none
+  of it and simply reports `reauth_required` when the CLI is logged out.
+- **Refresh writes back into the vendor's file.** When the access token has
+  expired (60-second margin), y-agent refreshes it at that provider's OAuth
+  endpoint and writes the rotated grant back into the same vendor file in its
+  exact original shape, i.e. what the vendor CLI would have done itself. Both
+  providers rotate `refresh_token` on use, so writing back is mandatory, not a
+  convenience.
+- **Write safety is the contract, not an implementation detail.** Every write
+  takes an exclusive advisory lock on a sibling `.lock` file (never the
+  credential file itself), re-reads the file under that lock (a concurrent
+  refresh makes this one a no-op instead of racing it), writes through a
+  same-directory temp file with `fsync` plus atomic `os.replace`, preserves the
+  original mode, preserves every unrelated field, and **never writes unless a
+  refresh has already succeeded**, so any failure path leaves the file
+  byte-identical.
+- **File shapes were live-verified, not inferred.** The Codex file nests the
+  grant under `tokens` and carries no expiry field, so the access token's own
+  JWT `exp` claim is the expiry; the Grok file nests its record under a dynamic
+  `"{issuer}::{client_id}"` key that must be discovered generically rather than
+  hardcoded, and the rotated grant is written back under that same key.
+- **Why the original design died (do not re-derive it).** The first design had
+  y-agent hold its **own copy** of each grant, imported from the vendor CLI.
+  Live evidence killed it: OpenAI revokes prior sessions account-wide on a new
+  `codex login`, so the copied grant came back with a real
+  `401 refresh_token_invalidated` and would have done so after every future
+  `codex login`. xAI tolerates concurrent grants; OpenAI does not. Reading
+  through removes the second grant entirely, so there is nothing left for a
+  vendor login to invalidate and no per-provider login ordering to get right.
+- **A read-only variant is rejected too, on separate evidence.** Reading the vendor's
+  already-refreshed access token and never refreshing it goes dark whenever
+  that token expires between the user's own CLI sessions, which makes a
+  60-second-polled panel depend on unrelated CLI habits. And since both
+  providers rotate the refresh token on use, refreshing *without* writing back
+  is precisely what killed the live `codex` login during this work.
+- **Re-auth is always a vendor action.** `claude login`, `codex login`,
+  `grok login`, which is exactly what the `reauth_required` card names.
+  `y usage credentials` reports each provider's state (`active` /
+  `reauth_required` / `not_logged_in`) by exercising the real refresh path, and
+  never prints token material.
+- **Calibration, recorded because it cost real time.** Much of the original
+  design was reverse-engineered from CRS source and strings grepped out of
+  shipped vendor binaries. Of the five such wire shapes later checked against a
+  live response, **five were wrong**: the Grok credential file's nesting, the
+  Codex usage response, the xAI billing response, the `/usage` overlay labels,
+  and OpenAI's `invalid_grant` error shape (flat for xAI, nested for OpenAI).
+  Treat any undocumented vendor shape as a hypothesis until a live response
+  confirms it, and write parsers that fail loudly (null / `parse_failed`)
+  rather than silently mis-parsing.
 
 ### Usage API
 
@@ -407,16 +558,15 @@ modes.
   ranges never truncate; per-model daily rows are small enough that this is
   safe.
 - **Latest limit status.** A provider-neutral, authenticated endpoint
-  (`GET /api/usage/limits`) fans out live to every distinct CRS relay key the
-  user's bot configs reference, normalizes each returned provider-account
-  entry (used/remaining percent, absolute reset time, observation time,
-  availability, freshness), then selects one deterministic best candidate per
-  backend across all relay keys and account identities. One relay key's failure is isolated to a per-origin error list
-  rather than failing the whole read; manual retry and the web view's
-  periodic poll both call this same endpoint, with no separate refresh action
-  and no persisted snapshot on the y-agent side. Responses omit internal
-  integer ids and never fabricate a current value after a probe failure:
-  missing or malformed data stays null and visibly unavailable.
+  (`GET /api/usage/limits[?refresh=true]`) SSH-execs the VM CLI's one-shot
+  read, normalizes each returned provider entry (used/remaining percent,
+  absolute reset time, observation time, availability, freshness), and selects
+  one deterministic best candidate per backend. A single reader's failure is
+  isolated into a per-origin error list rather than failing the whole read;
+  manual retry and the web view's periodic poll call this same endpoint, the
+  former with `refresh=true`, and nothing is persisted on the y-agent side.
+  Responses omit internal integer ids and never fabricate a current value after
+  a failed read: missing or malformed data stays null and visibly unavailable.
 
 ### Web views
 
@@ -431,10 +581,16 @@ modes.
   immediate routing/capacity question rather than an analytics question. It
   is not rendered or fetched for the Over-time tab, which remains a
   historical-spend-only view.
-  Claude and GPT (Codex) use the same two-window card structure: progress bar,
-  used/remaining percentages, reset time, observed time, and fresh/stale/
-  unavailable badge. Provider failures are isolated and the limit refresh
-  control is visually and behaviorally separate from spend refresh.
+  Claude, GPT (Codex), and Grok share one card structure that renders whichever
+  windows the provider reported (progress bar, used/remaining percentages,
+  reset time, observed time, and a fresh/stale/unavailable badge), with a
+  dedicated "no windows reported" state rather than empty rows. A
+  `reauth_required` provider renders an actionable card naming the vendor login
+  to re-run, distinct from plain unavailable and from `vm_unreachable`. Cards
+  are classified from stable `backend`/`provider` identifiers, never from
+  display text. Provider failures are isolated, the envelope's error list shows
+  as a partial-read badge, and the limit refresh control is visually and
+  behaviorally separate from spend refresh.
 - **Metric selector.** One metric at a time (Tokens default, Cost, Requests),
   shared by the donut, heatmap, over-time chart, and tables' default sort.
   Tokens means total tokens including cache.
@@ -494,42 +650,64 @@ modes.
   real off-by-one class once already.
 - **API responses are checked for the ID convention** (no internal integer
   ids) and for the default-today behavior when no range is supplied.
-- **Provider mapping is contract-tested on the CRS side** with captured
-  Anthropic OAuth usage payloads and Codex rate-limit response headers:
-  300-minute and 10080-minute windows normalize to the required
-  `five_hour`/`one_week` kinds (never assumed from primary/secondary window
-  order), reset timestamps survive conversion, optional extra windows do not
-  replace required ones, and missing/malformed values become unavailable
-  rather than 0%. y-agent's own normalization (remaining-percent derivation,
-  freshness) is contract-tested against captured CRS envelope fixtures
-  covering the same cases, plus target dedup, per-origin partial failure,
-  available-versus-`no_stable_account_scope` candidate selection, and
-  multi-key one-card-per-backend selection.
-- **Failure and freshness behavior is tested externally:** one provider can
-  fail while the other succeeds; a failed refresh retains the last successful
-  snapshot as stale with an error; account-equivalent bot configs deduplicate;
-  multiple provider accounts and relay keys resolve to one deterministic best
-  candidate per backend while origin errors remain separate; refresh never
-  launches a paid model turn solely to obtain status.
-- **Frontend changes gate on the strict TypeScript build**, with chart and
-  table consistency checked by construction (chart per-period totals equal
-  table column totals because both derive from the same fold), and visual
-  states (donut center overlay, tooltip stacking, heatmap fit, scroll
-  positions) verified via headless-browser screenshots against real data,
-  stored under the shared screenshots directory.
+- **Provider mapping is contract-tested per reader** against captured live
+  responses (not reverse-engineered shapes): Codex windows normalize by their
+  own reported duration rather than array position, xAI's billing payload
+  yields one `billing_period` window with the period end as its reset, the
+  Anthropic pane parser is pinned by fixture, reset strings become absolute
+  timestamps, optional extra windows never displace primary ones, and
+  missing/malformed values become unavailable rather than 0%.
+- **The CLI↔backend envelope is pinned from both sides:** the exact argv
+  (`y usage limits --json`, plus `--refresh` only when requested) and timeout
+  are asserted through a mocked command runner, and the normalizer is tested
+  against envelopes in exactly the shape the CLI emits.
+- **Degradation paths are driven end to end, not read off the diff:** a
+  transient SSH/CLI failure degrades an available row to stale while leaving a
+  `reauth_required` row's actionable code intact; a stopped instance answers
+  `vm_unreachable` with no wake attempt (asserted by the command never being
+  run); valid-JSON-wrong-shape yields an explicit `bad_payload` rather than an
+  empty-looking success; a Grok-only row is available and fresh; malformed
+  percentages normalize to null.
+- **Credential write safety is tested on the file, not the code path:** a
+  failed refresh leaves the vendor file byte-identical (hash before/after); a
+  successful refresh preserves every unrelated field, the file mode, and Grok's
+  dynamic nesting key; both the flat and the nested `invalid_grant` error
+  shapes map to `reauth_required` without raising; a missing or empty file
+  reads as `not_logged_in`.
+- **Refresh cannot ride the poll:** every SWR key is swept to assert none
+  carries `refresh`, the retry is asserted to be a single one-shot fetch of the
+  `?refresh=true` URL that seeds the cache with revalidation suppressed, and
+  the backend is asserted to skip its memo only when the flag is set.
+- **Failure and freshness behavior is tested externally:** one reader can fail
+  while the others succeed; a failed read retains the last successful snapshot
+  as stale with an error code; several candidates resolve to one deterministic
+  card per backend while origin errors stay separate; an unavailable candidate
+  is still returned so a dead-grant card renders at all; no read launches a
+  paid model turn solely to obtain status.
+- **Raw codes never render as prose:** the UI is asserted not to emit an error
+  code as a text node, and unmapped codes fall back to generic copy.
+- **Frontend changes gate on typecheck, build, and unit tests.** The honest
+  bar is "no new type errors versus HEAD", verified against a detached
+  worktree of HEAD rather than asserted, because the project's baseline
+  `tsc --noEmit` is not clean. Chart and table consistency is checked by
+  construction (chart per-period totals equal table column totals because both
+  derive from the same fold).
 - **Tab-scoping visual checks** confirm that Live shows Subscription limits but
   not the Daily tokens widget, while Over-time shows the Daily tokens widget
   but never renders or requests Subscription limits.
-- **Limit-status visual states** cover fresh, stale, never-observed,
-  provider-error, missing-reset-time, and narrow-panel layouts for both
-  backends, with configured-timezone reset labels checked against the absolute
-  API timestamps.
+- **Limit-status states** cover fresh, stale, never-observed, provider-error,
+  re-auth-required, missing-reset-time, zero-windows-reported, and narrow-panel
+  layouts across all three backends, with configured-timezone reset labels
+  checked against the absolute API timestamps. These are asserted in component
+  tests and fixtures; screenshots are taken only on request, per the house
+  policy that agent-driven UI runtime checks are opt-in.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
-  day, spot-check a date's totals against the relay dashboard, refresh both
-  providers' limit status, confirm the web poll and manual retry never
-  trigger a relay spend sync or a provider inference request (checked via the
-  browser Network panel), and compare their 5-hour/1-week values and reset
-  times against CRS's own account management view.
+  day, spot-check a date's totals against the relay dashboard, then call the
+  deployed limits endpoint and confirm all three providers return with an empty
+  error list; cross-check the Claude numbers against `/usage` in an interactive
+  Claude Code session and the Grok number against the vendor's own billing
+  view, and confirm a relay-backed agent turn running concurrently is
+  unaffected.
 - Prior art to mirror: the finance test suite's derived-view style and the
   finance price table's upsert tests.
 
@@ -539,15 +717,17 @@ modes.
 |------|---------|--------|------|-----------|--------|--------|
 | 2887 | Stacked bar segments ordered by per-bar descending share | - | - | - | `pages/review-2887-usage-stack-order.md` | shipped |
 | 2890 | Daily tokens heatmap weeks start Monday instead of Sunday | - | - | - | - | shipped |
+| 2872 | Subscription limit windows read directly from Anthropic / OpenAI / xAI instead of claude-relay-service: three providers, per-provider window kinds, VM-side CLI reads, and read-through of each vendor CLI's own credential file | - | `pages/plan-2872-direct-provider-usage.md` (supersedes `pages/plan-2872-provider-usage-window-ownership.md`) | this PRD | `pages/review-2872-backend-usage-limits.md`, `pages/review-2872-backend-usage-limits-round2.md`, `pages/review-2872-web-usage-cards.md` | shipped (`09df56b` backend, `dfd75a2` web, `0c2c773` CLI, `3acdbc7` read-through) |
 
 ## Out of Scope
 
 - **Per-key, per-account, or per-bot usage attribution.** Only the global
   per-model daily aggregate is stored; per-bot display is a loose model-name
   match for presentation only.
-- **Sources other than the relay.** Perplexity, Gemini CLI, and any tool's
-  internal accounting are not ingested; a future non-relay pipe would add a
-  new `source` value to the same table.
+- **Spend sources other than the relay.** Perplexity, Gemini CLI, and any
+  tool's internal accounting are not ingested; a future non-relay pipe would
+  add a new `source` value to the same table. The relay stays the meter for
+  relayed spend even though it is no longer the source of limit windows.
 - **Streaming usage capture** in the relay's chat-completions path (extend
   the relay's stream parser before any in-scope bot switches to streaming).
 - **History older than the relay's ~32-day daily retention** (expired in
@@ -556,14 +736,42 @@ modes.
   large) and a shared web chart-helper library extraction (follow-up).
 - **Relay admin credentials in the deployed system** (backfill stays a manual
   one-shot with invocation-time credentials).
-- **A CLI listing/reporting surface** for usage rows (only sync and backfill
-  commands exist; no consumer has asked for a terminal view).
+- **A CLI listing/reporting surface** for spend rows (only sync and backfill
+  commands exist; no consumer has asked for a terminal view). The limit-window
+  side does have one, `y usage limits`, because the backend is built on it.
 - **Rated / list-price cost reporting** (only real billed cost is stored and
   shown).
 - **Historical limit-window analytics, alerts, or forecasting.** The feature
   retains the latest successful snapshot for display; notification thresholds
   remain owned by specialized monitoring skills, and predicting exhaustion is
   not part of the bot page.
-- **Combining Claude and Codex percentages into one quota.** Their subscription
-  limits are provider-account-specific and are displayed side by side, never
-  summed, averaged, or treated as interchangeable capacity.
+- **Combining providers' percentages into one quota.** Their subscription
+  limits are provider-account-specific, and Grok's is a billing period rather
+  than a rolling window; the three are displayed side by side, never summed,
+  averaged, or treated as interchangeable capacity.
+- **A y-agent-owned credential store or login command.** Deliberately deleted,
+  not deferred (see the credential-lifecycle rationale). Also out: encryption
+  at rest for the vendor credential files (already 0600 on a single-user box),
+  and automating Anthropic's monthly re-authorization via a stored browser
+  cookie.
+- **Waking the VM to serve a status poll**, and rendering the xAI `extra` map
+  (prepaid balance, on-demand cap/used) in the card, which is carried as a
+  contract field only.
+- **A Grok rate-limit (429) badge.** The billing-period row is the better
+  signal.
+
+### Known follow-ups (recorded, not fixed here)
+
+- **Refresh-window race.** y-agent holds its lock across the refresh network
+  call, then `os.replace`s a snapshot taken before that call, so a `codex
+  login` completing during the round trip can be overwritten. The fix is to
+  re-read the on-disk `refresh_token` under the lock immediately before
+  writing.
+- **Missing byte-identity test for a transport exception out of the refresh
+  function.** The failure path is covered for a rejected grant, not for a
+  connection error raised mid-refresh.
+- **`y usage credentials` raises an httpx traceback on a network blip** where
+  it should print a status line like every other outcome.
+- **Unresolved probe:** whether a cheap vendor command could make the vendor
+  CLI refresh its own credential file, so y-agent would only ever read it and
+  never write at all. That would retire the entire write-safety surface above.
