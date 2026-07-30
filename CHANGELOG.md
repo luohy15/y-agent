@@ -14,13 +14,14 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **Dynamic UI artifacts (2412)**: user-owned versioned React panels that live outside the app bundle. `y ui` CLI (`create`/`publish`/`list`/`versions`/`activate`/`rollback`/`enable`/`click`) builds `.tsx` sources with esbuild, stores immutable versions, and activates/rolls back by pointer; the web host loads published modules at runtime via integrity-checked dynamic import, mounts them in the ActivityBar next to built-ins, and exposes a shared `@y/host` contract (React, SWR, auth fetch, theme, badges, list states) so artifacts share the host instance instead of rebundling it.
-- **English correction subsystem (2871)**: new `english_correction` entity/repository/service/controller plus `y english` CLI (`add`/`list`/`get`/`click`/`dismiss`/`pending`/`mark-scanned`) and a web `EnglishList`/`EnglishView` panel with inline word-diff rendering, for hourly offline grammar-correction scans of the user's own chat prose.
+- **English correction subsystem (2871)**: new `english_correction` entity/repository/service/controller plus `y english` CLI (`add`/`list`/`get`/`dismiss`/`pending`/`mark-scanned`) and a web `EnglishList`/`EnglishView` panel with inline word-diff rendering, for hourly offline grammar-correction scans of the user's own chat prose.
 - **Tags panel (2838)**: read-only Tags activity-bar panel over the `entity_tag` store, with a slash-hierarchy vocabulary tree, search, prefix roll-up counts, and click-to-navigate drill-down across all ten carrier types.
 
 ### Changed
 - **`y todo get` History opt-in**: History is hidden by default (it drowned out todo content on long tasks) and only shown when `--history` is passed.
 
 ### Fixed
+- **English correction pending scan (2871)**: `y english pending` returned zero messages for every window, because the scan expected `chat.json_content` to be a bare message list when it is really `Chat.to_dict()` (an object with a `messages` key), so the hourly loop could never produce a correction. A wide `--since` also OOM-killed the API Lambda: the scan now streams chats in batches (public id + content columns only) and keeps just the oldest `--limit` candidates, so peak memory stays flat instead of scaling with the window, and batch dedup is a single keyed query rather than one lookup per candidate.
 - **Daily tokens heatmap week start**: BotViewer Daily tokens heatmap weeks now start Monday (Mon-top / Sun-bottom columns, padding, close-on-Sunday, weekday gutter labels) instead of Sunday.
 
 ### Removed

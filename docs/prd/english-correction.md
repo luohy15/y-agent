@@ -87,12 +87,26 @@ this delivery.
   pipeline (`worker/runner.py`, post-hooks, streaming). It reads chat history
   after the fact and writes to its own table; the chat/message write path is
   untouched.
-- **Read path (existing)**: the skill reads new user messages via the
-  existing `y chat list` / `y chat get` CLI, bounded by the routine's own
-  `last_run_at` (or the correction table's own high-water mark) so each run
-  only scans messages since the previous run — no full-table rescans.
-- **Message eligibility filter** (applied by the skill before calling the
-  LLM):
+- **Read path**: the skill reads new user messages via `y english pending`,
+  which returns already-filtered eligible messages so each run only scans
+  messages since the previous run — no full-table rescans.
+- **Scan watermark**: the scan window is bounded by an explicit watermark in
+  `user_preference` (key `english_correction_scan`, value
+  `{"scanned_through_unix": <unix ms>}`), advanced by the skill via
+  `y english mark-scanned <unix>` after it has written that batch's
+  corrections. Neither the correction table nor the routine's `last_run_at`
+  can serve as the high-water mark: an eligible message with no errors
+  produces no row (so it would be re-sent to the LLM forever), and
+  `fire_routine` stamps `last_run_at` to "now" before the session starts, so
+  the previous value is already gone by the time the skill runs. The two-phase
+  read-then-mark shape means a crashed run re-reads its batch instead of
+  skipping it; re-processing stays safe via the
+  `UNIQUE(user_id, chat_id, message_id)` dedup constraint. With no watermark
+  yet, `pending` looks back one routine period (1 hour) rather than the whole
+  chat history, and caps each run at `--limit` (default 50) messages.
+- **Message eligibility filter** (deterministic Python in
+  `storage/src/storage/service/english_correction.py`, applied by the skill
+  via `y english pending` before calling the LLM, so it stays unit-testable):
   - `role == "user"` only (never correct assistant output).
   - Skip messages whose content starts with the `[trace:... from:...]`
     dispatch prefix (see `api/src/api/controller/chat.py` notify path) —
@@ -104,6 +118,9 @@ this delivery.
 - **New entity** `english_correction` (`storage/src/storage/entity/`):
   `id` (PK), `user_id` (FK), `correction_id` (public string ID), `chat_id`
   (public chat id), `message_id` (the source message's own `id` field),
+  `message_at` / `message_at_unix` (the source message's own timestamp, ISO
+  8601 and unix ms — the watermark math and every time shown in the panel
+  refer to when the message was written, not when the hourly run stored it),
   `original_text`, `corrected_text`, `error_categories` (JSON string array,
   free-form categories emitted by the LLM — no fixed enum in v1), `explanation`
   (text), `dismissed` (boolean, default false), `created_at`. The diff itself
@@ -118,6 +135,11 @@ this delivery.
   - `y english list` / `y english get <correction_id>` — read path, shared by
     manual inspection and the API controller backing the web panel.
   - `y english dismiss <correction_id>` — marks `dismissed=true`.
+  - `y english pending [--limit N] [--since <unix|iso>]` — the skill's read
+    path: emits the eligible unscanned messages as JSON (machine interface),
+    plus the batch's `scan_through_unix`.
+  - `y english mark-scanned <unix>` — advances the scan watermark once the
+    batch's corrections are written.
   - `list` supports the standard time-filter flag set (`--on` /
     `--from`/`--to` / `--created-on` etc.), canonical field `created_at`.
 - **API**: new controller under `api/src/api/controller/` following the
@@ -174,4 +196,4 @@ this delivery.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 2871 | PRD and standalone English Corrections panel design approved; implementation deferred | `pages/design-2871.html` | - | - | - | designed |
+| 2871 | Storage / API / `y english` CLI / web panel + detail view built; `english-correction` skill and hourly routine registered (disabled) | `pages/design-2871.html` | `pages/plan-2871-english-correction.md` | - | `pages/review-2871-english-correction.md`, `pages/review-2871-english-correction-s5-skill.md` | implemented |

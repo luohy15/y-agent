@@ -1,6 +1,6 @@
 """Function-based english_correction repository using SQLAlchemy sessions."""
 
-from typing import List, Optional
+from typing import List, Optional, Set, Tuple
 
 from sqlalchemy import cast, String
 
@@ -105,6 +105,23 @@ def find_by_message(
             .first()
         )
         return _entity_to_dto(row) if row else None
+
+
+def list_message_keys(
+    user_id: int, since_unix: Optional[int] = None
+) -> Set[Tuple[str, str]]:
+    """Return the (chat_id, message_id) pairs already corrected in the window.
+
+    Used by the pending scan to dedup a whole batch with one query instead of a
+    `find_by_message` per candidate.
+    """
+    with get_db() as session:
+        q = session.query(
+            EnglishCorrectionEntity.chat_id, EnglishCorrectionEntity.message_id
+        ).filter_by(user_id=user_id)
+        if since_unix is not None:
+            q = q.filter(EnglishCorrectionEntity.message_at_unix >= since_unix)
+        return {(row[0], row[1]) for row in q}
 
 
 def save_correction(user_id: int, correction: EnglishCorrection) -> EnglishCorrection:

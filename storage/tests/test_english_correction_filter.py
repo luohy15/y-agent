@@ -12,7 +12,10 @@ import storage.entity.chat  # noqa: F401
 import storage.entity.english_correction  # noqa: F401
 import storage.entity.user  # noqa: F401
 import storage.entity.user_preference  # noqa: F401
+from storage.dto.chat import Chat, Message
 from storage.entity.chat import ChatEntity
+from storage.repository import chat as chat_repo
+from storage.repository import english_correction as correction_repo
 from storage.service import english_correction as eng_service
 from storage.util import get_unix_timestamp, get_utc_iso8601_timestamp
 
@@ -34,6 +37,30 @@ class FilterTestCase(unittest.TestCase):
     def tearDown(self):
         dbbase._engine = self._orig_engine
         dbbase._SessionLocal = self._orig_session_local
+
+    def _insert_chat(self, chat_id, messages, updated_at_unix, raw_json=None):
+        # json_content is persisted as json.dumps(Chat.to_dict()) — build it
+        # through the real DTO so the fixture cannot drift from production.
+        if raw_json is None:
+            chat = Chat(
+                id=chat_id,
+                create_time=get_utc_iso8601_timestamp(),
+                update_time=get_utc_iso8601_timestamp(),
+                messages=[Message.from_dict(m) for m in messages],
+            )
+            raw_json = json.dumps(chat.to_dict())
+        with dbbase.get_db() as session:
+            entity = ChatEntity(
+                user_id=1,
+                chat_id=chat_id,
+                json_content=raw_json,
+                status="idle",
+                unread=False,
+            )
+            entity.updated_at_unix = updated_at_unix
+            entity.created_at_unix = updated_at_unix
+            session.add(entity)
+            session.flush()
 
 
 def _msg(role="user", content="I already finish the draft today.", mid="m1", ts=None, **extra):
@@ -119,20 +146,6 @@ class IsEligibleTest(FilterTestCase):
 
 
 class WatermarkPendingTest(FilterTestCase):
-    def _insert_chat(self, chat_id, messages, updated_at_unix):
-        with dbbase.get_db() as session:
-            entity = ChatEntity(
-                user_id=1,
-                chat_id=chat_id,
-                json_content=json.dumps(messages),
-                status="idle",
-                unread=False,
-            )
-            entity.updated_at_unix = updated_at_unix
-            entity.created_at_unix = updated_at_unix
-            session.add(entity)
-            session.flush()
-
     def test_pending_then_mark_scanned_excludes_message(self):
         now = get_unix_timestamp()
         msg = _msg(
@@ -176,6 +189,129 @@ class WatermarkPendingTest(FilterTestCase):
         )
         pending = eng_service.list_pending(1, since_unix=now - 60_000)
         self.assertEqual(pending["messages"], [])
+
+    def test_pending_reads_real_chat_to_dict_shape(self):
+        """Regression: json_content is an object with a `messages` key, not a list."""
+        now = get_unix_timestamp()
+        msg = _msg(
+            content="register a routine and run it once to see effects",
+            mid="msg-3",
+            ts=now - 20_000,
+        )
+        self._insert_chat("chat-3", [msg], updated_at_unix=now)
+
+        with dbbase.get_db() as session:
+            stored = json.loads(
+                session.query(ChatEntity)
+                .filter_by(chat_id="chat-3")
+                .first()
+                .json_content
+            )
+        self.assertIsInstance(stored, dict)
+        self.assertIn("messages", stored)
+
+        pending = eng_service.list_pending(1, since_unix=now - 60_000)
+        self.assertEqual([m["message_id"] for m in pending["messages"]], ["msg-3"])
+        self.assertEqual(pending["messages"][0]["text"], msg["content"])
+        self.assertEqual(pending["scan_through_unix"], msg["unix_timestamp"])
+
+    def test_pending_reads_a_chat_written_by_the_real_writer(self):
+        """End-to-end: production writer (_save_chat_sync) -> production reader."""
+        now = get_unix_timestamp()
+        msg = _msg(
+            content="register a routine and run it once to see effects",
+            mid="msg-e2e",
+            ts=now - 15_000,
+        )
+        chat = Chat(
+            id="chat-e2e",
+            create_time=get_utc_iso8601_timestamp(),
+            update_time=get_utc_iso8601_timestamp(),
+            messages=[Message.from_dict(msg)],
+        )
+        chat_repo._save_chat_sync(1, chat)
+
+        pending = eng_service.list_pending(1, since_unix=now - 60_000)
+        self.assertEqual([m["message_id"] for m in pending["messages"]], ["msg-e2e"])
+        self.assertEqual(pending["messages"][0]["chat_id"], "chat-e2e")
+        self.assertGreater(pending["scan_through_unix"], pending["since_unix"])
+
+    def test_pending_accepts_bare_list_json_content(self):
+        now = get_unix_timestamp()
+        msg = _msg(content="I already finish the draft today.", mid="msg-4", ts=now - 5_000)
+        self._insert_chat(
+            "chat-4", [msg], updated_at_unix=now, raw_json=json.dumps([msg])
+        )
+        pending = eng_service.list_pending(1, since_unix=now - 60_000)
+        self.assertEqual([m["message_id"] for m in pending["messages"]], ["msg-4"])
+
+
+class PendingBoundingTest(FilterTestCase):
+    """The scan must stay bounded no matter how wide the window is."""
+
+    def _seed(self, chats=6, per_chat=10, base=None):
+        base = base or get_unix_timestamp() - 30 * 24 * 60 * 60 * 1000
+        expected = []
+        for c in range(chats):
+            messages = []
+            for i in range(per_chat):
+                ts = base + (c * per_chat + i) * 1000
+                mid = f"c{c}-m{i}"
+                messages.append(
+                    _msg(
+                        content="I already finish the draft and will send you the PR.",
+                        mid=mid,
+                        ts=ts,
+                    )
+                )
+                expected.append((ts, mid))
+            self._insert_chat(f"chat-{c}", messages, updated_at_unix=base + 10**6)
+        expected.sort()
+        return base, expected
+
+    def test_limit_returns_globally_oldest_candidates(self):
+        base, expected = self._seed()
+        pending = eng_service.list_pending(1, since_unix=base - 1, limit=7)
+
+        self.assertEqual(len(pending["messages"]), 7)
+        self.assertEqual(
+            [m["message_id"] for m in pending["messages"]],
+            [mid for _ts, mid in expected[:7]],
+        )
+        # Watermark advances to the batch max, so the remainder is picked up next run.
+        self.assertEqual(pending["scan_through_unix"], expected[6][0])
+        self.assertLess(pending["scan_through_unix"], expected[-1][0])
+
+        eng_service.set_watermark(1, pending["scan_through_unix"])
+        nxt = eng_service.list_pending(1, limit=7)
+        self.assertEqual(
+            [m["message_id"] for m in nxt["messages"]],
+            [mid for _ts, mid in expected[7:14]],
+        )
+
+    def test_wide_window_does_not_scale_queries_with_candidates(self):
+        """Dedup is one keyed query, not a lookup per candidate."""
+        base, _expected = self._seed()
+        calls = []
+        original = correction_repo.find_by_message
+        correction_repo.find_by_message = lambda *a, **kw: calls.append(a) or None
+        try:
+            pending = eng_service.list_pending(1, since_unix=base - 1, limit=5)
+        finally:
+            correction_repo.find_by_message = original
+
+        self.assertEqual(len(pending["messages"]), 5)
+        self.assertEqual(calls, [])
+
+    def test_limit_is_clamped_to_max(self):
+        base, _expected = self._seed(chats=2, per_chat=5)
+        original_max = eng_service.MAX_LIMIT
+        eng_service.MAX_LIMIT = 3
+        try:
+            pending = eng_service.list_pending(1, since_unix=base - 1, limit=10_000)
+        finally:
+            eng_service.MAX_LIMIT = original_max
+        self.assertEqual(len(pending["messages"]), 3)
 
 
 if __name__ == "__main__":

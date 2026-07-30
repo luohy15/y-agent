@@ -67,6 +67,15 @@ entity + controller + service + CLI slices, and most have a web panel.
   first. `/file/move` has the same hazard with no guard yet (todo 2888 follow-up).
 - **Entity (knowledge graph)** — `entity` + `entity_note_relation` + `entity_rss_relation`.
   Web sidebar exposes entities as a first-class panel.
+- **English correction** — offline hourly loop over the user's own English chat prose.
+  A disabled-by-default routine fires the `english-correction` skill, which reads
+  eligible messages from `y english pending`, writes minimal corrections via
+  `y english add`, and advances the scan watermark (`user_preference` key
+  `english_correction_scan`) with `y english mark-scanned`. Eligibility is
+  deterministic Python in `storage/service/english_correction.py` (user role, has an
+  `id`, not a `[trace:...]` / `[routine:...]` / bootstrap message, prose, majority
+  English); the live chat pipeline is untouched. The diff is computed at read time in
+  the web `English` panel, never stored.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
@@ -137,6 +146,7 @@ exceptions noted):
   `entity_note_relation`, `entity_rss_relation`
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
   coordination, no service)
+- **English learning**: `english_correction`
 - **Dev / trace**: `dev_worktree`, `trace_share`
 - **Configuration**: `bot_config`, `vm_config`
 - **Email**: `email`, `email_account`
@@ -153,7 +163,7 @@ Grouped by feature area:
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
   `note_todo_relation.py`, `entity.py`, `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
-  `finance.py`
+  `finance.py`, `english_correction.py`
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
   `bot_config.py`, `dev_worktree.py`, `tg_topic.py`
 
@@ -198,7 +208,7 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `file`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
+  `file`, `english`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,

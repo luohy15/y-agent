@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import heapq
 import json
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from storage.database.base import get_db
 from storage.dto.english_correction import EnglishCorrection
@@ -15,6 +16,8 @@ from storage.util import generate_id, get_unix_timestamp
 
 WATERMARK_KEY = "english_correction_scan"
 DEFAULT_LIMIT = 50
+MAX_LIMIT = 500
+CHAT_STREAM_BATCH = 20  # chats pulled per round-trip while streaming the scan
 DEFAULT_BOOTSTRAP_LOOKBACK_MS = 60 * 60 * 1000  # 1 hour
 DEFAULT_MIN_WORDS = 5
 DEFAULT_ENGLISH_RATIO = 0.6
@@ -234,6 +237,55 @@ def _resolve_since(user_id: int, since_unix: Optional[int]) -> int:
 # Pending scan
 # ---------------------------------------------------------------------------
 
+def _iter_chat_messages(json_content: Optional[str]) -> Iterator[Dict[str, Any]]:
+    """Yield message dicts out of a persisted `chat.json_content` blob.
+
+    The blob is `json.dumps(Chat.to_dict())`, i.e. an object with a `messages`
+    key. A bare list is also accepted so hand-built fixtures keep working.
+    """
+    try:
+        raw = json.loads(json_content or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return
+    if isinstance(raw, dict):
+        raw = raw.get("messages")
+    if not isinstance(raw, list):
+        return
+    for msg in raw:
+        if isinstance(msg, dict):
+            yield msg
+
+
+def _iter_candidates(
+    chat_id: str,
+    json_content: Optional[str],
+    since: int,
+    already_corrected: Set[Tuple[str, str]],
+) -> Iterator[Dict[str, Any]]:
+    for msg in _iter_chat_messages(json_content):
+        ts = msg.get("unix_timestamp")
+        if ts is None:
+            continue
+        ts = int(ts)
+        if ts <= since:
+            continue
+        message_id = msg.get("id")
+        if not message_id:
+            continue
+        if (chat_id, message_id) in already_corrected:
+            continue
+        eligible, _reason = is_eligible(msg)
+        if not eligible:
+            continue
+        yield {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "message_at": msg.get("timestamp") or "",
+            "message_at_unix": ts,
+            "text": _message_text(msg),
+        }
+
+
 def list_pending(
     user_id: int,
     since_unix: Optional[int] = None,
@@ -248,61 +300,41 @@ def list_pending(
         "since_unix": <resolved lower bound>,
       }
     Messages already stored as corrections are excluded.
+
+    Memory is bounded regardless of how wide `since_unix` is: chats are streamed
+    one batch at a time (only `chat_id` + `json_content`, no ORM identity map)
+    and only the oldest `limit` candidates are kept, so an arbitrarily large
+    window costs one chat blob plus `limit` rows.
     """
     since = _resolve_since(user_id, since_unix)
-    limit = max(1, min(int(limit or DEFAULT_LIMIT), 500))
+    limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
 
-    candidates: List[Dict[str, Any]] = []
+    # One bounded query for the dedup keys, instead of a lookup per candidate.
+    already_corrected = correction_repo.list_message_keys(user_id, since_unix=since)
+
+    # Max-heap (negated timestamp) capped at `limit`, so the newest candidate is
+    # the one evicted once the batch is full.
+    heap: List[Tuple[int, int, Dict[str, Any]]] = []
+    seq = 0
     with get_db() as session:
-        chats = (
-            session.query(ChatEntity)
+        rows = (
+            session.query(ChatEntity.chat_id, ChatEntity.json_content)
             .filter(
                 ChatEntity.user_id == user_id,
                 ChatEntity.updated_at_unix >= since,
             )
-            .all()
+            .yield_per(CHAT_STREAM_BATCH)
         )
-        for chat in chats:
-            try:
-                raw = json.loads(chat.json_content or "[]")
-            except (TypeError, json.JSONDecodeError):
-                continue
-            if not isinstance(raw, list):
-                continue
-            for msg in raw:
-                if not isinstance(msg, dict):
-                    continue
-                eligible, _reason = is_eligible(msg)
-                if not eligible:
-                    continue
-                ts = msg.get("unix_timestamp")
-                if ts is None:
-                    continue
-                ts = int(ts)
-                if ts <= since:
-                    continue
-                message_id = msg.get("id")
-                if not message_id:
-                    continue
-                # Skip messages already corrected
-                if correction_repo.find_by_message(user_id, chat.chat_id, message_id):
-                    continue
-                candidates.append(
-                    {
-                        "chat_id": chat.chat_id,
-                        "message_id": message_id,
-                        "message_at": msg.get("timestamp") or "",
-                        "message_at_unix": ts,
-                        "text": _message_text(msg),
-                    }
-                )
+        for chat_id, json_content in rows:
+            for candidate in _iter_candidates(chat_id, json_content, since, already_corrected):
+                seq += 1
+                heapq.heappush(heap, (-candidate["message_at_unix"], seq, candidate))
+                if len(heap) > limit:
+                    heapq.heappop(heap)
 
-    candidates.sort(key=lambda m: m["message_at_unix"])
-    batch = candidates[:limit]
-    if batch:
-        scan_through = max(m["message_at_unix"] for m in batch)
-    else:
-        scan_through = since
+    batch = [item[2] for item in heap]
+    batch.sort(key=lambda m: m["message_at_unix"])
+    scan_through = batch[-1]["message_at_unix"] if batch else since
 
     return {
         "messages": batch,
