@@ -1,5 +1,5 @@
 /**
- * Finance bits shared by FinanceViewer and TickerView.
+ * Finance bits shared by FinanceViewer.
  * Hoisted so the price-range buttons and amount formatting stay single-source.
  */
 

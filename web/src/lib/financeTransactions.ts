@@ -1,5 +1,5 @@
 /**
- * Transaction classification helpers shared by FinanceViewer and TickerView.
+ * Transaction classification helpers shared by FinanceViewer.
  * Hoisted from FinanceViewer so trade markers / symbol resolution stay single-source.
  */
 
