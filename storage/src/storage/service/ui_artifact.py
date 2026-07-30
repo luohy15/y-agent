@@ -15,6 +15,20 @@ from storage.repository import ui_artifact_version as version_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
 
 
+class RollbackConflictError(ValueError):
+    """Raised when rollback's from_version_id no longer matches the active pointer.
+
+    Between the caller reading the active version and the rollback request
+    landing, a newer publish (or another rollback/activate) can move the
+    pointer. Rolling back unconditionally at that point would repoint away
+    from a version the caller never saw fail.
+    """
+
+    def __init__(self, active_version_id: str):
+        super().__init__(f"active version has moved to {active_version_id}")
+        self.active_version_id = active_version_id
+
+
 def create_artifact(user_id: int, slug: str, kind: str = "panel") -> UiArtifact:
     existing = artifact_repo.get_artifact_by_slug(user_id, slug)
     if existing:
@@ -88,11 +102,23 @@ def activate(user_id: int, artifact_id: str, version_no: int) -> Optional[UiArti
     return artifact_repo.set_active_version(user_id, artifact_id, version.version_id)
 
 
-def rollback(user_id: int, artifact_id: str) -> Optional[UiArtifact]:
-    """Repoint to the version immediately before the current active one. Pointer move only."""
+def rollback(
+    user_id: int, artifact_id: str, from_version_id: Optional[str] = None
+) -> Optional[UiArtifact]:
+    """Repoint to the version immediately before the current active one. Pointer move only.
+
+    `from_version_id`, when given, must match the artifact's current
+    `active_version_id` or this raises RollbackConflictError instead of
+    rolling back: the caller (a failure card rendered for a specific version)
+    is asserting "roll back from the version I saw fail", and if the pointer
+    has since moved (a newer publish landed), honoring that request would
+    demote the newer version instead of the stale one the caller meant.
+    """
     artifact = artifact_repo.get_artifact(user_id, artifact_id)
     if not artifact or not artifact.active_version_id:
         return None
+    if from_version_id is not None and from_version_id != artifact.active_version_id:
+        raise RollbackConflictError(artifact.active_version_id)
     versions = version_repo.list_versions(user_id, artifact_id)
     current = next((v for v in versions if v.version_id == artifact.active_version_id), None)
     if not current:

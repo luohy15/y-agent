@@ -197,34 +197,56 @@ class PointerActionTest(unittest.IsolatedAsyncioTestCase):
     async def test_rollback_by_artifact_id(self):
         with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
              patch.object(ctrl.ui_service, "rollback", return_value=_artifact(active_version_id="ver_a0")) as rb:
-            result = await ctrl.rollback(ctrl.ArtifactActionRequest(artifact_id="art_a1"), _request())
-        rb.assert_called_once_with(123, "art_a1")
+            result = await ctrl.rollback(ctrl.RollbackRequest(artifact_id="art_a1"), _request())
+        rb.assert_called_once_with(123, "art_a1", from_version_id=None)
         self.assertEqual(result["active_version_id"], "ver_a0")
 
     async def test_rollback_by_slug(self):
         with patch.object(ctrl.ui_service, "get_artifact_by_slug", return_value=_artifact()) as by_slug, \
              patch.object(ctrl.ui_service, "rollback", return_value=_artifact(active_version_id="ver_a0")) as rb:
-            result = await ctrl.rollback(ctrl.ArtifactActionRequest(slug="finance"), _request())
+            result = await ctrl.rollback(ctrl.RollbackRequest(slug="finance"), _request())
         by_slug.assert_called_once_with(123, "finance")
-        rb.assert_called_once_with(123, "art_a1")
+        rb.assert_called_once_with(123, "art_a1", from_version_id=None)
         self.assertEqual(result["active_version_id"], "ver_a0")
+
+    async def test_rollback_passes_from_version_id_through(self):
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(ctrl.ui_service, "rollback", return_value=_artifact(active_version_id="ver_a0")) as rb:
+            await ctrl.rollback(
+                ctrl.RollbackRequest(artifact_id="art_a1", from_version_id="ver_a1"), _request()
+            )
+        rb.assert_called_once_with(123, "art_a1", from_version_id="ver_a1")
+
+    async def test_rollback_conflict_when_active_pointer_has_moved_is_409(self):
+        from storage.service.ui_artifact import RollbackConflictError
+
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(
+                 ctrl.ui_service, "rollback", side_effect=RollbackConflictError("ver_a2")
+             ):
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.rollback(
+                    ctrl.RollbackRequest(artifact_id="art_a1", from_version_id="ver_a1"), _request()
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["active_version_id"], "ver_a2")
 
     async def test_action_requires_artifact_id_or_slug(self):
         with self.assertRaises(HTTPException) as ctx:
-            await ctrl.rollback(ctrl.ArtifactActionRequest(), _request())
+            await ctrl.rollback(ctrl.RollbackRequest(), _request())
         self.assertEqual(ctx.exception.status_code, 400)
 
     async def test_action_unknown_artifact_is_404(self):
         with patch.object(ctrl.ui_service, "get_artifact_by_slug", return_value=None):
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.rollback(ctrl.ArtifactActionRequest(slug="nope"), _request())
+                await ctrl.rollback(ctrl.RollbackRequest(slug="nope"), _request())
         self.assertEqual(ctx.exception.status_code, 404)
 
     async def test_rollback_nothing_to_roll_back_is_404(self):
         with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
              patch.object(ctrl.ui_service, "rollback", return_value=None):
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.rollback(ctrl.ArtifactActionRequest(artifact_id="art_a1"), _request())
+                await ctrl.rollback(ctrl.RollbackRequest(artifact_id="art_a1"), _request())
         self.assertEqual(ctx.exception.status_code, 404)
 
     async def test_activate_by_slug(self):

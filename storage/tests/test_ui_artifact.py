@@ -19,6 +19,7 @@ import storage.entity.ui_artifact_version  # noqa: F401 - registers UiArtifactVe
 import storage.entity.user  # noqa: F401 - ui_artifact.user_id FKs to user.id
 from storage.repository import ui_artifact_version as version_repo
 from storage.service import ui_artifact as artifact_service
+from storage.service.ui_artifact import RollbackConflictError
 
 
 class UiArtifactTestCase(unittest.TestCase):
@@ -121,6 +122,32 @@ class RollbackTest(UiArtifactTestCase):
         result = artifact_service.rollback(1, artifact.artifact_id)
         self.assertIsNone(result)
         self.assertEqual(artifact_service.get_artifact(1, artifact.artifact_id).active_version_id, v1.version_id)
+
+    def test_rollback_with_matching_from_version_id_succeeds(self):
+        artifact = artifact_service.create_artifact(1, "finance")
+        v1 = artifact_service.publish(1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js")
+        v2 = artifact_service.publish(1, artifact.artifact_id, sha256="bbb", storage_key="ui/finance/bbb.js")
+
+        updated = artifact_service.rollback(1, artifact.artifact_id, from_version_id=v2.version_id)
+        self.assertEqual(updated.active_version_id, v1.version_id)
+
+    def test_rollback_conflict_when_active_pointer_has_moved(self):
+        """A publish landing between the caller reading the active version and
+        the rollback request must not let the request demote the newer
+        version -- it should reject instead (S6 review finding)."""
+        artifact = artifact_service.create_artifact(1, "finance")
+        artifact_service.publish(1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js")
+        v2 = artifact_service.publish(1, artifact.artifact_id, sha256="bbb", storage_key="ui/finance/bbb.js")
+        v3 = artifact_service.publish(1, artifact.artifact_id, sha256="ccc", storage_key="ui/finance/ccc.js")
+
+        with self.assertRaises(RollbackConflictError) as ctx:
+            # Caller last saw v2 active (e.g. v2's mount failed and rendered a
+            # failure card), but v3 has since been published and activated.
+            artifact_service.rollback(1, artifact.artifact_id, from_version_id=v2.version_id)
+        self.assertEqual(ctx.exception.active_version_id, v3.version_id)
+
+        # The pointer must be untouched by the rejected call.
+        self.assertEqual(artifact_service.get_artifact(1, artifact.artifact_id).active_version_id, v3.version_id)
 
 
 class ActivateTest(UiArtifactTestCase):

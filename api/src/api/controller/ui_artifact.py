@@ -50,6 +50,16 @@ class ArtifactActionRequest(BaseModel):
     slug: Optional[str] = None
 
 
+class RollbackRequest(BaseModel):
+    artifact_id: Optional[str] = None
+    slug: Optional[str] = None
+    # The version the caller saw fail. When given, the rollback is refused
+    # with 409 if the active pointer has since moved (see
+    # ui_artifact.RollbackConflictError) instead of demoting whatever version
+    # is active now.
+    from_version_id: Optional[str] = None
+
+
 class ActivateRequest(BaseModel):
     artifact_id: Optional[str] = None
     slug: Optional[str] = None
@@ -196,10 +206,16 @@ async def publish(
 
 
 @router.post("/rollback")
-async def rollback(req: ArtifactActionRequest, request: Request):
+async def rollback(req: RollbackRequest, request: Request):
     user_id = _get_user_id(request)
     artifact = _resolve_artifact(user_id, req.artifact_id, req.slug)
-    updated = ui_service.rollback(user_id, artifact.artifact_id)
+    try:
+        updated = ui_service.rollback(user_id, artifact.artifact_id, from_version_id=req.from_version_id)
+    except ui_service.RollbackConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "stale_version", "active_version_id": exc.active_version_id},
+        ) from exc
     if not updated:
         raise HTTPException(status_code=404, detail="Nothing to roll back to")
     return updated.to_dict()

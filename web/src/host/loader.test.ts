@@ -1,0 +1,141 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// loader.ts pulls authFetch from api.ts; stub it so tests control the bundle
+// bytes/HTTP status without a real network call.
+const { authFetchMock } = vi.hoisted(() => ({ authFetchMock: vi.fn() }));
+vi.mock("../api", () => ({ API: "http://test.local", authFetch: authFetchMock }));
+
+import { artifactImporter, loadArtifact, type ArtifactVersionRef } from "./loader";
+
+function fakeResponse(bytes: Uint8Array, ok = true, status = 200): Response {
+  return { ok, status, arrayBuffer: async () => bytes.buffer } as unknown as Response;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes.buffer as ArrayBuffer);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function ref(overrides: Partial<ArtifactVersionRef> = {}): ArtifactVersionRef {
+  return {
+    version_id: "v1",
+    version_no: 1,
+    sha256: "0".repeat(64),
+    min_host_version: 1,
+    ...overrides,
+  };
+}
+
+describe("loadArtifact", () => {
+  beforeEach(() => {
+    authFetchMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it("fails closed with version-skew before ever fetching, when min_host_version exceeds the running host contract", async () => {
+    await expect(loadArtifact(ref({ version_id: "skew-version", min_host_version: 999999 }))).rejects.toMatchObject({
+      kind: "version-skew",
+    });
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects tampered bytes with a hash-mismatch error and never calls import()", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){}; export const css = '';");
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const importSpy = vi.spyOn(artifactImporter, "importBundle");
+
+    await expect(
+      loadArtifact(ref({ version_id: "tampered-version", sha256: "f".repeat(64) })),
+    ).rejects.toMatchObject({ kind: "integrity" });
+    expect(importSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a plain fetch failure distinctly from a hash mismatch", async () => {
+    authFetchMock.mockResolvedValue(fakeResponse(new Uint8Array(), false, 500));
+    await expect(loadArtifact(ref({ version_id: "fetch-fail-version" }))).rejects.toMatchObject({ kind: "fetch" });
+  });
+
+  it("loads a verified bundle and exposes its default export + inlined css", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){}; export const css = '.x{}';");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const FakeComponent = () => null;
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: FakeComponent, css: ".x{}" });
+
+    const artifact = await loadArtifact(ref({ version_id: "ok-version", sha256 }));
+    expect(artifact.Component).toBe(FakeComponent);
+    expect(artifact.css).toBe(".x{}");
+  });
+
+  it("dedupes two concurrent loads of the same url+sha256 into a single fetch", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){};");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: () => null, css: "" });
+
+    const v = ref({ version_id: "dedup-version", sha256 });
+    const [a, b] = await Promise.all([loadArtifact(v), loadArtifact(v)]);
+    expect(a.Component).toBe(b.Component);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // F5 regression (decision note): the spike's tamper test once passed for the
+  // wrong reason because the cache was keyed on sha256 alone. Loading a good
+  // bundle at one url, then a *different* url that merely declares the same
+  // sha256, must still be independently fetched and verified, not served the
+  // first url's cached (passing) module. Keying `cache` on `version.sha256`
+  // alone would make this test pass identically -- it must fail if that
+  // simplification is reintroduced.
+  it("does not serve a cached module to a different url that declares the same sha256", async () => {
+    const good = new TextEncoder().encode("export default function A(){};");
+    const evil = new TextEncoder().encode("export default function B(){}; /* different bytes */");
+    const sha256 = await sha256Hex(good);
+    authFetchMock.mockResolvedValueOnce(fakeResponse(good)).mockResolvedValueOnce(fakeResponse(evil));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: () => null, css: "" });
+
+    await loadArtifact(ref({ version_id: "good-version", sha256 }));
+    await expect(loadArtifact(ref({ version_id: "evil-version", sha256 }))).rejects.toMatchObject({
+      kind: "integrity",
+    });
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // A3 regression (decision note, confirmed empirically in the spike):
+  // crypto.subtle is undefined on an insecure origin. Deleting the guard at
+  // loader.ts's fail-closed check must break this test.
+  it("refuses to load, rather than degrading open, when crypto.subtle is unavailable", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){};");
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const importSpy = vi.spyOn(artifactImporter, "importBundle");
+    vi.spyOn(globalThis, "crypto", "get").mockReturnValue({} as Crypto);
+
+    await expect(loadArtifact(ref({ version_id: "insecure-origin-version" }))).rejects.toMatchObject({
+      kind: "integrity",
+    });
+    expect(importSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports a module that throws at top level as a bundle failure, not a fetch failure", async () => {
+    const bytes = new TextEncoder().encode("throw new Error('boom');");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockRejectedValue(new Error("boom"));
+
+    await expect(loadArtifact(ref({ version_id: "eval-throw-version", sha256 }))).rejects.toMatchObject({
+      kind: "bundle",
+    });
+  });
+
+  it("reports a missing default export as a bundle failure, not a fetch failure", async () => {
+    const bytes = new TextEncoder().encode("export const notDefault = 1;");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ css: "" });
+
+    await expect(loadArtifact(ref({ version_id: "no-default-version", sha256 }))).rejects.toMatchObject({
+      kind: "bundle",
+    });
+  });
+});
