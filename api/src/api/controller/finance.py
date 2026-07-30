@@ -6,10 +6,13 @@ from storage.service import finance_holding as holding_service
 from storage.service import finance_derived as derived_service
 from storage.service import finance_fundamentals as fundamentals_service
 from storage.service import finance_price as price_service
+from storage.service import finance_price_series as price_series_service
 from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
 
 router = APIRouter(prefix="/finance")
+
+_PRICE_SERIES_STATUS = {"not_configured": 503, "not_found": 404, "throttled": 429, "upstream": 502}
 
 
 def _get_user_id(request: Request) -> int:
@@ -213,6 +216,24 @@ async def prices(
 ):
     from_date, to_date = derived_service.parse_time_range(time)
     return _envelope(price_service.list_for(symbol=symbol, from_date=str(from_date) if from_date else None, to_date=str(to_date) if to_date else None, limit=limit))
+
+
+@router.get("/price-series")
+async def price_series(
+    symbol: str = Query(""),
+    range: str = Query(""),
+):
+    normalized_symbol = (symbol or "").strip().upper()
+    if not normalized_symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    normalized_range = (range or "").strip().lower()
+    if normalized_range not in price_series_service.RANGE_TABLE:
+        raise HTTPException(status_code=400, detail=f"range must be one of: {', '.join(price_series_service.RANGE_TABLE)}")
+    try:
+        result = price_series_service.fetch(normalized_symbol, normalized_range)
+    except price_series_service.PriceSeriesError as exc:
+        raise HTTPException(status_code=_PRICE_SERIES_STATUS[exc.kind], detail=str(exc))
+    return result.to_envelope()
 
 
 @router.get("/fire-progress")

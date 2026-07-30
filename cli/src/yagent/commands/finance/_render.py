@@ -194,6 +194,18 @@ def render_fundamentals(envelope: dict) -> None:
     click.echo(tabulate(table, headers=["Category", "Metric", "Value"], tablefmt="simple"))
 
 
+def render_price_series(envelope: dict) -> None:
+    rows = envelope.get("data") or []
+    interval = envelope.get("interval") or "-"
+    click.echo(
+        f"{envelope.get('symbol') or '-'} price series  range={envelope.get('range') or '-'}  "
+        f"interval={interval}  source={envelope.get('source') or '-'}  fetched_at={envelope.get('fetched_at') or '-'}"
+    )
+    click.echo()
+    table = [[r.get("time"), fmt_money(r.get("open")), fmt_money(r.get("high")), fmt_money(r.get("low")), fmt_money(r.get("close")), fmt_qty(r.get("volume"))] for r in rows]
+    click.echo(tabulate(table, headers=[f"Time ({interval})", "Open", "High", "Low", "Close", "Volume"], tablefmt="simple"))
+
+
 def render_transactions(envelope: dict) -> None:
     rows = envelope.get("data") or []
     table = []

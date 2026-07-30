@@ -1,4 +1,5 @@
 import datetime
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from storage.service import finance_derived as derived_service
 from storage.service import finance_holding as holding_service
 from storage.service import finance_positions as positions_service
 from storage.service import finance_price as price_service
+from storage.service import finance_price_series as price_series_service
 from storage.service import finance_realtime_quote as realtime_quote_service
 from storage.service import finance_transaction as transaction_service
 
@@ -385,6 +387,108 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(data[1]["realized"], 50.0)
         self.assertEqual(data[1]["unrealized"], 200.0)  # market 1200 − book 1000
         self.assertEqual(data[1]["total_return_cumulative"], 250.0)  # 50 cumulative realized + 200 unrealized
+
+    def test_price_series_range_table_resolves_interval_and_trims_span(self):
+        today = datetime.date(2026, 7, 30)
+
+        intraday_bars = {
+            "2026-07-30 15:45:00": {"1. open": "100", "2. high": "101", "3. low": "99", "4. close": "100.5", "5. volume": "1000"},
+            "2026-07-23 09:30:00": {"1. open": "90", "2. high": "91", "3. low": "89", "4. close": "90.5", "5. volume": "900"},
+            # Older than both the 1w and 1m windows; must be trimmed for every intraday range.
+            "2026-06-20 09:30:00": {"1. open": "80", "2. high": "81", "3. low": "79", "4. close": "80.5", "5. volume": "800"},
+        }
+        daily_bars = {
+            "2026-07-29": {"1. open": "200", "2. high": "205", "3. low": "195", "4. close": "200", "5. adjusted close": "200", "6. volume": "5000"},
+            # 2:1 split -> adjusted_close/close == 0.5; open/high/low must scale by the same factor.
+            "2026-01-15": {"1. open": "50", "2. high": "52", "3. low": "48", "4. close": "50", "5. adjusted close": "25", "6. volume": "6000"},
+            # Before ytd's Jan-1 floor; must be trimmed for "ytd" (but not necessarily for "1y").
+            "2025-12-01": {"1. open": "300", "2. high": "305", "3. low": "295", "4. close": "300", "5. adjusted close": "300", "6. volume": "7000"},
+        }
+        weekly_bars = {
+            "2026-07-24": {"1. open": "210", "2. high": "215", "3. low": "205", "4. close": "210", "5. adjusted close": "210", "6. volume": "9000"},
+            # Far outside the 5y floor but inside "all".
+            "2020-01-03": {"1. open": "10", "2. high": "11", "3. low": "9", "4. close": "10", "5. adjusted close": "10", "6. volume": "1000"},
+        }
+
+        def fake_get(url, params=None, timeout=None):
+            function = params["function"]
+            if function == "TIME_SERIES_INTRADAY":
+                key = f"Time Series ({params['interval']})"
+                payload = {key: intraday_bars}
+            elif function == "TIME_SERIES_DAILY_ADJUSTED":
+                payload = {"Time Series (Daily)": daily_bars}
+            else:
+                payload = {"Weekly Adjusted Time Series": weekly_bars}
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+
+        expected_intervals = {"1w": "15min", "1m": "30min", "3m": "daily", "ytd": "daily", "1y": "daily", "5y": "weekly", "all": "weekly"}
+
+        with patch.object(price_series_service, "api_key", return_value="test-key"), patch.object(price_series_service.httpx, "get", side_effect=fake_get):
+            for range_token, expected_interval in expected_intervals.items():
+                result = price_series_service.fetch("NVDA", range_token, today=today)
+                self.assertEqual(result.interval, expected_interval, range_token)
+                for bar in result.bars:
+                    self.assertGreaterEqual(bar.time.date(), result.from_date, range_token)
+                    self.assertLessEqual(bar.time.date(), result.to_date, range_token)
+
+            week_result = price_series_service.fetch("NVDA", "1w", today=today)
+            self.assertLessEqual((week_result.to_date - week_result.from_date).days, 6)
+
+            ytd_result = price_series_service.fetch("NVDA", "ytd", today=today)
+            split_bar = next(bar for bar in ytd_result.bars if bar.close == 25.0)
+            self.assertAlmostEqual(split_bar.open, 25.0)  # 50 * (25/50)
+            self.assertAlmostEqual(split_bar.high, 26.0)  # 52 * 0.5
+            self.assertAlmostEqual(split_bar.low, 24.0)  # 48 * 0.5
+            self.assertFalse(any(bar.time.date() == datetime.date(2025, 12, 1) for bar in ytd_result.bars))
+
+            all_result = price_series_service.fetch("NVDA", "all", today=today)
+            five_year_result = price_series_service.fetch("NVDA", "5y", today=today)
+            self.assertTrue(any(bar.time.date() == datetime.date(2020, 1, 3) for bar in all_result.bars))
+            self.assertFalse(any(bar.time.date() == datetime.date(2020, 1, 3) for bar in five_year_result.bars))
+            # "all" has no floor: the envelope must report the actual first bar's date,
+            # not a date.min sentinel.
+            self.assertEqual(all_result.to_envelope()["from"], "2020-01-03")
+            self.assertIsInstance(all_result.bars[0].to_dict()["volume"], int)
+
+    def test_price_series_all_range_with_no_bars_reports_null_from(self):
+        with patch.object(price_series_service, "api_key", return_value="test-key"), patch.object(
+            price_series_service.httpx, "get", return_value=SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"Weekly Adjusted Time Series": {}})
+        ):
+            result = price_series_service.fetch("NVDA", "all")
+            self.assertIsNone(result.from_date)
+            self.assertIsNone(result.to_envelope()["from"])
+
+    def test_price_series_non_json_upstream_body_maps_to_upstream_kind(self):
+        def raise_decode_error():
+            raise json.JSONDecodeError("Expecting value", "<html>not json</html>", 0)
+
+        def fake_get(url, params=None, timeout=None):
+            return SimpleNamespace(raise_for_status=lambda: None, json=raise_decode_error)
+
+        with patch.object(price_series_service, "api_key", return_value="test-key"), patch.object(price_series_service.httpx, "get", side_effect=fake_get):
+            with self.assertRaises(price_series_service.PriceSeriesError) as ctx:
+                price_series_service.fetch("NVDA", "1w")
+            self.assertEqual(ctx.exception.kind, "upstream")
+
+    def test_price_series_maps_av_error_kinds(self):
+        def fake_get_for(payload):
+            return lambda url, params=None, timeout=None: SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+
+        with patch.object(price_series_service, "api_key", return_value="test-key"):
+            with patch.object(price_series_service.httpx, "get", side_effect=fake_get_for({"Error Message": "Invalid API call."})):
+                with self.assertRaises(price_series_service.PriceSeriesError) as ctx:
+                    price_series_service.fetch("NOTAREALTICKERXYZ", "1w")
+                self.assertEqual(ctx.exception.kind, "not_found")
+
+            with patch.object(price_series_service.httpx, "get", side_effect=fake_get_for({"Note": "Thank you for using Alpha Vantage! Our standard API call frequency is ..."})):
+                with self.assertRaises(price_series_service.PriceSeriesError) as ctx:
+                    price_series_service.fetch("NVDA", "1w")
+                self.assertEqual(ctx.exception.kind, "throttled")
+
+        with patch.object(price_series_service, "api_key", return_value=None):
+            with self.assertRaises(price_series_service.PriceSeriesError) as ctx:
+                price_series_service.fetch("NVDA", "1w")
+            self.assertEqual(ctx.exception.kind, "not_configured")
 
     def _transaction(self, entry_id, posting_index, symbol, side, amount, currency, narration="Buy AAPL", account="Assets:Broker", transaction_date="2026-05-01", cost=None, cost_currency=""):
         return FinanceTransaction(

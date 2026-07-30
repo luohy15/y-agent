@@ -313,6 +313,7 @@ y finance investment-returns [--user-id <id>] [--vm-name <name>] [--time ytd] [-
 y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD] [--json]
 y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500] [--json]
 y finance prices [--symbol AAPL] [--time ytd] [--limit 1000] [--json]
+y finance price-series SYMBOL [--range 1w|1m|3m|ytd|1y|5y|all] [--json]
 y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 
 # Ledger-side producer / low-level local views
