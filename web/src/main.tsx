@@ -41,6 +41,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/n/:shareId" element={<ShareNoteView />} />
         <Route path="/showcase" element={<Suspense fallback={null}><ScreenshotShowcase /></Suspense>} />
         <Route path="/trace/:traceId" element={<App />} />
+        <Route path="/ui/:uiSlug" element={<App />} />
         <Route path="/*" element={<App />} />
       </Routes>
     </BrowserRouter>

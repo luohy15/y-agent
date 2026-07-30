@@ -119,6 +119,8 @@ out
 
 .nuxt
 dist
+test-results/
+playwright-report/
 
 # Gatsby files
 

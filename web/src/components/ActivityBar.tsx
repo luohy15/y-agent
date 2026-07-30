@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefCallback } from "react";
 import { isPreview } from "../hooks/useAuth";
 import { useUserPreference, type SyncStatus } from "../hooks/useUserPreference";
+import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type UiArtifact } from "../host/artifacts";
 import UserMenu from "./UserMenu";
 
-export type SidebarPanel =
+export type BuiltInSidebarPanel =
   | "todo"
   | "notes"
   | "chats"
@@ -21,6 +22,8 @@ export type SidebarPanel =
   | "dev"
   | "tags";
 
+export type SidebarPanel = BuiltInSidebarPanel | `artifact:${string}`;
+
 interface ActivityBarProps {
   isLoggedIn: boolean;
   sidebarOpen: boolean;
@@ -31,15 +34,17 @@ interface ActivityBarProps {
   email?: string | null;
   gsiReady?: boolean;
   onLogout?: () => void;
+  artifacts?: UiArtifact[];
+  artifactsLoaded?: boolean;
 }
 
-interface PanelItem {
+export interface PanelItem {
   key: SidebarPanel;
   label: string;
   icon: ReactNode;
 }
 
-const PANEL_ITEMS: PanelItem[] = [
+export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   { key: "todo", label: "Todo", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
@@ -121,6 +126,30 @@ const PANEL_ITEMS: PanelItem[] = [
     </svg>
   )},
 ];
+
+function artifactIcon(icon?: string | null): ReactNode {
+  if (icon === "chart") {
+    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 5-7" /></svg>;
+  }
+  if (icon === "calendar") {
+    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>;
+  }
+  if (icon === "list") {
+    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></svg>;
+  }
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21 8-9-5-9 5 9 5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></svg>;
+}
+
+export function buildActivityPanelItems(artifacts: UiArtifact[]): PanelItem[] {
+  return [
+    ...BUILT_IN_PANEL_ITEMS,
+    ...mountableUiArtifacts(artifacts).map((artifact) => ({
+      key: artifactPanelKey(artifact.slug),
+      label: artifactLabel(artifact),
+      icon: artifactIcon(artifact.active_version.icon),
+    })),
+  ];
+}
 
 const STORAGE_KEY = "activityBarOrder";
 // Legacy keys left behind for migration from earlier app-group layout.
@@ -279,7 +308,7 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
@@ -291,11 +320,19 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     }
   }, [isLoggedIn, gsiReady]);
 
-  const defaultOrder = useMemo<SidebarPanel[]>(() => PANEL_ITEMS.map(p => p.key), []);
+  const panelItems = useMemo(() => buildActivityPanelItems(artifacts), [artifacts]);
+  const defaultOrder = useMemo<SidebarPanel[]>(() => panelItems.map(p => p.key), [panelItems]);
 
-  const [order, setOrder] = useState<SidebarPanel[]>(() => loadOrder(defaultOrder));
+  const [order, setOrder] = useState<SidebarPanel[]>(() =>
+    loadOrder(BUILT_IN_PANEL_ITEMS.map((panel) => panel.key)),
+  );
 
   const pref = useUserPreference<SidebarPanel[]>("activityBarOrder", { enabled: isLoggedIn });
+  useEffect(() => {
+    if (!artifactsLoaded) return;
+    setOrder(loadOrder(defaultOrder));
+  }, [artifactsLoaded, defaultOrder]);
+
   // True after the user has reordered locally; suppresses one-shot server overwrite
   // so a slow GET doesn't snap their fresh change back to an older value.
   const userTouchedRef = useRef(false);
@@ -311,7 +348,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   }, [isLoggedIn]);
 
   useEffect(() => {
-    if (!isLoggedIn || !pref.loaded || reconciledRef.current) return;
+    if (!isLoggedIn || !artifactsLoaded || !pref.loaded || reconciledRef.current) return;
     reconciledRef.current = true;
     if (pref.serverValue && Array.isArray(pref.serverValue)) {
       if (userTouchedRef.current) return;
@@ -328,7 +365,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, pref.loaded, pref.serverValue]);
+  }, [isLoggedIn, artifactsLoaded, pref.loaded, pref.serverValue, defaultOrder]);
 
   // Sync status pill: show on error/offline, briefly flash "Synced" after recovery.
   type PillVariant = "error" | "offline" | "success";
@@ -362,9 +399,9 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   const panelByKey = useMemo(() => {
     const m = new Map<SidebarPanel, PanelItem>();
-    PANEL_ITEMS.forEach(p => m.set(p.key, p));
+    panelItems.forEach(p => m.set(p.key, p));
     return m;
-  }, []);
+  }, [panelItems]);
 
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
@@ -525,6 +562,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       >
         {indicator(p.key, "before")}
         <button
+          data-sidebar-panel={p.key}
           onClick={() => handlePanelClick(p.key)}
           className={btnClass(active, isDragged)}
           title={p.label}

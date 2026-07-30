@@ -45,11 +45,6 @@ class CreateRequest(BaseModel):
     kind: str = "panel"
 
 
-class ArtifactActionRequest(BaseModel):
-    artifact_id: Optional[str] = None
-    slug: Optional[str] = None
-
-
 class RollbackRequest(BaseModel):
     artifact_id: Optional[str] = None
     slug: Optional[str] = None

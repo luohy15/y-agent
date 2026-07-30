@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
+import useSWR from "swr";
 import { useAuth } from "./hooks/useAuth";
-import { API, authFetch } from "./api";
+import { API, authFetch, jsonFetcher } from "./api";
 import ChatView from "./components/ChatView";
 import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
-import ActivityBar, { SidebarPanel } from "./components/ActivityBar";
+import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
 import FileSearchDialog from "./components/FileSearchDialog";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
@@ -30,6 +31,14 @@ import LinkActionDialog from "./components/LinkActionDialog";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./components/badges";
 import type { ArtifactType } from "./components/ArtifactView";
+import ArtifactMount from "./host/ArtifactMount";
+import {
+  artifactLabel,
+  artifactSlugFromPanel,
+  artifactTabKey,
+  mountableUiArtifacts,
+  type UiArtifact,
+} from "./host/artifacts";
 
 interface VmConfigItem {
   name: string;
@@ -48,8 +57,19 @@ type ChatContextPanel = "notes" | "links" | "files" | "diff";
 type ArtifactTab = { type: ArtifactType; spec: string };
 
 export default function App() {
-  const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
+  const { traceId: urlTraceId, uiSlug: urlUiSlug } = useParams<{ traceId?: string; uiSlug?: string }>();
+  const navigate = useNavigate();
   const auth = useAuth();
+  const {
+    data: uiArtifacts = [],
+    isLoading: uiArtifactsLoading,
+    mutate: mutateUiArtifacts,
+  } = useSWR<UiArtifact[]>(auth.isLoggedIn ? `${API}/api/ui/list?enabled_only=true` : null, jsonFetcher);
+  const mountedUiArtifacts = useMemo(() => mountableUiArtifacts(uiArtifacts), [uiArtifacts]);
+  const uiArtifactBySlug = useMemo(
+    () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
+    [mountedUiArtifacts],
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
   const [activityBarOpen, setActivityBarOpen] = useState(false); // mobile activity bar drawer
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
@@ -61,15 +81,15 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
-    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter((path) => !path.startsWith("artifact:")); } catch { return []; }
+    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter((path) => !path.startsWith("artifact:") && !path.startsWith("ui:")); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("activeFile") || null;
-    return saved?.startsWith("artifact:") ? null : saved;
+    return saved?.startsWith("artifact:") || saved?.startsWith("ui:") ? null : saved;
   });
   const [previewFile, setPreviewFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("previewFile") || null;
-    return saved?.startsWith("artifact:") ? null : saved;
+    return saved?.startsWith("artifact:") || saved?.startsWith("ui:") ? null : saved;
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
   const [pendingLines, setPendingLines] = useState<Record<string, number | undefined>>({});
@@ -80,8 +100,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    const valid: SidebarPanel[] = ["todo", "chats", "notes", "links", "rss", "entity", "bots", "files", "reminder", "routine", "english", "calendar", "finance", "email", "dev", "tags"];
-    return valid.includes(saved) ? saved : "todo";
+    return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -156,9 +175,9 @@ export default function App() {
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const botDropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles.filter((path) => !path.startsWith("artifact:")))); }, [openFiles]);
-  useEffect(() => { if (activeFile && !activeFile.startsWith("artifact:")) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
-  useEffect(() => { if (previewFile && !previewFile.startsWith("artifact:")) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
+  useEffect(() => { localStorage.setItem("openFiles", JSON.stringify(openFiles.filter((path) => !path.startsWith("artifact:") && !path.startsWith("ui:")))); }, [openFiles]);
+  useEffect(() => { if (activeFile && !activeFile.startsWith("artifact:") && !activeFile.startsWith("ui:")) localStorage.setItem("activeFile", activeFile); else localStorage.removeItem("activeFile"); }, [activeFile]);
+  useEffect(() => { if (previewFile && !previewFile.startsWith("artifact:") && !previewFile.startsWith("ui:")) localStorage.setItem("previewFile", previewFile); else localStorage.removeItem("previewFile"); }, [previewFile]);
   useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
@@ -177,6 +196,22 @@ export default function App() {
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, []);
+
+  const handleOpenUiArtifact = useCallback((slug: string) => {
+    handleOpenFile(artifactTabKey(slug));
+    navigate(`/ui/${encodeURIComponent(slug)}`);
+  }, [handleOpenFile, navigate]);
+
+  useEffect(() => {
+    if (!urlUiSlug || uiArtifactsLoading) return;
+    handleOpenFile(artifactTabKey(urlUiSlug));
+  }, [handleOpenFile, uiArtifactsLoading, urlUiSlug]);
+
+  useEffect(() => {
+    if (uiArtifactsLoading) return;
+    const slug = artifactSlugFromPanel(sidebarPanel);
+    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("todo");
+  }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
@@ -271,7 +306,10 @@ export default function App() {
     if (path.startsWith("artifact:")) {
       setArtifactTabs((prev) => { const next = { ...prev }; delete next[path]; return next; });
     }
-  }, []);
+    if (path.startsWith("ui:") && urlUiSlug === path.slice("ui:".length)) {
+      navigate("/");
+    }
+  }, [navigate, urlUiSlug]);
 
   // A renamed path may be the exact path of an open tab, or (for a directory
   // rename) a prefix of one. Both sides are normalized with the same `./`
@@ -816,6 +854,8 @@ export default function App() {
         {/* Left: Activity Bar */}
         <ActivityBar
           isLoggedIn={auth.isLoggedIn}
+          artifacts={uiArtifacts}
+          artifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading}
           sidebarOpen={window.innerWidth < 768 ? sidebarOpen : desktopSidebarOpen}
           onToggleSidebar={() => {
             const isMobile = window.innerWidth < 768;
@@ -845,6 +885,8 @@ export default function App() {
           <ActivityBar
             mobile
             isLoggedIn={auth.isLoggedIn}
+            artifacts={uiArtifacts}
+            artifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
             activePanel={sidebarPanel}
@@ -864,6 +906,8 @@ export default function App() {
           style={{ width: sidebarWidth }}
         >
           {(() => {
+            const artifactSlug = artifactSlugFromPanel(sidebarPanel);
+            const sidebarArtifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
             const panelFileMap: Partial<Record<SidebarPanel, { path: string; label: string }>> = {
               todo: { path: "todo.md", label: "Open todo.md" },
               calendar: { path: "calendar.md", label: "Open calendar.md" },
@@ -871,9 +915,21 @@ export default function App() {
               dev: { path: "dev.md", label: "Open dev.md" },
               bots: { path: "bot.md", label: "Open bot.md" },
             };
-            const panelFile = panelFileMap[sidebarPanel];
+            const panelFile = sidebarArtifact
+              ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
+              : panelFileMap[sidebarPanel];
             const body =
-              sidebarPanel === "todo" ? (
+              sidebarArtifact ? (
+                <div className="h-full overflow-auto" data-ui-artifact-sidebar={sidebarArtifact.slug}>
+                  <ArtifactMount
+                    slug={sidebarArtifact.slug}
+                    artifactId={sidebarArtifact.artifact_id}
+                    version={sidebarArtifact.active_version}
+                    label={artifactLabel(sidebarArtifact)}
+                    onRolledBack={() => { void mutateUiArtifacts(); }}
+                  />
+                </div>
+              ) : sidebarPanel === "todo" ? (
                 <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { openTodo(todoId, { requestSelectTraceId, setChatListTraceId, setSelectedChatId, setChatHide, handleOpenFile }); setSidebarOpen(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
                 <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineName={chatListRoutineName} onClearRoutineName={() => setChatListRoutineName(null)} routineOnly={chatListRoutineOnly} onToggleRoutineOnly={() => setChatListRoutineOnly((v) => !v)} onClearRoutineOnly={() => setChatListRoutineOnly(false)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
@@ -937,7 +993,9 @@ export default function App() {
                 {panelFile && (
                   <div className="p-2 border-b border-sol-base02 shrink-0">
                     <button
-                      onClick={() => handleOpenFile(panelFile.path)}
+                      onClick={() => panelFile.path.startsWith("ui:")
+                        ? handleOpenUiArtifact(panelFile.path.slice("ui:".length))
+                        : handleOpenFile(panelFile.path)}
                       className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs text-sol-base1 bg-sol-base02 hover:bg-sol-base01/20 cursor-pointer"
                       title={panelFile.label}
                     >
@@ -1002,7 +1060,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}

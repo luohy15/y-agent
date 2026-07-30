@@ -139,7 +139,9 @@ function RollbackButton({
         <p className="text-xs text-sol-red">{detail ?? "Rollback failed; try again."}</p>
       )}
       {status === "conflict" && (
-        <p className="text-xs text-sol-yellow">A newer version is already active; refreshing.</p>
+        <p className="text-xs text-sol-yellow">
+          {onRolledBack ? "A newer version is already active; refreshing." : "A newer version is already active."}
+        </p>
       )}
     </div>
   );

@@ -6,6 +6,7 @@
     "predev": "bash ../scripts/build-docs.sh public/docs-content",
     "dev": "vite",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "build": "vite build",
     "preview": "vite preview"
   },
