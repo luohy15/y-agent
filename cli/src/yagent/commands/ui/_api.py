@@ -88,3 +88,9 @@ def set_enabled(artifact_id: str, enabled: bool) -> dict:
         "/api/ui/enable",
         json={"artifact_id": artifact_id, "enabled": enabled},
     ).json()
+
+
+def delete_artifact(artifact_id: str) -> dict:
+    return api_request(
+        "POST", "/api/ui/delete", json={"artifact_id": artifact_id}
+    ).json()

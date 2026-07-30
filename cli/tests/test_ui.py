@@ -45,6 +45,7 @@ class UiGroupHelpTest(unittest.TestCase):
             "activate",
             "enable",
             "disable",
+            "delete",
         ):
             self.assertIn(name, result.output)
 
@@ -424,6 +425,43 @@ class UiPointerCommandsTest(unittest.TestCase):
         self.assertEqual(r2.exit_code, 0, r2.output)
         self.assertEqual(se.call_args_list[0].args, ("art_1", False))
         self.assertEqual(se.call_args_list[1].args, ("art_1", True))
+
+
+class UiDeleteTest(unittest.TestCase):
+    def test_delete_with_yes_skips_prompt_and_prints_local_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch(
+                     "yagent.commands.ui.delete.resolve_artifact",
+                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.ui.delete.delete_artifact",
+                     return_value={"artifact_id": "art_1", "slug": "demo", "deleted_versions": 2},
+                 ) as del_fn:
+                result = CliRunner().invoke(ui_group, ["delete", "demo", "--yes"])
+                expected_source = source_path("demo")
+                expected_meta = meta_path("demo")
+        self.assertEqual(result.exit_code, 0, result.output)
+        del_fn.assert_called_once_with("art_1")
+        self.assertIn("Deleted demo", result.output)
+        self.assertIn(str(expected_source), result.output)
+        self.assertIn(str(expected_meta), result.output)
+
+    def test_delete_without_yes_prompts_and_aborts_on_no(self):
+        with patch(
+            "yagent.commands.ui.delete.resolve_artifact",
+            return_value={"artifact_id": "art_1", "slug": "demo"},
+        ), patch("yagent.commands.ui.delete.delete_artifact") as del_fn:
+            result = CliRunner().invoke(ui_group, ["delete", "demo"], input="n\n")
+        self.assertNotEqual(result.exit_code, 0)
+        del_fn.assert_not_called()
+
+    def test_delete_unknown_artifact_fails(self):
+        with patch("yagent.commands.ui.delete.resolve_artifact", return_value=None):
+            result = CliRunner().invoke(ui_group, ["delete", "demo", "--yes"])
+        self.assertNotEqual(result.exit_code, 0)
 
 
 class PublishApiShapeTest(unittest.TestCase):

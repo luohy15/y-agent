@@ -2,6 +2,7 @@ import click
 
 from .activate import ui_activate
 from .create import ui_create
+from .delete import ui_delete
 from .enable import ui_disable, ui_enable
 from .list import ui_list
 from .publish import ui_publish
@@ -23,3 +24,4 @@ ui_group.add_command(ui_rollback)
 ui_group.add_command(ui_activate)
 ui_group.add_command(ui_enable)
 ui_group.add_command(ui_disable)
+ui_group.add_command(ui_delete)

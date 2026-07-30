@@ -67,6 +67,11 @@ class EnableRequest(BaseModel):
     enabled: bool
 
 
+class DeleteRequest(BaseModel):
+    artifact_id: Optional[str] = None
+    slug: Optional[str] = None
+
+
 def _bundle_dir() -> Path:
     return Path(
         os.environ.get(
@@ -104,6 +109,28 @@ def _read_bundle(storage_key: str) -> bytes:
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bundle not found")
     return path.read_bytes()
+
+
+def _delete_bundle(storage_key: str) -> None:
+    """Best-effort: called after the owning rows are already gone, so a
+    failure here just orphans bytes rather than leaving a broken row."""
+    if S3_BUCKET:
+        try:
+            boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=storage_key)
+        except Exception:
+            # Anything (ClientError, a BotoCoreError, a credential failure)
+            # must stay best-effort: the rows are already gone, so raising
+            # here would turn an already-successful delete into a 500.
+            pass
+        return
+    base = _bundle_dir().resolve()
+    path = (base / storage_key).resolve()
+    if base != path and base not in path.parents:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def _resolve_artifact(user_id: int, artifact_id: Optional[str], slug: Optional[str]) -> UiArtifact:
@@ -234,6 +261,31 @@ async def set_enabled(req: EnableRequest, request: Request):
     if not updated:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return updated.to_dict()
+
+
+@router.post("/delete")
+async def delete_artifact(req: DeleteRequest, request: Request):
+    """Hard-delete an artifact and all of its versions.
+
+    DB rows go first (storage.service.ui_artifact.delete_artifact deletes
+    version rows, then the artifact row) so a failure partway through bundle
+    cleanup never leaves a row pointing at bytes that are already gone.
+    Orphaned bundle bytes after a successful row delete are acceptable and
+    are cleaned up best-effort below.
+    """
+    user_id = _get_user_id(request)
+    artifact = _resolve_artifact(user_id, req.artifact_id, req.slug)
+    storage_keys = ui_service.delete_artifact(user_id, artifact.artifact_id)
+    if storage_keys is None:
+        # Defence in depth; the resolve above already covers this.
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    for key in storage_keys:
+        _delete_bundle(key)
+    return {
+        "artifact_id": artifact.artifact_id,
+        "slug": artifact.slug,
+        "deleted_versions": len(storage_keys),
+    }
 
 
 @router.get("/artifact/{version_id}/bundle")

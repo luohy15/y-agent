@@ -133,3 +133,25 @@ def rollback(
 
 def set_enabled(user_id: int, artifact_id: str, enabled: bool) -> Optional[UiArtifact]:
     return artifact_repo.set_enabled(user_id, artifact_id, enabled)
+
+
+def delete_artifact(user_id: int, artifact_id: str) -> Optional[List[str]]:
+    """Hard-delete an artifact and all of its versions.
+
+    BaseEntity has no soft-delete column, so this removes the rows outright.
+    Versions are deleted before the artifact row because that ordering is the
+    recoverable one if this crashes between the two deletes: the artifact row
+    survives with active_version_id now pointing at a version row that no
+    longer exists, which resolves to a missing active version (indistinguishable
+    from a disabled artifact) rather than a broken one, and a retried delete
+    finishes the job. Deleting the artifact row first would instead strand the
+    version rows, and their bundle bytes, permanently: nothing could look them
+    up by artifact_id again. Returns the deleted versions' storage_keys so the
+    caller can clean up the underlying bundle bytes, or None if artifact_id
+    does not name an artifact owned by user_id.
+    """
+    if not artifact_repo.get_artifact(user_id, artifact_id):
+        return None
+    storage_keys = version_repo.delete_versions(user_id, artifact_id)
+    artifact_repo.delete_artifact(user_id, artifact_id)
+    return storage_keys

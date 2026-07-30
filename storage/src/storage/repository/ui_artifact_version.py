@@ -98,3 +98,14 @@ def get_max_version_no(user_id: int, artifact_id: str) -> int:
             .scalar()
         )
         return max_no or 0
+
+
+def delete_versions(user_id: int, artifact_id: str) -> List[str]:
+    """Hard-delete every version row for artifact_id, returning their storage_keys."""
+    with get_db() as session:
+        rows = session.query(UiArtifactVersionEntity).filter_by(user_id=user_id, artifact_id=artifact_id).all()
+        storage_keys = [r.storage_key for r in rows]
+        for row in rows:
+            session.delete(row)
+        session.flush()
+        return storage_keys

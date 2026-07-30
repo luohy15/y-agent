@@ -283,5 +283,63 @@ class PointerActionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
 
+class DeleteTest(unittest.IsolatedAsyncioTestCase):
+    async def test_delete_by_slug_deletes_rows_then_bundles_in_order(self):
+        calls = []
+        with patch.object(ctrl.ui_service, "get_artifact_by_slug", return_value=_artifact()) as by_slug, \
+             patch.object(
+                 ctrl.ui_service, "delete_artifact",
+                 side_effect=lambda *a, **k: calls.append("delete_rows") or ["ui/art_a1/aaa.js", "ui/art_a1/bbb.js"],
+             ) as del_fn, \
+             patch.object(ctrl, "_delete_bundle", side_effect=lambda key: calls.append(f"delete_bundle:{key}")):
+            result = await ctrl.delete_artifact(ctrl.DeleteRequest(slug="finance"), _request())
+        by_slug.assert_called_once_with(123, "finance")
+        del_fn.assert_called_once_with(123, "art_a1")
+        self.assertEqual(
+            calls,
+            ["delete_rows", "delete_bundle:ui/art_a1/aaa.js", "delete_bundle:ui/art_a1/bbb.js"],
+        )
+        self.assertEqual(result, {"artifact_id": "art_a1", "slug": "finance", "deleted_versions": 2})
+
+    async def test_delete_by_artifact_id(self):
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(ctrl.ui_service, "delete_artifact", return_value=[]) as del_fn, \
+             patch.object(ctrl, "_delete_bundle") as bundle_fn:
+            result = await ctrl.delete_artifact(ctrl.DeleteRequest(artifact_id="art_a1"), _request())
+        del_fn.assert_called_once_with(123, "art_a1")
+        bundle_fn.assert_not_called()
+        self.assertEqual(result["deleted_versions"], 0)
+
+    async def test_delete_requires_artifact_id_or_slug(self):
+        with self.assertRaises(HTTPException) as ctx:
+            await ctrl.delete_artifact(ctrl.DeleteRequest(), _request())
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_delete_unknown_artifact_is_404(self):
+        with patch.object(ctrl.ui_service, "get_artifact_by_slug", return_value=None):
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.delete_artifact(ctrl.DeleteRequest(slug="nope"), _request())
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_delete_bundle_local_round_trip_and_missing_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(ctrl, "S3_BUCKET", ""), \
+             patch.dict("os.environ", {"Y_AGENT_UI_BUNDLE_DIR": tmp}):
+            key = "ui/art_a1/deadbeef.js"
+            ctrl._write_bundle(key, b"x")
+            ctrl._delete_bundle(key)
+            with self.assertRaises(HTTPException):
+                ctrl._read_bundle(key)
+            # Deleting an already-missing bundle must not raise.
+            ctrl._delete_bundle(key)
+
+    async def test_delete_bundle_rejects_path_escape_silently(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(ctrl, "S3_BUCKET", ""), \
+             patch.dict("os.environ", {"Y_AGENT_UI_BUNDLE_DIR": tmp}):
+            # No exception: best-effort cleanup never raises back to the caller.
+            ctrl._delete_bundle("ui/../../evil.js")
+
+
 if __name__ == "__main__":
     unittest.main()

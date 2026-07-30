@@ -77,3 +77,14 @@ def set_enabled(user_id: int, artifact_id: str, enabled: bool) -> Optional[UiArt
         entity.enabled = enabled
         session.flush()
         return _entity_to_dto(entity)
+
+
+def delete_artifact(user_id: int, artifact_id: str) -> bool:
+    """Hard-delete the artifact row. Caller deletes its versions separately."""
+    with get_db() as session:
+        entity = session.query(UiArtifactEntity).filter_by(user_id=user_id, artifact_id=artifact_id).first()
+        if not entity:
+            return False
+        session.delete(entity)
+        session.flush()
+        return True

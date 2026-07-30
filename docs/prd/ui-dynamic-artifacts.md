@@ -309,6 +309,28 @@ host.** This is the safety net that makes publish-without-review acceptable.
 Bundles are cached by `sha256` for the session. Versions are immutable, so a
 cached bundle is never revalidated.
 
+### Deletion
+
+`y ui delete <slug>` (`POST /api/ui/delete`) is a **hard delete**: `ui_artifact`
+has no soft-delete column, and adding one solely for this path was not
+warranted, so the artifact row and every one of its `ui_artifact_version` rows
+are removed outright. The service layer deletes version rows first, then the
+artifact row, and returns the deleted versions' `storage_key`s to the caller;
+the controller uses those keys to best-effort delete the underlying bundle
+objects (S3 or the local `Y_AGENT_UI_BUNDLE_DIR`) after the DB rows are gone.
+Order matters in one direction only: orphaned bundle bytes after a successful
+row delete are acceptable (nothing points at them anymore) and are left for
+the object store's own housekeeping if the cleanup call itself fails; a DB row
+surviving with its bytes already gone is not, which is why bytes are never
+deleted before the rows that reference them. Deleting an artifact does not
+touch its authoring source on the VM (`$Y_AGENT_HOME/ui/<slug>.tsx`,
+`<slug>.json`, and any `<slug>/` parts directory) — that is the user's own
+content, not deployed state, and the CLI prints the remaining local paths as a
+hint after a successful delete. A deleted artifact simply stops appearing in
+`GET /api/ui/list`; there is no new client-side loader state for it; a client
+holding a stale list already renders the existing fetch-failure card for a
+version whose bundle 404s.
+
 ## Testing Decisions
 
 Test the observable contract, not the loader's internals.
@@ -368,3 +390,4 @@ Test the observable contract, not the loader's internals.
 |------|---------|--------|------|-----------|--------|--------|
 | 2412 | Dynamic UI artifact foundation; Finance as reference migration | - | `pages/plan-2412-ui-dynamic-artifacts.md` | `pages/decision-2412-runtime-contract.md`, `pages/decision-2412-s5-web-host-sdk.md`, `pages/decision-2412-module-shape.md` | `pages/review-2412-storage-schema.md`, `pages/review-2412-ui-api-round2.md`, `pages/review-2412-ui-sdk-cli.md`, `pages/review-2412-web-host-sdk.md`, `pages/review-2412-ui-loader-round2.md`, `pages/review-2412-ui-mount.md`, `pages/review-2412-module-shape-round2.md` | shipped |
 | 2933 | Multi-file artifact authoring, `lightweight-charts` shared external (contract v2), and re-port of ticker analysis onto the `finance` artifact; superseded built-in finance surface (`FinanceViewer`/`FinancePanel`/`TickerView`) removed | - | `pages/plan-2933-ticker-analysis-dynamic-ui.md` | - | `pages/review-2933-lightweight-charts-external.md`, `pages/review-2933-rm-builtin-finance.md` | shipped |
+| 2941 | `y ui delete <slug>` end to end: hard delete of the artifact + version rows, best-effort bundle-object cleanup, VM authoring source left untouched | - | `pages/plan-2941-ui-artifact-deletion.md` | - | `pages/review-2941-ui-delete.md` | in progress |

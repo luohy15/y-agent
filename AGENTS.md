@@ -113,7 +113,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   The built-in Finance panel (`FinancePanel`/`FinanceViewer`) that the dynamic
   `finance` artifact was originally migrated from has since been deleted (todo 2933):
   there is no in-bundle fallback left, and the recovery path for a broken artifact is
-  `y ui rollback <slug>`, not restoring built-in code.
+  `y ui rollback <slug>`, not restoring built-in code. `y ui delete <slug>` (todo 2941)
+  hard-deletes the artifact and all of its version rows, best-effort cleans up the
+  stored bundle bytes, and leaves the VM authoring source (`.tsx` / `.json` / parts
+  directory) untouched.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -329,6 +332,7 @@ y ui publish <slug> [--no-activate] [--label <text>] [--icon <key>]
 y ui rollback <slug>
 y ui activate <slug> <version_no>
 y ui enable <slug> | y ui disable <slug>
+y ui delete <slug> [-y|--yes]
 
 # Push/pull files between this Mac and the EC2 host (rsync over SSH).
 y file upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]

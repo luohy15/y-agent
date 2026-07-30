@@ -181,6 +181,46 @@ class EnabledTest(UiArtifactTestCase):
         )
 
 
+class DeleteTest(UiArtifactTestCase):
+    def test_delete_removes_artifact_and_all_versions_and_returns_storage_keys(self):
+        artifact = artifact_service.create_artifact(1, "finance")
+        artifact_service.publish(1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js")
+        artifact_service.publish(1, artifact.artifact_id, sha256="bbb", storage_key="ui/finance/bbb.js")
+
+        storage_keys = artifact_service.delete_artifact(1, artifact.artifact_id)
+        self.assertEqual(sorted(storage_keys), ["ui/finance/aaa.js", "ui/finance/bbb.js"])
+
+        self.assertIsNone(artifact_service.get_artifact(1, artifact.artifact_id))
+        self.assertEqual(artifact_service.list_versions(1, artifact.artifact_id), [])
+
+    def test_delete_unknown_artifact_returns_none(self):
+        self.assertIsNone(artifact_service.delete_artifact(1, "nope99"))
+
+    def test_delete_is_scoped_to_owner(self):
+        mine = artifact_service.create_artifact(1, "finance")
+        theirs = artifact_service.create_artifact(2, "finance")
+        artifact_service.publish(2, theirs.artifact_id, sha256="ccc", storage_key="ui/finance/ccc.js")
+
+        self.assertIsNone(artifact_service.delete_artifact(1, theirs.artifact_id))
+        self.assertIsNotNone(artifact_service.get_artifact(2, theirs.artifact_id))
+        self.assertEqual(len(artifact_service.list_versions(2, theirs.artifact_id)), 1)
+
+        storage_keys = artifact_service.delete_artifact(1, mine.artifact_id)
+        self.assertEqual(storage_keys, [])
+
+    def test_create_after_delete_reuses_the_freed_slug(self):
+        """Plan B5: hard delete must free UniqueConstraint(user_id, slug) so
+        re-creating the same slug is a clean row, not a collision."""
+        artifact = artifact_service.create_artifact(1, "finance")
+        artifact_service.publish(1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js")
+        artifact_service.delete_artifact(1, artifact.artifact_id)
+
+        recreated = artifact_service.create_artifact(1, "finance")
+        self.assertNotEqual(recreated.artifact_id, artifact.artifact_id)
+        self.assertIsNone(recreated.active_version_id)
+        self.assertEqual(artifact_service.list_versions(1, recreated.artifact_id), [])
+
+
 class ListArtifactsTest(UiArtifactTestCase):
     def test_list_artifacts_enabled_only_filter(self):
         a1 = artifact_service.create_artifact(1, "finance")
