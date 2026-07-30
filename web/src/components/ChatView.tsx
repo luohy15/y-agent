@@ -349,7 +349,9 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
           prompt: text,
           ...(imageUploads?.length ? { image_uploads: imageUploads } : {}),
           ...(vmName ? { vm_name: vmName } : {}),
-          ...(botName ? { bot_name: botName } : {}),
+          // No bot_name: a steer is appended to a run that is already going, so
+          // no task is enqueued and the API drops the field. A bot pick applies
+          // on the chat's next run instead.
           ...(chatWorkDir ? { work_dir: chatWorkDir } : {}),
         }),
       });
@@ -358,7 +360,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     } finally {
       setSending(false);
     }
-  }, [followUp, sending, chatId, vmName, botName, chatWorkDir]);
+  }, [followUp, sending, chatId, vmName, chatWorkDir]);
 
   const handleOpenFile = useCallback((path: string, line?: number) => {
     const normalized = path.replace(/^\.\//, "");

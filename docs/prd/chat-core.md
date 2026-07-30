@@ -177,11 +177,15 @@ mode (`-i`) serves a human at a terminal.
 42. As a user, I want a message sent to an already-running chat to be
     appended without enqueuing a second worker task, so that steer never
     creates duplicate runs.
-43. As a user, I want each chat's backend and bot fixed at first run, so
-    that changing my default bot never migrates an existing conversation
-    between agent backends mid-session. With claude_code the only agentic
-    backend, this now mainly pins a chat away from the inline query backends
-    and keeps its native session resumable.
+43. As a user, I want each chat's backend fixed at first run, so that
+    changing my default bot never migrates an existing conversation between
+    agent backends mid-session. With claude_code the only agentic backend,
+    this now mainly pins a chat away from the inline query backends and keeps
+    its native session resumable. The bot itself is not pinned: a chat runs on
+    its own bot until a later message names a different one, and that bot
+    change is honored (bot name and tier follow it) when the name resolves to
+    a runnable bot on the chat's backend. Anything else keeps the current bot;
+    the routing rules live in the bot-routing PRD.
 44. As a user, I want follow-up turns to resume the backend's native session
     (via the stored external session id, only when the work dir still
     matches), so that the agent keeps its full context across turns.
@@ -208,8 +212,10 @@ mode (`-i`) serves a human at a terminal.
     chat) to run inline in the worker without a VM subprocess, so that
     one-shot questions stay cheap and fast.
 52. As an operator, I want chat identity fields (topic, skill, trace id,
-    backend, bot) immutable once set, with mutation attempts logged and
-    refused, so that a chat's place in the session tree cannot drift.
+    backend) immutable once set, with mutation attempts logged and refused,
+    so that a chat's place in the session tree cannot drift. Bot name and
+    tier are excluded: they are routing state that follows the bot each run
+    actually used, so an accepted re-bot is persisted rather than refused.
 
 ## Implementation Decisions
 
@@ -264,11 +270,15 @@ mode (`-i`) serves a human at a terminal.
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
   conflicts on send are rejected, not silently rebased.
-- **Identity immutability**: backend, bot name, topic, skill, trace id, and
-  routine id are write-once at the repository layer; later saves keep the
-  existing value and log a warning on attempted mutation. Root (manager)
-  chats deliberately never persist a trace id (a root participates in many
-  traces; per-message metadata carries trace context instead).
+- **Identity immutability**: backend, topic, skill, trace id, and routine id
+  are write-once at the repository layer; later saves keep the existing value
+  and log a warning on attempted mutation. Bot name and tier are deliberately
+  not in that set (todo 2930): they record which bot a run used, and a
+  same-backend bot change accepted by the worker must be persisted, so the
+  repository takes the new value and only refuses to let an unset one clear
+  a persisted one. Root (manager) chats deliberately never persist a trace id
+  (a root participates in many traces; per-message metadata carries trace
+  context instead).
 - **Lambda time limit**: the worker releases its monitoring lease before the
   deadline and re-enqueues itself; the next invocation resumes tailing from
   the stored offset. This is core lifecycle; steer-specific handoff behavior
@@ -306,7 +316,9 @@ mode (`-i`) serves a human at a terminal.
   appended) — prior art exists as pytest suites in the agent package (stream
   converters, steer drain, poll loop).
 - Repository-level tests for status derivation, title/search-text
-  extraction, and identity-field immutability.
+  extraction, identity-field immutability, and the opposite rule for the
+  routing fields (a new bot name / tier is written, an unset one never
+  clears the stored value).
 - Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
 
@@ -341,4 +353,4 @@ mode (`-i`) serves a human at a terminal.
 | 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
 | 2873 | Fully remove the temporary claude_tui backend + subscription /usage tooling; `_start_detached` defaults to claude_code and rejects unknown backends; migration repoints persisted backend pins claude_tui->claude_code with external_id preserved | - | `pages/plan-2873-remove-claude-tui.md` | - | `pages/review-2873-remove-claude-tui.md` | shipped |
 | 2885 | Prevent large Grok updates polls from deadlocking SSH persistence and retain the cumulative updates offset across resumed turns | - | `pages/plan-2885-grok-updates-poll-deadlock.md` | `pages/recovery-2885-aa346e-lost-turn.md` | `pages/review-2885-grok-updates-poll-deadlock.md` | shipped |
-| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`) | - | `pages/plan-2930-single-backend.md` | - | - | in progress |
+| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |

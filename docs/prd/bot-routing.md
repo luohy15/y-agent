@@ -88,8 +88,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
     tier2, and an empty tier2 to fall back to the default bot, each with a
     logged warning, so that a data gap degrades service quality instead of
     breaking the chat.
-16. As a user, I want an existing chat to keep the bot it started with, so
-    that a conversation's model identity is stable across turns.
+16. As a user, I want an existing chat to keep the bot it started with when
+    no bot is named on a later message, so that a conversation's model
+    identity is stable across turns and changing the global default never
+    moves a live conversation.
 17. As an examiner, I want to grade a new bot through a standardized exam
     before placing it on the ladder, so that tier assignment reflects
     measured behavior in this system rather than reputation.
@@ -108,6 +110,19 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 22. As a secondary user without my own bot configs, I want resolution to
     fall back to the system default user's configs, so that a fresh account
     can chat before configuring anything.
+23. As a user, I want to name a different bot on an existing chat and have
+    the rest of the conversation continue on it, so that I can move a live
+    session up to a stronger model (or down to a cheaper one) without
+    starting over and losing its context.
+24. As a user, I want a bot change that would move a chat onto a different
+    backend refused with the chat left on its current bot, so that an
+    agentic conversation is never stranded on an inline query backend that
+    has no session to resume.
+25. As a user, I want a bot change naming something that does not resolve to
+    a runnable bot (mistyped, disabled, or outside the tier I asked for) to
+    leave the chat on its current bot rather than land it on whatever the
+    fallback pool returns, so that a stale bot name can never silently and
+    permanently downgrade a live conversation.
 
 ## Implementation Decisions
 
@@ -178,9 +193,50 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   depth and cycle detection, both raising errors. Pointers are excluded from
   candidacy; the conventional use is the `default` config aiming at
   whichever bot is the current global default.
-- **Chats are sticky to their bot.** Once a chat has a persisted bot name, a
-  different bot on a later message is ignored with a log; tier resolution
-  happens per run but cannot re-bot an existing chat.
+- **A chat keeps its bot by default, but can be re-botted within its
+  backend.** With no bot named on a later message the chat's persisted bot
+  is reused. Naming a different bot switches the chat: the new bot's name
+  and tier are persisted and the rest of the conversation runs on it. The
+  chat's `backend` stays fixed, so a bot whose effective backend differs is
+  refused with a log and the chat keeps its current bot. The refusal exists
+  because `perplexity` and `openai` are inline query backends with no
+  session at all; among agentic bots it is trivially always true, since
+  claude_code is the only one left (todo 2930).
+- **A bot change takes effect on the chat's next run.** Bot resolution
+  happens when a message enqueues a worker task, so a message sent into a
+  chat that is already running steers the turn in flight instead
+  (chat-core), and that turn stays on the bot it started with. The change
+  applies to the following run. Both user-facing surfaces say so: the
+  `y chat --bot` help text and the web bot picker's tooltip.
+- **A re-bot requires an affirmative pin; anything else is a no-op.** The
+  normal resolver cannot fail a request (an unknown name, a disabled bot, or
+  a name outside the requested tier all fall back to the tier2 pool with a
+  warning), which is right for a new chat and wrong for an existing one:
+  the fallback bot is `claude_code` too, so it would pass the backend check
+  and silently move a conversation onto a bot nobody asked for, permanently.
+  A re-bot therefore resolves the name pin on its own, without the tier2
+  fallback, and only a pin that resolves to a runnable config counts. Every
+  other outcome (no such runnable bot, wrong backend, resolution raising on
+  a broken alias chain) keeps the chat on its current bot and logs. The
+  asymmetry is deliberate: for a live conversation a silent permanent
+  downgrade is worse than ignoring the request, which is exactly the
+  pre-2930 behavior.
+- **Re-bot continuity is free** because for claude_code the model and the
+  relay credentials are per-invocation flags/env while the session lives in
+  Claude Code's own store keyed by `external_id` + work dir: a re-botted chat
+  resumes the same session under a different `--model` and relay key.
+  Smoke-tested in todo
+  2930 across a three-model chain (Anthropic → a different provider behind
+  another relay key → back), with the session id and the full transcript
+  preserved. What that test did *not* cover: all three turns used the same
+  relay host, because every claude_code bot points at one CRS endpoint, so
+  only the auth token and the upstream model varied. Host independence is
+  argued rather than measured, and the argument is that resume state is a
+  local JSONL on the VM while base-url, token and model are all rebuilt from
+  the bot config on every invocation, so a different host can cost at most a
+  prompt-cache miss. No context-window guard either: resuming a long session
+  on a smaller-context model is a known theoretical footgun judged not worth
+  code.
 - **The tier request travels the whole dispatch path**: CLI flag, API
   payloads on chat creation, message send, and cross-skill notify, through
   the queue message, to the worker where the effective tier (explicit
@@ -237,6 +293,13 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - Worker-side: tier defaulting (a dispatch with no filters resolves as
   tier2; skill presence is irrelevant to the derived tier) and the
   explicit-tier override.
+- Re-bot is tested on both sides of the seam: the pin resolver for what
+  counts as an affirmative pin (enabled name, alias deref, and the three
+  non-resolutions: unknown, disabled, outside the requested tier), and
+  `run_chat` for what each outcome does to the chat (accepted change
+  persists name and tier; cross-backend, unresolvable, and raising requests
+  all leave the chat's bot untouched). The refusal cases matter more than
+  the accept case: they are the ones that used to be a silent overwrite.
 - Prior art: the agent package has dedicated config tests covering weight
   semantics, tier defaulting, and candidate eligibility; the worker package
   covers resolution fallback. Extend those rather than inventing a new
@@ -263,4 +326,14 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - In-code enforcement of the dispatch policy: which tier a dispatcher asks
   for remains an agent-instruction convention; the code only honors the
   request.
-- Re-botting an existing chat mid-conversation.
+- Cross-backend chat continuity: moving a chat between backends (transcript
+  handoff or session translation) stays out. A bot change is honored only
+  within the chat's own backend.
+- A context-window guard on re-bot: nothing stops re-botting a long chat
+  onto a smaller-context model.
+
+## Delivery Records
+
+| Todo | Outcome | Design | Plan | Decisions | Review | Status |
+|------|---------|--------|------|-----------|--------|--------|
+| 2930 | Collapse the agentic backends to claude_code only, then lift the sticky-bot rule: naming a different bot on an existing chat re-bots it (bot_name + tier persisted, `external_id` kept so the Claude session resumes), while a cross-backend change is refused and the chat keeps its bot; surfaced via `y chat --chat-id ... --bot` and the web bot picker | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |

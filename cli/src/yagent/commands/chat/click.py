@@ -256,7 +256,7 @@ def _interactive(
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
-@click.option('--bot', '-b', default=None, help='Bot name to use (e.g. sonnet, opus, px)')
+@click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must run on the same backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
 @click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
@@ -293,6 +293,7 @@ def chat_group(
         y chat --topic dev --skill review -m "." topic + explicit skill
         y chat --skill dev -m "..."              anonymous chat with skill
         y chat --chat-id <id> -m "..."           continue an existing chat
+        y chat --chat-id <id> -b opus -m "..."   continue it on another bot
 
     \b
       Interactive REPL:

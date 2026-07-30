@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from agent.config import (
     resolve_bot_config,
+    resolve_pinned_bot_config,
     tier_of,
     _universe,
     _candidates,
@@ -569,6 +570,62 @@ class RefBotResolveTest(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 resolve_bot_config(1)
             self.assertIn("not found", str(ctx.exception))
+
+
+class PinnedBotResolveTest(unittest.TestCase):
+    """resolve_pinned_bot_config answers "did this pin resolve?": the same
+    candidate rules as a name pin, without the tier2 fallback that makes
+    resolve_bot_config unable to fail."""
+
+    def _resolve(self, configs, bot_name, tier=None, get_config=None):
+        with (
+            patch("agent.config.bot_service.list_configs", return_value=configs),
+            patch("agent.config.bot_service.get_config",
+                  side_effect=get_config or (lambda uid, name="default": None)),
+            patch("agent.config.get_default_user_id", return_value=1),
+        ):
+            return resolve_pinned_bot_config(1, bot_name, tier=tier)
+
+    def test_enabled_name_resolves(self):
+        opus = BotConfig(name="opus", tier="tier1")
+        self.assertEqual(self._resolve([opus], "opus").name, "opus")
+
+    def test_unknown_name_returns_none(self):
+        t2_bot = BotConfig(name="t2-bot", tier="tier2", route_weight=1)
+        self.assertIsNone(self._resolve([t2_bot], "nonexistent"))
+
+    def test_disabled_name_returns_none(self):
+        """The case that makes this function necessary: resolve_bot_config
+        hands back the tier2 bot here, which is claude_code too."""
+        disabled = BotConfig(name="glm", enabled=False)
+        t2_bot = BotConfig(name="t2-bot", tier="tier2", route_weight=1)
+        self.assertIsNone(self._resolve([disabled, t2_bot], "glm",
+                                        get_config=lambda uid, name="default": disabled))
+
+    def test_name_outside_requested_tier_returns_none(self):
+        opus = BotConfig(name="opus", tier="tier1")
+        t2_bot = BotConfig(name="t2-bot", tier="tier2", route_weight=1)
+        self.assertIsNone(self._resolve([opus, t2_bot], "opus", tier="tier2"))
+
+    def test_pointer_bot_derefs(self):
+        """Pin semantics include alias deref, which a bare name comparison
+        against the resolved config would break."""
+        alias = BotConfig(name="alias", ref_bot_name="opus")
+        opus = BotConfig(name="opus", tier="tier1")
+
+        def _get_config(uid, name="default"):
+            return {"alias": alias, "opus": opus}.get(name)
+
+        self.assertEqual(self._resolve([opus], "alias", get_config=_get_config).name, "opus")
+
+    def test_broken_ref_chain_raises(self):
+        alias = BotConfig(name="alias", ref_bot_name="gone")
+
+        def _get_config(uid, name="default"):
+            return alias if name == "alias" else None
+
+        with self.assertRaises(ValueError):
+            self._resolve([], "alias", get_config=_get_config)
 
 
 if __name__ == "__main__":

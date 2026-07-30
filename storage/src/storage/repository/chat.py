@@ -246,6 +246,18 @@ def _resolve_immutable_field(entity: ChatEntity, chat: Chat, field: str):
     return entity_val
 
 
+def _resolve_routing_field(entity: ChatEntity, chat: Chat, field: str):
+    """Return the value to write for a re-bottable routing field.
+
+    bot_name and tier follow the bot a chat actually ran on, so a bot change
+    accepted by the worker is persisted instead of being refused. An unset DTO
+    value still never clears a persisted one: callers that never touched the
+    field must not blank it.
+    """
+    chat_val = getattr(chat, field)
+    return chat_val if chat_val else getattr(entity, field)
+
+
 def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
     from storage.util import get_utc_iso8601_timestamp
     chat.update_time = get_utc_iso8601_timestamp()
@@ -269,8 +281,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = _resolve_immutable_field(entity, chat, "backend")
-            entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
-            entity.tier = _resolve_immutable_field(entity, chat, "tier")
+            entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
+            entity.tier = _resolve_routing_field(entity, chat, "tier")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -339,8 +351,8 @@ def _save_chat_by_id_sync(chat: Chat) -> Chat:
             entity.origin_chat_id = chat.origin_chat_id
             entity.external_id = chat.external_id
             entity.backend = _resolve_immutable_field(entity, chat, "backend")
-            entity.bot_name = _resolve_immutable_field(entity, chat, "bot_name")
-            entity.tier = _resolve_immutable_field(entity, chat, "tier")
+            entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
+            entity.tier = _resolve_routing_field(entity, chat, "tier")
             entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
@@ -439,8 +451,14 @@ def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
     """Rename `bot_name` from `old_name` to `new_name` on all chats matching
     (user_id, bot_name). Returns the affected row count.
 
-    Direct UPDATE so `_resolve_immutable_field` in `_save_chat_*_sync` doesn't
-    apply, same rationale as `release_topic` above.
+    Direct UPDATE so the rename lands on every row in one statement without
+    loading and re-saving each chat. Unlike `release_topic` above, this does not
+    protect the new name: `bot_name` is a routing field (`_resolve_routing_field`),
+    so an in-flight worker holding a stale DTO can write the old name back on its
+    next save, after which resolution for that one chat degrades to the tier2
+    pool with a warning. Accepted: renames are rare, the window is the few
+    hundred ms between a worker's chat load and its next save, and the blast
+    radius is a single chat row that the next explicit `--bot` fixes.
     """
     with get_db() as session:
         return (session.query(ChatEntity)

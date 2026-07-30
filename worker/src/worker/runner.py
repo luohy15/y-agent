@@ -468,6 +468,39 @@ async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
             _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
 
 
+def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, current_bot: str):
+    """Resolve a mid-chat bot change, or None when the request cannot be honored.
+
+    Only an affirmative pin counts as a re-bot. resolve_bot_config never fails a
+    request: an unknown name, a disabled bot, or a name outside the requested
+    tier all fall back to the tier2 pool, and that bot is claude_code too, so
+    the caller's backend check would pass and the chat would be moved onto a bot
+    nobody asked for. Resolving the pin on its own keeps "honored"
+    distinguishable from "fell back".
+
+    A raising pin (a broken alias chain) is swallowed here rather than left to
+    run_chat's outer handler: that handler's hand-built fallback config carries
+    no model and no credentials, so the turn would run degraded. Returning None
+    instead sends the caller down the ordinary sticky path, which re-resolves
+    the chat's own bot with its real config.
+    """
+    try:
+        requested = agent_config.resolve_pinned_bot_config(user_id, bot_name, tier=tier)
+    except Exception as e:
+        logger.warning(
+            "Ignoring bot_name change for chat {}: resolving requested={} raised {}: {}; keeping existing={}",
+            chat_id, bot_name, type(e).__name__, e, current_bot,
+        )
+        return None
+    if not requested:
+        logger.warning(
+            "Ignoring bot_name change for chat {}: requested={} (tier={}) is not a runnable bot "
+            "(unknown, disabled, or outside that tier); keeping existing={}",
+            chat_id, bot_name, tier, current_bot,
+        )
+    return requested
+
+
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Perplexity runs inline; claude_code detaches to tmux.
 
@@ -521,12 +554,18 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     except Exception as e:
         logger.exception("telegram user message failed: {}", e)
 
-    if chat.bot_name:
-        if bot_name and bot_name != chat.bot_name:
-            logger.warning(
-                "Ignoring bot_name change for chat {}: existing={} requested={}",
-                chat_id, chat.bot_name, bot_name,
-            )
+    # A chat is not sticky to its bot: a bot change requested mid-conversation is
+    # honored when the request resolves to a runnable bot on the same backend.
+    # For claude_code the model and the relay credentials are per-invocation, so
+    # the existing session (chat.external_id) resumes fine under a different
+    # --model / relay key (smoke-tested in todo 2930). Two things are refused,
+    # both by keeping the chat's own bot: a cross-backend change (perplexity /
+    # openai are inline and have no session at all, so an agentic chat moved
+    # onto one would strand its session), and a request that does not resolve
+    # (see _resolve_rebot_target). Refusing is always safe here, because it is
+    # exactly the pre-2930 behavior: the chat keeps its bot and runs on it.
+    rebot = bool(chat.bot_name and bot_name and bot_name != chat.bot_name)
+    if chat.bot_name and not rebot:
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
@@ -534,10 +573,33 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # migrated) must not crash the core chat chain. On any failure, fall back to
     # a hand-built default bot so the conversation keeps running.
     try:
-        bot_config = agent_config.resolve_bot_config(
-            user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
-        )
+        if rebot:
+            requested = _resolve_rebot_target(user_id, bot_name, bot_tier, chat_id, chat.bot_name)
+            requested_backend = (requested.backend or requested.api_type) if requested else None
+            if not requested:
+                rebot = False
+            elif chat.backend and requested_backend != chat.backend:
+                logger.warning(
+                    "Refusing cross-backend bot change for chat {}: existing={} backend={} requested={} backend={}",
+                    chat_id, chat.bot_name, chat.backend, bot_name, requested_backend,
+                )
+                rebot = False
+            else:
+                bot_config = requested
+                logger.info(
+                    "Re-botting chat {}: {} -> {} (backend {})",
+                    chat_id, chat.bot_name, requested.name, requested_backend,
+                )
+            if not rebot:
+                bot_name = chat.bot_name
+        if not rebot:
+            bot_config = agent_config.resolve_bot_config(
+                user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
+            )
     except Exception as e:
+        # The fallback config below is synthetic, so it must never be persisted
+        # as an accepted re-bot, no matter what later edits raise inside the try.
+        rebot = False
         fallback_backend = chat.backend or backend or "claude_code"
         logger.exception(
             "Bot resolve failed for chat {} (user_id={} bot_name={} backend={}); "
@@ -552,16 +614,16 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     resolved_tier = agent_config.tier_of(bot_config)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
-    # Persist routing identity on first run only. A chat's backend is fixed for
-    # the lifetime of the chat so changing the user's default bot does not move
-    # existing conversations between agent backends. tier follows the same
-    # once-set-stays-set rule so per-tier session counts reflect the tier a
-    # chat was actually dispatched on, including default tier resolution.
+    # Persist routing identity. A chat's backend is fixed for the lifetime of the
+    # chat so changing the user's default bot does not move existing conversations
+    # between agent backends. bot_name / tier are set on the first run and then
+    # only move again on an accepted re-bot, so the chat always reflects the bot
+    # and tier it actually ran on.
     if not chat.backend:
         chat.backend = bot_config.backend or bot_config.api_type
-    if not chat.bot_name:
+    if not chat.bot_name or rebot:
         chat.bot_name = bot_config.name
-    if not chat.tier:
+    if not chat.tier or rebot:
         chat.tier = resolved_tier
     await chat_repo.save_chat_by_id(chat)
 

@@ -366,6 +366,10 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatContextPanel", chatContextPanel); }, [chatContextPanel]);
   useEffect(() => { if (selectedVM) localStorage.setItem("selectedVM", selectedVM); else localStorage.removeItem("selectedVM"); }, [selectedVM]);
   useEffect(() => { localStorage.removeItem("selectedBot"); }, []);
+  // The picker is a per-chat choice: on an existing chat it re-bots that chat on
+  // its next run, so drop it when the conversation changes rather than carrying
+  // the pick into an unrelated chat.
+  useEffect(() => { setSelectedBot(null); }, [selectedChatId]);
   useEffect(() => {
     if (!vmDropdownOpen) return;
     const handler = (e: MouseEvent) => {
@@ -784,11 +788,11 @@ export default function App() {
             {botList.length > 1 && (
               <div className="relative shrink-0" ref={botDropdownRef}>
                 <button
-                  onClick={() => { if (!selectedChatId) setBotDropdownOpen((v) => !v); }}
-                  className={`p-0 bg-transparent border-0 ${selectedChatId ? "cursor-default" : botDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
-                  title={`Bot: ${selectedBot || "default"}`}
+                  onClick={() => setBotDropdownOpen((v) => !v)}
+                  className={`p-0 bg-transparent border-0 ${botDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
+                  title={selectedChatId ? `Bot: ${selectedBot || chatBotName || "default"} (pick another to switch this chat on its next run)` : `Bot: ${selectedBot || "default"}`}
                 >
-                  {selectedBot || "default"}
+                  {selectedBot || (selectedChatId ? chatBotName : null) || "default"}
                 </button>
                 {botDropdownOpen && (
                   <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">

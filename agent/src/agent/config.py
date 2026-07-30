@@ -158,6 +158,38 @@ def _global_default(user_id: int) -> BotConfig:
     return _deref_bot_config(user_id, bot_config)
 
 
+def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = None,
+                     backend: str = None, tier: str = None) -> Optional[BotConfig]:
+    """Intersect the filters over the universe, without the tier2 fallback."""
+    selected = _select(
+        _candidates(universe, bot_name=bot_name, backend=backend, tier=tier),
+        user_id=user_id if tier else None,
+        tier=tier,
+    )
+    if not selected and bot_name and not backend and not tier:
+        # Explicit name pins keep pointer-deref semantics even though
+        # ref bots are excluded from the universe: name addressing
+        # (story 20 aliasing) should still reach the pointer's target.
+        pinned = bot_service.get_config(user_id, bot_name)
+        if pinned and pinned.ref_bot_name and pinned.enabled:
+            selected = _deref_bot_config(user_id, pinned)
+    return selected
+
+
+def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None) -> Optional[BotConfig]:
+    """Resolve an explicit bot-name pin, or None when the pin does not resolve.
+
+    Same candidate rules as resolve_bot_config for a name pin (pointer deref
+    included), minus the tier2 fallback. A caller that must know whether its
+    request was actually honored needs "no runnable config by that name"
+    (unknown, disabled, or outside the requested tier) to stay distinguishable
+    from "the pool handed something back"; resolve_bot_config deliberately
+    erases that difference so a dispatch always gets a bot. Raises on a broken
+    ref chain, like resolve_bot_config.
+    """
+    return _resolve_filters(user_id, _universe(user_id), bot_name, tier=tier)
+
+
 def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
     """Resolve a dispatch request to a bot config.
 
@@ -171,18 +203,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
     universe = _universe(user_id)
 
     if bot_name or backend or tier:
-        selected = _select(
-            _candidates(universe, bot_name=bot_name, backend=backend, tier=tier),
-            user_id=user_id if tier else None,
-            tier=tier,
-        )
-        if not selected and bot_name and not backend and not tier:
-            # Explicit name pins keep pointer-deref semantics even though
-            # ref bots are excluded from the universe: name addressing
-            # (story 20 aliasing) should still reach the pointer's target.
-            pinned = bot_service.get_config(user_id, bot_name)
-            if pinned and pinned.ref_bot_name and pinned.enabled:
-                selected = _deref_bot_config(user_id, pinned)
+        selected = _resolve_filters(user_id, universe, bot_name, backend, tier)
         if selected:
             return selected
         logger.warning(
