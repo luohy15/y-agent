@@ -366,4 +366,4 @@ Test the observable contract, not the loader's internals.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 2412 | Dynamic UI artifact foundation; Finance as reference migration | - | - | `code/y-agent/docs/prd/ui-dynamic-artifacts.md` | - | prd |
+| 2412 | Dynamic UI artifact foundation; Finance as reference migration | - | `pages/plan-2412-ui-dynamic-artifacts.md` | `pages/decision-2412-runtime-contract.md`, `pages/decision-2412-s5-web-host-sdk.md` | `pages/review-2412-storage-schema.md`, `pages/review-2412-ui-api-round2.md`, `pages/review-2412-ui-sdk-cli.md`, `pages/review-2412-web-host-sdk.md`, `pages/review-2412-ui-loader-round2.md`, `pages/review-2412-ui-mount.md` | shipped |
