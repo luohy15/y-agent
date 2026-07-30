@@ -185,9 +185,9 @@ function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-// --- Over-time helpers (local copies; FinanceViewer keeps the originals private) ---
+// --- Over-time helpers (local copies; the finance artifact keeps the originals private) ---
 
-// Active theme's chart palette (local copy of FinanceViewer's SOL), read from the
+// Active theme's chart palette (local copy of the finance artifact's SOL), read from the
 // --color-sol-* CSS vars so Recharts (which needs JS color values, not classes)
 // tracks theme switches instead of a baked-in Solarized-dark hex object.
 type ThemeColors = {
@@ -234,7 +234,7 @@ function modelColors(): string[] {
   return [SOL.blue, SOL.green, SOL.cyan, SOL.magenta, SOL.violet, SOL.orange, SOL.yellow, SOL.red];
 }
 
-// Local copy of FinanceViewer.formatPeriodLabel: YYYY-MM-DD -> "Mon D, YYYY", YYYY-MM -> "Mon YYYY".
+// Local copy of the finance artifact's formatPeriodLabel: YYYY-MM-DD -> "Mon D, YYYY", YYYY-MM -> "Mon YYYY".
 function formatPeriodLabel(period: string, fullYear = true): string {
   const [year, month, day] = period.split("-");
   if (!month) return year;
@@ -647,7 +647,7 @@ function BotDetailForm({ full, onClose, onSaved }: { full: BotConfig; onClose: (
 }
 
 // Top-7 models by total metric across the range + "Other" (max-significance ordering,
-// mirroring FinanceViewer.buildPositionSeries).
+// mirroring the finance artifact's buildPositionSeries).
 function buildModelSeries(rows: ModelUsageRow[], metric: UsageMetric): string[] {
   const totals = new Map<string, number>();
   for (const r of rows) totals.set(r.model, (totals.get(r.model) || 0) + metricValue(r, metric));
@@ -730,7 +730,7 @@ function usageTableRows(byPeriod: Map<string, Map<string, number>>, models: stri
   });
 }
 
-// Stacked-bar tooltip (local minimal copy of FinanceViewer's ExpensesOverTimeTooltip).
+// Stacked-bar tooltip (local minimal copy of the finance artifact's ExpensesOverTimeTooltip).
 // Segments are rank-slotted (see usageChartRows), so each payload entry's actual
 // model name/color is resolved via its `rank<N>Model` sibling field rather than
 // the raw dataKey/name (which is just the rank slot).
@@ -1452,7 +1452,7 @@ export default function BotViewer() {
   const [usageMode, setUsageMode] = useState<UsageMode>(
     () => (localStorage.getItem(USAGE_MODE_STORAGE_KEY) === "over-time" ? "over-time" : "live"),
   );
-  // Independent free-text time ranges (committed on Enter/blur — mirrors FinanceViewer's
+  // Independent free-text time ranges (committed on Enter/blur — mirrors the finance artifact's
   // Income Statement time input). Live and Over-time each persist their own value; the single
   // input below edits/reads whichever mode is active. `usageTimeInput` is the editing buffer;
   // `usageTime` (the active mode's committed value) drives the query.

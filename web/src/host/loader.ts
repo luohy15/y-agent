@@ -15,8 +15,7 @@ export interface ArtifactVersionRef {
   min_host_version: number;
 }
 
-// One artifact is one pluggable UI module defining BOTH surfaces, mirroring
-// the built-in FinancePanel / FinanceViewer split:
+// One artifact is one pluggable UI module defining BOTH surfaces:
 //   export const panel   -> required, the ~280px left sidebar surface
 //   export const detail  -> optional, the center / full-width surface
 // `export default <Component>` is the shorthand for a panel-only artifact.

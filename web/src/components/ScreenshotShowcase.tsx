@@ -9,7 +9,6 @@ import TraceView from "./TraceView";
 import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
-import FinanceViewer from "./FinanceViewer";
 import ChatView from "./ChatView";
 import BotViewer from "./BotViewer";
 import FileTree from "./FileTree";
@@ -22,10 +21,6 @@ installFetchMock();
 try {
   // Show all todo statuses (the fixture mixes pending/active/completed).
   localStorage.setItem("todoListStatusFilter", "all");
-  // Finance: land on the visually rich Holdings tab (pie chart + table).
-  localStorage.setItem("finance-tab", "holdings");
-  localStorage.setItem("finance-mode", "live");
-  localStorage.setItem("holdings-risky-only", "0");
   // Bot usage: land on the Live usage view (donut + daily contribution heatmap), with a
   // wide time range so the heatmap spans the whole fixture window.
   localStorage.setItem("botView", "usage");
@@ -101,10 +96,6 @@ export default function ScreenshotShowcase() {
 
         <PanelFrame name="tags-drilldown" title="tags · TagList (drill-down)" width={320} height={560}>
           <TagList isLoggedIn onNavigate={noop} />
-        </PanelFrame>
-
-        <PanelFrame name="finance" title="finance · FinanceViewer" width={900} height={760}>
-          <FinanceViewer />
         </PanelFrame>
 
         <PanelFrame name="bot-usage" title="bot · BotViewer (usage)" width={560} height={760}>

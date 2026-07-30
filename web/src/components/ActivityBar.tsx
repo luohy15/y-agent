@@ -17,7 +17,6 @@ export type BuiltInSidebarPanel =
   | "routine"
   | "english"
   | "calendar"
-  | "finance"
   | "email"
   | "dev"
   | "tags";
@@ -44,26 +43,6 @@ export interface PanelItem {
   icon: ReactNode;
 }
 
-// Built-in panels withheld from the activity bar *only while* an enabled,
-// published dynamic UI artifact of the same slug is actually present (todo
-// 2412) — see `visibleBuiltInPanelItems` below for the condition. This is
-// deliberately conditional, not unconditional, over a pure DB-shape
-// predicate (`mountableUiArtifacts`: enabled + published + has an active
-// version): if the artifact is absent, disabled, or has no active version
-// (e.g. the window between a web deploy and re-publishing to production),
-// the built-in panel comes back on its own. This does NOT cover a *runtime*
-// load failure of an otherwise-mountable artifact (404, hash mismatch,
-// host-version skew, a throw while evaluating the bundle) — that state still
-// satisfies the predicate, so the built-in stays hidden behind ArtifactMount's
-// FailureCard, which is where the fix (a rollback) belongs. The panel's item
-// definition and its App.tsx render branch are left intact: emptying this set
-// is the whole restore.
-const HIDDEN_BUILT_IN_PANELS = new Set<BuiltInSidebarPanel>(["finance"]);
-
-// Unfiltered: the full built-in set, independent of any artifact. Consumers
-// that must not depend on the (async) artifact list — App.tsx's saved-panel
-// allowlist, and ActivityBar's own first-paint `useState` seed — read this
-// directly; `visibleBuiltInPanelItems` below is the artifact-aware view.
 export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   { key: "todo", label: "Todo", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -130,11 +109,6 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   )},
-  { key: "finance", label: "Finance", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  )},
   { key: "email", label: "Email", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" />
@@ -146,18 +120,6 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
     </svg>
   )},
 ];
-
-// F1 fix (pages/review-2412-module-shape.md): hide a built-in only when its
-// replacement is actually mountable — enabled, published, with an active
-// version. `mountableUiArtifacts` is the same filter the artifact entries
-// themselves are built from, so "the artifact renders" and "the built-in is
-// hidden" can never disagree.
-function visibleBuiltInPanelItems(artifacts: UiArtifact[]): PanelItem[] {
-  const replacedSlugs = new Set(mountableUiArtifacts(artifacts).map((artifact) => artifact.slug));
-  return BUILT_IN_PANEL_ITEMS.filter(
-    (item) => !HIDDEN_BUILT_IN_PANELS.has(item.key as BuiltInSidebarPanel) || !replacedSlugs.has(item.key),
-  );
-}
 
 function artifactIcon(icon?: string | null): ReactNode {
   if (icon === "chart") {
@@ -174,7 +136,7 @@ function artifactIcon(icon?: string | null): ReactNode {
 
 export function buildActivityPanelItems(artifacts: UiArtifact[]): PanelItem[] {
   return [
-    ...visibleBuiltInPanelItems(artifacts),
+    ...BUILT_IN_PANEL_ITEMS,
     ...mountableUiArtifacts(artifacts).map((artifact) => ({
       key: artifactPanelKey(artifact.slug),
       label: artifactLabel(artifact),
@@ -192,7 +154,7 @@ const LEGACY_STORAGE_KEY_APPS = "activityBarOrderApps";
 const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   "todo.md": null, // folded into existing "todo" panel
   "calendar.md": "calendar",
-  "finance.bean": "finance",
+  "finance.bean": "artifact:finance",
   "emails.md": "email",
   "dev.md": "dev",
 };

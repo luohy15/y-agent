@@ -34,24 +34,4 @@ describe("buildActivityPanelItems", () => {
     ]);
     expect(items[items.length - 1]?.label).toBe("enabled label");
   });
-
-  // F1 (pages/review-2412-module-shape.md): the built-in Finance panel is
-  // withheld only while a mountable `finance` artifact actually replaces it,
-  // so the built-in is never fully unreachable (e.g. during the deploy window
-  // before the artifact is republished, or if it fails to load).
-  it("keeps the built-in finance panel when no finance artifact is present", () => {
-    expect(buildActivityPanelItems([]).map((item) => item.key)).toContain("finance");
-    expect(buildActivityPanelItems([artifact("other", true)]).map((item) => item.key)).toContain("finance");
-  });
-
-  it("keeps the built-in finance panel when the finance artifact is disabled or unpublished", () => {
-    expect(buildActivityPanelItems([artifact("finance", false)]).map((item) => item.key)).toContain("finance");
-    expect(buildActivityPanelItems([artifact("finance", true, false)]).map((item) => item.key)).toContain("finance");
-  });
-
-  it("hides the built-in finance panel only once a mountable finance artifact replaces it", () => {
-    const items = buildActivityPanelItems([artifact("finance", true)]);
-    expect(items.map((item) => item.key)).not.toContain("finance");
-    expect(items.map((item) => item.key)).toContain("artifact:finance");
-  });
 });

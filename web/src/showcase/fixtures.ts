@@ -1,7 +1,7 @@
 // Seeded mock fixtures + a `window.fetch` override for the /showcase route.
 //
 // The point: drive the REAL panel components (TodoList, TraceView, NoteList,
-// LinkList, FinanceViewer) through their REAL `authFetch` / `jsonFetcher` code
+// LinkList) through their REAL `authFetch` / `jsonFetcher` code
 // path so the rendered output is byte-for-byte production styling. We do NOT
 // reimplement any panel. We only swap the data source by overriding the global
 // `fetch` (which `authFetch` in `../api` ultimately calls) with URL-keyed

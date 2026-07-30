@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 // Utilities emit `var(--color-sol-*)` and follow the host theme for free
 // (decision D3), but a library that takes literal color values instead of CSS
 // vars (e.g. recharts' `fill`/`stroke` props) needs the resolved string.
-// Mirrors FinanceViewer.tsx's `readThemeColors`/`useThemeColors`, the
-// acceptance-test artifact this SDK exists for.
+// Mirrors the `readThemeColors`/`useThemeColors` helpers the `finance` dynamic
+// UI artifact uses to feed hex colors to non-CSS-var chart libraries.
 export interface ThemeColors {
   base03: string;
   base02: string;
