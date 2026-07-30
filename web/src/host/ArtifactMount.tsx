@@ -5,7 +5,7 @@
 // nested boundary below. Either way the host never white-screens: the
 // fallback names the artifact + version and offers a one-click rollback to
 // the previous published version (mirrors ErrorBoundary.tsx's Reload button).
-import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { API, authFetch } from "../api";
 import {
   ArtifactLoadError,
@@ -179,21 +179,44 @@ interface ArtifactMountProps {
   artifactId: string;
   version: ArtifactVersionRef;
   label?: string;
+  // Which of the module's two surfaces to render (decision note
+  // pages/decision-2412-module-shape.md). "detail" falls back to the panel
+  // when the module is panel-only, so `/ui/<slug>` is never a dead route.
+  surface?: "panel" | "detail";
   // Called after a rollback attempt succeeds (or hits a 409 conflict), so the
   // mount surface can refetch the artifact's current active version and
   // remount instead of the loader falling back to a confirmed full reload.
   onRolledBack?: () => void;
+  // Reports whether the loaded module actually defines a detail surface, so
+  // the host can offer the "open full view" affordance only when there is a
+  // distinct view to open. Fires once per successful load.
+  onDetailAvailable?: (hasDetail: boolean) => void;
 }
 
-export default function ArtifactMount({ slug, artifactId, version, label, onRolledBack }: ArtifactMountProps) {
+export default function ArtifactMount({
+  slug,
+  artifactId,
+  version,
+  label,
+  surface = "panel",
+  onRolledBack,
+  onDetailAvailable,
+}: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
+
+  // Held in a ref so a caller passing an inline arrow does not re-trigger the
+  // load effect on every host re-render.
+  const onDetailAvailableRef = useRef(onDetailAvailable);
+  onDetailAvailableRef.current = onDetailAvailable;
 
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
     loadArtifact(version)
       .then((artifact) => {
-        if (!cancelled) setState({ status: "loaded", artifact });
+        if (cancelled) return;
+        setState({ status: "loaded", artifact });
+        onDetailAvailableRef.current?.(artifact.Detail !== null);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -202,6 +225,10 @@ export default function ArtifactMount({ slug, artifactId, version, label, onRoll
         } else {
           setState({ status: "error", kind: "fetch", message: (err as Error)?.message ?? String(err) });
         }
+        // N5 (review round 2): a stale `true` from a previous successful load
+        // must not survive into a failed reload — otherwise "Open full view"
+        // stays next to a FailureCard and opens a tab that also fails.
+        onDetailAvailableRef.current?.(false);
       });
     return () => {
       cancelled = true;
@@ -247,9 +274,12 @@ export default function ArtifactMount({ slug, artifactId, version, label, onRoll
     );
   }
 
-  const Artifact = state.artifact.Component;
+  // A panel-only module still renders on the detail surface: the route exists
+  // for every artifact (PRD story 15), it just shows the one surface the
+  // module defines.
+  const Artifact = surface === "detail" ? (state.artifact.Detail ?? state.artifact.Panel) : state.artifact.Panel;
   return (
-    <div data-y-artifact={slug}>
+    <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
       <RenderBoundary onError={handleRenderError}>
         <Artifact />
       </RenderBoundary>

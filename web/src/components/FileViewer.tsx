@@ -1508,6 +1508,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     artifactId={fileUiArtifact.artifact_id}
                     version={fileUiArtifact.active_version}
                     label={uiArtifactLabel(fileUiArtifact)}
+                    surface="detail"
                     onRolledBack={onUiArtifactRolledBack}
                   />
                 </div>

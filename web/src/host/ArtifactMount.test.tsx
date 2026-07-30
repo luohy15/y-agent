@@ -105,7 +105,7 @@ describe("ArtifactMount", () => {
       return React.createElement("span", null, "sibling still here");
     }
     loadArtifactMock.mockImplementation((version: ArtifactVersionRef) =>
-      Promise.resolve({ Component: version.version_id === "boom" ? Boom : Fine, css: "" }),
+      Promise.resolve({ Panel: version.version_id === "boom" ? Boom : Fine, Detail: null, css: "" }),
     );
 
     const { container, root } = renderClient();
@@ -129,9 +129,142 @@ describe("ArtifactMount", () => {
     container.remove();
   });
 
+  // One artifact = one module with two surfaces: the same version renders its
+  // panel in the sidebar and its detail in the center surface, rather than
+  // occupying two sidebar entries.
+  it("renders the panel surface by default and the detail surface when asked", async () => {
+    loadArtifactMock.mockResolvedValue({
+      Panel: () => React.createElement("span", null, "panel surface"),
+      Detail: () => React.createElement("span", null, "detail surface"),
+      css: "",
+    });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref() }),
+          React.createElement(ArtifactMount, {
+            slug: "demo",
+            artifactId: "art1",
+            version: ref(),
+            surface: "detail" as const,
+          }),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("panel surface");
+    expect(container.textContent).toContain("detail surface");
+    expect(container.querySelector('[data-y-artifact-surface="panel"]')?.textContent).toBe("panel surface");
+    expect(container.querySelector('[data-y-artifact-surface="detail"]')?.textContent).toBe("detail surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("falls back to the panel on the detail surface for a panel-only module, and reports no detail", async () => {
+    loadArtifactMock.mockResolvedValue({
+      Panel: () => React.createElement("span", null, "only surface"),
+      Detail: null,
+      css: "",
+    });
+    const onDetailAvailable = vi.fn();
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, {
+          slug: "demo",
+          artifactId: "art1",
+          version: ref(),
+          surface: "detail" as const,
+          onDetailAvailable,
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("only surface");
+    expect(onDetailAvailable).toHaveBeenCalledWith(false);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("reports a detail surface to the host once the module loads", async () => {
+    loadArtifactMock.mockResolvedValue({
+      Panel: () => React.createElement("span", null, "panel"),
+      Detail: () => React.createElement("span", null, "detail"),
+      css: "",
+    });
+    const onDetailAvailable = vi.fn();
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), onDetailAvailable }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(onDetailAvailable).toHaveBeenCalledWith(true);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // N5 (review round 2): a stale `true` from the previous successful load
+  // must not survive a failed reload of a newer version, or "Open full view"
+  // would sit next to a FailureCard and open a tab that also fails.
+  it("clears a previously-reported detail surface when a subsequent reload fails", async () => {
+    loadArtifactMock
+      .mockResolvedValueOnce({
+        Panel: () => React.createElement("span", null, "panel"),
+        Detail: () => React.createElement("span", null, "detail"),
+        css: "",
+      })
+      .mockRejectedValueOnce(new ArtifactLoadError("fetch", "Bundle fetch failed (HTTP 500)."));
+    const onDetailAvailable = vi.fn();
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, {
+          slug: "demo",
+          artifactId: "art1",
+          version: ref({ version_id: "v1" }),
+          onDetailAvailable,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(onDetailAvailable).toHaveBeenLastCalledWith(true);
+
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, {
+          slug: "demo",
+          artifactId: "art1",
+          version: ref({ version_id: "v2" }),
+          onDetailAvailable,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(onDetailAvailable).toHaveBeenLastCalledWith(false);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("injects the module's css as a scoped <style data-y-artifact-style> on mount and removes it on unmount", async () => {
     loadArtifactMock.mockResolvedValue({
-      Component: () => React.createElement("span", null, "hi"),
+      Panel: () => React.createElement("span", null, "hi"),
+      Detail: null,
       css: ".demo{color:red}",
     });
     const { container, root } = renderClient();

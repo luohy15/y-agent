@@ -5,8 +5,14 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  * Starter UI artifact. Edit this file, then:
  *   y ui publish <slug>
  * The host supplies react / @y/host / swr / recharts via the runtime registry.
+ *
+ * One artifact is one module with two surfaces:
+ *   `panel`  (required) renders in the ~280px left sidebar
+ *   `detail` (optional) renders full-width in the center surface, opened from
+ *            the panel header or at /ui/<slug>
+ * Delete the `detail` export for a sidebar-only artifact.
  */
-export default function StarterPanel() {
+function StarterPanel() {
   const [count, setCount] = useState(0);
 
   return (
@@ -28,3 +34,17 @@ export default function StarterPanel() {
     </div>
   );
 }
+
+function StarterDetail() {
+  return (
+    <div className="p-6 text-sol-base0">
+      <h1 className="text-xl font-semibold text-sol-base1 mb-2">Starter detail view</h1>
+      <p className="text-sm text-sol-base01">
+        The wide surface: tables, charts, anything that needs more than the sidebar.
+      </p>
+    </div>
+  );
+}
+
+export const panel = StarterPanel;
+export const detail = StarterDetail;

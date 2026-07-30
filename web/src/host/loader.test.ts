@@ -57,16 +57,80 @@ describe("loadArtifact", () => {
     await expect(loadArtifact(ref({ version_id: "fetch-fail-version" }))).rejects.toMatchObject({ kind: "fetch" });
   });
 
-  it("loads a verified bundle and exposes its default export + inlined css", async () => {
-    const bytes = new TextEncoder().encode("export default function X(){}; export const css = '.x{}';");
+  it("loads a verified bundle and exposes both surfaces + inlined css", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const detail = 2;");
     const sha256 = await sha256Hex(bytes);
     authFetchMock.mockResolvedValue(fakeResponse(bytes));
-    const FakeComponent = () => null;
-    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: FakeComponent, css: ".x{}" });
+    const FakePanel = () => null;
+    const FakeDetail = () => null;
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({
+      panel: FakePanel,
+      detail: FakeDetail,
+      css: ".x{}",
+    });
 
     const artifact = await loadArtifact(ref({ version_id: "ok-version", sha256 }));
-    expect(artifact.Component).toBe(FakeComponent);
+    expect(artifact.Panel).toBe(FakePanel);
+    expect(artifact.Detail).toBe(FakeDetail);
     expect(artifact.css).toBe(".x{}");
+  });
+
+  // A panel-only artifact is the common case; the default export stays a
+  // supported shorthand so a one-surface module needs no ceremony.
+  it("accepts a bare default export as the panel, and reports no detail surface", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){};");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const FakePanel = () => null;
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: FakePanel, css: "" });
+
+    const artifact = await loadArtifact(ref({ version_id: "default-only-version", sha256 }));
+    expect(artifact.Panel).toBe(FakePanel);
+    expect(artifact.Detail).toBeNull();
+  });
+
+  it("prefers the named panel export over a default export", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export default 2;");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const NamedPanel = () => null;
+    const DefaultExport = () => null;
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({
+      panel: NamedPanel,
+      default: DefaultExport,
+      css: "",
+    });
+
+    const artifact = await loadArtifact(ref({ version_id: "both-version", sha256 }));
+    expect(artifact.Panel).toBe(NamedPanel);
+  });
+
+  // N1 (review round 2): `export const detail = null` (e.g. a computed,
+  // sometimes-absent detail) means the same thing as omitting the export —
+  // panel-only — not a bundle failure.
+  it("accepts a null detail export as panel-only, same as an absent one", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const detail = null;");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ panel: () => null, detail: null, css: "" });
+
+    const artifact = await loadArtifact(ref({ version_id: "null-detail-version", sha256 }));
+    expect(artifact.Detail).toBeNull();
+  });
+
+  it("rejects a module whose detail export is not a component", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const detail = 'oops';");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({
+      panel: () => null,
+      detail: "oops",
+      css: "",
+    });
+
+    await expect(loadArtifact(ref({ version_id: "bad-detail-version", sha256 }))).rejects.toMatchObject({
+      kind: "bundle",
+    });
   });
 
   it("dedupes two concurrent loads of the same url+sha256 into a single fetch", async () => {
@@ -77,7 +141,7 @@ describe("loadArtifact", () => {
 
     const v = ref({ version_id: "dedup-version", sha256 });
     const [a, b] = await Promise.all([loadArtifact(v), loadArtifact(v)]);
-    expect(a.Component).toBe(b.Component);
+    expect(a.Panel).toBe(b.Panel);
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -128,7 +192,7 @@ describe("loadArtifact", () => {
     });
   });
 
-  it("reports a missing default export as a bundle failure, not a fetch failure", async () => {
+  it("reports a module with neither a panel nor a default export as a bundle failure, not a fetch failure", async () => {
     const bytes = new TextEncoder().encode("export const notDefault = 1;");
     const sha256 = await sha256Hex(bytes);
     authFetchMock.mockResolvedValue(fakeResponse(bytes));

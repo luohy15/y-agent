@@ -44,6 +44,26 @@ export interface PanelItem {
   icon: ReactNode;
 }
 
+// Built-in panels withheld from the activity bar *only while* an enabled,
+// published dynamic UI artifact of the same slug is actually present (todo
+// 2412) — see `visibleBuiltInPanelItems` below for the condition. This is
+// deliberately conditional, not unconditional, over a pure DB-shape
+// predicate (`mountableUiArtifacts`: enabled + published + has an active
+// version): if the artifact is absent, disabled, or has no active version
+// (e.g. the window between a web deploy and re-publishing to production),
+// the built-in panel comes back on its own. This does NOT cover a *runtime*
+// load failure of an otherwise-mountable artifact (404, hash mismatch,
+// host-version skew, a throw while evaluating the bundle) — that state still
+// satisfies the predicate, so the built-in stays hidden behind ArtifactMount's
+// FailureCard, which is where the fix (a rollback) belongs. The panel's item
+// definition and its App.tsx render branch are left intact: emptying this set
+// is the whole restore.
+const HIDDEN_BUILT_IN_PANELS = new Set<BuiltInSidebarPanel>(["finance"]);
+
+// Unfiltered: the full built-in set, independent of any artifact. Consumers
+// that must not depend on the (async) artifact list — App.tsx's saved-panel
+// allowlist, and ActivityBar's own first-paint `useState` seed — read this
+// directly; `visibleBuiltInPanelItems` below is the artifact-aware view.
 export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   { key: "todo", label: "Todo", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -127,6 +147,18 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   )},
 ];
 
+// F1 fix (pages/review-2412-module-shape.md): hide a built-in only when its
+// replacement is actually mountable — enabled, published, with an active
+// version. `mountableUiArtifacts` is the same filter the artifact entries
+// themselves are built from, so "the artifact renders" and "the built-in is
+// hidden" can never disagree.
+function visibleBuiltInPanelItems(artifacts: UiArtifact[]): PanelItem[] {
+  const replacedSlugs = new Set(mountableUiArtifacts(artifacts).map((artifact) => artifact.slug));
+  return BUILT_IN_PANEL_ITEMS.filter(
+    (item) => !HIDDEN_BUILT_IN_PANELS.has(item.key as BuiltInSidebarPanel) || !replacedSlugs.has(item.key),
+  );
+}
+
 function artifactIcon(icon?: string | null): ReactNode {
   if (icon === "chart") {
     return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 5-7" /></svg>;
@@ -142,7 +174,7 @@ function artifactIcon(icon?: string | null): ReactNode {
 
 export function buildActivityPanelItems(artifacts: UiArtifact[]): PanelItem[] {
   return [
-    ...BUILT_IN_PANEL_ITEMS,
+    ...visibleBuiltInPanelItems(artifacts),
     ...mountableUiArtifacts(artifacts).map((artifact) => ({
       key: artifactPanelKey(artifact.slug),
       label: artifactLabel(artifact),

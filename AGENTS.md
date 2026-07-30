@@ -90,6 +90,24 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline in `MessageBubble` via lazy Mermaid / Vega-Lite / sanitized
   SVG rendering. Plain `svg` fences remain code blocks.
+- **Dynamic UI artifacts** — user-owned React panels published as data instead of
+  shipped in the bundle (`ui_artifact` + `ui_artifact_version`, `/api/ui/*`, `y ui`).
+  Source is a `.tsx` on the VM under `$Y_AGENT_HOME/ui/`; `y ui publish <slug>` builds
+  it with the SDK in `cli/src/yagent/sdk/` (esbuild + Tailwind, externals redirected to
+  CJS shims reading `globalThis.__Y_HOST__`), POSTs the bytes, and the API recomputes
+  sha256 before storing. The web loader (`web/src/host/`) authFetches the bundle,
+  verifies the hash, blob-imports it, and mounts it inside a per-artifact error
+  boundary with distinct fetch / integrity / version-skew / render failure cards and a
+  one-click rollback. **One artifact is one module with two surfaces**: `export const
+  panel` (required, ~280px sidebar) and `export const detail` (optional, center /
+  full-width view opened from the panel header or `/ui/<slug>`), mirroring the built-in
+  FinancePanel / FinanceViewer split — so an artifact takes exactly one ActivityBar
+  entry. Versions are immutable and `active_version_id` is a pointer, so rollback needs
+  no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
+  it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`.
+  The built-in Finance panel is currently withheld from the ActivityBar
+  (`HIDDEN_BUILT_IN_PANELS` in `ActivityBar.tsx`) while the dynamic finance artifact
+  stands in; the code is intact and emptying that set restores it.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -208,7 +226,11 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `file`, `english`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
+  `file`, `english`, `ui`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
+- `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
+  `y ui create`: `contract.json` (single source of truth for the externals list and
+  the `@y/host` contract version, also imported by `web/src/host/contract.ts`),
+  `shims/*.cjs`, `theme.css`, `y-host.d.ts`, `build.mjs`, `templates/starter.*`
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,
@@ -286,6 +308,16 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 y finance beancount snapshot
 y finance beancount update-market-data
 
+# Dynamic UI artifacts. Source is $Y_AGENT_HOME/ui/<slug>.tsx (+ <slug>.json for
+# label/icon); the module exports `panel` (required) and `detail` (optional).
+y ui create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
+y ui list
+y ui versions <slug>
+y ui publish <slug> [--no-activate] [--label <text>] [--icon <key>]
+y ui rollback <slug>
+y ui activate <slug> <version_no>
+y ui enable <slug> | y ui disable <slug>
+
 # Push/pull files between this Mac and the EC2 host (rsync over SSH).
 y file upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
 y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
@@ -304,7 +336,9 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
-  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`.
+  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`,
+  `Y_AGENT_UI_BUNDLE_DIR` (local dynamic-UI bundle store used when
+  `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

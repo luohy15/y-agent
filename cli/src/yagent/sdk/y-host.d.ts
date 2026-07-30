@@ -3,6 +3,18 @@
  * Specifiers are resolved at build time to CJS alias shims that read
  * `globalThis.__Y_HOST__` (decision D1). Contract version lives in
  * contract.json and is stamped onto each published version as min_host_version.
+ *
+ * MODULE SHAPE (pages/decision-2412-module-shape.md)
+ * One artifact is ONE module defining both surfaces, mirroring the built-in
+ * FinancePanel / FinanceViewer split:
+ *
+ *     export const panel = MyPanel;    // required — left sidebar (~280px)
+ *     export const detail = MyDetail;  // optional — center / full-width view
+ *
+ * A bare `export default MyPanel` is the shorthand for a panel-only artifact.
+ * The host gives one sidebar entry per artifact; `detail`, when present, opens
+ * in the center surface from the panel header and at `/ui/<slug>`. Neither
+ * surface receives props.
  */
 
 declare module "react" {
@@ -114,10 +126,13 @@ declare module "@y/host" {
   /** JSON-decoding fetcher for useSWR. */
   export function jsonFetcher<T = any>(url: string): Promise<T>;
 
-  // ListStates.tsx
-  export function ListLoading(props?: { label?: string }): any;
-  export function ListError(props?: { message?: string; onRetry?: () => void }): any;
-  export function ListEmpty(props?: { message?: string }): any;
+  // ListStates.tsx — prop shapes mirror web/src/components/ListStates.tsx.
+  // `className` replaces the default "p-2" padding on all three.
+  export function ListLoading(props?: { className?: string }): any;
+  /** Renders "Error: <message>" from a thrown value; an AbortError renders nothing. */
+  export function ListError(props?: { error?: unknown; className?: string }): any;
+  /** Renders "No <label> found" — `label` is the noun, e.g. "transactions". */
+  export function ListEmpty(props: { label: string; className?: string }): any;
 
   // theme.ts — resolved colors for libraries that cannot take a CSS var (e.g. recharts)
   export interface ThemeColors {

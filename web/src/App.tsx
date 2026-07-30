@@ -92,6 +92,10 @@ export default function App() {
     return saved?.startsWith("artifact:") || saved?.startsWith("ui:") ? null : saved;
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
+  // Which mounted artifacts actually define a detail surface. Only known once
+  // the module has loaded, so the "open full view" affordance appears with the
+  // panel rather than being promised up front for a panel-only artifact.
+  const [uiArtifactHasDetail, setUiArtifactHasDetail] = useState<Record<string, boolean>>({});
   const [pendingLines, setPendingLines] = useState<Record<string, number | undefined>>({});
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -918,7 +922,9 @@ export default function App() {
               bots: { path: "bot.md", label: "Open bot.md" },
             };
             const panelFile = sidebarArtifact
-              ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
+              ? (uiArtifactHasDetail[sidebarArtifact.slug]
+                  ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
+                  : undefined)
               : panelFileMap[sidebarPanel];
             const body =
               sidebarArtifact ? (
@@ -928,7 +934,11 @@ export default function App() {
                     artifactId={sidebarArtifact.artifact_id}
                     version={sidebarArtifact.active_version}
                     label={artifactLabel(sidebarArtifact)}
+                    surface="panel"
                     onRolledBack={() => { void mutateUiArtifacts(); }}
+                    onDetailAvailable={(hasDetail) => setUiArtifactHasDetail((prev) => (
+                      prev[sidebarArtifact.slug] === hasDetail ? prev : { ...prev, [sidebarArtifact.slug]: hasDetail }
+                    ))}
                   />
                 </div>
               ) : sidebarPanel === "todo" ? (

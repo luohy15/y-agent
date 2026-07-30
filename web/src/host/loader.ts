@@ -1,8 +1,9 @@
 // Artifact bundle loader (plan sub-task S6, pages/plan-2412-ui-dynamic-artifacts.md):
 // authFetch the bundle -> crypto.subtle sha256 verify -> Blob -> blob: import()
-// -> validate the default export is a component. See
+// -> validate the module's surfaces. See
 // pages/decision-2412-runtime-contract.md for the load-bearing findings this
-// implements (A3 fail-closed, F5 cache key).
+// implements (A3 fail-closed, F5 cache key) and
+// pages/decision-2412-module-shape.md for the panel+detail module contract.
 import type { ComponentType } from "react";
 import { API, authFetch } from "../api";
 import { HOST_CONTRACT_VERSION } from "./contract";
@@ -14,8 +15,14 @@ export interface ArtifactVersionRef {
   min_host_version: number;
 }
 
+// One artifact is one pluggable UI module defining BOTH surfaces, mirroring
+// the built-in FinancePanel / FinanceViewer split:
+//   export const panel   -> required, the ~280px left sidebar surface
+//   export const detail  -> optional, the center / full-width surface
+// `export default <Component>` is the shorthand for a panel-only artifact.
 export interface LoadedArtifact {
-  Component: ComponentType<Record<string, never>>;
+  Panel: ComponentType<Record<string, never>>;
+  Detail: ComponentType<Record<string, never>> | null;
   css: string;
 }
 
@@ -33,10 +40,17 @@ export class ArtifactLoadError extends Error {
 // Indirection so tests can substitute a fake dynamic import: a `blob:` URL
 // import() only resolves in a real browser, not under vitest/jsdom.
 export const artifactImporter = {
-  importBundle(url: string): Promise<{ default?: unknown; css?: unknown }> {
+  importBundle(url: string): Promise<ArtifactModule> {
     return import(/* @vite-ignore */ url);
   },
 };
+
+interface ArtifactModule {
+  panel?: unknown;
+  detail?: unknown;
+  default?: unknown;
+  css?: unknown;
+}
 
 function bundleUrl(versionId: string): string {
   return `${API}/api/ui/artifact/${encodeURIComponent(versionId)}/bundle`;
@@ -113,7 +127,7 @@ async function fetchAndVerify(url: string, expectedSha256: string): Promise<Load
 
   const blob = new Blob([bytes], { type: "text/javascript" });
   const blobUrl = URL.createObjectURL(blob);
-  let mod: { default?: unknown; css?: unknown };
+  let mod: ArtifactModule;
   try {
     mod = await artifactImporter.importBundle(blobUrl);
   } catch (err) {
@@ -124,12 +138,26 @@ async function fetchAndVerify(url: string, expectedSha256: string): Promise<Load
     URL.revokeObjectURL(blobUrl);
   }
 
-  if (typeof mod.default !== "function") {
-    throw new ArtifactLoadError("bundle", "Bundle did not export a valid component (missing default export).");
+  // `panel` is the canonical name; a bare default export is the panel-only
+  // shorthand the starter template documents.
+  const panel = typeof mod.panel === "function" ? mod.panel : mod.default;
+  if (typeof panel !== "function") {
+    throw new ArtifactLoadError(
+      "bundle",
+      "Bundle did not export a panel component (expected `export const panel` or a default export).",
+    );
+  }
+  // N1 (review round 2): `null` is accepted alongside `undefined` — an author
+  // computing the export (`export const detail = FLAG ? Wide : null`) should
+  // get a panel-only artifact, not a bundle failure, for a value that means
+  // exactly the same thing as omitting the export.
+  if (mod.detail !== undefined && mod.detail !== null && typeof mod.detail !== "function") {
+    throw new ArtifactLoadError("bundle", "Bundle exported a `detail` that is not a component.");
   }
 
   return {
-    Component: mod.default as LoadedArtifact["Component"],
+    Panel: panel as LoadedArtifact["Panel"],
+    Detail: (typeof mod.detail === "function" ? mod.detail : null) as LoadedArtifact["Detail"],
     css: typeof mod.css === "string" ? mod.css : "",
   };
 }
