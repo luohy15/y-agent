@@ -334,6 +334,13 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
 - Frontend: TypeScript strict, TailwindCSS utility classes, Solarized dark theme.
 - Storage pattern: Entity (ORM) → Repository (CRUD) → Service (business logic) →
   Controller (API). Do not call repos directly from controllers.
+- `chat` stores its DTO as a `json_content` blob **plus** promoted columns, so a
+  promoted field is persisted twice. The column is the write target and the only
+  side SQL can reach, so every promoted field must be re-read in
+  `_entity_to_chat`; a field left out of it makes any manual migration against
+  its column a silent no-op (todo 2930 broke 983 chats this way). Before writing
+  a migration that rewrites one of these columns, check that the read path
+  honours it — and that NULL means what the migration intends it to mean.
 - All tool_calls use OpenAI format internally; providers convert to native format.
 - Cross-skill communication: `y chat --topic <name> -m "..."` (fire-and-forget,
   the default top-level mode of `y chat`; all flags independently optional) with

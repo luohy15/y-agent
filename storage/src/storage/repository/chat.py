@@ -36,7 +36,25 @@ class ChatSummary:
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
+    """Hydrate the Chat DTO from `json_content`, then apply the promoted columns.
+
+    Fields promoted to real columns exist twice: once inside the `json_content`
+    blob (written by `Chat.to_dict`) and once as a column. The column is always
+    the write target (`_save_chat_*_sync`), so it is the side that SQL can
+    reach — which means a promoted field MUST be re-read here or a manual
+    migration that rewrites the column silently does nothing at runtime.
+
+    `external_id` is read **unconditionally**: NULL is a meaningful value
+    ("this chat has no resumable backend session"), so it cannot fall back to
+    the blob's stale copy the way the metadata fields below do. That fallback
+    is exactly what made migration 2930_drop_non_claude_code_backends.sql
+    ineffective: it NULLed the column on the 999 chats it repointed, the blob
+    kept the foreign codex/grok session id on the 983 of them that had one, and
+    every one of those relaunched `claude -p -r <foreign-uuid>` and died.
+    """
     chat = Chat.from_dict(json.loads(entity.json_content))
+    # Unconditional: NULL means "no resumable session", not "not promoted yet".
+    chat.external_id = entity.external_id or None
     if entity.trace_id is not None:
         chat.trace_id = entity.trace_id
     if entity.backend is not None:

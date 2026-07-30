@@ -332,7 +332,28 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
     cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
-    if effective_session_id:
+    if result.get("resume_refused") and cwd_matches and fresh.external_id:
+        # Claude Code itself named the handle as the cause: `_resume_refused`
+        # found "No conversation found with session ID" in the run's stderr.
+        # Drop it, otherwise every future turn retries the same dead handle and
+        # the conversation is wedged forever (todo 2930's migrated chats, and
+        # any chat whose session file is gone). Nothing recoverable is lost:
+        # `_claude_build_exec` restores a pruned session file from the
+        # assets/claude-code backup *before* launching, so a refusal means
+        # neither copy exists for this work_dir.
+        #
+        # Gated on that affirmative signal and nothing else. An error status is
+        # not evidence about the handle: `work_dir not found` never launches the
+        # CLI at all, an external SIGTERM/SIGKILL may leave a perfectly live
+        # session, and a missing binary / bad credentials / bad --model are
+        # CLI-level failures that hit every chat at once — inferring a refusal
+        # from those would turn a transient outage into fleet-wide context loss.
+        logger.warning(
+            "clearing refused external_id: chat_id={} external_id={} work_dir={}",
+            chat_id, fresh.external_id, fresh.work_dir,
+        )
+        fresh.external_id = None
+    elif effective_session_id:
         if cwd_matches:
             fresh.external_id = effective_session_id
         else:

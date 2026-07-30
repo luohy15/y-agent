@@ -57,7 +57,15 @@ def _upsert_import_chat(user_id: int, chat: Chat, existing_chat_id: str | None =
 
 
 def _ensure_columns():
-    """Add external_id/backend columns and backfill from json_content."""
+    """Add the external_id/backend columns this importer writes, if missing.
+
+    Deliberately does NOT backfill either column from `json_content`. The
+    `external_id` column is authoritative (see `_entity_to_chat`), so a NULL is a
+    decision — "this chat has no resumable session" — and re-deriving it from the
+    blob's stale copy would resurrect exactly the ghost session ids that todo
+    2930's migrations exist to clear, re-wedging every affected chat for another
+    failed turn.
+    """
     with get_db() as session:
         inspector = sa_inspect(session.bind)
         columns = [c["name"] for c in inspector.get_columns("chat")]
@@ -68,32 +76,6 @@ def _ensure_columns():
         if "backend" not in columns:
             session.execute(text("ALTER TABLE chat ADD COLUMN backend VARCHAR"))
             click.echo("Added backend column to chat table")
-        # Backfill external_id/backend from json_content (Python-side to handle malformed JSON)
-        rows = session.execute(text(
-            "SELECT chat_id, json_content FROM chat"
-            " WHERE external_id IS NULL OR backend IS NULL"
-        )).fetchall()
-        count = 0
-        skipped = 0
-        for chat_id, jc in rows:
-            try:
-                eid = json.loads(jc).get("external_id")
-            except Exception:
-                skipped += 1
-                session.execute(text(
-                    "UPDATE chat SET external_id = '', backend = '' WHERE chat_id = :cid"
-                ), {"cid": chat_id})
-                continue
-            if eid:
-                session.execute(text(
-                    "UPDATE chat SET external_id = :eid, backend = 'claude_code'"
-                    " WHERE chat_id = :cid"
-                ), {"eid": eid, "cid": chat_id})
-                count += 1
-        if skipped:
-            click.echo(f"Skipped {skipped} chats with malformed json_content")
-        if count:
-            click.echo(f"Backfilled {count} existing chats with external_id/backend")
 
 
 @click.command("import-claude")

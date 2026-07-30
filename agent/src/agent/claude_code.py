@@ -441,7 +441,56 @@ def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
     return f" (tail stream error: {type(stream_error).__name__}: {stream_error})"
 
 
-def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None) -> str:
+RESUME_REFUSED_MARKER = "No conversation found with session ID"
+
+
+def _resume_refused(client, chat_id: str) -> bool:
+    """Return True if the CLI's stderr says it refused the recorded session id.
+
+    `claude -p -r <id>` with an id that does not exist under the current cwd
+    writes nothing to stdout and prints only "No conversation found with session
+    ID: <id>" to stderr, which the detach launcher redirects to
+    `/tmp/cc-<chat_id>.stderr`.
+
+    That file holds only the current run's stderr, so a marker found here is
+    always this run's. `2>` truncating on open is half the reason; the other half
+    is that the redirect is reached even when the `cd` fails. Stale cleanup does
+    not delete `.stderr`, so that matters: `_start_detached_tmux` joins
+    `cd <cwd> &&` onto `build_exec`, and in the resume case `build_exec` starts
+    with the restore snippet's `_y_sid=...;` assignment, so the `&&` binds that
+    assignment alone and the `;`-separated pipeline (with its redirect) runs
+    regardless. The non-resume case does gate the whole pipeline behind `cd`, but
+    it passes no `-r`, so it can neither produce a marker nor let one act: the
+    worker's heal also requires a recorded handle and a matching work_dir.
+
+    This is the ONLY affirmative signal that a resume handle is unusable. The
+    worker clears `chat.external_id` on it (see
+    `_apply_completion_metadata`), and every other signal available at this
+    point is ambiguous: a missing or mid-upgrade `claude` binary, bad
+    credentials, a bad `--model`, or a node OOM all produce the same
+    "exited before producing output: process exited with code N". Inferring a
+    refusal from those would drop the handle of every chat that takes a turn
+    during an unrelated CLI-level outage — the exact mass context loss todo 2930
+    is repairing.
+
+    Fails safe in every direction: an SSH or read error, a missing or empty
+    stderr file, unrelated stderr, or a marker that has scrolled out of the
+    4000-byte window all return False. An undetected refusal costs one wedged
+    turn (today's behavior); a false positive would cost a live session.
+    """
+    stderr_file = f"/tmp/cc-{chat_id}.stderr"
+    try:
+        # `|| true` so a missing stderr file reads as "no refusal" instead of a
+        # non-zero exit that _ssh_exec would raise on.
+        tail = _ssh_exec(client, f"tail -c 4000 {_shell_quote(stderr_file)} 2>/dev/null || true")
+    except Exception as e:
+        logger.warning("resume-refusal probe failed for chat {}: {}", chat_id, e)
+        return False
+    return RESUME_REFUSED_MARKER in tail
+
+
+def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None,
+                             resume_refused: bool = False) -> str:
     """Build a precise error message for a tmux session that ended without ever
     emitting a final result event.
 
@@ -451,8 +500,18 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
     OOM killer (a common false alarm previously mis-reported as a resume
     failure) vs. a genuine startup/resume error. Fall back to a generic message
     when the exit file is missing, empty, or unparseable.
+
+    `resume_refused` (from `_resume_refused`) beats the exit code: it names the
+    actual cause instead of leaving the reader to guess, and it tells them the
+    handle is being dropped rather than retried.
     """
     suffix = _stream_error_suffix(stream_error)
+    if resume_refused:
+        return (
+            f"{backend} exited before producing output: it refused the recorded session "
+            f"id (no conversation found with it under this work dir). The session handle "
+            f"is dropped, so the next turn starts a fresh session.{suffix}"
+        )
     generic = (
         f"{backend} exited before producing output — likely a session resume "
         f"failure or startup error.{suffix}"
@@ -956,13 +1015,18 @@ async def tail_ssh_output(
         # all need SSH.
         no_result_session_alive = False
         no_result_error = None
+        no_result_resume_refused = False
         self_killed = False
         if exit_reason is None and result_data is None:
             self_killed = _consume_self_kill_sentinel(client, chat_id)
             if not self_killed:
                 no_result_session_alive = _tmux_session_alive(client, chat_id)
                 if not no_result_session_alive:
-                    no_result_error = _no_result_error_message(client, chat_id, "Claude Code", stream_error)
+                    no_result_resume_refused = _resume_refused(client, chat_id)
+                    no_result_error = _no_result_error_message(
+                        client, chat_id, "Claude Code", stream_error,
+                        resume_refused=no_result_resume_refused,
+                    )
 
         if owns_client:
             client.close()
@@ -1053,6 +1117,10 @@ async def tail_ssh_output(
             "result_data": result_data,
             "status": status,
             "consumed_steer_ids": consumed_steer_ids,
+            # Only ever True on the no-result branch above, where the CLI's own
+            # stderr named the session id as the cause. The worker drops the
+            # handle on this and on nothing else.
+            "resume_refused": no_result_resume_refused,
         }
 
     except Exception as e:

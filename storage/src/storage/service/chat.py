@@ -87,15 +87,6 @@ async def restart_manager_session(user_id: int) -> Chat:
     return chat
 
 
-async def update_chat(user_id: int, chat_id: str, messages: List[Message], external_id: Optional[str] = None) -> Chat:
-    chat = await get_chat(user_id, chat_id)
-    if not chat:
-        raise ValueError(f"Chat with id {chat_id} not found")
-    chat.update_messages(messages)
-    chat.external_id = external_id
-    return await chat_repo.update_chat(user_id, chat)
-
-
 async def get_chat_by_id(chat_id: str) -> Optional[Chat]:
     """Get chat by ID without user_id filter (for worker use)."""
     return await chat_repo.get_chat_by_id(chat_id)
