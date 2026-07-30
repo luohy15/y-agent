@@ -18,7 +18,7 @@ import {
   type TransactionRow,
   type TxnType,
 } from "../lib/financeTransactions";
-import { formatAmount, PRICE_RANGES, type FinancePriceRow, type PriceRange } from "../lib/finance";
+import { formatAmount } from "../lib/finance";
 
 interface AccountNode {
   account: string;
@@ -249,12 +249,6 @@ function formatCompactUsd(value: number): string {
   if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
   if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(0)}k`;
   return `${sign}${abs.toFixed(0)}`;
-}
-
-function formatPriceDate(date: string): string {
-  const [year, month, day] = date.split("-");
-  if (!year || !month || !day) return date;
-  return `${month}/${day}`;
 }
 
 function shortName(account: string): string {
@@ -563,10 +557,9 @@ function liveQuotesLabel(rows: HoldingRow[]): string | null {
   return oldestLabel === newestLabel ? `live quotes as of ${oldestLabel}` : `live quotes as of ${oldestLabel}–${newestLabel}`;
 }
 
-function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, vmName, onOpenTicker }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; vmName?: string | null; onOpenTicker?: (symbol: string) => void }) {
+function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChange, onOpenTicker }: { holdings: HoldingRow[]; totals: HoldingTotalRow[]; syncedAt?: string; riskyOnly: boolean; onRiskyOnlyChange: (value: boolean) => void; onOpenTicker?: (symbol: string) => void }) {
   const [sortKey, setSortKey] = useState<HoldingSortKey>(() => (localStorage.getItem("holdings-sort-key") as HoldingSortKey) || "market_value");
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("holdings-sort-dir") as SortDir) || "desc");
-  const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
   const handleSort = (key: HoldingSortKey) => {
     if (key === sortKey) {
       const next = sortDir === "asc" ? "desc" : "asc";
@@ -612,12 +605,6 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
 
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
 
-  const toggleExpanded = (row: HoldingRow) => {
-    if (row.is_cash || !isValidAmount(row.units)) return;
-    const symbol = row.units.currency;
-    setExpandedSymbol((current) => current === symbol ? null : symbol);
-  };
-
   return (
     <div className="mb-4">
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between">
@@ -657,19 +644,24 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
           {sorted.map((h, i) => {
             if (!isValidAmount(h.units)) return null;
             const symbol = h.units.currency;
-            const isExpanded = expandedSymbol === symbol;
-            const canExpand = !h.is_cash;
+            const canOpenTicker = !!onOpenTicker && !h.is_cash;
             const priceAsOf = h.price_as_of || null;
             return (
               <Fragment key={`${symbol}-${i}`}>
-                <tr
-                  className={`hover:bg-sol-base02/50 ${canExpand ? "cursor-pointer" : ""}`}
-                  onClick={() => toggleExpanded(h)}
-                  title={canExpand ? `Show ${symbol} price history` : undefined}
-                >
+                <tr className="hover:bg-sol-base02/50">
                   <td className="py-0.5 px-3 text-sol-base1">
-                    <span className="inline-block w-4 text-center text-sol-base01 text-xs">{canExpand ? (isExpanded ? "\u25BC" : "\u25B6") : ""}</span>
-                    <span className="ml-1">{symbol}</span>
+                    {canOpenTicker ? (
+                      <button
+                        type="button"
+                        className="cursor-pointer bg-transparent border-0 p-0 text-sol-blue hover:underline"
+                        onClick={() => onOpenTicker!(symbol)}
+                        title={`Analyze ${symbol}`}
+                      >
+                        {symbol}
+                      </button>
+                    ) : (
+                      symbol
+                    )}
                   </td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatAmount(h.units.number)}</td>
                   <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">
@@ -712,26 +704,6 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
                     );
                   })()}
                 </tr>
-                {isExpanded ? (
-                  <tr className="border-y border-sol-base02 bg-sol-base03">
-                    <td colSpan={9} className="px-3 py-3">
-                      <div className="space-y-2">
-                        <PriceChart symbol={symbol} vmName={vmName} />
-                        {onOpenTicker ? (
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={(event) => { event.stopPropagation(); onOpenTicker(symbol); }}
-                              className="text-xs text-sol-blue hover:underline cursor-pointer"
-                            >
-                              Analyze →
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ) : null}
               </Fragment>
             );
           })}
@@ -1190,19 +1162,18 @@ function TransactionsTable({ rows, syncedAt, onOpenTicker }: { rows: Transaction
                       </td>
                       <td className="py-0.5 px-3"><TxnTypeBadge type={type} /></td>
                       <td className="py-0.5 px-3 text-sol-base1">
-                        <span className="inline-flex items-center gap-1.5">
-                          {symbol}
-                          {onOpenTicker && symbol && symbol !== "—" ? (
-                            <button
-                              type="button"
-                              onClick={(event) => { event.stopPropagation(); onOpenTicker(symbol); }}
-                              className="text-[10px] text-sol-blue hover:underline cursor-pointer"
-                              title={`Analyze ${symbol}`}
-                            >
-                              Analyze →
-                            </button>
-                          ) : null}
-                        </span>
+                        {onOpenTicker && symbol && symbol !== "—" ? (
+                          <button
+                            type="button"
+                            className="cursor-pointer bg-transparent border-0 p-0 text-sol-blue hover:underline"
+                            onClick={(event) => { event.stopPropagation(); onOpenTicker(symbol); }}
+                            title={`Analyze ${symbol}`}
+                          >
+                            {symbol}
+                          </button>
+                        ) : (
+                          symbol
+                        )}
                       </td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatShares(shares)}</td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{price ? formatTransactionValue(price.amount, price.currency) : "—"}</td>
@@ -1361,72 +1332,6 @@ function ChartTooltipContent({ active, payload, label, formatter, sortByValueDes
           <span style={{ color: SOL.base0 }}>{p.name}: {formatter ? formatter(p.value) : p.value}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-function PriceChart({ symbol, vmName }: { symbol: string; vmName?: string | null }) {
-  const [range, setRange] = useState<PriceRange>("YTD");
-  const time = PRICE_RANGES.find((item) => item.label === range)?.value ?? "YTD";
-  const params = new URLSearchParams({ symbol, limit: "1000", time });
-  if (vmName) params.set("vm_name", vmName);
-  const prices = useFinanceEnvelope<FinancePriceRow[]>(`${API}/api/finance/prices?${params.toString()}`);
-
-  const chartData = useMemo(() =>
-    (prices.data?.data ?? []).map((row) => ({
-        date: formatPriceDate(row.price_date),
-        rawDate: row.price_date,
-        price: row.price,
-        currency: row.currency,
-      })),
-    [prices.data?.data]
-  );
-
-  const currency = chartData[0]?.currency ?? "";
-
-  return (
-    <div className="rounded border border-sol-base02 bg-sol-base03 p-3" onClick={(event) => event.stopPropagation()}>
-      <div className="mb-2 flex items-center justify-between">
-        <div>
-          <div className="text-sol-base1 text-xs font-medium uppercase tracking-wide">{symbol} price history</div>
-          <div className="text-sol-base01 text-[10px]">{prices.data?.synced_at ? `synced ${formatRelativeTime(prices.data.synced_at)}` : "Daily prices"}</div>
-        </div>
-        <div className="flex gap-1">
-          {PRICE_RANGES.map((item) => (
-            <button
-              key={item.label}
-              onClick={() => setRange(item.label)}
-              className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
-                range === item.label
-                  ? "bg-sol-blue text-sol-base03"
-                  : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {prices.isLoading ? (
-        <div className="flex h-56 items-center justify-center text-sol-base01 italic">Loading price history...</div>
-      ) : prices.error ? (
-        <div className="flex h-56 items-center justify-center text-sol-red">Error loading price history</div>
-      ) : chartData.length === 0 ? (
-        <div className="flex h-56 items-center justify-center text-sol-base01">No price history</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={SOL.base02} />
-            <XAxis dataKey="date" tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} minTickGap={20} />
-            <YAxis tick={{ fill: SOL.base0, fontSize: 11 }} stroke={SOL.base02} domain={["auto", "auto"]} tickFormatter={(v) => formatAmount(v)} />
-            <Tooltip
-              content={<ChartTooltipContent formatter={(value) => `${formatAmount(value)} ${currency}`} />}
-              labelFormatter={(label) => String(label)}
-            />
-            <Line type="monotone" dataKey="price" name="Price" stroke={SOL.blue} strokeWidth={2} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
     </div>
   );
 }
@@ -3170,7 +3075,7 @@ export default function FinanceViewer({ vmName, onOpenTicker }: FinanceViewerPro
                 <div className="flex items-center justify-between gap-3 px-2 py-3">
                   <RiskyAllocationSummary summary={holdings.data?.summary} loading={holdings.isLoading} />
                 </div>
-                <HoldingsTable holdings={holdingRows} totals={holdingTotals(holdingRows)} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} vmName={vmName} onOpenTicker={onOpenTicker} />
+                <HoldingsTable holdings={holdingRows} totals={holdingTotals(holdingRows)} syncedAt={holdings.data?.synced_at} riskyOnly={holdingsRiskyOnly} onRiskyOnlyChange={handleHoldingsRiskyOnlyChange} onOpenTicker={onOpenTicker} />
               </>
             ) : null
           )
