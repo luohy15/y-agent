@@ -549,6 +549,15 @@ expired-login card tells the user to run.
   inclusive filter by subtracting one day. `today` is aliased to `day` for
   compatibility with persisted UI state. Explicit from/to date parameters
   remain as a fallback; with no range at all, both default to local today.
+  Relative tokens (`day`/`today`, `week`, `month`, `ytd`/`mtd`/`qtd`/`wtd`, and
+  `day-N` ranges) always resolve against `Y_AGENT_TIMEZONE`, never the process
+  timezone: Fava's underlying day resolver (`fava.util.date.local_today`,
+  otherwise plain `datetime.date.today()`) is rebound at import in
+  `storage/service/time_range.py` to a configured-TZ `local_today()` helper in
+  `storage/util.py`, the same helper the write path's day-stamping uses. Lambda
+  and the VM both run the process in UTC while `Y_AGENT_TIMEZONE` defaults to
+  `Asia/Shanghai`, so without this bind every relative token resolved to
+  yesterday's window for the first 8 hours of each local day (todo 2953).
 - **Heatmap totals endpoint.** A separate daily-totals endpoint returns
   per-day sums (tokens, cost, requests) across all models over the heatmap
   window: a given calendar year, or the month-aligned past 12 months (the
@@ -648,6 +657,13 @@ expired-login card tells the user to run.
   range, all/empty, day/today aliases) asserting the resolved inclusive date
   window, including the exclusive-to-inclusive end conversion. This caught the
   real off-by-one class once already.
+- **Relative-token resolution is asserted under a process timezone
+  deliberately different from the configured one.** The grammar table above
+  runs with `TZ=UTC`, and the relative-token tests additionally pin
+  `Y_AGENT_TIMEZONE` to zones on both sides of UTC (`Pacific/Kiritimati`,
+  UTC+14, and `Etc/GMT+12`, UTC-12) so the assertion fails on any regression to
+  process-local resolution at any hour of the day, not only during the
+  reported 00:00-08:00 Asia/Shanghai bug window (todo 2953).
 - **API responses are checked for the ID convention** (no internal integer
   ids) and for the default-today behavior when no range is supplied.
 - **Provider mapping is contract-tested per reader** against captured live
@@ -718,6 +734,7 @@ expired-login card tells the user to run.
 | 2887 | Stacked bar segments ordered by per-bar descending share | - | - | - | `pages/review-2887-usage-stack-order.md` | shipped |
 | 2890 | Daily tokens heatmap weeks start Monday instead of Sunday | - | - | - | - | shipped |
 | 2872 | Subscription limit windows read directly from Anthropic / OpenAI / xAI instead of claude-relay-service: three providers, per-provider window kinds, VM-side CLI reads, and read-through of each vendor CLI's own credential file | - | `pages/plan-2872-direct-provider-usage.md` (supersedes `pages/plan-2872-provider-usage-window-ownership.md`) | this PRD | `pages/review-2872-backend-usage-limits.md`, `pages/review-2872-backend-usage-limits-round2.md`, `pages/review-2872-web-usage-cards.md` | shipped (`09df56b` backend, `dfd75a2` web, `0c2c773` CLI, `3acdbc7` read-through) |
+| 2953 | Fixed Live-tab day-boundary bug: relative time tokens (`today`, `ytd`, etc.) resolved in the process timezone (UTC) instead of `Y_AGENT_TIMEZONE`, showing yesterday's usage for the first 8 hours of each local day | - | `pages/plan-2953.md` | this PRD | - | in progress |
 
 ## Out of Scope
 

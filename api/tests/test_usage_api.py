@@ -4,6 +4,7 @@ conversion and the ID convention (no internal id / user_id in responses).
 storage.service.model_usage_daily is mocked; nothing touches a real database.
 """
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -36,6 +37,28 @@ class ListModelDailyTest(unittest.IsolatedAsyncioTestCase):
             await usage_controller.list_model_daily(_request(), source="crs", time=None, from_date=None, to_date=None, limit=100000)
 
         list_for.assert_called_once_with(123, source="crs", from_date="2026-07-08", to_date="2026-07-08", limit=100000)
+
+    async def test_today_time_filter_resolves_to_same_date_as_no_params_branch(self):
+        """Regression for todo 2953: `time=today` (parsed via the shared fava
+        grammar) and no params (via `_local_today()` directly) must resolve to
+        the same date. Before the fix these disagreed for part of the day
+        because the two branches read "today" from different timezones
+        (`_local_today()` used Y_AGENT_TIMEZONE, fava used the process TZ).
+        Pin Y_AGENT_TIMEZONE to a zone guaranteed to differ from UTC's date at
+        test time so this is deterministic rather than time-of-day dependent."""
+        with (
+            patch.dict(os.environ, {"Y_AGENT_TIMEZONE": "Pacific/Kiritimati"}),
+            patch.object(usage_controller.usage_service, "list_for", return_value=[]) as list_for,
+        ):
+            await usage_controller.list_model_daily(_request(), source="crs", time=None, from_date=None, to_date=None, limit=100000)
+            no_params_call = list_for.call_args
+
+            list_for.reset_mock()
+            await usage_controller.list_model_daily(_request(), source="crs", time="today", from_date=None, to_date=None, limit=100000)
+            today_call = list_for.call_args
+
+        self.assertEqual(no_params_call.kwargs["from_date"], today_call.kwargs["from_date"])
+        self.assertEqual(no_params_call.kwargs["to_date"], today_call.kwargs["to_date"])
 
     async def test_quarter_time_filter_converts_exclusive_end_to_inclusive(self):
         with patch.object(usage_controller.usage_service, "list_for", return_value=[]) as list_for:

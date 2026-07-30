@@ -11,16 +11,15 @@ One source in scope:
 """
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo
 
 import httpx
 from loguru import logger
 
 from storage.repository import model_usage_daily as repo
 from storage.service import bot_config as bot_config_service
-from storage.util import get_utc_iso8601_timestamp
+from storage.util import get_utc_iso8601_timestamp, local_today
 
 # Cloudflare in front of CRS blocks the default urllib/httpx UA (error 1010).
 _BROWSER_UA = (
@@ -102,13 +101,9 @@ def _derive_provider(model: str) -> str:
 
 def _local_today() -> str:
     """Today's date in the configured timezone (CRS stamps daily keys in its app
-    TZ; we mirror Y_AGENT_TIMEZONE, defaulting to Asia/Shanghai = UTC+8)."""
-    tz_name = os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai"
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("Asia/Shanghai")
-    return datetime.now(tz).date().isoformat()
+    TZ; we mirror Y_AGENT_TIMEZONE via storage.util.local_today(), the single
+    source shared with the read-path fava day resolution — todo 2953)."""
+    return local_today().isoformat()
 
 
 # --- CRS pull ---------------------------------------------------------------

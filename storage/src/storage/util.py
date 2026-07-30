@@ -28,6 +28,15 @@ def _time_filter_tz():
     return dateutil_tz.tzlocal()
 
 
+def local_today():
+    """Today's date in the configured timezone (Y_AGENT_TIMEZONE), falling back
+    to system local — the single source for "today" shared by the write path
+    (model_usage_daily) and the read path (time_range's fava day resolution),
+    which previously disagreed by a day for 8 hours after local midnight
+    (todo 2953)."""
+    return datetime.now(_time_filter_tz()).date()
+
+
 def _parse_time_filter_input(value: str) -> tuple[datetime, bool]:
     """Parse a local-tz date or datetime string. Returns (utc_dt, is_date_only)."""
     local_tz = _time_filter_tz()
