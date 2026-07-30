@@ -77,10 +77,14 @@ The full set the API + worker consume. CLI-only keys (e.g. `Y_AGENT_WEB_URL`) li
 
 ## Agent backends
 
-Worker chats run through a configured bot backend. Existing deployments keep their default bot unchanged; add a separate bot config when you want Gemini CLI:
+Worker chats run through a configured bot backend. `claude_code` is the only agentic CLI backend: the worker expects `claude` to be installed on the target VM, starts headless runs with `claude -p --output-format stream-json ...`, resumes with `-r <session_id>`, and passes `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (from the bot config) plus y-agent trace env vars into the subprocess. Different models are different bot configs on the same backend:
 
 ```bash
-y bot add gemini_cli --backend gemini_cli --model gemini-2.5-pro --api-key "$GEMINI_API_KEY" --yes
+y bot add opus --backend claude_code --model "$MODEL_ID" --base-url "$RELAY_URL" --api-key "$RELAY_KEY" --tier tier1 --yes
 ```
 
-The worker expects `gemini` to be installed on the target VM. It starts headless runs with `gemini --output-format stream-json --yolo --skip-trust -p <prompt>`, resumes with `gemini --resume <session_id> ...`, and passes `GEMINI_API_KEY` plus y-agent trace env vars into the subprocess. You can choose the backend for recurring jobs with `y routine add --backend gemini_cli ...` or `y routine update --backend gemini_cli ...`.
+Two non-agentic inline backends also exist, for one-shot request/response features rather than coding sessions: `perplexity` (web fact-check via `y chat --bot px --wait`) and `openai` (`POST /api/inline` artifact rewrites, `POST /api/link/tldr` summaries). They run inside the worker with no VM subprocess, no session, and no steer.
+
+Recurring jobs may pin the backend with `y routine add --backend claude_code ...` / `y routine update --backend claude_code ...`, though leaving it unset is equivalent.
+
+The `codex`, `gemini_cli`, `grok_build`, and `pi_cli` agentic backends were removed (todo 2930). A chat pinned to one of them fails its next launch with an explicit unsupported-backend error; run `migration/2930_drop_non_claude_code_backends.sql` to repoint those rows to `claude_code` (it also nulls `external_id`, since a foreign CLI's session id is not resumable by `claude -p -r`).

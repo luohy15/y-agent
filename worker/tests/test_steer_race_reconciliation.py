@@ -4,7 +4,7 @@
   message exists that wasn't confirmed delivered; relaunch instead.
 - sub-task 5: the plain claude_code completion path must merge
   prev_consumed + this turn's consumed_steer_ids before persisting, not
-  overwrite (matching the codex/gemini/pi restart-with-steer paths).
+  overwrite.
 """
 
 import unittest

@@ -3,7 +3,6 @@
 import os
 import re
 import threading
-import uuid
 
 from loguru import logger
 
@@ -13,18 +12,6 @@ from storage.service import chat as chat_service
 
 import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
-from agent.pi_models import (
-    DEFAULT_BOT_BASE_URL,
-    build_pi_models_provider,
-    resolve_pi_model_and_provider,
-)
-
-
-# Stock OpenRouter endpoint that BotConfig falls back to when base_url is unset.
-# A pi bot left at this default keeps the v1 behavior (provider inferred from the
-# `<provider>/<model>` prefix); only an explicitly-configured custom gateway
-# triggers models.json custom-provider registration.
-DEFAULT_BOT_BASE_URL = BotConfig.__dataclass_fields__["base_url"].default
 
 
 PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
@@ -45,8 +32,7 @@ ARTIFACT_PLACEHOLDERS = {
 
 
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
-CODEX_REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh"}
-SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex"}
+SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
 
 
 def _trailing_user_messages(messages) -> list:
@@ -72,9 +58,7 @@ def resolve_reasoning_effort(messages, backend: str) -> str | None:
     if reasoning_effort not in REASONING_EFFORT_LEVELS:
         raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'; expected low, medium, high, xhigh, or max")
     if backend not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-        raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {backend}")
-    if backend == "codex" and reasoning_effort not in CODEX_REASONING_EFFORT_LEVELS:
-        raise ValueError(f"Codex does not support reasoning_effort '{reasoning_effort}'; expected low, medium, high, or xhigh")
+        raise ValueError(f"reasoning_effort is only supported for claude_code, not {backend}")
     return reasoning_effort
 
 
@@ -485,10 +469,10 @@ async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
-    """Execute a chat round. Perplexity runs inline; CLI backends detach to tmux.
+    """Execute a chat round. Perplexity runs inline; claude_code detaches to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing (e.g. 'claude_code', 'codex', 'gemini_cli', 'grok_build', 'perplexity', 'openai').
+    backend overrides bot_config.backend for routing ('claude_code', 'perplexity', 'openai').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -687,374 +671,11 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
 
 
-def build_codex_resume_cmd(thread_id: str, model: str = None) -> list:
-    """`codex exec resume` command for a known thread (used on fresh resume + steer restart)."""
-    cmd = ["codex", "exec", "resume", thread_id, "--json", "--dangerously-bypass-approvals-and-sandbox"]
-    if model:
-        cmd.extend(["-m", model])
-    return cmd
-
-
-def build_codex_provider_args(bot_config) -> list:
-    """Per-invocation codex `-c` flags that point codex at the bot's own relay.
-
-    Returns ``[]`` when ``bot_config.base_url`` is empty (fallback to the host
-    ``~/.codex/config.toml`` crs provider), preserving every existing codex bot
-    with no config change. When ``base_url`` is set, returns the 5 ``-c`` flag
-    pairs that define + select a custom ``y-codex`` provider, beating the host
-    config. The API key rides on ``OPENAI_API_KEY`` (exported by
-    ``build_codex_env``) via ``env_key`` and is sent as ``Authorization: Bearer``,
-    so it never lands on the command line. If ``api_key`` is empty we skip the
-    injection (and warn), since the provider would have no credential.
-
-    NOTE on the base_url convention: codex treats ``base_url`` as a prefix and
-    appends the wire path (``/responses`` for ``wire_api="responses"``). So a
-    codex bot's ``base_url`` must be the crs-style prefix (e.g.
-    ``https://<relay-host>/openai``), NOT a full endpoint and NOT the claude
-    ``ANTHROPIC_BASE_URL`` messages-root semantics.
-    """
-    base_url = (bot_config.base_url or "").strip()
-    if not base_url:
-        return []
-    if not (bot_config.api_key or "").strip():
-        logger.warning(
-            "codex bot {} has base_url but empty api_key; skipping provider injection "
-            "(falling back to host config.toml)",
-            getattr(bot_config, "name", "?"),
-        )
-        return []
-    return [
-        "-c", 'model_provider="y-codex"',
-        "-c", 'model_providers.y-codex.name="y-codex"',
-        "-c", f'model_providers.y-codex.base_url="{base_url}"',
-        "-c", 'model_providers.y-codex.wire_api="responses"',
-        "-c", 'model_providers.y-codex.env_key="OPENAI_API_KEY"',
-    ]
-
-
-def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
-                    topic: str = None, last_message_id: str = None) -> dict:
-    """Codex subprocess env: OpenAI auth + trace/topic vars (mirrors claude_code env)."""
-    env = {}
-    if bot_config.api_key:
-        env["OPENAI_API_KEY"] = bot_config.api_key
-    if chat_id:
-        env["Y_CHAT_ID"] = chat_id
-    if trace_id:
-        env["Y_TRACE_ID"] = trace_id
-    if topic:
-        env["Y_TOPIC"] = topic
-    if last_message_id:
-        env["Y_MESSAGE_ID"] = last_message_id
-    return env
-
-
-def build_gemini_resume_cmd(session_id: str, model: str = None) -> list:
-    """Gemini CLI resume command for a known session."""
-    cmd = ["gemini", "--resume", session_id, "--output-format", "stream-json", "--yolo", "--skip-trust"]
-    if model:
-        cmd.extend(["-m", model])
-    return cmd
-
-
-def build_gemini_env(bot_config, chat_id: str = None, trace_id: str = None,
-                     topic: str = None, last_message_id: str = None) -> dict:
-    """Gemini CLI subprocess env: Gemini auth + trace/topic vars."""
-    env = {}
-    if bot_config.api_key:
-        env["GEMINI_API_KEY"] = bot_config.api_key
-    if chat_id:
-        env["Y_CHAT_ID"] = chat_id
-    if trace_id:
-        env["Y_TRACE_ID"] = trace_id
-    if topic:
-        env["Y_TOPIC"] = topic
-    if last_message_id:
-        env["Y_MESSAGE_ID"] = last_message_id
-    return env
-
-
-def build_grok_resume_cmd(session_id: str, model: str = None) -> list:
-    """Grok Build CLI resume command for a known session."""
-    cmd = ["grok", "--resume", session_id, "--output-format", "streaming-json", "--always-approve"]
-    if model:
-        cmd.extend(["-m", model])
-    return cmd
-
-
-def build_grok_env(bot_config, chat_id: str = None, trace_id: str = None,
-                   topic: str = None, last_message_id: str = None) -> dict:
-    """Grok Build CLI subprocess env: xAI auth + trace/topic vars."""
-    env = {}
-    if bot_config.api_key:
-        env["XAI_API_KEY"] = bot_config.api_key
-    if chat_id:
-        env["Y_CHAT_ID"] = chat_id
-    if trace_id:
-        env["Y_TRACE_ID"] = trace_id
-    if topic:
-        env["Y_TOPIC"] = topic
-    if last_message_id:
-        env["Y_MESSAGE_ID"] = last_message_id
-    return env
-
-
-def _grok_model(bot_config):
-    """Use the managed relay alias when the Grok bot has a custom base URL."""
-    if bot_config.base_url:
-        return "y-grok"
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    return model or None
-
-
-def build_pi_resume_cmd(session_id: str, model: str = None, api_key: str = None) -> list:
-    """pi resume command for a known session (used on fresh resume + steer restart)."""
-    cmd = ["pi", "-p", "--mode", "json", "--session", session_id]
-    if model:
-        cmd.extend(["--model", model])
-    if api_key:
-        cmd.extend(["--api-key", api_key])
-    return cmd
-
-
-def build_pi_env(bot_config, chat_id: str = None, trace_id: str = None,
-                 topic: str = None, last_message_id: str = None) -> dict:
-    """pi subprocess env: trace/topic vars (auth goes via --api-key on the cmd)."""
-    env = {}
-    if chat_id:
-        env["Y_CHAT_ID"] = chat_id
-    if trace_id:
-        env["Y_TRACE_ID"] = trace_id
-    if topic:
-        env["Y_TOPIC"] = topic
-    if last_message_id:
-        env["Y_MESSAGE_ID"] = last_message_id
-    return env
-
-
-def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
-    """Extract prompt, build cmd/env/cwd for codex. Returns dict with all params needed to run."""
-    messages = list(chat.messages)
-
-    # Extract all trailing user messages as the prompt
-    user_prompt, user_images = _pending_user_text_and_images(messages)
-    reasoning_effort = resolve_reasoning_effort(messages, "codex")
-
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    last_message_id = messages[-1].id if messages else None
-    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
-
-    # Resume support: thread_id stored in chat.external_id
-    thread_id = chat.external_id
-    resume = bool(thread_id) and chat.work_dir == cwd
-
-    # Per-bot relay override: [] when base_url empty -> host config.toml fallback.
-    provider_args = build_codex_provider_args(bot_config)
-
-    # Build cmd (resume subcommand doesn't support -C)
-    if resume and thread_id:
-        cmd = build_codex_resume_cmd(thread_id, model)
-        cmd.extend(provider_args)
-    else:
-        cmd = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
-        thread_id = None
-        cmd.extend(provider_args)
-        if cwd:
-            cmd.extend(["-C", cwd])
-        if model:
-            cmd.extend(["-m", model])
-
-    if reasoning_effort:
-        cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-
-    # Skill loading: codex exec has no --append-system-prompt equivalent, so
-    # prepend the skill-load instruction to the prompt (only on a fresh run).
-    if chat.skill and not resume:
-        user_prompt = (
-            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
-            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
-        )
-
-    env = build_codex_env(bot_config, chat_id, trace_id, topic, last_message_id)
-
-    return {
-        "prompt": user_prompt,
-        "images": user_images,
-        "cmd": cmd,
-        "env": env if env else None,
-        "cwd": cwd,
-        "vm_config": vm_config,
-        "thread_id": thread_id,
-        "resume": resume,
-        "last_message_id": last_message_id,
-        "model": model,
-        "messages": messages,
-    }
-
-
-def _build_gemini_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
-    """Extract prompt, build cmd/env/cwd for Gemini CLI."""
-    messages = list(chat.messages)
-
-    user_prompt, user_images = _pending_user_text_and_images(messages)
-
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    last_message_id = messages[-1].id if messages else None
-    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
-
-    session_id = chat.external_id
-    resume = bool(session_id) and chat.work_dir == cwd
-
-    if resume and session_id:
-        cmd = build_gemini_resume_cmd(session_id, model)
-    else:
-        cmd = ["gemini", "--output-format", "stream-json", "--yolo", "--skip-trust"]
-        session_id = None
-        if model:
-            cmd.extend(["-m", model])
-
-    if chat.skill and not resume:
-        user_prompt = (
-            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
-            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
-        )
-
-    env = build_gemini_env(bot_config, chat_id, trace_id, topic, last_message_id)
-
-    return {
-        "prompt": user_prompt,
-        "images": user_images,
-        "cmd": cmd,
-        "env": env if env else None,
-        "cwd": cwd,
-        "vm_config": vm_config,
-        "session_id": session_id,
-        "resume": resume,
-        "last_message_id": last_message_id,
-        "model": model,
-        "messages": messages,
-    }
-
-
-def _build_grok_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
-    """Extract prompt, build cmd/env/cwd for Grok Build CLI."""
-    messages = list(chat.messages)
-
-    user_prompt, user_images = _pending_user_text_and_images(messages)
-
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    last_message_id = messages[-1].id if messages else None
-    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = _grok_model(bot_config)
-
-    session_id = chat.external_id
-    resume = bool(session_id) and chat.work_dir == cwd
-
-    if resume and session_id:
-        cmd = build_grok_resume_cmd(session_id, model)
-    else:
-        # Deterministic session id up front (`-s <uuid>`, confirmed working
-        # together with `-p` headless mode on grok 0.2.101): lets the
-        # updates.jsonl tool-step side channel be located before the run
-        # completes, instead of only learning the id from the terminal `end`
-        # event (todo 2813).
-        session_id = str(uuid.uuid4())
-        cmd = ["grok", "--output-format", "streaming-json", "--always-approve", "-s", session_id]
-        if model:
-            cmd.extend(["-m", model])
-
-    if chat.skill and not resume:
-        user_prompt = (
-            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
-            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
-        )
-
-    env = build_grok_env(bot_config, chat_id, trace_id, topic, last_message_id)
-
-    return {
-        "prompt": user_prompt,
-        "images": user_images,
-        "cmd": cmd,
-        "env": env if env else None,
-        "cwd": cwd,
-        "vm_config": vm_config,
-        "session_id": session_id,
-        "resume": resume,
-        "last_message_id": last_message_id,
-        "model": model,
-        "messages": messages,
-    }
-
-
-def _build_pi_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
-    """Extract prompt, build cmd/env/cwd for pi."""
-    messages = list(chat.messages)
-
-    user_prompt, user_images = _pending_user_text_and_images(messages)
-
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-    last_message_id = messages[-1].id if messages else None
-    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
-    api_key = bot_config.api_key or None
-
-    # base_url support: pi cannot point an existing provider at a custom gateway
-    # via env, so when a custom (non-default) base_url is configured we register a
-    # provider in ~/.pi/agent/models.json (written remotely before launch) and
-    # address it as `--model <provider>/<model>`. Auth then lives in the provider
-    # entry, so the --api-key flag is dropped to avoid a conflicting credential.
-    model, models_provider = resolve_pi_model_and_provider(bot_config, model)
-    if models_provider:
-        api_key = None
-
-    session_id = chat.external_id
-    resume = bool(session_id) and chat.work_dir == cwd
-
-    if resume and session_id:
-        cmd = build_pi_resume_cmd(session_id, model, api_key)
-    else:
-        cmd = ["pi", "-p", "--mode", "json"]
-        session_id = None
-        if model:
-            cmd.extend(["--model", model])
-        if api_key:
-            cmd.extend(["--api-key", api_key])
-
-    if chat.skill and not resume:
-        user_prompt = (
-            f"IMPORTANT: Before doing anything else, you MUST use the Skill tool "
-            f"to load the '{chat.skill}' skill.\n\n{user_prompt}"
-        )
-
-    env = build_pi_env(bot_config, chat_id, trace_id, topic, last_message_id)
-
-    return {
-        "prompt": user_prompt,
-        "images": user_images,
-        "cmd": cmd,
-        "env": env if env else None,
-        "cwd": cwd,
-        "vm_config": vm_config,
-        "session_id": session_id,
-        "resume": resume,
-        "last_message_id": last_message_id,
-        "model": model,
-        "messages": messages,
-        "models_provider": models_provider,
-    }
-
-
-
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
                            topic: str = None) -> None:
-    """Start claude-code, codex, Gemini CLI, or Grok Build CLI as a detached tmux process on EC2.
+    """Start claude-code as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -1063,32 +684,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
 
-    # Build params based on backend type
+    # claude_code is the only detached backend. An unset/empty backend defaults
+    # to it (the standard programmatic `claude -p` path); anything else is
+    # rejected outright rather than silently falling through to claude_code with
+    # an unresumable foreign session id.
     effective_backend = bot_config.backend or bot_config.api_type
-    if effective_backend == "codex":
-        params = _build_codex_params(chat, chat_id, user_id, bot_config,
-                                      vm_name=vm_name, work_dir=work_dir,
-                                      trace_id=trace_id, topic=topic)
-    elif effective_backend == "gemini_cli":
-        params = _build_gemini_params(chat, chat_id, user_id, bot_config,
-                                      vm_name=vm_name, work_dir=work_dir,
-                                      trace_id=trace_id, topic=topic)
-    elif effective_backend == "grok_build":
-        params = _build_grok_params(chat, chat_id, user_id, bot_config,
-                                    vm_name=vm_name, work_dir=work_dir,
-                                    trace_id=trace_id, topic=topic)
-    elif effective_backend == "pi_cli":
-        params = _build_pi_params(chat, chat_id, user_id, bot_config,
-                                  vm_name=vm_name, work_dir=work_dir,
-                                  trace_id=trace_id, topic=topic)
-    elif effective_backend == "claude_code" or not effective_backend:
-        # None/empty backend defaults to claude_code, the standard programmatic
-        # `claude -p` path.
-        params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
-                                            vm_name=vm_name, work_dir=work_dir,
-                                            trace_id=trace_id, topic=topic)
-    else:
+    if effective_backend and effective_backend != "claude_code":
         raise ValueError(f"Unsupported detached backend: {effective_backend!r}")
+
+    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
+                                        vm_name=vm_name, work_dir=work_dir,
+                                        trace_id=trace_id, topic=topic)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)
@@ -1104,69 +710,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # Wake EC2 if needed
     ensure_and_touch_vm(params["vm_config"])
 
-    # Start detached tmux session (backend-specific launcher)
-    if effective_backend == "codex":
-        from agent.codex import start_detached_codex_ssh
-        session_id = await start_detached_codex_ssh(
-            cmd=params["cmd"],
-            prompt=params["prompt"],
-            cwd=cwd,
-            chat_id=chat_id,
-            vm_config=params["vm_config"],
-            env=params["env"],
-            images=params.get("images"),
-        )
-    elif effective_backend == "gemini_cli":
-        from agent.gemini_cli import start_detached_gemini_ssh
-        session_id = await start_detached_gemini_ssh(
-            cmd=params["cmd"],
-            prompt=params["prompt"],
-            cwd=cwd,
-            chat_id=chat_id,
-            vm_config=params["vm_config"],
-            env=params["env"],
-            images=params.get("images"),
-        )
-    elif effective_backend == "grok_build":
-        from agent.grok_build import start_detached_grok_ssh
-        started_session_id = await start_detached_grok_ssh(
-            cmd=params["cmd"],
-            prompt=params["prompt"],
-            cwd=cwd,
-            chat_id=chat_id,
-            vm_config=params["vm_config"],
-            env=params["env"],
-            images=params.get("images"),
-            bot_config=bot_config,
-        )
-        # `_build_grok_params` already knows the session id up front (fresh
-        # `-s <uuid>` or an existing resume id); the initial-stdout-line sniff
-        # in `start_detached_grok_ssh` rarely wins that race, so prefer the
-        # known id.
-        session_id = params.get("session_id") or started_session_id
-    elif effective_backend == "pi_cli":
-        from agent.pi_cli import start_detached_pi_ssh
-        session_id = await start_detached_pi_ssh(
-            cmd=params["cmd"],
-            prompt=params["prompt"],
-            cwd=cwd,
-            chat_id=chat_id,
-            vm_config=params["vm_config"],
-            env=params["env"],
-            images=params.get("images"),
-            models_provider=params.get("models_provider"),
-        )
-    else:
-        from agent.claude_code import start_detached_ssh
-        session_id = await start_detached_ssh(
-            cmd=params["cmd"],
-            prompt=params["prompt"],
-            cwd=cwd,
-            chat_id=chat_id,
-            vm_config=params["vm_config"],
-            env=params["env"],
-            images=params.get("images"),
-        )
+    # Start detached tmux session
+    from agent.claude_code import start_detached_ssh
+    session_id = await start_detached_ssh(
+        cmd=params["cmd"],
+        prompt=params["prompt"],
+        cwd=cwd,
+        chat_id=chat_id,
+        vm_config=params["vm_config"],
+        env=params["env"],
+        images=params.get("images"),
+    )
 
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
 

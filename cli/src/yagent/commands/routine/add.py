@@ -9,7 +9,7 @@ from yagent.api_client import api_request
 @click.option('--topic', 'target_topic', default=None, help='Target topic (skill name)')
 @click.option('--skill', 'target_skill', default=None, help='Target skill (anonymous dispatch)')
 @click.option('--work-dir', default=None, help='Working directory for the dispatched chat')
-@click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex', 'gemini_cli', 'pi_cli']), help='Agent backend')
+@click.option('--backend', default=None, type=click.Choice(['claude_code']), help='Agent backend')
 @click.option('--desc', 'description', default=None, help='Description')
 @click.option('--guard', default=None, help='Pre-fire guard (module:func dotted path)')
 @click.option('--disabled', is_flag=True, default=False, help='Create in disabled state')

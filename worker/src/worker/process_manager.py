@@ -17,12 +17,16 @@ def _carried_updates_offset(chat_id: str, session_id: str) -> int:
     """Prior `updates_offset` when this registration resumes the same session.
 
     Unlike `/tmp/cc-<chat>.stdout`, which is truncated per turn, grok's
-    `updates.jsonl` is cumulative for the life of the session. `register_process`
+    `updates.jsonl` was cumulative for the life of the session. `register_process`
     rewrites the whole record, so without this a new turn on a resumed session
-    restarts the poller at byte 0 and re-reads the entire file: O(n^2) in turns,
+    restarted the poller at byte 0 and re-read the entire file: O(n^2) in turns,
     and past paramiko's channel window it used to hang the tail outright
-    (see plan-2885). `_restart_grok_with_steer` carries the offset forward for
-    the same reason.
+    (see plan-2885).
+
+    Vestigial since todo 2930 removed the grok_build backend: `claude_code` has
+    no cumulative side-channel file and never reports an `updates_offset`, so
+    this always returns 0 in practice. Kept as generic per-session offset
+    carry-forward plumbing for a future side channel.
 
     Keyed on `session_id`: a new session writes to its own directory, so its
     poll must start at 0.

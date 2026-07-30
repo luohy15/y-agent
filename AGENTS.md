@@ -1,13 +1,13 @@
 # y-agent
 
 Personal AI agent platform: React web UI + FastAPI backend + async worker, deployed as
-AWS Lambda (SAM). Runs Claude Code / Codex subprocesses remotely on EC2 over SSH, with
+AWS Lambda (SAM). Runs Claude Code subprocesses remotely on EC2 over SSH, with
 a Telegram bot surface and cross-skill orchestration via trace context.
 
 ## Architecture
 
 ```
-Web (React)  ─┐                                ┌─→ Claude Code / Codex subprocess (EC2, SSH)
+Web (React)  ─┐                                ┌─→ Claude Code subprocess (EC2, SSH)
 Telegram Bot ─┼─→ API (FastAPI/Lambda) → SQS → Worker (Lambda) ─┤
 CLI (y)      ─┘                                                 └─→ Post-hooks (trace, telegram, todo)
 
@@ -21,7 +21,7 @@ UV workspace with Python members + one React frontend:
 | Package | Purpose | Entry |
 |---------|---------|-------|
 | **storage** | ORM models, repos, services, DTOs, celery config, global config loader | `src/storage/` |
-| **agent** | Claude Code / Codex runners, SSH/EC2 pool, tool shims, skills discovery | `src/agent/claude_code.py`, `src/agent/codex.py` |
+| **agent** | Claude Code runner, SSH/EC2 pool, tool shims, skills discovery | `src/agent/claude_code.py`, `src/agent/detach.py` |
 | **api** | FastAPI REST + SSE, JWT auth, controllers for each feature | `src/api/app.py` (port 8001) |
 | **worker** | Celery/SQS task consumer, runs agent subprocesses, post-hooks, RSS pipeline | `src/worker/runner.py` |
 | **cli** | Click CLI (`y` command), all feature subcommands | `src/yagent/command_option.py` |
@@ -130,10 +130,13 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 The repo no longer contains an in-process agent loop — the worker shells out.
 
-- **Backends** — `agent/src/agent/claude_code.py` (Claude Code), `agent/src/agent/codex.py`
-  (Codex CLI), plus `gemini_cli` / `grok_build` (xAI's Grok Build CLI, `agent/src/agent/grok_build.py`)
-  / `pi_cli`. `y chat --bot codex|claude_code -m "..."` picks one; default is `claude_code`.
-  The chat's `backend` field is persisted and displayed.
+- **Backends** — `claude_code` (`agent/src/agent/claude_code.py`) is the only agentic CLI
+  backend. The other agentic backends (`codex`, `gemini_cli`, `grok_build`, `pi_cli`) were
+  removed in todo 2930; `_start_detached` now rejects any backend other than `claude_code`
+  with a launch error instead of falling through. The two non-agentic inline backends stay:
+  `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check) and `openai`
+  (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`). The
+  chat's `backend` field is persisted and displayed.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
   SSHes in, tails stdout, and streams JSON events back. `agent/ssh_pool.py` reuses SSH
   connections across monitor passes; `agent/ec2_wake.py` auto-wakes the instance.
@@ -187,7 +190,8 @@ Grouped by feature area:
 
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
-- `codex.py` — spawn Codex CLI
+- `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
+- `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
 - `ssh_pool.py`, `ec2_wake.py` — SSH connection reuse, EC2 wake-on-demand
 - `poll_loop.py` — steer / interrupt polling
@@ -250,7 +254,8 @@ and public share routes (`/api/chat/share/*`, `/api/trace/share/*`).
 2. API persists the user message, marks `chat.running=True`, and enqueues to SQS
    (Celery filesystem broker in dev).
 3. Worker `process_chat` → `run_chat` resolves the target backend
-   (`claude_code` / `codex`), sets up trace participants, and either:
+   (`claude_code`, or the inline `perplexity` / `openai`), sets up trace participants,
+   and either:
    - starts a detached subprocess on EC2 (long tasks), or
    - runs the subprocess inline with streaming output.
 4. Subprocess stdout is streamed JSON; monitor writes each chunk as a `Message` to DB.

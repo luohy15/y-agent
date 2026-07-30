@@ -165,21 +165,18 @@ export function BotForm({ form, setForm, isEdit, hasApiKey, busy, error, onSave,
                 className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
               >
                 <option value="">(default)</option>
-                <option value="codex">codex</option>
                 <option value="claude_code">claude_code</option>
-                <option value="gemini">gemini</option>
-                <option value="grok_build">grok_build</option>
-                <option value="pi_cli">pi_cli</option>
+                <option value="perplexity">perplexity</option>
                 <option value="openai">openai</option>
               </select>
             </Field>
           </div>
-          <Field label="Ref Bot Name" hint="Pointer to another bot config (e.g. 'codex'). Leave empty for a real bot.">
+          <Field label="Ref Bot Name" hint="Pointer to another bot config (e.g. 'sonnet'). Leave empty for a real bot.">
             <input
               type="text"
               value={form.ref_bot_name}
               onChange={(e) => setForm({ ...form, ref_bot_name: e.target.value })}
-              placeholder="codex"
+              placeholder="sonnet"
               className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 font-mono outline-none focus:border-sol-blue"
             />
           </Field>

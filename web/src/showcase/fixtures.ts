@@ -164,8 +164,8 @@ export const TRACE_CHATS_FIXTURE = {
       title: "Docs refresh: capabilities / cli / getting-started",
       topic: "dev",
       skill: "impl",
-      backend: "codex",
-      bot_name: "codex",
+      backend: "claude_code",
+      bot_name: "sonnet",
       segments: [traceSeg(120, 28)],
     },
     {

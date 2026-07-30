@@ -29,7 +29,7 @@ Everything is keyboard-friendly. **⌘K** (Ctrl+K on Linux/Windows) opens the co
 
 ## Sending a task
 
-A "task" in y-agent is just a chat. Type into the chat input and hit ⌘↩ (or click Send) to dispatch it. The first message creates a new chat row, queues an SQS job, and a worker picks it up and starts a Claude Code or Codex subprocess on EC2.
+A "task" in y-agent is just a chat. Type into the chat input and hit ⌘↩ (or click Send) to dispatch it. The first message creates a new chat row, queues an SQS job, and a worker picks it up and starts a Claude Code subprocess on EC2.
 
 You'll see streaming output in real time:
 
@@ -44,7 +44,7 @@ If a task is going to run longer than 15 minutes, the worker hands off to the ne
 
 Defaults work for most cases, but you can override per chat:
 
-- **Backend**: Claude Code (default), Codex, or Gemini CLI. Codex and Gemini CLI run as one-shot resumed CLI sessions, so mid-run steer restarts the backend with the latest session id instead of writing to a live stdin pipe.
+- **Backend**: Claude Code. It is the only agentic CLI backend, so mid-run steer always writes to the live stdin pipe of the running session.
 - **Skill**: pick a specialized skill (e.g. `dev`, `plan`, `impl`) instead of the default `manager`. The skill defines what tools and prompts the agent loads.
 - **VM** / **work_dir**: which EC2 instance and project directory to run in. Most users have one VM and a default work_dir, so this is set-and-forget.
 
@@ -108,7 +108,7 @@ The activity bar carries several lighter-weight subsystems:
 - **RSS** — subscribe to feeds; a two-stage pipeline scrapes feed XML and fetches each item's content. Add with `y rss add <url>` or `import-opml`.
 - **Email** — multi-account Gmail sync (`y email sync-gmail`) for lightweight inbox review; filter by source account.
 - **Calendar** — timezone-aware events with a current-time ticker; import an ICS with `y calendar import file.ics`.
-- **Bots** — manage backend configs (Claude Code / Codex / Gemini CLI): add, enable/disable, set model + API key, then pick one per chat or per routine.
+- **Bots** — manage bot configs (Claude Code, plus the inline Perplexity / OpenAI backends): add, enable/disable, set model + API key, then pick one per chat or per routine.
 
 ## Files
 

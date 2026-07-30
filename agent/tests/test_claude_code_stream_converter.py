@@ -1,10 +1,8 @@
 """Unit tests for agent.claude_code.StreamConverter — the event->Message parser
 for the DEFAULT backend.
 
-codex/gemini/pi all have a stream-converter test; claude_code only had the
-cancellation test. This mirrors test_codex_stream_converter.py: text extraction,
-tool_use -> assistant tool_calls, tool_result -> tool Message, parent_id linking,
-and the malformed-line tolerance.
+Covers text extraction, tool_use -> assistant tool_calls, tool_result -> tool
+Message, parent_id linking, and the malformed-line tolerance.
 """
 
 import json

@@ -47,9 +47,12 @@ inspectable and editable through the bot CLI, never memorized in instructions.
    bot name, so that my dispatch keeps working when the bot roster changes.
 2. As a user, I want naming a bot to narrow the candidates to exactly that
    bot, so that my explicit pick is used whenever it is runnable.
-3. As a user, I want a backend filter (for example codex) to narrow
+3. As a user, I want a backend filter (for example perplexity) to narrow
    candidates to enabled configs with that effective backend, so that I can
-   choose the runtime family without knowing config names.
+   choose the runtime family without knowing config names. Since todo 2930 the
+   only agentic backend is claude_code, so this filter is vestigial for agentic
+   bots and only meaningfully separates them from the inline perplexity /
+   openai query backends.
 4. As a user, I want a chat with no bot, backend, or tier specified to
    resolve as a tier2 request, so that unspecified dispatches land on a
    capable mid-range bot by default without any routing knowledge.

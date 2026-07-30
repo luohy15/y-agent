@@ -2,8 +2,7 @@
 back `y bot` CLI-through-API (todo 2811): rename (new), update clear_openrouter
 (new), and get/list price + openrouter presence enrichment (new).
 
-storage.service.bot_config and agent.pi_models.sync_pi_models are mocked;
-nothing touches a real database.
+storage.service.bot_config is mocked; nothing touches a real database.
 """
 
 import unittest
@@ -31,7 +30,7 @@ def _cfg(name, **overrides):
 
 
 class RenameBotConfigTest(unittest.IsolatedAsyncioTestCase):
-    async def test_rename_success_cascades_and_syncs(self):
+    async def test_rename_success_cascades(self):
         old = _cfg("old")
         with (
             patch.object(
@@ -39,14 +38,12 @@ class RenameBotConfigTest(unittest.IsolatedAsyncioTestCase):
                 side_effect=lambda uid, name: old if name == "old" else None,
             ),
             patch.object(bot_config_controller.bot_service, "rename_config", return_value=True) as rename_config,
-            patch("agent.pi_models.sync_pi_models") as sync_pi_models,
         ):
             result = await bot_config_controller.rename_bot_config(
                 _request(), bot_config_controller.BotRenameRequest(old_name="old", new_name="new")
             )
         self.assertEqual(result, {"ok": True, "name": "new"})
         rename_config.assert_called_once_with(123, "old", "new")
-        sync_pi_models.assert_called_once_with(123)
 
     async def test_rename_default_is_guarded(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -83,7 +80,6 @@ class UpdateBotConfigClearOpenrouterTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(bot_config_controller.bot_service, "get_config", return_value=existing),
             patch.object(bot_config_controller.bot_service, "add_config") as add_config,
-            patch("agent.pi_models.sync_pi_models"),
         ):
             req = bot_config_controller.UpdateBotConfigRequest(name="x", clear_openrouter=True)
             await bot_config_controller.update_bot_config(_request(), req)
@@ -95,7 +91,6 @@ class UpdateBotConfigClearOpenrouterTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(bot_config_controller.bot_service, "get_config", return_value=existing),
             patch.object(bot_config_controller.bot_service, "add_config") as add_config,
-            patch("agent.pi_models.sync_pi_models"),
         ):
             req = bot_config_controller.UpdateBotConfigRequest(name="x", model="new-model")
             await bot_config_controller.update_bot_config(_request(), req)

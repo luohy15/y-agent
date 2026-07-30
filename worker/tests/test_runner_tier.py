@@ -99,13 +99,13 @@ class RunChatTierTest(unittest.TestCase):
             patch("worker.runner.agent_config.resolve_bot_config", return_value=bot_config),
             patch("worker.runner._run_openai_inline", new=AsyncMock()) as run_openai,
         ):
-            with self.assertRaisesRegex(ValueError, "only supported for claude_code and codex"):
+            with self.assertRaisesRegex(ValueError, "only supported for claude_code"):
                 asyncio.run(runner.run_chat("user-1", "chat-1"))
 
         self.assertFalse(chat.running)
         self.assertEqual(chat.messages[-1].role, "assistant")
         self.assertIn("Backend launch failed: ValueError", chat.messages[-1].content)
-        self.assertIn("only supported for claude_code and codex", chat.messages[-1].content)
+        self.assertIn("only supported for claude_code", chat.messages[-1].content)
         run_openai.assert_not_awaited()
         self.assertGreaterEqual(save_chat.await_count, 3)
 

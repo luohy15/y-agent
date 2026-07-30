@@ -86,8 +86,7 @@ def delete_config(user_id: int, name: str) -> bool:
 def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
     """Rename a bot config's name, cascading to other bot_config rows that
     point at it via `ref_bot_name`. Does not touch `chat.bot_name` (see
-    `storage.repository.chat.rename_bot_name` for that cascade) or the pi
-    provider sync (see `agent.pi_models.sync_pi_models`).
+    `storage.repository.chat.rename_bot_name` for that cascade).
 
     Returns False if `old_name` doesn't exist, `new_name` is already taken,
     or `old_name` is the magic "default" bot name.

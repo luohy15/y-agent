@@ -30,39 +30,6 @@ class TailRetryableError(Exception):
     pass
 
 
-def _collect_tool_call_ids(messages) -> set:
-    """Assistant-side tool_call ids already present in chat history.
-
-    Belt-and-braces dedupe for the grok updates.jsonl poller: procs registered
-    before `updates_offset` persistence shipped restart the poll from byte 0
-    on a Lambda handoff, so already-emitted `tool_call` events must be
-    recognized and skipped rather than re-emitted. See `_collect_tool_result_ids`
-    for the parallel set covering completed `tool_call_update` results, which a
-    legacy replay can contain independently of the originating call.
-    """
-    ids = set()
-    for msg in messages:
-        for tool_call in (msg.tool_calls or []):
-            tool_call_id = tool_call.get("id") if isinstance(tool_call, dict) else None
-            if tool_call_id:
-                ids.add(tool_call_id)
-    return ids
-
-
-def _collect_tool_result_ids(messages) -> set:
-    """Tool result ids (`role=tool`) already present in chat history.
-
-    Parallel dedupe set to `_collect_tool_call_ids`, needed because a legacy
-    replay from byte 0 re-delivers both the `tool_call` and the completed
-    `tool_call_update` for every prior tool step.
-    """
-    ids = set()
-    for msg in messages:
-        if msg.role == "tool" and msg.tool_call_id:
-            ids.add(msg.tool_call_id)
-    return ids
-
-
 async def _monitor_loop(deadline_at: float, lambda_req_id: str):
     """Event loop: monitor detached processes, poll for new ones, handle deadlines."""
     from agent.ssh_pool import SSHPool
@@ -210,9 +177,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg)
 
-    # Build steer checker. claude_code injects steer into the live stdin pipe;
-    # codex/gemini_cli can't take a live steer, so their tailers return
-    # status="steer" and the run is restarted via the backend resume command.
+    # Build steer checker. claude_code injects steer into the live stdin pipe,
+    # which is the only delivery path now that the kill-and-resume backends are
+    # gone.
     chat = await chat_service.get_chat_by_id(chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
     initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
@@ -229,98 +196,26 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
-    # Dispatch to backend-specific tail function
-    if backend_type == "codex":
-        from agent.codex import tail_codex_output
-        result = await tail_codex_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-        )
-    elif backend_type == "gemini_cli":
-        from agent.gemini_cli import tail_gemini_output
-        result = await tail_gemini_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-        )
-    elif backend_type == "grok_build":
-        from agent.grok_build import tail_grok_output
-        result = await tail_grok_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-            work_dir=proc.get("work_dir"),
-            session_id=session_id,
-            updates_offset=proc.get("updates_offset", 0),
-            existing_tool_call_ids=_collect_tool_call_ids(chat.messages if chat else []),
-            existing_tool_result_ids=_collect_tool_result_ids(chat.messages if chat else []),
-        )
-    elif backend_type == "pi_cli":
-        from agent.pi_cli import tail_pi_output
-        result = await tail_pi_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-        )
-    else:
-        from agent.claude_code import tail_ssh_output
-        result = await tail_ssh_output(
-            chat_id=chat_id,
-            vm_config=vm_config,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            ssh_client=client,
-            check_steer_fn=steer_fn,
-        )
-
-    # Non-live steer: the run was killed mid-flight; restart with the steer
-    # text as the new prompt.
-    if result.get("status") == "steer":
-        if backend_type == "gemini_cli":
-            await _restart_gemini_with_steer(chat_id, proc, result)
-        elif backend_type == "grok_build":
-            await _restart_grok_with_steer(chat_id, proc, result)
-        elif backend_type == "pi_cli":
-            await _restart_pi_with_steer(chat_id, proc, result)
-        else:
-            await _restart_codex_with_steer(chat_id, proc, result)
-        return
+    from agent.claude_code import tail_ssh_output
+    result = await tail_ssh_output(
+        chat_id=chat_id,
+        vm_config=vm_config,
+        offset=offset,
+        last_message_id=last_message_id,
+        message_callback=_msg_callback,
+        check_interrupted_fn=_check_interrupted,
+        check_deadline_fn=_check_deadline,
+        ssh_client=client,
+        check_steer_fn=steer_fn,
+    )
 
     # Save offset to DynamoDB
     # Defensive: keep prior session_id when this tail did not observe a fresh one.
-    updated_session_id = result.get("session_id") or result.get("thread_id") or session_id
-    # Merge with prior-Lambda-handoff consumed ids (matches the restart-with-steer
-    # paths above) — update_process_offset overwrites rather than merges, so a
-    # plain completion that skips this would forget ids confirmed in an earlier
-    # handoff and risk re-delivering them on a later one.
+    updated_session_id = result.get("session_id") or session_id
+    # Merge with prior-Lambda-handoff consumed ids: update_process_offset
+    # overwrites rather than merges, so a plain completion that skips this would
+    # forget ids confirmed in an earlier handoff and risk re-delivering them on a
+    # later one.
     all_consumed_steer_ids = list(prev_consumed) + list(result.get("consumed_steer_ids") or [])
     update_process_offset(
         chat_id=chat_id,
@@ -345,22 +240,19 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     result=result,
                     result_data=result.get("result_data"),
                     proc=proc,
-                    backend_type=backend_type,
                     chat_id=chat_id,
                 )
                 await chat_repo.save_chat_by_id(fresh)
             except Exception as e:
                 logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
 
-            # Safety net: a claude_code turn can end with a trailing user
-            # message that was never confirmed delivered via the live steer
-            # path (e.g. it raced turn-end teardown and _on_steer /
-            # _on_steer_detached returned False). Don't finalize as done —
-            # relaunch a continuation turn so the message isn't silently
-            # dropped forever (see plan-2662-steer-race.md,
-            # plan-2704-steer-prd-gap.md). codex/gemini/grok_build/pi already
-            # reconcile via their own status="steer" restart branch above.
-            if backend_type == "claude_code" and result["status"] != "error" and not fresh.interrupted:
+            # Safety net: a turn can end with a trailing user message that was
+            # never confirmed delivered via the live steer path (e.g. it raced
+            # turn-end teardown and _on_steer / _on_steer_detached returned
+            # False). Don't finalize as done — relaunch a continuation turn so
+            # the message isn't silently dropped forever (see
+            # plan-2662-steer-race.md, plan-2704-steer-prd-gap.md).
+            if result["status"] != "error" and not fresh.interrupted:
                 confirmed_delivered = initial_msg_ids | set(all_consumed_steer_ids)
                 has_undelivered_trailing = False
                 for msg in reversed(fresh.messages):
@@ -386,7 +278,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 from storage.repository.chat import set_chat_unread
                 set_chat_unread(chat_id, True)
 
-            # Telegram reply + post hooks (same for both backends)
+            # Telegram reply + post hooks
             if not fresh.interrupted and result["status"] != "error":
                 try:
                     from worker.runner import _consolidate_turn_images
@@ -426,38 +318,34 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
 
 
-async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, backend_type: str, chat_id: str):
+async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
     """Persist backend completion metadata after running=False is durable."""
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
-    # Only persist the run's session/thread id back to chat.external_id
-    # when the run's cwd matched chat.work_dir. Claude Code / Codex
-    # session files are scoped per cwd, so a session created in a
-    # mismatched cwd is unresumable from the chat's recorded work_dir
-    # and would permanently break future resumes if written back.
+    # Only persist the run's session id back to chat.external_id when the run's
+    # cwd matched chat.work_dir. Claude Code session files are scoped per cwd,
+    # so a session created in a mismatched cwd is unresumable from the chat's
+    # recorded work_dir and would permanently break future resumes if written
+    # back.
     run_work_dir = proc.get("work_dir")
     cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
 
-    if backend_type == "codex":
-        # Codex: usage from turn.completed event
-        effective_thread_id = result.get("thread_id") or proc.get("session_id")
-        if effective_thread_id:
-            if cwd_matches:
-                fresh.external_id = effective_thread_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_thread_id,
-                )
-        if result_data and not result_data.get("is_error"):
-            usage = result_data.get("usage", {})
-            if usage:
-                fresh.input_tokens = usage.get("input_tokens")
-                fresh.output_tokens = usage.get("output_tokens")
+    effective_session_id = result.get("session_id") or proc.get("session_id")
+    if effective_session_id:
+        if cwd_matches:
+            fresh.external_id = effective_session_id
+        else:
+            logger.warning(
+                "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
+                chat_id, run_work_dir, fresh.work_dir, effective_session_id,
+            )
+
+    if result_data:
+        _apply_claude_usage(fresh, result_data)
 
         if result["status"] == "error":
-            error_text = (result_data.get("result") if result_data else None) or "Codex exited with an error."
+            error_text = result_data.get("result") or "Claude Code exited with an error."
             error_msg = Message(
                 id=generate_message_id(),
                 role="assistant",
@@ -466,115 +354,6 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
                 unix_timestamp=get_unix_timestamp(),
             )
             fresh.messages.append(error_msg)
-    elif backend_type == "gemini_cli":
-        effective_session_id = result.get("session_id") or proc.get("session_id")
-        if effective_session_id:
-            if cwd_matches:
-                fresh.external_id = effective_session_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (gemini session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
-                )
-        if result_data and not result_data.get("is_error"):
-            usage = result_data.get("usage") or {}
-            if not usage:
-                stats = result_data.get("stats") or {}
-                usage = {
-                    "input_tokens": stats.get("input_tokens") or stats.get("inputTokens"),
-                    "output_tokens": stats.get("output_tokens") or stats.get("outputTokens"),
-                }
-            if usage:
-                fresh.input_tokens = usage.get("input_tokens")
-                fresh.output_tokens = usage.get("output_tokens")
-
-        if result["status"] == "error":
-            error_text = (result_data.get("result") if result_data else None) or "Gemini CLI exited with an error."
-            error_msg = Message(
-                id=generate_message_id(),
-                role="assistant",
-                content=error_text,
-                timestamp=get_utc_iso8601_timestamp(),
-                unix_timestamp=get_unix_timestamp(),
-            )
-            fresh.messages.append(error_msg)
-    elif backend_type == "grok_build":
-        effective_session_id = result.get("session_id") or proc.get("session_id")
-        if effective_session_id:
-            if cwd_matches:
-                fresh.external_id = effective_session_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (grok session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
-                )
-        if result_data and not result_data.get("is_error"):
-            usage = result_data.get("usage") or {}
-            if usage:
-                fresh.input_tokens = usage.get("input_tokens")
-                fresh.output_tokens = usage.get("output_tokens")
-
-        if result["status"] == "error":
-            error_text = (result_data.get("result") if result_data else None) or "Grok Build CLI exited with an error."
-            error_msg = Message(
-                id=generate_message_id(),
-                role="assistant",
-                content=error_text,
-                timestamp=get_utc_iso8601_timestamp(),
-                unix_timestamp=get_unix_timestamp(),
-            )
-            fresh.messages.append(error_msg)
-    elif backend_type == "pi_cli":
-        effective_session_id = result.get("session_id") or proc.get("session_id")
-        if effective_session_id:
-            if cwd_matches:
-                fresh.external_id = effective_session_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (pi session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
-                )
-        if result_data and not result_data.get("is_error"):
-            usage = result_data.get("usage") or {}
-            if usage:
-                fresh.input_tokens = usage.get("input_tokens")
-                fresh.output_tokens = usage.get("output_tokens")
-
-        if result["status"] == "error":
-            error_text = (result_data.get("result") if result_data else None) or "pi exited with an error."
-            error_msg = Message(
-                id=generate_message_id(),
-                role="assistant",
-                content=error_text,
-                timestamp=get_utc_iso8601_timestamp(),
-                unix_timestamp=get_unix_timestamp(),
-            )
-            fresh.messages.append(error_msg)
-    else:
-        # Claude Code: existing logic
-        effective_session_id = result.get("session_id") or proc.get("session_id")
-        if effective_session_id:
-            if cwd_matches:
-                fresh.external_id = effective_session_id
-            else:
-                logger.warning(
-                    "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (claude session_id={})",
-                    chat_id, run_work_dir, fresh.work_dir, effective_session_id,
-                )
-
-        if result_data:
-            _apply_claude_usage(fresh, result_data)
-
-            if result["status"] == "error":
-                error_text = result_data.get("result") or "Claude Code exited with an error."
-                error_msg = Message(
-                    id=generate_message_id(),
-                    role="assistant",
-                    content=error_text,
-                    timestamp=get_utc_iso8601_timestamp(),
-                    unix_timestamp=get_unix_timestamp(),
-                )
-                fresh.messages.append(error_msg)
 
 
 def _iter_model_usage_entries(model_usage):
@@ -661,303 +440,6 @@ async def _sweep_orphan_running_chats():
         logger.exception("orphan running chat sweep failed: {}", e)
 
     return
-
-
-async def _restart_codex_with_steer(chat_id: str, proc: dict, result: dict):
-    """Restart a steered codex run via `codex exec resume <thread_id>`.
-
-    `codex exec` has no live-steer channel, so `tail_codex_output` kills the
-    session and returns status="steer". Here we resume the codex thread with
-    the steer text as the new prompt, reset the stdout offset (the file is
-    truncated on restart), and release the lease so the next monitor pass
-    tails the fresh process. The process row stays status=running.
-    """
-    from agent.config import resolve_vm_config, resolve_bot_config
-    from agent.codex import start_detached_codex_ssh
-    from worker.runner import build_codex_resume_cmd, build_codex_env, build_codex_provider_args, resolve_reasoning_effort
-
-    thread_id = result.get("thread_id")
-    if not thread_id:
-        # No thread id means codex never reached thread.started — nothing to
-        # resume. Treat it as a normal completion so the chat doesn't hang.
-        logger.warning("codex steer: no thread_id for chat_id={}, cannot resume", chat_id)
-        complete_process(chat_id, status="completed")
-        await _mark_chat_stopped(chat_id)
-        return
-
-    user_id = proc["user_id"]
-    work_dir = proc.get("work_dir")
-    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
-    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
-
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    cmd = build_codex_resume_cmd(thread_id, model or None)
-    # Keep the per-bot relay override on steer restarts; without it the resumed
-    # run drops the -c provider flags and reverts to the host config.toml crs.
-    cmd.extend(build_codex_provider_args(bot_config))
-
-    consumed_steer_ids = set(result.get("consumed_steer_ids") or [])
-    if consumed_steer_ids:
-        from storage.service import chat as chat_service
-        chat = await chat_service.get_chat_by_id(chat_id)
-        consumed_messages = [msg for msg in chat.messages if msg.id in consumed_steer_ids] if chat else []
-        reasoning_effort = resolve_reasoning_effort(consumed_messages, "codex")
-        if reasoning_effort:
-            cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-
-    last_message_id = result.get("last_message_id")
-    env = build_codex_env(bot_config, chat_id, proc.get("trace_id"),
-                          proc.get("topic"), last_message_id)
-
-    await start_detached_codex_ssh(
-        cmd=cmd,
-        prompt=result.get("steer_text", ""),
-        cwd=work_dir,
-        chat_id=chat_id,
-        vm_config=vm_config,
-        env=env or None,
-        images=result.get("steer_images") or None,
-    )
-
-    # Accumulate consumed steer ids across restarts so they aren't re-detected.
-    prev_consumed = proc.get("consumed_steer_ids")
-    if isinstance(prev_consumed, str):
-        try:
-            prev_consumed = json.loads(prev_consumed)
-        except (json.JSONDecodeError, TypeError):
-            prev_consumed = []
-    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
-
-    # stdout file is truncated by the resumed run → reset offset to 0.
-    update_process_offset(
-        chat_id=chat_id,
-        offset=0,
-        last_message_id=last_message_id,
-        session_id=thread_id,
-        consumed_steer_ids=all_consumed,
-    )
-    release_lease(chat_id)
-    logger.info("codex steer: restarted chat_id={} thread_id={}", chat_id, thread_id)
-
-
-async def _restart_gemini_with_steer(chat_id: str, proc: dict, result: dict):
-    """Restart a steered Gemini CLI run via `gemini --resume <session_id>`."""
-    from agent.config import resolve_vm_config, resolve_bot_config
-    from agent.gemini_cli import start_detached_gemini_ssh
-    from worker.runner import build_gemini_resume_cmd, build_gemini_env
-
-    session_id = result.get("session_id")
-    if not session_id:
-        logger.warning("gemini steer: no session_id for chat_id={}, cannot resume", chat_id)
-        from storage.entity.dto import Message
-        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-
-        error_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=(
-                "Gemini CLI could not resume the steer message because the current run "
-                "did not emit a session id before it was interrupted. Please send the "
-                "message again after starting a new run."
-            ),
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        message_callback(chat_id, error_msg)
-        complete_process(chat_id, status="error")
-        await _mark_chat_stopped(chat_id)
-        return
-
-    user_id = proc["user_id"]
-    work_dir = proc.get("work_dir")
-    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
-    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
-
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    cmd = build_gemini_resume_cmd(session_id, model or None)
-
-    last_message_id = result.get("last_message_id")
-    env = build_gemini_env(bot_config, chat_id, proc.get("trace_id"),
-                           proc.get("topic"), last_message_id)
-
-    await start_detached_gemini_ssh(
-        cmd=cmd,
-        prompt=result.get("steer_text", ""),
-        cwd=work_dir,
-        chat_id=chat_id,
-        vm_config=vm_config,
-        env=env or None,
-        images=result.get("steer_images") or None,
-    )
-
-    prev_consumed = proc.get("consumed_steer_ids")
-    if isinstance(prev_consumed, str):
-        try:
-            prev_consumed = json.loads(prev_consumed)
-        except (json.JSONDecodeError, TypeError):
-            prev_consumed = []
-    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
-
-    update_process_offset(
-        chat_id=chat_id,
-        offset=0,
-        last_message_id=last_message_id,
-        session_id=session_id,
-        consumed_steer_ids=all_consumed,
-    )
-    release_lease(chat_id)
-    logger.info("gemini steer: restarted chat_id={} session_id={}", chat_id, session_id)
-
-
-async def _restart_grok_with_steer(chat_id: str, proc: dict, result: dict):
-    """Restart a steered Grok Build run via `grok --resume <session_id>`."""
-    from agent.config import resolve_vm_config, resolve_bot_config
-    from agent.grok_build import start_detached_grok_ssh
-    from worker.runner import build_grok_resume_cmd, build_grok_env
-
-    session_id = result.get("session_id")
-    if not session_id:
-        logger.warning("grok steer: no session_id for chat_id={}, cannot resume", chat_id)
-        from storage.entity.dto import Message
-        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-
-        error_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=(
-                "Grok Build CLI could not resume the steer message because the current run "
-                "did not emit a session id before it was interrupted. Please send the "
-                "message again after starting a new run."
-            ),
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        message_callback(chat_id, error_msg)
-        complete_process(chat_id, status="error")
-        await _mark_chat_stopped(chat_id)
-        return
-
-    user_id = proc["user_id"]
-    work_dir = proc.get("work_dir")
-    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
-    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
-
-    from worker.runner import _grok_model
-
-    cmd = build_grok_resume_cmd(session_id, _grok_model(bot_config))
-
-    last_message_id = result.get("last_message_id")
-    env = build_grok_env(bot_config, chat_id, proc.get("trace_id"),
-                         proc.get("topic"), last_message_id)
-
-    await start_detached_grok_ssh(
-        cmd=cmd,
-        prompt=result.get("steer_text", ""),
-        cwd=work_dir,
-        chat_id=chat_id,
-        vm_config=vm_config,
-        env=env or None,
-        images=result.get("steer_images") or None,
-        bot_config=bot_config,
-    )
-
-    prev_consumed = proc.get("consumed_steer_ids")
-    if isinstance(prev_consumed, str):
-        try:
-            prev_consumed = json.loads(prev_consumed)
-        except (json.JSONDecodeError, TypeError):
-            prev_consumed = []
-    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
-
-    update_process_offset(
-        chat_id=chat_id,
-        offset=0,
-        last_message_id=last_message_id,
-        session_id=session_id,
-        consumed_steer_ids=all_consumed,
-        # updates.jsonl is the same session dir file across the restart (only
-        # the stdout file resets), so carry its byte offset forward.
-        updates_offset=result.get("updates_offset", 0),
-    )
-    release_lease(chat_id)
-    logger.info("grok steer: restarted chat_id={} session_id={}", chat_id, session_id)
-
-
-async def _restart_pi_with_steer(chat_id: str, proc: dict, result: dict):
-    """Restart a steered pi run via `pi --session <session_id>`."""
-    from agent.config import resolve_vm_config, resolve_bot_config
-    from agent.pi_cli import start_detached_pi_ssh
-    from worker.runner import build_pi_resume_cmd, build_pi_env, resolve_pi_model_and_provider
-
-    session_id = result.get("session_id")
-    if not session_id:
-        logger.warning("pi steer: no session_id for chat_id={}, cannot resume", chat_id)
-        from storage.entity.dto import Message
-        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-
-        error_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=(
-                "pi could not resume the steer message because the current run "
-                "did not emit a session id before it was interrupted. Please send the "
-                "message again after starting a new run."
-            ),
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        message_callback(chat_id, error_msg)
-        complete_process(chat_id, status="error")
-        await _mark_chat_stopped(chat_id)
-        return
-
-    user_id = proc["user_id"]
-    work_dir = proc.get("work_dir")
-    vm_config = resolve_vm_config(user_id, proc["vm_name"], work_dir=work_dir)
-    bot_config = resolve_bot_config(user_id, proc.get("bot_name"), backend=proc.get("backend_type"))
-
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    api_key = bot_config.api_key or None
-    # Mirror _build_pi_params: a base_url bot resumes via its custom provider
-    # (`y-<bot>/<model>`, auth in models.json) so the resume cmd matches the
-    # original launch and the provider entry is re-written before relaunch.
-    model, models_provider = resolve_pi_model_and_provider(bot_config, model or None)
-    if models_provider:
-        api_key = None
-    cmd = build_pi_resume_cmd(session_id, model or None, api_key)
-
-    last_message_id = result.get("last_message_id")
-    env = build_pi_env(bot_config, chat_id, proc.get("trace_id"),
-                       proc.get("topic"), last_message_id)
-
-    await start_detached_pi_ssh(
-        cmd=cmd,
-        prompt=result.get("steer_text", ""),
-        cwd=work_dir,
-        chat_id=chat_id,
-        vm_config=vm_config,
-        env=env or None,
-        images=result.get("steer_images") or None,
-        models_provider=models_provider,
-    )
-
-    prev_consumed = proc.get("consumed_steer_ids")
-    if isinstance(prev_consumed, str):
-        try:
-            prev_consumed = json.loads(prev_consumed)
-        except (json.JSONDecodeError, TypeError):
-            prev_consumed = []
-    all_consumed = list(prev_consumed or []) + list(result.get("consumed_steer_ids", []))
-
-    update_process_offset(
-        chat_id=chat_id,
-        offset=0,
-        last_message_id=last_message_id,
-        session_id=session_id,
-        consumed_steer_ids=all_consumed,
-    )
-    release_lease(chat_id)
-    logger.info("pi steer: restarted chat_id={} session_id={}", chat_id, session_id)
 
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):

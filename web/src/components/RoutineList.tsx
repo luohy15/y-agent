@@ -206,7 +206,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
             />
           </Field>
-          <Field label="Backend" hint="optional: claude_code | codex">
+          <Field label="Backend" hint="optional: claude_code">
             <select
               value={form.backend}
               onChange={(e) => update("backend", e.target.value)}
@@ -214,7 +214,6 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
             >
               <option value="">(default)</option>
               <option value="claude_code">claude_code</option>
-              <option value="codex">codex</option>
             </select>
           </Field>
           <Field label="Description" hint="optional">

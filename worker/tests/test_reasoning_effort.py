@@ -5,7 +5,6 @@ from storage.entity.dto import BotConfig, Chat, Message, VmConfig
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 from worker.runner import (
     _build_claude_code_params,
-    _build_codex_params,
     resolve_reasoning_effort,
 )
 
@@ -34,7 +33,7 @@ def _chat(messages, external_id=None):
 
 class ReasoningEffortResolverTest(unittest.TestCase):
     def test_absent_effort_returns_none(self):
-        self.assertIsNone(resolve_reasoning_effort([_message("user", "x", "m1")], "codex"))
+        self.assertIsNone(resolve_reasoning_effort([_message("user", "x", "m1")], "claude_code"))
 
     def test_newest_trailing_explicit_effort_wins(self):
         messages = [
@@ -45,12 +44,14 @@ class ReasoningEffortResolverTest(unittest.TestCase):
         self.assertEqual(resolve_reasoning_effort(messages, "claude_code"), "high")
 
     def test_unsupported_backend_fails_clearly(self):
-        with self.assertRaisesRegex(ValueError, "only supported for claude_code and codex"):
-            resolve_reasoning_effort([_message("user", "x", "m1", "high")], "gemini_cli")
+        for backend in ("perplexity", "openai", "codex"):
+            with self.subTest(backend=backend):
+                with self.assertRaisesRegex(ValueError, "only supported for claude_code"):
+                    resolve_reasoning_effort([_message("user", "x", "m1", "high")], backend)
 
-    def test_codex_max_fails_clearly(self):
-        with self.assertRaisesRegex(ValueError, "Codex does not support"):
-            resolve_reasoning_effort([_message("user", "x", "m1", "max")], "codex")
+    def test_unknown_level_fails_clearly(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported reasoning effort"):
+            resolve_reasoning_effort([_message("user", "x", "m1", "turbo")], "claude_code")
 
 
 class ReasoningEffortCommandTest(unittest.TestCase):
@@ -65,23 +66,15 @@ class ReasoningEffortCommandTest(unittest.TestCase):
         self.assertEqual(fresh["cmd"][-2:], ["--effort", "max"])
         self.assertEqual(resumed["cmd"][-2:], ["--effort", "high"])
 
-    def test_codex_fresh_and_resume_commands_include_effort(self):
-        bot = BotConfig(name="codex", backend="codex", model="model")
-        with patch("worker.runner.agent_config.resolve_vm_config", return_value=self.vm):
-            fresh = _build_codex_params(_chat([_message("user", "x", "m1", "xhigh")]), "chat-1", 1, bot)
-            resumed = _build_codex_params(_chat([_message("user", "x", "m1", "high")], external_id="thread-1"), "chat-1", 1, bot)
-        self.assertEqual(fresh["cmd"][-2:], ["-c", 'model_reasoning_effort="xhigh"'])
-        self.assertEqual(resumed["cmd"][-2:], ["-c", 'model_reasoning_effort="high"'])
-
     def test_commands_omit_effort_when_not_requested(self):
         with patch("worker.runner.agent_config.resolve_vm_config", return_value=self.vm):
-            params = _build_codex_params(
+            params = _build_claude_code_params(
                 _chat([_message("user", "x", "m1")]),
                 "chat-1",
                 1,
-                BotConfig(name="codex", backend="codex"),
+                BotConfig(name="claude", backend="claude_code"),
             )
-        self.assertNotIn("model_reasoning_effort", " ".join(params["cmd"]))
+        self.assertNotIn("--effort", params["cmd"])
 
 
 if __name__ == "__main__":

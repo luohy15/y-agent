@@ -29,6 +29,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Daily tokens heatmap week start**: BotViewer Daily tokens heatmap weeks now start Monday (Mon-top / Sun-bottom columns, padding, close-on-Sunday, weekday gutter labels) instead of Sunday.
 
 ### Removed
+- **Non-`claude_code` agentic backends (2930)**: the `codex`, `gemini_cli`, `grok_build`, and `pi_cli` agentic CLI backends are gone — 6 agent modules, their per-backend runner/monitor integration, and ~3.2k lines of per-backend tests. `claude_code` is the only detached backend; `_start_detached` rejects anything else with an explicit unsupported-backend error instead of falling through. The two steer delivery families collapse to one: live `tail -f` stdin injection, retiring the kill-and-resume restart path and its offset bookkeeping. The non-agentic inline backends `perplexity` (`y chat --bot px`) and `openai` (`POST /api/inline`, `POST /api/link/tldr`) are unchanged, and the codex/grok bot configs are only disabled, not deleted, so the subscription-limit cards and spend ingestion keep their relay keys. `migration/2930_drop_non_claude_code_backends.sql` repoints persisted `chat.backend` pins to `claude_code` and NULLs `external_id` on those rows (a foreign CLI's session id is not resumable by `claude -p -r`), so those chats continue on a fresh Claude session with their y-agent transcript intact.
 
 ## [0.5.22] - 2026-07-26
 

@@ -179,7 +179,9 @@ mode (`-i`) serves a human at a terminal.
     creates duplicate runs.
 43. As a user, I want each chat's backend and bot fixed at first run, so
     that changing my default bot never migrates an existing conversation
-    between agent backends mid-session.
+    between agent backends mid-session. With claude_code the only agentic
+    backend, this now mainly pins a chat away from the inline query backends
+    and keeps its native session resumable.
 44. As a user, I want follow-up turns to resume the backend's native session
     (via the stored external session id, only when the work dir still
     matches), so that the agent keeps its full context across turns.
@@ -250,12 +252,14 @@ mode (`-i`) serves a human at a terminal.
   row; the running worker's poll loop observes it and tears down. Any surface
   can set it.
 - **Backend dispatch in the worker**: Perplexity and OpenAI-style backends run
-  inline (message-list in, reply out, no VM). All CLI agent backends
-  (claude_code, codex, gemini_cli, pi_cli) launch as detached tmux
-  subprocesses on the user's EC2 VM over SSH, are registered in a process
-  table (DynamoDB) for monitoring, and are tailed by a monitor loop that
-  appends each streamed event as a chat message. An unset backend defaults to
-  claude_code; an unrecognized backend is rejected with a clear launch error.
+  inline (message-list in, reply out, no VM). `claude_code` is the single
+  agentic CLI backend; it launches as a detached tmux subprocess on the user's
+  EC2 VM over SSH, is registered in a process table (DynamoDB) for monitoring,
+  and is tailed by a monitor loop that appends each streamed event as a chat
+  message. An unset backend defaults to claude_code; any other backend is
+  rejected with a clear launch error rather than falling through, so a chat
+  still carrying a removed backend's session id can never launch
+  `claude -p -r` against an unresumable handle.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
@@ -337,3 +341,4 @@ mode (`-i`) serves a human at a terminal.
 | 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
 | 2873 | Fully remove the temporary claude_tui backend + subscription /usage tooling; `_start_detached` defaults to claude_code and rejects unknown backends; migration repoints persisted backend pins claude_tui->claude_code with external_id preserved | - | `pages/plan-2873-remove-claude-tui.md` | - | `pages/review-2873-remove-claude-tui.md` | shipped |
 | 2885 | Prevent large Grok updates polls from deadlocking SSH persistence and retain the cumulative updates offset across resumed turns | - | `pages/plan-2885-grok-updates-poll-deadlock.md` | `pages/recovery-2885-aa346e-lost-turn.md` | `pages/review-2885-grok-updates-poll-deadlock.md` | shipped |
+| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`) | - | `pages/plan-2930-single-backend.md` | - | - | in progress |

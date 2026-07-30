@@ -6,12 +6,12 @@ from yagent.api_client import api_request
 @click.argument('name')
 @click.option('--model', '-m', required=True, help='Model name')
 @click.option('--api-key', '-k', default='', help='API key')
-@click.option('--base-url', '-u', default=None, help='Base URL. For codex backend this is a crs-style prefix (e.g. https://cc1.yovy.app/openai); codex appends the wire path (/responses), so do NOT use a full endpoint or the claude messages-root URL.')
-@click.option('--backend', '-b', default=None, help='Backend (e.g. claude_code, codex, gemini_cli, grok_build, perplexity, openai)')
+@click.option('--base-url', '-u', default=None, help='Base URL (Anthropic messages-root for claude_code, e.g. https://cc1.yovy.app/api).')
+@click.option('--backend', '-b', default=None, help='Backend (claude_code, perplexity, openai)')
 @click.option('--tier', '-t', default=None, help='Tier (tier0|tier1|tier2|tier3, default: tier3)')
 @click.option('--type', default=None, help='Type (agent|model, default: agent)')
 @click.option('--route-weight', type=float, default=None, help='Route weight for auto-routing (default: 1, 0=paused)')
-@click.option('--ref-bot-name', default=None, help='Ref/pointer to another bot (e.g. codex)')
+@click.option('--ref-bot-name', default=None, help='Ref/pointer to another bot (e.g. sonnet)')
 @click.option('--yes', '-y', is_flag=True, help='Overwrite without confirmation')
 def bot_add(name, model, api_key, base_url, backend, tier, type, route_weight, ref_bot_name, yes):
     """Add a new bot configuration."""

@@ -545,11 +545,8 @@ function BotDetailForm({ full, onClose, onSaved }: { full: BotConfig; onClose: (
         <label className="text-sol-base01 pt-1">Backend</label>
         <select value={backend} onChange={(e) => setBackend(e.target.value)} className={inputClass}>
           <option value="">(default)</option>
-          <option value="codex">codex</option>
           <option value="claude_code">claude_code</option>
-          <option value="gemini">gemini</option>
-          <option value="grok_build">grok_build</option>
-          <option value="pi_cli">pi_cli</option>
+          <option value="perplexity">perplexity</option>
           <option value="openai">openai</option>
         </select>
 
@@ -593,7 +590,7 @@ function BotDetailForm({ full, onClose, onSaved }: { full: BotConfig; onClose: (
         <input type="number" step="any" value={routeWeight} onChange={(e) => setRouteWeight(e.target.value)} className={inputClass} />
 
         <label className="text-sol-base01 pt-1">Ref Bot Name</label>
-        <input type="text" value={refBotName} onChange={(e) => setRefBotName(e.target.value)} placeholder="codex" className={inputClass} />
+        <input type="text" value={refBotName} onChange={(e) => setRefBotName(e.target.value)} placeholder="sonnet" className={inputClass} />
 
         <label className="text-sol-base01 pt-1">Enabled</label>
         <div className="flex items-center gap-2">

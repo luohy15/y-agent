@@ -256,7 +256,7 @@ def _interactive(
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
-@click.option('--bot', '-b', default=None, help='Bot name to use (e.g. codex, claude_code, openai)')
+@click.option('--bot', '-b', default=None, help='Bot name to use (e.g. sonnet, opus, px)')
 @click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')

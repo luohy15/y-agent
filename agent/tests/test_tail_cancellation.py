@@ -4,9 +4,6 @@ import unittest
 from unittest.mock import Mock, patch
 
 from agent.claude_code import tail_ssh_output
-from agent.codex import tail_codex_output
-from agent.gemini_cli import tail_gemini_output
-from agent.pi_cli import tail_pi_output
 
 
 class BlockingStdout:
@@ -61,33 +58,6 @@ class TailCancellationTest(unittest.IsolatedAsyncioTestCase):
             line,
             "session_id",
             "claude-session",
-        )
-
-    async def test_cancelled_codex_tail_returns_latest_offset(self):
-        line = json.dumps({"type": "thread.started", "thread_id": "codex-thread"}) + "\n"
-        await self._assert_cancel_returns_offset(
-            tail_codex_output,
-            line,
-            "thread_id",
-            "codex-thread",
-        )
-
-    async def test_cancelled_gemini_tail_returns_latest_offset(self):
-        line = json.dumps({"type": "init", "session_id": "gemini-session"}) + "\n"
-        await self._assert_cancel_returns_offset(
-            tail_gemini_output,
-            line,
-            "session_id",
-            "gemini-session",
-        )
-
-    async def test_cancelled_pi_tail_returns_latest_offset(self):
-        line = json.dumps({"type": "session", "id": "pi-session"}) + "\n"
-        await self._assert_cancel_returns_offset(
-            tail_pi_output,
-            line,
-            "session_id",
-            "pi-session",
         )
 
 

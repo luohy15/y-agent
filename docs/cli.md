@@ -113,7 +113,7 @@ y finance beancount update-market-data
 | `image` | `generate` (Gemini/OpenAI), `splice`, `tinify` (TinyPNG) |
 | `pdf` | `parse` a PDF into Markdown |
 | `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |
-| `bot` | Manage backend configs (Claude Code / Codex / Gemini CLI): add / enable / disable / update |
+| `bot` | Manage bot configs (Claude Code, plus the inline Perplexity / OpenAI backends): add / enable / disable / update |
 | `trace` | `share` / `unshare` a trace as a public read-only page |
 | `dev` | Worktree lifecycle: `wt add` / `wt rm` / `commit` |
 | `telegram` | Send a Telegram message via the API |

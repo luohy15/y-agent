@@ -2,7 +2,7 @@
 
 When we tear down a detached session ourselves (steer or interrupt kill), we
 drop a sentinel file (`/tmp/cc-<chat_id>.killed`) so a subsequent no-result
-check — even a fresh `tail_codex_output`/`tail_ssh_output` call after a
+check — even a fresh `tail_ssh_output` call after a
 Lambda handoff, which has no memory of this call's local
 `steer_requested`/interrupted state — can tell our own teardown apart from a
 genuine external crash and skip the "exited before producing output" death
@@ -14,7 +14,6 @@ import unittest
 from unittest.mock import Mock
 
 from agent.claude_code import _kill_session_marking_self_killed, tail_ssh_output
-from agent.codex import tail_codex_output
 
 
 class EmptyChannel:
@@ -109,110 +108,6 @@ def _make_client(tail_channel, *, sentinel_present: bool, tmux_alive: bool = Fal
     client = Mock()
     client.exec_command.side_effect = exec_command
     return client, calls
-
-
-class CodexSelfKillSentinelTest(unittest.IsolatedAsyncioTestCase):
-    async def test_steer_kill_writes_self_kill_sentinel(self):
-        """_on_steer_detached must drop the sentinel as part of its teardown."""
-        channel = BlockingChannel()
-        client, calls = _make_client(channel, sentinel_present=False)
-
-        result = await tail_codex_output(
-            chat_id="chat-1",
-            vm_config=Mock(),
-            offset=0,
-            message_callback=lambda msg: None,
-            ssh_client=client,
-            check_steer_fn=Mock(side_effect=[[("steer text", "m1", [])]] + [[]] * 20),
-        )
-
-        self.assertEqual(result["status"], "steer")
-        self.assertTrue(any("touch" in c and "killed" in c for c in calls))
-
-    async def test_steer_kill_marks_before_killing_tmux_in_same_command(self):
-        """The marker write must precede the destructive kill, and both must
-        be in the same remote command, so a channel/process death between
-        the two can never happen (request-changes finding 1)."""
-        channel = BlockingChannel()
-        client, calls = _make_client(channel, sentinel_present=False)
-
-        await tail_codex_output(
-            chat_id="chat-1",
-            vm_config=Mock(),
-            offset=0,
-            message_callback=lambda msg: None,
-            ssh_client=client,
-            check_steer_fn=Mock(side_effect=[[("steer text", "m1", [])]] + [[]] * 20),
-        )
-
-        kill_cmds = [c for c in calls if "tmux kill-session" in c]
-        self.assertEqual(len(kill_cmds), 1)
-        cmd = kill_cmds[0]
-        self.assertIn("touch", cmd)
-        self.assertLess(cmd.index("touch"), cmd.index("tmux kill-session"))
-
-    async def test_reader_thread_interrupt_teardown_also_writes_sentinel(self):
-        """The second, reader-thread interrupt teardown inside _read_lines
-        (racing the watchdog) must go through the same marker-first helper
-        (request-changes finding 2)."""
-        line = json.dumps({"type": "thread.started", "thread_id": "codex-thread"}) + "\n"
-        channel = OneLineThenBlock(line)
-        client, calls = _make_client(channel, sentinel_present=False)
-
-        result = await tail_codex_output(
-            chat_id="chat-1",
-            vm_config=Mock(),
-            offset=0,
-            message_callback=lambda msg: None,
-            ssh_client=client,
-            check_interrupted_fn=Mock(return_value=True),
-        )
-
-        self.assertEqual(result["status"], "interrupted")
-        kill_cmds = [c for c in calls if "tmux kill-session" in c]
-        self.assertTrue(kill_cmds)
-        for cmd in kill_cmds:
-            self.assertIn("killed", cmd)
-            self.assertLess(cmd.index("touch"), cmd.index("tmux kill-session"))
-
-    async def test_no_result_branch_suppresses_death_when_self_killed(self):
-        """A fresh call (no local steer/interrupt state this pass) that finds
-        the sentinel on disk must resume monitoring, not report a death."""
-        channel = EmptyChannel()
-        client, calls = _make_client(channel, sentinel_present=True)
-
-        result = await tail_codex_output(
-            chat_id="chat-1",
-            vm_config=Mock(),
-            offset=0,
-            message_callback=lambda msg: None,
-            ssh_client=client,
-        )
-
-        self.assertEqual(result["status"], "monitoring")
-        self.assertFalse(result["is_done"])
-        self.assertNotIn("exited before producing output", json.dumps(result))
-        # the sentinel must be consumed (checked + removed) via one command
-        self.assertTrue(any("killed" in c for c in calls))
-        # since self_killed short-circuits, the tmux liveness check is skipped
-        self.assertFalse(any("has-session" in c for c in calls))
-
-    async def test_no_result_branch_still_reports_death_without_sentinel(self):
-        """Regression guard: an external death with no sentinel must still be
-        reported (the sentinel check must not swallow real crashes)."""
-        channel = EmptyChannel()
-        client, calls = _make_client(channel, sentinel_present=False, tmux_alive=False, exit_code="")
-
-        result = await tail_codex_output(
-            chat_id="chat-1",
-            vm_config=Mock(),
-            offset=0,
-            message_callback=lambda msg: None,
-            ssh_client=client,
-        )
-
-        self.assertEqual(result["status"], "error")
-        self.assertIn("exited before producing output", result["result_data"]["result"])
 
 
 class ClaudeCodeSelfKillSentinelTest(unittest.IsolatedAsyncioTestCase):

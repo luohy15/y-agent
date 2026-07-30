@@ -15,10 +15,9 @@ and trust that the running agent sees the message promptly and exactly once.
 Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
-couple of seconds and delivers each one into the live agent session. Backends
-that accept mid-run input (Claude Code print mode) receive the message live;
-backends that cannot (Codex, Gemini CLI, Pi CLI) are killed and resumed with
-the message as the next prompt. Delivery is exactly-once: a
+couple of seconds and delivers each one into the live agent session. The only
+agentic backend (Claude Code print mode) accepts mid-run input, so every steer
+is delivered live into the running session. Delivery is exactly-once: a
 claim/unclaim protocol plus a turn-end drain and a post-turn reconciliation
 pass guarantee a steer message is neither delivered twice nor silently dropped,
 even across Lambda handoffs and turn-end races.
@@ -53,14 +52,10 @@ even across Lambda handoffs and turn-end races.
 10. As a user, I want steer to keep working when the platform hands a long run
     off between worker invocations, so that messages consumed before the
     handoff are not re-delivered after it.
-11. As a user on a backend without live input injection, I want my mid-turn
-    message to restart the run from its persisted session with my message as
-    the new prompt, so that steer is available on every backend even if the
-    mechanics differ.
-12. As a user, I want multiple steer messages sent in quick succession
+11. As a user, I want multiple steer messages sent in quick succession
     delivered in the order I sent them, so that a two-part correction reads
     coherently.
-13. As a user starting a new turn on a chat with unanswered trailing user
+12. As a user starting a new turn on a chat with unanswered trailing user
     messages, I want all of them folded into the new turn's prompt, so that a
     message that slipped past a previous turn is still answered.
 
@@ -86,14 +81,14 @@ even across Lambda handoffs and turn-end races.
   Delivery callbacks return three-valued status: success, unknown (treated as
   success for backends that cannot confirm), or explicit failure (triggers
   unclaim).
-- **Per-backend delivery, two families.** Live injection: Claude Code print
-  mode appends a stream-json user message to a remote stdin file that is piped
-  into the process via a follow-tail, with the SSH write's exit status as
-  delivery confirmation. Kill-and-resume: Codex, Gemini CLI, and Pi CLI cannot
-  accept mid-run input, so the first steer kills the tmux session, the tailer
-  returns a steer status with the collected messages, and the monitor
-  restarts the run via the backend's resume command using the steer text as
-  the new prompt.
+- **One delivery mechanism: live injection.** Claude Code print mode appends a
+  stream-json user message to a remote stdin file that is piped into the
+  process via a follow-tail, with the SSH write's exit status as delivery
+  confirmation. The kill-and-resume family (first steer kills the tmux session,
+  the tailer returns a steer status, the monitor restarts the run with the
+  steer text as the new prompt) existed only for the codex / gemini_cli /
+  grok_build / pi_cli backends and was retired with them in todo 2930, along
+  with the restart-offset bookkeeping it required.
 - **Turn-end race is closed by a shared lock plus final drain.** Live steer
   writes and session teardown are serialized by one lock. Teardown first drains
   the checker one last time and delivers any straggler before killing the
@@ -104,8 +99,7 @@ even across Lambda handoffs and turn-end races.
   never confirmed; if any exist, the turn is not finalized and a continuation
   turn is relaunched. Symmetrically, any new turn folds all unanswered trailing
   user messages into its prompt, so a message dropped by an earlier race is
-  recovered at the next turn boundary. Kill-and-resume backends reconcile via
-  their restart branch instead.
+  recovered at the next turn boundary.
 - **Consumed IDs survive Lambda handoff.** The set of confirmed-delivered steer
   IDs is persisted in the per-process lease record and merged (not overwritten)
   on each handoff, so a later invocation neither re-delivers a consumed message
@@ -134,13 +128,11 @@ even across Lambda handoffs and turn-end races.
 - Handoff behavior: consumed IDs recorded before a handoff must suppress
   re-delivery after it, and a completion that consumed nothing new must not
   erase previously confirmed IDs.
-- Per-backend monitor tests cover the two delivery families, including the
-  kill-and-resume restart carrying the steer text and the correct resume
-  handle.
+- Monitor tests cover live delivery, interrupt priority, and Lambda-handoff
+  offset continuity.
 - Prior art: the agent and worker packages already have dedicated tests for the
-  poll-loop unclaim contract, steer race drain, steer images, race
-  reconciliation, and each backend's monitor restart path; extend those rather
-  than inventing a new harness.
+  poll-loop unclaim contract, steer race drain, steer images, and race
+  reconciliation; extend those rather than inventing a new harness.
 
 ## Out of Scope
 

@@ -9,12 +9,10 @@ has actually been read.
 """
 
 import socket
-import threading
 import unittest
 from unittest.mock import Mock
 
 from agent.claude_code import _claude_image_block, _ssh_exec
-from agent.grok_build import _UPDATES_MAX_MISSING_POLLS, GrokStreamConverter, _GrokUpdatesPoller
 
 # Larger than paramiko's default channel window (64 * 2**15 = 2,097,152 bytes),
 # i.e. the size at which the old read order deadlocked.
@@ -122,24 +120,7 @@ class SshExecDrainOrderTest(unittest.TestCase):
 
 
 class SshExecCallSiteTest(unittest.TestCase):
-    """The two call sites that can legitimately exceed the channel window."""
-
-    def test_grok_updates_poller_reads_an_oversized_chunk(self):
-        line = '{"params":{"update":{"sessionUpdate":"other"}}}'
-        padding = "\n".join([line] * (WINDOW_BUSTING_SIZE // (len(line) + 1)))
-        streams = _FakeStreams(stdout=(padding + "\n").encode())
-        poller = _GrokUpdatesPoller(
-            client=_client_for(streams),
-            updates_path="/home/roy/.grok/sessions/s/updates.jsonl",
-            converter=GrokStreamConverter(),
-            lock=threading.RLock(),
-            message_callback=lambda msg: None,
-        )
-
-        poller.poll_once()
-
-        self.assertEqual(poller.offset, len(padding) + 1)
-        self.assertTrue(poller._available)
+    """The call site that can legitimately exceed the channel window."""
 
     def test_claude_image_block_reads_an_oversized_base64_payload(self):
         streams = _FakeStreams(stdout=b"A" * WINDOW_BUSTING_SIZE + b"\n")
@@ -149,39 +130,6 @@ class SshExecCallSiteTest(unittest.TestCase):
 
         self.assertEqual(block["source"]["media_type"], "image/png")
         self.assertEqual(len(block["source"]["data"]), WINDOW_BUSTING_SIZE)
-
-
-class GrokUpdatesPollerTimeoutTest(unittest.TestCase):
-    """A stalled read must degrade to a missed poll, not kill the tail loop."""
-
-    def _timing_out_poller(self):
-        client = Mock()
-        client.exec_command.side_effect = socket.timeout("timed out")
-        return _GrokUpdatesPoller(
-            client=client,
-            updates_path="/home/roy/.grok/sessions/s/updates.jsonl",
-            converter=GrokStreamConverter(),
-            lock=threading.RLock(),
-            message_callback=lambda msg: None,
-            offset=42,
-        )
-
-    def test_timeout_counts_as_a_missed_poll(self):
-        poller = self._timing_out_poller()
-
-        poller.poll_once()  # must not raise
-
-        self.assertEqual(poller._missing_polls, 1)
-        self.assertEqual(poller.offset, 42)
-        self.assertTrue(poller._available)
-
-    def test_repeated_timeouts_disable_the_side_channel(self):
-        poller = self._timing_out_poller()
-
-        for _ in range(_UPDATES_MAX_MISSING_POLLS):
-            poller.poll_once()
-
-        self.assertFalse(poller._available)
 
 
 if __name__ == "__main__":

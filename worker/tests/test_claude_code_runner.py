@@ -57,6 +57,15 @@ class StartDetachedBackendSelectionTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported detached backend"):
             await _start_detached(chat, "chat-1", 1, BotConfig(name="ghost", backend="claude_tui"))
 
+    async def test_removed_agentic_backends_are_rejected(self):
+        """codex / gemini_cli / grok_build / pi_cli were removed in todo 2930;
+        a stale pin must fail loudly instead of launching `claude -p -r` with a
+        foreign session id."""
+        for backend in ("codex", "gemini_cli", "grok_build", "pi_cli"):
+            with self.subTest(backend=backend):
+                with self.assertRaisesRegex(ValueError, "Unsupported detached backend"):
+                    await _start_detached(_chat(), "chat-1", 1, BotConfig(name=backend, backend=backend))
+
 
 if __name__ == "__main__":
     unittest.main()

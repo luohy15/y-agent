@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 
 from worker.runner import _pending_user_text_and_images, make_steer_checker
 
@@ -40,35 +40,6 @@ class SteerImagesSmokeTest(unittest.TestCase):
             # forever (plan-2662-steer-race.md, sub-task 2).
             check.unclaim("m1")
             self.assertEqual(check(), [("hello", "m1", [])])
-
-    def test_restart_codex_forwards_steer_images(self):
-        import worker.monitor as monitor
-
-        async def run():
-            chat = _Chat([_Msg("user", "describe", "m2")])
-            with (
-                patch("agent.config.resolve_vm_config", return_value=Mock()),
-                patch("agent.config.resolve_bot_config", return_value=Mock(model=None)),
-                patch("agent.codex.start_detached_codex_ssh") as start,
-                patch("worker.monitor.update_process_offset"),
-                patch("worker.monitor.release_lease"),
-                patch("storage.service.chat.get_chat_by_id", AsyncMock(return_value=chat)),
-            ):
-                await monitor._restart_codex_with_steer(
-                    "chat-1",
-                    {"user_id": 1, "vm_name": "vm", "backend_type": "codex"},
-                    {
-                        "thread_id": "thread-1",
-                        "last_message_id": "m2",
-                        "steer_text": "describe",
-                        "steer_images": ["s3://bucket/images/photo.png"],
-                        "consumed_steer_ids": ["m2"],
-                    },
-                )
-                self.assertEqual(start.await_args.kwargs["images"], ["s3://bucket/images/photo.png"])
-
-        import asyncio
-        asyncio.run(run())
 
 
 class PendingUserTextAndImagesTest(unittest.TestCase):

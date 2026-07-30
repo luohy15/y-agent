@@ -28,7 +28,7 @@ Every activity-bar panel in the web GUI:
 - **Links** — the link archive. *(showcased)*
 - **RSS** — feed subscriptions with a two-stage scrape pipeline (admin schedules → worker scrapes feed XML → downloader fetches each item); per-item content on S3.
 - **Entities** — knowledge-graph nodes (person / product / org / project). Each entity has a backing note and can be associated with other notes and RSS feeds.
-- **Bots** — manage bot/backend configurations (Claude Code / Codex / Gemini CLI / others): add, enable/disable, set model + API key, pick per-chat or per-routine.
+- **Bots** — manage bot configurations over the `claude_code` backend (plus the inline Perplexity / OpenAI query backends): add, enable/disable, set model + API key, pick per-chat or per-routine.
 - **Reminders** — time-based reminders delivered via Telegram, optionally attached to a todo or event.
 - **Routines** — cron-style schedules that auto-fire a chat to a topic; the admin Lambda fires them on EventBridge (daily journal, weekly digests, health checks).
 - **Files** — lazy file tree of the VM's `work_dir`; viewer/editor with syntax highlighting, line numbers, unsaved-edits preview, and click-to-open relative links.
@@ -52,5 +52,5 @@ Not in the activity bar, but part of the same app:
 ## Integrations & infrastructure
 
 - **Telegram bot** — webhook with secret verification, forum-topic routing, markdown → HTML conversion, reminder delivery.
-- **Agent runtime** — Claude Code / Codex / Gemini CLI backends run detached inside `tmux` on EC2 over SSH; the worker tails output, streams JSON events, and hands off across Lambda's 15-minute cap; mid-run steer + explicit stop; context monitor auto-restarts long sessions.
+- **Agent runtime** — Claude Code runs detached inside `tmux` on EC2 over SSH; the worker tails output, streams JSON events, and hands off across Lambda's 15-minute cap; mid-run steer + explicit stop; context monitor auto-restarts long sessions.
 - **Browser cookies** — `y cookies sync` uploads local browser cookies so remote link fetchers (e.g. `yt-dlp` on YouTube) can use them.
