@@ -349,92 +349,6 @@ export const LINKS_FIXTURE = [
   },
 ];
 
-// --- /api/finance/holdings -> FinanceEnvelope<HoldingPosition[]> ---------------
-
-const SNAPSHOT_DATE = ymdDaysAgo(0);
-const PRICE_AS_OF = isoDaysAgo(0, -20 * MIN);
-
-const holding = (
-  symbol: string,
-  quantity: number,
-  average_cost: number,
-  price: number,
-  is_cash = false,
-) => {
-  const book_value = quantity * average_cost;
-  const market_value = quantity * price;
-  return {
-    snapshot_date: SNAPSHOT_DATE,
-    symbol,
-    quantity,
-    average_cost: is_cash ? null : average_cost,
-    price: is_cash ? null : price,
-    book_value,
-    market_value,
-    market_value_base: market_value,
-    allocation_base_currency: "USD",
-    unrealized_profit_pct: is_cash || book_value === 0 ? null : ((market_value - book_value) / book_value) * 100,
-    cost_currency: "USD",
-    is_cash,
-    price_as_of: is_cash ? null : PRICE_AS_OF,
-  };
-};
-
-const HOLDINGS = [
-  holding("VOO", 120, 388.4, 512.7),
-  holding("NVDA", 60, 64.2, 138.9),
-  holding("AAPL", 90, 162.5, 214.3),
-  holding("MSFT", 45, 305.1, 441.6),
-  holding("TSM", 80, 98.7, 188.2),
-  holding("BOXX", 150, 109.8, 113.4),
-  holding("USD-Cash", 38500, 1, 1, true),
-];
-
-const TOTAL_BASE = HOLDINGS.reduce((s, h) => s + (h.market_value_base || 0), 0);
-const RISKY_BASE = HOLDINGS.filter((h) => !h.is_cash && h.symbol !== "BOXX").reduce((s, h) => s + (h.market_value_base || 0), 0);
-
-export const HOLDINGS_FIXTURE = {
-  data: HOLDINGS,
-  summary: {
-    total_base: TOTAL_BASE,
-    risky_base: RISKY_BASE,
-    risky_pct: RISKY_BASE / TOTAL_BASE,
-    base_currency: "USD",
-  },
-  synced_at: isoDaysAgo(0, -15 * MIN),
-  source: "cache" as const,
-};
-
-// --- /api/finance/balance-sheet (live) -> FinanceEnvelope<BalanceSheetData> ----
-// Kept as a fallback in case the finance tab is not forced to "holdings".
-
-const acct = (account: string, usd: number, children: any[] = []) => ({
-  account,
-  balance: children.length ? {} : { USD: usd },
-  children,
-});
-
-export const BALANCE_SHEET_FIXTURE = {
-  data: {
-    assets: acct("Assets", 0, [
-      acct("Assets:Investments", 0, [
-        acct("Assets:Investments:Brokerage", 248900),
-        acct("Assets:Investments:Retirement", 96400),
-      ]),
-      acct("Assets:Cash", 0, [
-        acct("Assets:Cash:Checking", 18500),
-        acct("Assets:Cash:Savings", 42000),
-      ]),
-    ]),
-    liabilities: acct("Liabilities", 0, [
-      acct("Liabilities:CreditCard", -3200),
-      acct("Liabilities:Mortgage", -184000),
-    ]),
-  },
-  synced_at: isoDaysAgo(0, -15 * MIN),
-  source: "cache" as const,
-};
-
 // --- /api/usage/model-daily -> ModelUsageRow[] --------------------------------
 // Per-(model, date) usage rows over the last ~11 weeks, driving the bot usage Live
 // view (donut + per-day contribution heatmap). A deterministic pseudo-random pattern
@@ -742,19 +656,10 @@ function matchFixture(rawUrl: string): unknown | undefined {
       ].join("\n"),
     };
   }
-  if (pathname === "/api/finance/holdings") return HOLDINGS_FIXTURE;
   if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
   if (pathname === "/api/usage/daily-totals") return DAILY_TOTALS_FIXTURE;
   if (pathname === "/api/usage/limits") return new URLSearchParams(window.location.search).get("limits") === "unavailable" ? USAGE_LIMITS_UNAVAILABLE_FIXTURE : USAGE_LIMITS_FIXTURE;
   if (pathname === "/api/bot/list") return []; // usage view ignores the config table
-  if (pathname === "/api/finance/balance-sheet") {
-    // Only the live balance sheet is exercised by the default tab; history
-    // breakdowns return empty envelopes so over-time views degrade gracefully.
-    if (search.get("history") === "true") {
-      return { data: [], synced_at: isoDaysAgo(0, -15 * MIN), source: "cache" };
-    }
-    return BALANCE_SHEET_FIXTURE;
-  }
 
   return undefined;
 }

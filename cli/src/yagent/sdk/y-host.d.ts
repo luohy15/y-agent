@@ -5,8 +5,7 @@
  * contract.json and is stamped onto each published version as min_host_version.
  *
  * MODULE SHAPE (pages/decision-2412-module-shape.md)
- * One artifact is ONE module defining both surfaces, mirroring the built-in
- * FinancePanel / FinanceViewer split:
+ * One artifact is ONE module defining both surfaces:
  *
  *     export const panel = MyPanel;    // required — left sidebar (~280px)
  *     export const detail = MyDetail;  // optional — center / full-width view

@@ -92,22 +92,28 @@ entity + controller + service + CLI slices, and most have a web panel.
   SVG rendering. Plain `svg` fences remain code blocks.
 - **Dynamic UI artifacts** — user-owned React panels published as data instead of
   shipped in the bundle (`ui_artifact` + `ui_artifact_version`, `/api/ui/*`, `y ui`).
-  Source is a `.tsx` on the VM under `$Y_AGENT_HOME/ui/`; `y ui publish <slug>` builds
-  it with the SDK in `cli/src/yagent/sdk/` (esbuild + Tailwind, externals redirected to
-  CJS shims reading `globalThis.__Y_HOST__`), POSTs the bytes, and the API recomputes
-  sha256 before storing. The web loader (`web/src/host/`) authFetches the bundle,
-  verifies the hash, blob-imports it, and mounts it inside a per-artifact error
-  boundary with distinct fetch / integrity / version-skew / render failure cards and a
-  one-click rollback. **One artifact is one module with two surfaces**: `export const
-  panel` (required, ~280px sidebar) and `export const detail` (optional, center /
-  full-width view opened from the panel header or `/ui/<slug>`), mirroring the built-in
-  FinancePanel / FinanceViewer split — so an artifact takes exactly one ActivityBar
-  entry. Versions are immutable and `active_version_id` is a pointer, so rollback needs
+  Source is a `.tsx` entry on the VM under `$Y_AGENT_HOME/ui/<slug>.tsx`; multi-file
+  authoring is supported via a conventional parts directory
+  `$Y_AGENT_HOME/ui/<slug>/` (imported from the entry as `./<slug>/<name>`), so an
+  artifact isn't forced into one large file — the entry stays thin (imports plus the
+  two surface exports) and logic/components live in the parts directory. `y ui
+  publish <slug>` builds it with the SDK in `cli/src/yagent/sdk/` (esbuild + Tailwind,
+  externals redirected to CJS shims reading `globalThis.__Y_HOST__`; the generated
+  Tailwind `@source` covers both the entry and the parts directory glob), POSTs the
+  bytes, and the API recomputes sha256 before storing. The web loader
+  (`web/src/host/`) authFetches the bundle, verifies the hash, blob-imports it, and
+  mounts it inside a per-artifact error boundary with distinct fetch / integrity /
+  version-skew / render failure cards and a one-click rollback. **One artifact is one
+  module with two surfaces**: `export const panel` (required, ~280px sidebar) and
+  `export const detail` (optional, center / full-width view opened from the panel
+  header or `/ui/<slug>`) — so an artifact takes exactly one ActivityBar entry.
+  Versions are immutable and `active_version_id` is a pointer, so rollback needs
   no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
   it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`.
-  The built-in Finance panel is currently withheld from the ActivityBar
-  (`HIDDEN_BUILT_IN_PANELS` in `ActivityBar.tsx`) while the dynamic finance artifact
-  stands in; the code is intact and emptying that set restores it.
+  The built-in Finance panel (`FinancePanel`/`FinanceViewer`) that the dynamic
+  `finance` artifact was originally migrated from has since been deleted (todo 2933):
+  there is no in-bundle fallback left, and the recovery path for a broken artifact is
+  `y ui rollback <slug>`, not restoring built-in code.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`

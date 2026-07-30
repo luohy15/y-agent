@@ -48,9 +48,9 @@ Defaults work for most cases, but you can override per chat:
 - **Skill**: pick a specialized skill (e.g. `dev`, `plan`, `impl`) instead of the default `manager`. The skill defines what tools and prompts the agent loads.
 - **VM** / **work_dir**: which EC2 instance and project directory to run in. Most users have one VM and a default work_dir, so this is set-and-forget.
 
-## The five showcased capabilities
+## The four showcased capabilities
 
-Most of y-agent's value lives in five panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
+Most of y-agent's value lives in four panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
 
 ### Chat
 
@@ -92,13 +92,6 @@ The **Links** panel is a browsable archive. `y link sync-chrome` pulls in browse
 <!-- SCREENSHOT: link -->
 ![Links panel](https://cdn.luohy15.com/y-agent/docs/link.png)
 
-### Finance
-
-The **Finance** panel renders a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress as charts. The same views are available from `y finance balance-sheet` / `holdings` / `fire-progress` and mirror `/api/finance/*`; `y finance beancount` is the ledger-side producer.
-
-<!-- SCREENSHOT: finance -->
-![Finance view](https://cdn.luohy15.com/y-agent/docs/finance.png)
-
 ## More panels
 
 The activity bar carries several lighter-weight subsystems:
@@ -109,6 +102,7 @@ The activity bar carries several lighter-weight subsystems:
 - **Email** — multi-account Gmail sync (`y email sync-gmail`) for lightweight inbox review; filter by source account.
 - **Calendar** — timezone-aware events with a current-time ticker; import an ICS with `y calendar import file.ics`.
 - **Bots** — manage bot configs (Claude Code, plus the inline Perplexity / OpenAI backends): add, enable/disable, set model + API key, then pick one per chat or per routine.
+- **Finance** — a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress, rendered as charts by the `finance` dynamic UI artifact. The same views are available from `y finance balance-sheet` / `holdings` / `fire-progress` and mirror `/api/finance/*`; `y finance beancount` is the ledger-side producer.
 
 ## Files
 

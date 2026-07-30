@@ -10,13 +10,12 @@ order: 2
 
 ## Showcased capabilities
 
-These five are the ones worth seeing first — each has a dedicated walkthrough (and a screenshot) in [getting-started.md](getting-started.md).
+These four are the ones worth seeing first — each has a dedicated walkthrough (and a screenshot) in [getting-started.md](getting-started.md).
 
 - **Chat** — the core agent surface: every task is a conversation that streams in real time with inline, collapsible tool calls. Assistant prose can carry **inline artifacts** (charts / diagrams / SVG that render directly in the thread), and any messages can be exported to a phone-friendly PNG or the whole chat shared as a read-only link.
 - **Todo & Trace** — first-class todos (full-stack CRUD, kanban, pagination, pin, search, status history) where the todo's public ID *is* the `trace_id`. Every chat dispatched under a todo carries that id, and the **TraceView** waterfall stitches the whole cross-skill call chain into one tree. Traces are shareable as a public read-only page (optionally password-protected).
 - **Note** — structured notes with a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos. Journals (daily log), Pages (topic state), and plan / requirement / decision context all live here.
 - **Link** — a browsable link archive: Chrome history / bookmark sync, on-demand fetch of Twitter / X, Bilibili, WeChat, and generic pages into markdown, TLDR summaries, and in-app markdown preview.
-- **Finance** — beancount-backed balance sheet, income statement, holdings, transactions, prices, investment returns, and FIRE progress, rendered as web charts and mirrored by `y finance`.
 
 ## Sidebar panels
 
@@ -33,7 +32,7 @@ Every activity-bar panel in the web GUI:
 - **Routines** — cron-style schedules that auto-fire a chat to a topic; the admin Lambda fires them on EventBridge (daily journal, weekly digests, health checks).
 - **Files** — lazy file tree of the VM's `work_dir`; viewer/editor with syntax highlighting, line numbers, unsaved-edits preview, and click-to-open relative links.
 - **Calendar** — timezone-aware events with a current-time ticker; ICS import.
-- **Finance** — balance sheet / income statement / holdings / FIRE charts. *(showcased)*
+- **Finance** — balance sheet / income statement / holdings / transactions / prices / investment returns / FIRE charts, rendered by the `finance` dynamic UI artifact.
 - **Email** — multi-account Gmail sync for lightweight inbox review; each row tagged with its source account.
 - **Dev** — `y dev` worktree lifecycle from the GUI: create/remove worktrees per task, auto-commit, dynamic merge target.
 
