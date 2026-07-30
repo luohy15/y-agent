@@ -19,5 +19,5 @@
       "lightweight-charts": ["./y-host.d.ts"]
     }
   },
-  "include": ["../*.tsx", "./y-host.d.ts"]
+  "include": ["../*.tsx", "../*/**/*.tsx", "../*/**/*.ts", "./y-host.d.ts"]
 }
