@@ -17,6 +17,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **English correction subsystem (2871)**: new `english_correction` entity/repository/service/controller plus `y english` CLI (`add`/`list`/`get`/`dismiss`/`pending`/`mark-scanned`) and a web `EnglishList`/`EnglishView` panel with inline word-diff rendering, for hourly offline grammar-correction scans of the user's own chat prose.
 - **Tags panel (2838)**: read-only Tags activity-bar panel over the `entity_tag` store, with a slash-hierarchy vocabulary tree, search, prefix roll-up counts, and click-to-navigate drill-down across all ten carrier types.
 
+- **Routine pre-fire guards (2871)**: routines gain an optional `guard` field (a `module:func` dotted path taking `user_id`) that the admin `tick_routines` Lambda evaluates before dispatching; a falsy guard stamps `skipped: guard` and advances the schedule without spawning a chat, while a raising guard fails open so a broken path cannot silently stall a routine. Manual `y routine run` always fires, bypassing the guard. `y routine add/update --guard` and the create/update API expose the field. The english-correction routine uses `storage.service.english_correction:has_new_chats_since_watermark`, a single indexed EXISTS check, so the hourly loop stops spinning up an agent session when no chat has been touched since the scan watermark.
+
 ### Changed
 - **`y todo get` History opt-in**: History is hidden by default (it drowned out todo content on long tasks) and only shown when `--history` is passed.
 

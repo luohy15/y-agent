@@ -13,6 +13,7 @@ class Routine:
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
+    guard: Optional[str] = None
     enabled: bool = True
     last_run_at: Optional[str] = None
     last_run_status: Optional[str] = None
@@ -34,6 +35,7 @@ class Routine:
             target_skill=data.get('target_skill'),
             work_dir=data.get('work_dir'),
             backend=data.get('backend'),
+            guard=data.get('guard'),
             enabled=data.get('enabled', True),
             last_run_at=data.get('last_run_at'),
             last_run_status=data.get('last_run_status'),
@@ -62,6 +64,8 @@ class Routine:
             result['work_dir'] = self.work_dir
         if self.backend is not None:
             result['backend'] = self.backend
+        if self.guard is not None:
+            result['guard'] = self.guard
         if self.last_run_at is not None:
             result['last_run_at'] = self.last_run_at
         if self.last_run_status is not None:

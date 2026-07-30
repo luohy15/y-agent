@@ -311,6 +311,30 @@ def _resolve_since(user_id: int, since_unix: Optional[int]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Routine guard
+# ---------------------------------------------------------------------------
+
+def has_new_chats_since_watermark(user_id: int) -> bool:
+    """Return True if any chat has been updated after the scan watermark.
+
+    Used as a routine guard to skip dispatching the english-correction skill
+    when there is no new material to scan.
+    """
+    since = _resolve_since(user_id, None)
+    with get_db() as session:
+        exists = (
+            session.query(ChatEntity.id)
+            .filter(
+                ChatEntity.user_id == user_id,
+                ChatEntity.updated_at_unix > since,
+            )
+            .limit(1)
+            .first()
+        )
+    return exists is not None
+
+
+# ---------------------------------------------------------------------------
 # Pending scan
 # ---------------------------------------------------------------------------
 

@@ -23,6 +23,9 @@ class RoutineEntity(Base, BaseEntity):
     work_dir = Column(String, nullable=True)
     backend = Column(String, nullable=True)
 
+    # pre-fire guard — dotted path to a (user_id: int) -> bool callable
+    guard = Column(String, nullable=True)
+
     # state
     enabled = Column(Boolean, nullable=False, server_default=text("true"))
     last_run_at = Column(String, nullable=True)

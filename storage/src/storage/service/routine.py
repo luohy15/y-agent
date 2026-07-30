@@ -60,6 +60,7 @@ def add_routine(
     target_skill: Optional[str] = None,
     work_dir: Optional[str] = None,
     backend: Optional[str] = None,
+    guard: Optional[str] = None,
     enabled: bool = True,
 ) -> Routine:
     routine = Routine(
@@ -72,6 +73,7 @@ def add_routine(
         target_skill=target_skill,
         work_dir=work_dir,
         backend=backend,
+        guard=guard,
         enabled=enabled,
     )
     return routine_repo.save_routine(user_id, routine)
@@ -173,6 +175,33 @@ def list_due_routines(now: Optional[datetime] = None) -> List[dict]:
         if next_run <= now:
             due.append(item)
     return due
+
+
+def stamp_routine(user_id: int, routine_id: str, status: str) -> Optional[Routine]:
+    """Stamp last_run_at and last_run_status without creating a chat."""
+    routine = routine_repo.get_routine(user_id, routine_id)
+    if not routine:
+        return None
+    routine.last_run_at = get_utc_iso8601_timestamp()
+    routine.last_run_status = status
+    return routine_repo.save_routine(user_id, routine)
+
+
+def evaluate_guard(user_id: int, guard: str) -> bool:
+    """Import and call a routine guard function.
+
+    `guard` is a dotted path in `module:function` form.  The function is
+    called with `(user_id)` and must return a truthy value for the routine
+    to fire.
+    """
+    import importlib
+
+    module_path, _, func_name = guard.partition(":")
+    if not func_name:
+        raise ValueError(f"Invalid guard format (expected 'module:func'): {guard}")
+    mod = importlib.import_module(module_path)
+    func = getattr(mod, func_name)
+    return bool(func(user_id))
 
 
 def fire_routine(user_id: int, routine_id: str) -> str:

@@ -21,6 +21,7 @@ class CreateRoutineRequest(BaseModel):
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
+    guard: Optional[str] = None
     enabled: bool = True
 
 
@@ -34,6 +35,7 @@ class UpdateRoutineRequest(BaseModel):
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
+    guard: Optional[str] = None
 
 
 class RoutineIdRequest(BaseModel):
@@ -89,6 +91,7 @@ async def create_routine(req: CreateRoutineRequest, request: Request):
             target_skill=req.target_skill,
             work_dir=req.work_dir,
             backend=req.backend,
+            guard=req.guard,
             enabled=req.enabled,
         )
     except ValueError as e:

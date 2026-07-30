@@ -11,8 +11,9 @@ from yagent.api_client import api_request
 @click.option('--work-dir', default=None, help='Working directory for the dispatched chat')
 @click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex', 'gemini_cli', 'pi_cli']), help='Agent backend')
 @click.option('--desc', 'description', default=None, help='Description')
+@click.option('--guard', default=None, help='Pre-fire guard (module:func dotted path)')
 @click.option('--disabled', is_flag=True, default=False, help='Create in disabled state')
-def routine_add(name, schedule, message, target_topic, target_skill, work_dir, backend, description, disabled):
+def routine_add(name, schedule, message, target_topic, target_skill, work_dir, backend, description, guard, disabled):
     """Add a new routine."""
     body = {
         "name": name,
@@ -22,6 +23,8 @@ def routine_add(name, schedule, message, target_topic, target_skill, work_dir, b
     }
     if description is not None:
         body["description"] = description
+    if guard is not None:
+        body["guard"] = guard
     if target_topic is not None:
         body["target_topic"] = target_topic
     if target_skill is not None:

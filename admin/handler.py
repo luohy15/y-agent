@@ -100,10 +100,31 @@ def _tick_routines():
 
     bot_token = get_telegram_bot_token()
     fired = 0
+    skipped = 0
     errors = []
     for item in due:
         user_id = item["user_id"]
         routine = item["routine"]
+
+        if routine.guard:
+            try:
+                if not routine_svc.evaluate_guard(user_id, routine.guard):
+                    routine_svc.stamp_routine(user_id, routine.routine_id, "skipped: guard")
+                    skipped += 1
+                    logger.info(
+                        "[tick_routines] guard rejected routine {} ({})",
+                        routine.routine_id,
+                        routine.name,
+                    )
+                    continue
+            except Exception as e:
+                logger.exception(
+                    "[tick_routines] guard error routine={} guard={} err={}",
+                    routine.routine_id,
+                    routine.guard,
+                    e,
+                )
+
         try:
             chat_id = routine_svc.fire_routine(user_id, routine.routine_id)
             fired += 1
@@ -138,7 +159,7 @@ def _tick_routines():
                     notify_err,
                 )
 
-    result = {"status": "ok", "action": "tick_routines", "fired": fired, "total": len(due)}
+    result = {"status": "ok", "action": "tick_routines", "fired": fired, "skipped": skipped, "total": len(due)}
     if errors:
         result["errors"] = errors
     return result

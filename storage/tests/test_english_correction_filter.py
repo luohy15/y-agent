@@ -368,6 +368,59 @@ class WatermarkPendingTest(FilterTestCase):
         self.assertEqual([m["message_id"] for m in pending["messages"]], ["msg-4"])
 
 
+class RoutineGuardTest(FilterTestCase):
+    """The routine guard that keeps the hourly loop from firing on no new material."""
+
+    def test_no_chats_at_all_is_not_worth_firing(self):
+        self.assertFalse(eng_service.has_new_chats_since_watermark(1))
+
+    def test_chat_updated_after_watermark_is_worth_firing(self):
+        now = get_unix_timestamp()
+        eng_service.set_watermark(1, now)
+        self._insert_chat("chat-new", [], updated_at_unix=now + 1)
+        self.assertTrue(eng_service.has_new_chats_since_watermark(1))
+
+    def test_chat_updated_at_exactly_the_watermark_is_not_worth_firing(self):
+        # The watermark is the newest timestamp already scanned, so a chat
+        # sitting exactly on it has been consumed — strict `>`, not `>=`.
+        now = get_unix_timestamp()
+        eng_service.set_watermark(1, now)
+        self._insert_chat("chat-boundary", [], updated_at_unix=now)
+        self.assertFalse(eng_service.has_new_chats_since_watermark(1))
+
+    def test_chat_older_than_watermark_is_not_worth_firing(self):
+        now = get_unix_timestamp()
+        eng_service.set_watermark(1, now)
+        self._insert_chat("chat-old", [], updated_at_unix=now - 60_000)
+        self.assertFalse(eng_service.has_new_chats_since_watermark(1))
+
+    def test_another_users_chat_does_not_trigger_a_fire(self):
+        now = get_unix_timestamp()
+        eng_service.set_watermark(1, now)
+        with dbbase.get_db() as session:
+            entity = ChatEntity(
+                user_id=2,
+                chat_id="chat-other-user",
+                json_content=json.dumps({"messages": []}),
+                status="idle",
+                unread=False,
+            )
+            entity.updated_at_unix = now + 1
+            session.add(entity)
+        self.assertFalse(eng_service.has_new_chats_since_watermark(1))
+
+    def test_without_a_watermark_the_bootstrap_window_still_gates(self):
+        # No watermark set: _resolve_since falls back to the bootstrap lookback,
+        # so a chat older than that window must not fire the routine.
+        now = get_unix_timestamp()
+        self._insert_chat(
+            "chat-ancient",
+            [],
+            updated_at_unix=now - (eng_service.DEFAULT_BOOTSTRAP_LOOKBACK_MS * 10),
+        )
+        self.assertFalse(eng_service.has_new_chats_since_watermark(1))
+
+
 class PendingBoundingTest(FilterTestCase):
     """The scan must stay bounded no matter how wide the window is."""
 

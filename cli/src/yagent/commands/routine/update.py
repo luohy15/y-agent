@@ -13,7 +13,8 @@ from yagent.api_client import api_request
 @click.option('--work-dir', default=None, help='New work_dir')
 @click.option('--backend', default=None, type=click.Choice(['claude_code', 'codex', 'gemini_cli', 'pi_cli']), help='New agent backend')
 @click.option('--desc', 'description', default=None, help='New description')
-def routine_update(routine_id, name, schedule, message, target_topic, target_skill, work_dir, backend, description):
+@click.option('--guard', default=None, help='Pre-fire guard (module:func dotted path)')
+def routine_update(routine_id, name, schedule, message, target_topic, target_skill, work_dir, backend, description, guard):
     """Update a routine."""
     body = {"routine_id": routine_id}
     if name is not None:
@@ -32,6 +33,8 @@ def routine_update(routine_id, name, schedule, message, target_topic, target_ski
         body["backend"] = backend
     if description is not None:
         body["description"] = description
+    if guard is not None:
+        body["guard"] = guard
 
     if len(body) == 1:
         click.echo("No fields to update")
