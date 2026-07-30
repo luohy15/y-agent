@@ -52,6 +52,15 @@ declare module "react/jsx-runtime" {
   export const Fragment: any;
 }
 
+declare namespace JSX {
+  interface IntrinsicElements {
+    [elemName: string]: any;
+  }
+  interface Element {
+    [key: string]: any;
+  }
+}
+
 declare module "react-dom" {
   export function createPortal(children: any, container: Element): any;
   const ReactDOM: { createPortal: typeof createPortal };
