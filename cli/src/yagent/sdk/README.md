@@ -27,3 +27,28 @@ If `contract.json`'s values ever diverge from what `web/src/host/registry.ts`
 actually registers, that is the D6 single-source-of-truth invariant breaking
 — fix by pointing the drifted side at this file rather than hand-copying
 values.
+
+## Multi-file artifacts (parts directory)
+
+The entry point stays exactly `$Y_AGENT_HOME/ui/<slug>.tsx` (no directory-form
+entry). Once an artifact's entry file gets too large to maintain, split it: put
+sibling modules under a `ui/<slug>/` directory next to the entry and import
+them with relative specifiers (`./​<slug>/parts/foo`). `build.mjs` bundles
+relative imports normally (esbuild `bundle: true`), so nothing else changes —
+the entry still does `export const panel` / `export const detail` and imports
+whatever it needs from `<slug>/`.
+
+Two things `build.mjs` does on the artifact's behalf so this is safe:
+
+- **Tailwind scanning covers the parts dir.** The generated CSS entry emits a
+  second `@source "<slug>/**/*.{tsx,ts}"` glob alongside the entry file's own
+  `@source`, so Tailwind classes used only in a sibling file still make it into
+  the compiled stylesheet. The glob is a no-op when `ui/<slug>/` doesn't exist,
+  so single-file artifacts are unaffected.
+- **`source_digest` covers the whole module.** The manifest's `source_digest`
+  hashes the entry file plus every `.tsx`/`.ts` file under `ui/<slug>/`, so
+  editing only a part file still changes `source_digest` (the bundle `sha256`
+  remains the integrity control either way).
+
+No `contract.json` change is needed for this — it is a build-recipe change,
+not a change to what the host provides.

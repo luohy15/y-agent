@@ -106,6 +106,8 @@ const cacheDir = path.join(here, ".cache");
 fs.mkdirSync(cacheDir, { recursive: true });
 const cssEntry = path.join(cacheDir, `${slug}.entry.css`);
 const tsxRel = path.relative(cacheDir, tsxPath).split(path.sep).join("/");
+const partsDir = path.join(srcDir, slug);
+const partsRel = path.relative(cacheDir, partsDir).split(path.sep).join("/");
 fs.writeFileSync(
   cssEntry,
   [
@@ -114,6 +116,9 @@ fs.writeFileSync(
     '@import "tailwindcss/utilities.css" layer(utilities) source(none);',
     '@import "../theme.css";',
     `@source "${tsxRel.startsWith(".") ? tsxRel : `./${tsxRel}`}";`,
+    // Sibling parts directory (ui/<slug>/**). A no-op glob when the directory
+    // doesn't exist — most artifacts stay single-file.
+    `@source "${partsRel.startsWith(".") ? partsRel : `./${partsRel}`}/**/*.{tsx,ts}";`,
     "",
   ].join("\n"),
 );
@@ -214,9 +219,33 @@ const css = scopeCss(cssRaw, slug, scopeMode);
 const bundle = `${js}\nexport const css = ${JSON.stringify(css)};\nexport const slug = ${JSON.stringify(slug)};\nexport const minHostVersion = ${minHostVersion};\n`;
 
 // ------------------------------------------------------------------- 5. hash
+// source_digest covers the entry plus every part file, so editing a sibling
+// file under ui/<slug>/ (and nothing else) still changes this field — the
+// bundle sha256 stays the integrity control, but source_digest is meant to
+// reflect "did any source input change", which the parts dir is now one of.
+function collectPartFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...collectPartFiles(full));
+    else if (/\.(tsx|ts)$/.test(entry.name)) out.push(full);
+  }
+  return out.sort();
+}
+
+function computeSourceDigest(entryPath, partsDirPath) {
+  const hash = createHash("sha256");
+  hash.update(fs.readFileSync(entryPath));
+  for (const file of collectPartFiles(partsDirPath)) {
+    hash.update(fs.readFileSync(file));
+  }
+  return hash.digest("hex");
+}
+
 const bytes = Buffer.from(bundle, "utf8");
 const sha256 = createHash("sha256").update(bytes).digest("hex");
-const sourceDigest = createHash("sha256").update(fs.readFileSync(tsxPath)).digest("hex");
+const sourceDigest = computeSourceDigest(tsxPath, partsDir);
 
 const bundlePath = path.join(outDir, `${slug}.js`);
 const manifestPath = path.join(outDir, "manifest.json");
