@@ -22,6 +22,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 - **English correction pending scan (2871)**: `y english pending` returned zero messages for every window, because the scan expected `chat.json_content` to be a bare message list when it is really `Chat.to_dict()` (an object with a `messages` key), so the hourly loop could never produce a correction. A wide `--since` also OOM-killed the API Lambda: the scan now streams chats in batches (public id + content columns only) and keeps just the oldest `--limit` candidates, so peak memory stays flat instead of scaling with the window, and batch dedup is a single keyed query rather than one lookup per candidate.
+- **English correction quoted-text filtering (2871)** — pending scans now remove web UI `<selection>` and `<instruction>` blocks before eligibility checks and persist only the remaining authored prose, while malformed wrapper markup is skipped safely.
 - **Daily tokens heatmap week start**: BotViewer Daily tokens heatmap weeks now start Monday (Mon-top / Sun-bottom columns, padding, close-on-Sunday, weekday gutter labels) instead of Sunday.
 
 ### Removed

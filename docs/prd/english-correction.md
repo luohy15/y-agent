@@ -37,17 +37,18 @@ this delivery.
    otherwise touch the live chat pipeline.
 2. As the user, I want the job to skip messages that aren't my own free-typed
    prose — assistant replies, cross-skill dispatch/notify messages (identified
-   by the `[trace:... from:...]` prefix), and non-prose content like code
-   blocks, shell commands, or file paths — so the correction set stays
-   relevant.
+   by the `[trace:... from:...]` prefix), web UI `<selection>` /
+   `<instruction>` wrapper contents, and non-prose content like code blocks,
+   shell commands, or file paths — so the correction set stays relevant.
 3. As the user, I want the job to skip messages that are majority non-English
    (e.g. mostly Chinese), so I'm not flagged for writing in Chinese.
 4. As the user, I want a message that mixes Chinese and English (common in my
    own writing) to still be processed when it's majority English, with only
    the English portions corrected and Chinese segments left alone.
-5. As the user, I want each corrected message stored with its original text,
-   a minimally rewritten corrected version, one or more error categories, and
-   a short explanation of the grammar rule involved.
+5. As the user, I want each corrected message stored with only my authored
+   remainder after web UI wrapper blocks are removed, plus a minimally rewritten
+   corrected version, one or more error categories, and a short explanation of
+   the grammar rule involved.
 6. As the user, I want to see a diff between my original text and the
    corrected version, computed from the stored original/corrected pair (not
    a separately stored diff) so I can quickly see what changed.
@@ -111,6 +112,11 @@ this delivery.
   - Skip messages whose content starts with the `[trace:... from:...]`
     dispatch prefix (see `api/src/api/controller/chat.py` notify path) —
     these are cross-skill relayed text, not the user's own writing.
+  - Remove complete `<selection>...</selection>` and
+    `<instruction>...</instruction>` blocks before applying the remaining
+    eligibility rules; persist only the authored remainder. Multiple and nested
+    blocks are removed, while malformed or unclosed wrapper markup skips the
+    message rather than risking ingestion of quoted content.
   - Skip non-prose messages (code blocks, shell commands, file paths) via a
     cheap heuristic.
   - Skip messages that are not majority-English by word/character count;
@@ -121,10 +127,11 @@ this delivery.
   `message_at` / `message_at_unix` (the source message's own timestamp, ISO
   8601 and unix ms — the watermark math and every time shown in the panel
   refer to when the message was written, not when the hourly run stored it),
-  `original_text`, `corrected_text`, `error_categories` (JSON string array,
-  free-form categories emitted by the LLM — no fixed enum in v1), `explanation`
-  (text), `dismissed` (boolean, default false), `created_at`. The diff itself
-  is computed at read time from `original_text`/`corrected_text`, not stored.
+  `original_text` (the authored remainder after UI wrapper removal),
+  `corrected_text`, `error_categories` (JSON string array, free-form categories
+  emitted by the LLM — no fixed enum in v1), `explanation` (text), `dismissed`
+  (boolean, default false), `created_at`. The diff itself is computed at read
+  time from `original_text`/`corrected_text`, not stored.
   Dedup: a message is only processed once — the skill checks
   `chat_id + message_id` before writing (or relies on the time-bounded scan
   window plus a unique constraint on `(user_id, chat_id, message_id)`).

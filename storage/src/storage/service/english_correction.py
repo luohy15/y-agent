@@ -32,6 +32,14 @@ _PATH_LINE_RE = re.compile(
 )
 _TRACE_PREFIX_RE = re.compile(r"^\s*\[trace:")
 _ROUTINE_PREFIX_RE = re.compile(r"^\s*\[routine:")
+_UI_WRAPPER_TAG_RE = re.compile(
+    r"<\s*(/?)\s*(selection|instruction)\b[^>]*>",
+    re.IGNORECASE,
+)
+_UI_WRAPPER_MARKER_RE = re.compile(
+    r"<\s*/?\s*(?:selection|instruction)\b",
+    re.IGNORECASE,
+)
 _WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]")
 _ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
@@ -135,6 +143,39 @@ def _message_text(message: Dict[str, Any]) -> str:
     return str(content or "")
 
 
+def _strip_ui_wrapper_blocks(text: str) -> Optional[str]:
+    marker_starts = [match.start() for match in _UI_WRAPPER_MARKER_RE.finditer(text)]
+    if not marker_starts:
+        return text
+
+    tags = list(_UI_WRAPPER_TAG_RE.finditer(text))
+    if marker_starts != [match.start() for match in tags]:
+        return None
+
+    parts: List[str] = []
+    stack: List[str] = []
+    cursor = 0
+    for tag in tags:
+        closing = bool(tag.group(1))
+        name = tag.group(2).lower()
+        if not stack:
+            parts.append(text[cursor:tag.start()])
+        if closing:
+            if not stack or stack[-1] != name:
+                return None
+            stack.pop()
+            if not stack:
+                parts.append(" ")
+                cursor = tag.end()
+        else:
+            stack.append(name)
+
+    if stack:
+        return None
+    parts.append(text[cursor:])
+    return "".join(parts).strip()
+
+
 def _is_non_prose(text: str) -> Tuple[bool, Optional[str]]:
     stripped = text.strip()
     if not stripped:
@@ -165,6 +206,45 @@ def _english_ratio(text: str) -> float:
     return ascii_letters / total
 
 
+def _eligible_text(
+    message: Dict[str, Any],
+    *,
+    min_words: int = DEFAULT_MIN_WORDS,
+    english_ratio: float = DEFAULT_ENGLISH_RATIO,
+) -> Tuple[Optional[str], str]:
+    if message.get("role") != "user":
+        return None, "not_user"
+    if not message.get("id"):
+        return None, "missing_id"
+
+    text = _strip_ui_wrapper_blocks(_message_text(message))
+    if text is None:
+        return None, "malformed_ui_wrapper"
+    stripped = text.strip()
+
+    if _TRACE_PREFIX_RE.match(stripped):
+        return None, "trace_prefix"
+    if _ROUTINE_PREFIX_RE.match(stripped):
+        return None, "routine_prefix"
+    if stripped == MANAGER_BOOTSTRAP:
+        return None, "bootstrap"
+
+    non_prose, reason = _is_non_prose(text)
+    if non_prose:
+        return None, reason or "non_prose"
+
+    # Majority-language check before min-words: pure-CJK messages have zero
+    # ASCII "words" and would otherwise always report too_short.
+    if _english_ratio(text) < english_ratio:
+        return None, "majority_non_english"
+
+    words = _WORD_RE.findall(text)
+    if len(words) < min_words:
+        return None, "too_short"
+
+    return text, "ok"
+
+
 def is_eligible(
     message: Dict[str, Any],
     *,
@@ -172,35 +252,13 @@ def is_eligible(
     english_ratio: float = DEFAULT_ENGLISH_RATIO,
 ) -> Tuple[bool, str]:
     """Return (eligible, reason). reason is 'ok' when eligible, else a skip code."""
-    if message.get("role") != "user":
-        return False, "not_user"
-    if not message.get("id"):
-        return False, "missing_id"
+    text, reason = _eligible_text(
+        message,
+        min_words=min_words,
+        english_ratio=english_ratio,
+    )
 
-    text = _message_text(message)
-    stripped = text.strip()
-
-    if _TRACE_PREFIX_RE.match(stripped):
-        return False, "trace_prefix"
-    if _ROUTINE_PREFIX_RE.match(stripped):
-        return False, "routine_prefix"
-    if stripped == MANAGER_BOOTSTRAP:
-        return False, "bootstrap"
-
-    non_prose, reason = _is_non_prose(text)
-    if non_prose:
-        return False, reason or "non_prose"
-
-    # Majority-language check before min-words: pure-CJK messages have zero
-    # ASCII "words" and would otherwise always report too_short.
-    if _english_ratio(text) < english_ratio:
-        return False, "majority_non_english"
-
-    words = _WORD_RE.findall(text)
-    if len(words) < min_words:
-        return False, "too_short"
-
-    return True, "ok"
+    return text is not None, reason
 
 
 # ---------------------------------------------------------------------------
@@ -274,15 +332,15 @@ def _iter_candidates(
             continue
         if (chat_id, message_id) in already_corrected:
             continue
-        eligible, _reason = is_eligible(msg)
-        if not eligible:
+        text, _reason = _eligible_text(msg)
+        if text is None:
             continue
         yield {
             "chat_id": chat_id,
             "message_id": message_id,
             "message_at": msg.get("timestamp") or "",
             "message_at_unix": ts,
-            "text": _message_text(msg),
+            "text": text,
         }
 
 

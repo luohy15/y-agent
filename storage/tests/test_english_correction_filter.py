@@ -88,6 +88,37 @@ class IsEligibleTest(FilterTestCase):
         self.assertTrue(ok, reason)
         self.assertEqual(reason, "ok")
 
+    def test_skip_message_with_only_selection_block(self):
+        text = " <selection>Someone else wrote these words in the selected text.</selection> "
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "empty")
+
+    def test_skip_selection_and_instruction_with_nothing_else(self):
+        text = (
+            "<selection>Someone else wrote these selected words.</selection>\n"
+            "<instruction>Refine the grammar and wording while preserving meaning.</instruction>"
+        )
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "empty")
+
+    def test_skip_unclosed_selection_block(self):
+        text = "<selection>Someone else wrote this. I have my own eligible prose below."
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "malformed_ui_wrapper")
+
+    def test_nested_wrapper_blocks_are_removed_together(self):
+        prose = "Can you check whether my own sentence is clear enough?"
+        text = (
+            "<selection>Quoted text <instruction>with nested boilerplate</instruction>.</selection>\n"
+            f"{prose}"
+        )
+        normalized, reason = eng_service._eligible_text(_msg(content=text))
+        self.assertEqual(normalized, prose)
+        self.assertEqual(reason, "ok")
+
     def test_skip_assistant(self):
         ok, reason = eng_service.is_eligible(_msg(role="assistant"))
         self.assertFalse(ok)
@@ -214,6 +245,44 @@ class WatermarkPendingTest(FilterTestCase):
         self.assertEqual([m["message_id"] for m in pending["messages"]], ["msg-3"])
         self.assertEqual(pending["messages"][0]["text"], msg["content"])
         self.assertEqual(pending["scan_through_unix"], msg["unix_timestamp"])
+
+    def test_pending_stores_only_prose_after_selection(self):
+        now = get_unix_timestamp()
+        prose = "Can you help me rewrite my own question more clearly?"
+        msg = _msg(
+            content=(
+                "<selection>hi Roy! someone has a conflict on our Friday meeting.</selection>\n\n"
+                f"{prose}"
+            ),
+            mid="msg-selection-prose",
+            ts=now - 20_000,
+        )
+        self._insert_chat("chat-selection-prose", [msg], updated_at_unix=now)
+
+        pending = eng_service.list_pending(1, since_unix=now - 60_000)
+
+        self.assertEqual(len(pending["messages"]), 1)
+        self.assertEqual(pending["messages"][0]["text"], prose)
+
+    def test_pending_strips_multiple_wrapper_blocks(self):
+        now = get_unix_timestamp()
+        prose = "Please check whether my own sentence is clear enough."
+        msg = _msg(
+            content=(
+                "<selection>First quoted passage from someone else.</selection>\n"
+                "<instruction>Refine the grammar and wording.</instruction>\n"
+                "<selection>Second quoted passage from someone else.</selection>\n"
+                f"{prose}"
+            ),
+            mid="msg-multiple-wrappers",
+            ts=now - 20_000,
+        )
+        self._insert_chat("chat-multiple-wrappers", [msg], updated_at_unix=now)
+
+        pending = eng_service.list_pending(1, since_unix=now - 60_000)
+
+        self.assertEqual(len(pending["messages"]), 1)
+        self.assertEqual(pending["messages"][0]["text"], prose)
 
     def test_pending_reads_a_chat_written_by_the_real_writer(self):
         """End-to-end: production writer (_save_chat_sync) -> production reader."""
