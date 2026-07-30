@@ -3,6 +3,8 @@
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import func
+
 from storage.database.base import get_db
 from storage.dto.finance_transaction import FinanceTransaction
 from storage.entity.finance_transaction import FinanceTransactionEntity
@@ -75,11 +77,52 @@ def replace_for(user_id: int, rows: list[dict], synced_at: str, source: str = "s
 
 
 def list_for(user_id: int, symbol: Optional[str] = None, limit: int = 500) -> list[FinanceTransaction]:
+    """Return postings for the newest ``limit`` entries (entry-based, not row-based).
+
+    When ``symbol`` is set, only entries that contain at least one matching posting
+    are candidates, but every posting of those entries is returned so cash/commission
+    legs stay attached.
+    """
     with get_db() as session:
-        query = session.query(FinanceTransactionEntity).filter_by(user_id=user_id)
+        entry_q = session.query(
+            FinanceTransactionEntity.entry_id,
+            func.max(FinanceTransactionEntity.transaction_date).label("max_date"),
+        ).filter(FinanceTransactionEntity.user_id == user_id)
+
         if symbol:
-            query = query.filter_by(symbol=symbol)
-        rows = query.order_by(FinanceTransactionEntity.transaction_date.desc(), FinanceTransactionEntity.id.desc()).limit(limit).all()
+            matching_entry_ids = (
+                session.query(FinanceTransactionEntity.entry_id)
+                .filter(
+                    FinanceTransactionEntity.user_id == user_id,
+                    FinanceTransactionEntity.symbol == symbol,
+                )
+                .distinct()
+            )
+            entry_q = entry_q.filter(FinanceTransactionEntity.entry_id.in_(matching_entry_ids))
+
+        entry_rows = (
+            entry_q
+            .group_by(FinanceTransactionEntity.entry_id)
+            .order_by(func.max(FinanceTransactionEntity.transaction_date).desc())
+            .limit(limit)
+            .all()
+        )
+        entry_ids = [row.entry_id for row in entry_rows]
+        if not entry_ids:
+            return []
+
+        rows = (
+            session.query(FinanceTransactionEntity)
+            .filter(
+                FinanceTransactionEntity.user_id == user_id,
+                FinanceTransactionEntity.entry_id.in_(entry_ids),
+            )
+            .order_by(
+                FinanceTransactionEntity.transaction_date.desc(),
+                FinanceTransactionEntity.id.desc(),
+            )
+            .all()
+        )
         return [_entity_to_dto(row) for row in rows]
 
 

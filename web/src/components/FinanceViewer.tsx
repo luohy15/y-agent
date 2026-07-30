@@ -1063,7 +1063,17 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
     const q = symbolFilter.trim().toUpperCase();
     return typed.filter(({ row, type }) => {
       if (typeFilter !== "all" && type !== typeFilter) return false;
-      if (q && !(row.symbol || "").toUpperCase().includes(q)) return false;
+      if (q) {
+        // Match symbol column (joined symbols / currencies) OR narration/payee so
+        // cash-only entries like "NVDA dividend" / "NVDA Foreign Tax Withholding"
+        // (symbol=USD) still surface when searching the ticker (todo 2916).
+        const haystack = [
+          row.symbol || "",
+          row.narration || "",
+          row.payee || "",
+        ].join(" ").toUpperCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
   }, [typed, symbolFilter, typeFilter]);
@@ -2920,8 +2930,11 @@ export default function FinanceViewer({ vmName }: FinanceViewerProps) {
     ? `${API}/api/finance/holdings${vmQueryOnly}${vmQueryOnly ? "&" : "?"}risky_only=${holdingsRiskyOnly ? "true" : "false"}`
     : null;
 
+  // Explicit high limit: default API limit is entry-based 500, which truncates
+  // multi-year history. Send full history (precedent: finance_derived large_transactions
+  // uses limit=100000). Client-side symbol/type filters operate over this set (todo 2916).
   const transactionsKey = tab === "transactions"
-    ? `${API}/api/finance/transactions${vmQueryOnly}`
+    ? `${API}/api/finance/transactions${vmQueryOnly}${vmQueryOnly ? "&" : "?"}limit=100000`
     : null;
 
   const fireKey = tab === "fire"

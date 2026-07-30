@@ -1,6 +1,25 @@
 from storage.repository import finance_transaction as repo
 from storage.util import get_utc_iso8601_timestamp
 
+# Fields the web PostingsSubtable / entry aggregates read from nested postings.
+# Entry-level fields (id, user_id, entry_id, transaction_date, payee, narration,
+# tags, links, synced_at, source) are already on the parent entry and must not
+# be echoed on every posting (todo 2916 payload trim).
+_POSTING_FIELDS = (
+    "account",
+    "symbol",
+    "side",
+    "quantity",
+    "price",
+    "price_currency",
+    "amount",
+    "amount_currency",
+    "cost",
+    "cost_currency",
+    "commission",
+    "commission_currency",
+)
+
 
 def _sum_by_currency(rows, value_attr: str, currency_attr: str, fallback_attr: str = "symbol") -> list[dict]:
     totals: dict[str, float] = {}
@@ -11,6 +30,10 @@ def _sum_by_currency(rows, value_attr: str, currency_attr: str, fallback_attr: s
         currency = getattr(row, currency_attr) or getattr(row, fallback_attr) or ""
         totals[currency] = totals.get(currency, 0.0) + float(value)
     return [{"amount": amount, "currency": currency} for currency, amount in totals.items()]
+
+
+def _posting_dict(row) -> dict:
+    return {field: getattr(row, field) for field in _POSTING_FIELDS}
 
 
 def entry_rows(rows):
@@ -30,7 +53,7 @@ def entry_rows(rows):
             "source": row.source,
         })
         grouped_rows.setdefault(entry_id, []).append(row)
-        entry["postings"].append(row.to_dict())
+        entry["postings"].append(_posting_dict(row))
         if row.symbol and row.symbol not in entry["symbols"]:
             entry["symbols"].append(row.symbol)
         if row.side and row.side != "Unknown" and row.side not in entry["sides"]:
