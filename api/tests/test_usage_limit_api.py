@@ -1,6 +1,6 @@
 """Unit tests for the authenticated GET /usage/limits endpoint
-(api.controller.model_usage.limits). storage.service.model_usage_limits is
-mocked; nothing touches a real database or CRS."""
+(api.controller.model_usage.limits). agent.usage_limits is mocked; nothing
+touches a real database, VM, or provider."""
 
 import unittest
 import os
@@ -22,8 +22,17 @@ class LimitsEndpointTest(unittest.IsolatedAsyncioTestCase):
         ) as get_limit_status:
             result = await usage_controller.limits(_request(user_id=456))
 
-        get_limit_status.assert_called_once_with(456)
+        get_limit_status.assert_called_once_with(456, refresh=False)
         self.assertEqual(result, {**envelope, "timezone": "Asia/Shanghai"})
+
+    async def test_refresh_query_param_bypasses_the_service_memo(self):
+        envelope = {"providers": [], "errors": []}
+        with patch.object(
+            usage_controller.limits_service, "get_limit_status", return_value=envelope
+        ) as get_limit_status:
+            await usage_controller.limits(_request(user_id=456), refresh=True)
+
+        get_limit_status.assert_called_once_with(456, refresh=True)
 
     async def test_returns_the_service_envelope_unchanged(self):
         envelope = {

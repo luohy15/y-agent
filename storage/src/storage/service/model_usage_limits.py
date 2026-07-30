@@ -1,51 +1,27 @@
-"""Live subscription limit-window status (Claude / Codex 5h + 1w windows).
+"""Normalization for live subscription limit-window status (Claude / Codex
+5h + 1w windows, Grok billing-period window).
 
 Separate operational dataset from `model_usage_daily`: no PostgreSQL table, no
-sync, no history. Every read fans out concurrently to the user's distinct CRS
-relay keys (the same (origin, api_key) targets the daily spend sync already
-enumerates) and asks CRS's API-key-scoped self-service endpoint for the latest
-cached provider-account snapshot. CRS owns provider account identity, refresh
-cadence, and source-specific window mapping; this module only normalizes the
-response into a stable contract, computes derived fields (remaining percent,
+sync, no history. The actual provider read now happens in the `y` CLI on the
+user's VM (SSH'd into from `agent.usage_limits.get_limit_status`, which lives
+in the `agent` package since it needs `agent.config` / `agent.tool_base` and
+`storage` must not depend on `agent`, the reverse of the existing dependency
+direction). This module only normalizes the CLI's raw per-provider readings
+into a stable contract, computes derived fields (remaining percent,
 freshness), and selects one best account row per backend for the Usage cards.
 """
 
-import asyncio
 import math
-import os
 from datetime import datetime, timezone
 
-import httpx
 from loguru import logger
 
-from storage.service.model_usage_daily import _BROWSER_UA
-from storage.service.model_usage_daily import _crs_targets as _crs_key_targets
+# Provider reads are now direct, on-demand pulls (no upstream cache to
+# inherit a cadence from); a few-minute default just keeps the UI from
+# flagging a normal in-between-poll gap as stale.
+DEFAULT_TTL_SECONDS = 300
 
-# CRS refreshes its own Claude OAuth cache on a ~1 minute cadence and captures
-# Codex windows passively off ordinary traffic; a few-minute default keeps the
-# UI from flagging a normal in-between-requests gap as stale.
-DEFAULT_TTL_SECONDS = int(os.getenv("LIMIT_STATUS_TTL_SECONDS", "300"))
-
-_FETCH_TIMEOUT_SECONDS = 10.0
-_REQUIRED_WINDOW_KINDS = ("five_hour", "one_week")
-
-
-# --- CRS fetch ----------------------------------------------------------------
-
-async def _fetch_crs_limits(origin: str, api_key: str) -> list[dict]:
-    """One CRS key's bound-account limit-status entries (raises on transport,
-    HTTP, or CRS-reported failure)."""
-    async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS) as client:
-        resp = await client.post(
-            f"{origin}/apiStats/api/user-limit-status",
-            json={"apiKey": api_key},
-            headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
-        )
-        resp.raise_for_status()
-    body = resp.json()
-    if not body.get("success", True):
-        raise RuntimeError(body.get("error") or "CRS limit-status request failed")
-    return body.get("data") or []
+_WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
 
 
 # --- normalization --------------------------------------------------------
@@ -74,11 +50,14 @@ def _normalize_window(raw: dict | None) -> dict | None:
     if not raw:
         return None
     used = _valid_percent(raw.get("used_percent"))
-    return {
+    window = {
         "used_percent": used,
         "remaining_percent": _remaining_percent(used),
         "reset_at": raw.get("reset_at"),
     }
+    if "extra" in raw:
+        window["extra"] = raw["extra"]
+    return window
 
 
 def _age_seconds(observed_at: str) -> float | None:
@@ -92,17 +71,22 @@ def _age_seconds(observed_at: str) -> float | None:
 
 
 def _has_required_window(windows: dict) -> bool:
+    """True if any window kind carries a real percentage — not just
+    five_hour/one_week, so a Grok-only billing_period row is usable rather
+    than permanently `unavailable`."""
     return any(
-        windows.get(kind) is not None and windows[kind].get("used_percent") is not None
-        for kind in _REQUIRED_WINDOW_KINDS
+        window is not None and window.get("used_percent") is not None
+        for window in windows.values()
     )
 
 
 def _freshness(availability: str, observed_at: str | None, windows: dict, ttl_seconds: int) -> str:
     """fresh / stale / unavailable, derived from source observed_at, required-
     window presence, and the freshness TTL — never from wall-clock page-load
-    time and never assumed from a merely-successful CRS probe."""
-    if availability == "unavailable":
+    time and never assumed from a merely-successful provider read. Any
+    non-"available" availability (unavailable, reauth_required, ...) is
+    unavailable freshness."""
+    if availability != "available":
         return "unavailable"
     if not observed_at or not _has_required_window(windows):
         return "unavailable"
@@ -114,7 +98,7 @@ def _freshness(availability: str, observed_at: str | None, windows: dict, ttl_se
 
 def _normalize_account(item: dict, ttl_seconds: int) -> dict:
     windows_raw = item.get("windows") or {}
-    windows = {kind: _normalize_window(windows_raw.get(kind)) for kind in _REQUIRED_WINDOW_KINDS}
+    windows = {kind: _normalize_window(windows_raw.get(kind)) for kind in _WINDOW_KINDS}
     extra_raw = item.get("extra_windows") or {}
     extra_windows = {k: _normalize_window(v) for k, v in extra_raw.items()}
     observed_at = item.get("observed_at")
@@ -146,11 +130,11 @@ def _observed_timestamp(observed_at: str | None) -> float:
 
 
 def _candidate_rank(account: dict, origin: str) -> tuple:
-    """Rank one backend's relay-key candidates without depending on target order.
+    """Rank one backend's candidates without depending on read order.
 
-    A fresh usable snapshot always wins; an older usable snapshot is still more
-    useful than an unavailable scope. Stable lexical fields make exact ties
-    deterministic when two relay keys report the same observation.
+    A fresh usable snapshot always wins; an older usable snapshot is still
+    more useful than an unavailable one. Stable lexical fields make exact
+    ties deterministic when two candidates report the same observation.
     """
     freshness_rank = {"fresh": 2, "stale": 1, "unavailable": 0}.get(
         account.get("freshness"), 0
@@ -173,53 +157,42 @@ def _candidate_rank(account: dict, origin: str) -> tuple:
     )
 
 
-# --- orchestration ----------------------------------------------------------
+def normalize_envelope(raw: dict, ttl_seconds: int | None = None, origin: str = "vm") -> dict:
+    """Normalize + rank a raw `{"providers": [...], "errors": [...]}` payload
+    (the shape `y usage limits --json` emits) into the API envelope. One
+    malformed item is isolated into `errors` without discarding the rest.
 
-async def get_limit_status(user_id: int, ttl_seconds: int | None = None) -> dict:
-    """Every distinct CRS key's bound-account limit status, fetched
-    concurrently. One target's failure never blocks the others: it is
-    reported in `errors` (keyed by origin) while the rest of the read
-    proceeds. Successful rows are collapsed at the product boundary to one
-    deterministic best candidate per backend, so alternate relay keys and
-    unavailable shared-pool scopes cannot duplicate or shadow the dedicated
-    Claude/Codex account cards."""
+    A well-formed-JSON-but-wrong-shape payload (missing the `providers` key
+    entirely, e.g. a producer emitting `{"error": "not logged in"}` on a bad
+    login, or not even a dict) is distinct from a genuinely empty envelope:
+    it must surface as a partial-read error, not silently collapse into
+    `{"providers": [], "errors": []}` — which the UI cannot tell apart from
+    "no subscription accounts configured".
+
+    `origin` identifies the transport this payload came over (the caller's
+    concept, e.g. "vm" for the CLI-over-SSH path); storage has no opinion on
+    it beyond echoing it into candidate tie-breaks and error entries."""
     ttl = DEFAULT_TTL_SECONDS if ttl_seconds is None else ttl_seconds
-    targets = _crs_key_targets(user_id)
-    if not targets:
-        return {"providers": [], "errors": []}
+    if not isinstance(raw, dict) or "providers" not in raw:
+        return {"providers": [], "errors": [{"origin": origin, "error": "bad_payload"}]}
 
-    results = await asyncio.gather(
-        *(_fetch_crs_limits(origin, api_key) for origin, api_key in targets),
-        return_exceptions=True,
-    )
+    raw_providers = raw.get("providers") or []
+    errors: list[dict] = list(raw.get("errors") or [])
 
     candidates: dict[str, dict] = {}
-    errors: list[dict] = []
-    for (origin, _api_key), result in zip(targets, results):
-        if isinstance(result, BaseException):
-            logger.warning("get_limit_status: fetch failed for {}: {}", origin, result)
-            errors.append({"origin": origin, "error": str(result)})
+    for item in raw_providers:
+        try:
+            account = _normalize_account(item, ttl)
+        except Exception as e:
+            logger.warning("normalize_envelope: malformed item from CLI: {}", e)
+            errors.append({"origin": origin, "error": "malformed_item"})
             continue
-        for item in result:
-            try:
-                account = _normalize_account(item, ttl)
-            except Exception as e:
-                # One malformed item (non-dict, or a windows/extra_windows
-                # shape that isn't the expected dict) must not discard the
-                # rest of this origin's valid items or any other origin's
-                # results — scope the failure to just this item.
-                logger.warning("get_limit_status: malformed item from {}: {}", origin, e)
-                errors.append({"origin": origin, "error": f"malformed item: {e}"})
-                continue
-            backend = account.get("backend") or ""
-            current = candidates.get(backend)
-            if current is None or _candidate_rank(account, origin) > _candidate_rank(current, current["_origin"]):
-                candidates[backend] = {**account, "_origin": origin}
+        backend = account.get("backend") or ""
+        current = candidates.get(backend)
+        if current is None or _candidate_rank(account, origin) > _candidate_rank(current, origin):
+            candidates[backend] = account
 
     return {
-        "providers": [
-            {key: value for key, value in candidates[backend].items() if key != "_origin"}
-            for backend in sorted(candidates)
-        ],
+        "providers": [candidates[backend] for backend in sorted(candidates)],
         "errors": errors,
     }

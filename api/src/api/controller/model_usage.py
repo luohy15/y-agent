@@ -4,8 +4,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
+from agent import usage_limits as limits_service
 from storage.service import model_usage_daily as usage_service
-from storage.service import model_usage_limits as limits_service
 from storage.service.model_usage_daily import _local_today
 from storage.service.time_range import parse_time_range
 
@@ -80,14 +80,16 @@ async def sync(request: Request, source: Optional[str] = Query("crs")):
 
 
 @router.get("/limits")
-async def limits(request: Request):
-    """Live subscription limit-window status (Claude + Codex, 5h and 1w) for
-    every provider account bound to the user's CRS relay keys. Independent of
-    the daily spend sync: no persistence, always a fresh read (subject to
-    CRS's own cache TTL), and manual retry / automatic poll both call this
-    same safe read endpoint."""
+async def limits(request: Request, refresh: bool = False):
+    """Live subscription limit-window status (Claude, Codex, Grok) read
+    directly from each provider via `y usage limits --json` over SSH on the
+    user's VM. Independent of the daily spend sync: no persistence, a fresh
+    read subject to a per-user poll-cost TTL memo, and manual retry /
+    automatic poll both call this same endpoint — pass `?refresh=true` for an
+    explicit user-initiated retry, which bypasses that memo (and the CLI's
+    own on-VM cache) instead of replaying a stale/failed snapshot."""
     user_id = request.state.user_id
-    status = await limits_service.get_limit_status(user_id)
+    status = await limits_service.get_limit_status(user_id, refresh=refresh)
     return {
         **status,
         "timezone": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",

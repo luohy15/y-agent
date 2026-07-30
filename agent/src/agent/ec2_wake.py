@@ -23,16 +23,33 @@ def _is_stale(last_up: int | None) -> bool:
     return (int(time.time()) - last_up) > IDLE_THRESHOLD_SECONDS
 
 
-def _start_and_wait(instance_id: str, region: str) -> None:
-    """Start an EC2 instance and wait until it's running."""
+def get_instance_state(instance_id: str, region: str) -> str:
+    """Read-only EC2 instance state ('running', 'stopped', ...). Never starts
+    the instance, unlike _start_and_wait / ensure_vm_running."""
     ec2 = boto3.client("ec2", region_name=region)
-
     resp = ec2.describe_instance_status(
         InstanceIds=[instance_id],
         IncludeAllInstances=True,
     )
     statuses = resp.get("InstanceStatuses", [])
-    state = statuses[0]["InstanceState"]["Name"] if statuses else "unknown"
+    return statuses[0]["InstanceState"]["Name"] if statuses else "unknown"
+
+
+def is_vm_asleep(vm_config: VmConfig) -> bool:
+    """True if the VM has EC2 config and is not currently running. Read-only:
+    never wakes the instance, unlike ensure_vm_running. Callers that must not
+    trigger a wake (e.g. a polled status read) should check this first and
+    skip SSH entirely rather than let ssh_exec's ensure_and_touch_vm wake it."""
+    if not vm_config.ec2_instance_id or not vm_config.ec2_region:
+        return False
+    return get_instance_state(vm_config.ec2_instance_id, vm_config.ec2_region) != "running"
+
+
+def _start_and_wait(instance_id: str, region: str) -> None:
+    """Start an EC2 instance and wait until it's running."""
+    ec2 = boto3.client("ec2", region_name=region)
+
+    state = get_instance_state(instance_id, region)
 
     if state == "running":
         logger.info("ec2_wake: {} already running", instance_id)
