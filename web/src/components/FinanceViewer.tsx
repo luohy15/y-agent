@@ -119,8 +119,6 @@ interface PostingRow {
   cost_currency: string;
   commission: number | null;
   commission_currency: string;
-  payee?: string;
-  narration?: string;
 }
 
 interface TransactionRow {
@@ -799,6 +797,7 @@ function HoldingsTable({ holdings, totals, syncedAt, riskyOnly, onRiskyOnlyChang
 type TransactionSortKey = "date" | "type" | "symbol" | "quantity" | "amount";
 type TxnType = "buy" | "sell" | "income" | "fee" | "other";
 type TxnGroupBy = "flat" | "month" | "symbol";
+type TxnScope = "stock" | "all";
 
 
 function formatTransactionValue(value: number | TransactionAmount[] | null | undefined, currency?: string): ReactNode {
@@ -815,17 +814,31 @@ function formatTransactionValue(value: number | TransactionAmount[] | null | und
   return <>{formatAmount(value)} {currency && <span className="text-sol-base01 text-xs">{currency}</span>}</>;
 }
 
+// The only account in the ledger that holds non-fiat (share) units — the
+// ticker is carried as the posting's symbol, not a per-symbol subaccount.
+// startsWith rather than === so a future per-symbol split keeps working.
+// Deliberately narrower than the ":Stock" substring test used elsewhere
+// (classifyTxnType / entryPrice / primarySymbol), which also matches
+// Assets:Stock:MPF and the non-IBKR A-share accounts.
+function isIbkrStockLeg(p: PostingRow): boolean {
+  return p.account.startsWith("Assets:Stock:IBKR");
+}
+
 // --- Derived fields (computed client-side from postings[]) ---
 // Classify an entry into a semantic type. Trades are identified by the security
 // leg (Assets:Stock) side; dividend/interest credited to an Income account are
-// income; entries made up only of fee/interest expense legs are fees; the rest
-// (transfers, FX conversions, salary, expenses) are "other".
+// income; entries made up only of fee/tax legs plus their settling cash leg are
+// fees (e.g. foreign tax withholding: a Taxes-and-fees expense leg + an
+// Assets:Cash Withdrawal leg); the rest (transfers, FX conversions, salary,
+// expenses) are "other".
 function classifyTxnType(row: TransactionRow): TxnType {
   const postings = row.postings || [];
   const stockLeg = postings.find((p) => p.account.includes(":Stock") && (p.side === "Buy" || p.side === "Sell"));
   if (stockLeg) return stockLeg.side === "Buy" ? "buy" : "sell";
   if (postings.some((p) => (p.side === "Dividend" || p.side === "Interest") && p.account.startsWith("Income"))) return "income";
-  if (postings.length > 0 && postings.every((p) => p.side === "Taxes and fees" || p.account.startsWith("Expenses:Fees") || p.account.startsWith("Expenses:Interest"))) return "fee";
+  const isFeeLeg = (p: PostingRow) => p.side === "Taxes and fees" || p.account.startsWith("Expenses:Fees") || p.account.startsWith("Expenses:Interest");
+  const isSettlingCashLeg = (p: PostingRow) => p.account.startsWith("Assets:Cash") && p.side === "Withdrawal";
+  if (postings.some((p) => p.side === "Taxes and fees") && postings.every((p) => isFeeLeg(p) || isSettlingCashLeg(p))) return "fee";
   return "other";
 }
 
@@ -833,6 +846,38 @@ function classifyTxnType(row: TransactionRow): TxnType {
 function entryPrice(postings: PostingRow[]): TransactionAmount | null {
   const leg = (postings || []).find((p) => p.price != null && p.account.includes(":Stock"));
   return leg && leg.price != null ? { amount: leg.price, currency: leg.price_currency } : null;
+}
+
+// Shares: the IBKR security legs' unit deltas, summed per ticker.
+function entryShares(postings: PostingRow[]): TransactionAmount[] {
+  const totals: Record<string, number> = {};
+  for (const p of postings || []) {
+    if (isIbkrStockLeg(p) && p.quantity != null) {
+      totals[p.symbol] = (totals[p.symbol] || 0) + p.quantity;
+    }
+  }
+  return amountsFromMap(totals);
+}
+
+// Amount: money legs only, per currency. A money leg is any non-security leg
+// that isn't an Income:/Expenses:/Equity: leg. On a trade the fee legs are
+// added back in — the fee's own cash leg cancels to zero and disappears (it
+// already has its own Commission column). On a standalone fee/tax entry the
+// Expenses: leg is skipped (not a money leg) and its settling Assets:Cash leg
+// carries the cell, so the fee amount still renders there.
+function entryMoney(postings: PostingRow[]): TransactionAmount[] {
+  const rows = postings || [];
+  const hasSecurity = rows.some(isIbkrStockLeg);
+  const totals: Record<string, number> = {};
+  for (const p of rows) {
+    if (isIbkrStockLeg(p) || p.amount == null) continue;
+    const isMoney = !/^(Expenses|Income|Equity):/.test(p.account);
+    const isFee = p.side === "Taxes and fees" || p.commission != null;
+    if (isMoney || (hasSecurity && isFee)) {
+      totals[p.amount_currency] = (totals[p.amount_currency] || 0) + p.amount;
+    }
+  }
+  return amountsFromMap(totals);
 }
 
 // Entry-level commission. Real data carries fees as "Taxes and fees" legs
@@ -864,17 +909,54 @@ function entryCashFlows(postings: PostingRow[]): Record<string, number> {
   return out;
 }
 
-// Primary symbol for grouping: the traded security if any, else first symbol.
-function primarySymbol(row: TransactionRow): string {
+// Primary symbol for grouping: the traded security if any; else, for a
+// cash-only IBKR entry (dividend / foreign tax withholding), the ticker its
+// narration names (entryTicker); else the first symbol.
+function primarySymbol(row: TransactionRow, tickers: Set<string>): string {
   const stockLeg = (row.postings || []).find((p) => p.account.includes(":Stock") && p.symbol);
   if (stockLeg) return stockLeg.symbol;
+  const ticker = entryTicker(row, tickers);
+  if (ticker) return ticker;
   if (row.symbols && row.symbols.length) return row.symbols[0];
   return row.symbol || "—";
 }
 
+// Ticker universe: the set of IBKR stock symbols actually present in the
+// fetched rows, so it never needs separate maintenance.
+function buildTickerUniverse(rows: TransactionRow[]): Set<string> {
+  const set = new Set<string>();
+  for (const row of rows) {
+    for (const p of row.postings || []) {
+      if (isIbkrStockLeg(p) && p.symbol) set.add(p.symbol);
+    }
+  }
+  return set;
+}
+
+// Ticker for an entry: the IBKR security leg's symbol if present; else, for
+// an IBKR-touching entry only (plan §0 scopes option B to "IBKR-touching"
+// entries whose narration names a held ticker — a bare cash leg on some
+// other account must not qualify), the first known IBKR ticker matched as a
+// whole word in narration/payee (cash-only dividend / foreign-tax-
+// withholding entries have no security leg).
+function entryTicker(row: TransactionRow, tickers: Set<string>): string | null {
+  const postings = row.postings || [];
+  const stockLeg = postings.find((p) => isIbkrStockLeg(p) && p.symbol);
+  if (stockLeg) return stockLeg.symbol;
+  if (!postings.some((p) => p.account.includes(":IBKR"))) return null;
+  const haystack = `${row.narration || ""} ${row.payee || ""}`;
+  for (const ticker of tickers) {
+    const escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${escaped}\\b`).test(haystack)) return ticker;
+  }
+  return null;
+}
+
+// Cutoff raised from 1e-6 to 0.005 so a sub-cent residue can never render as
+// "0.00" (audited: 0 residuals fall in that range across the live dataset).
 function amountsFromMap(m: Record<string, number>): TransactionAmount[] {
   return Object.entries(m)
-    .filter(([, v]) => Math.abs(v) > 1e-6)
+    .filter(([, v]) => Math.abs(v) > 0.005)
     .map(([currency, amount]) => ({ amount, currency }));
 }
 
@@ -893,15 +975,24 @@ function TxnTypeBadge({ type }: { type: TxnType }) {
 
 type TypedTxn = { row: TransactionRow; type: TxnType };
 
-function txnSortValue(item: TypedTxn, key: TransactionSortKey): string | number {
+function txnSortValue(item: TypedTxn, key: TransactionSortKey, tickers: Set<string>): string | number {
   const { row } = item;
   switch (key) {
     case "date": return row.transaction_date;
     case "type": return item.type;
-    case "symbol": return row.symbol;
-    case "quantity": return Array.isArray(row.quantity) ? row.quantity.reduce((sum, x) => sum + x.amount, 0) : row.quantity ?? 0;
-    case "amount": return Array.isArray(row.amount) ? row.amount.reduce((sum, x) => sum + x.amount, 0) : row.amount ?? 0;
+    case "symbol": return primarySymbol(row, tickers);
+    case "quantity": return entryShares(row.postings || []).reduce((sum, x) => sum + x.amount, 0);
+    case "amount": return entryMoney(row.postings || []).reduce((sum, x) => sum + x.amount, 0);
   }
+}
+
+// Shares cell: bare number when the entry touches exactly one ticker (the
+// adjacent Symbol column already carries it); falls back to the array form
+// ("15.00 NVDA") for the never-yet-observed multi-ticker case.
+function formatShares(shares: TransactionAmount[]): ReactNode {
+  if (shares.length === 0) return "—";
+  if (shares.length === 1) return formatAmount(shares[0].amount);
+  return formatTransactionValue(shares);
 }
 
 function TransactionHeader({ label, sortKey, currentKey, dir, onSort, align }: {
@@ -925,6 +1016,26 @@ function TxnGroupByToggle({ value, onChange }: { value: TxnGroupBy; onChange: (v
           onClick={() => onChange(g)}
           className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
             value === g
+              ? "bg-sol-blue text-sol-base03"
+              : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TxnScopeToggle({ value, onChange }: { value: TxnScope; onChange: (v: TxnScope) => void }) {
+  return (
+    <div className="flex gap-1">
+      {([["stock", "Stock only"], ["all", "All"]] as const).map(([s, label]) => (
+        <button
+          key={s}
+          onClick={() => onChange(s)}
+          className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${
+            value === s
               ? "bg-sol-blue text-sol-base03"
               : "bg-sol-base02 text-sol-base01 hover:text-sol-base0"
           }`}
@@ -1037,6 +1148,10 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
   const [sortDir, setSortDir] = useState<SortDir>(() => (localStorage.getItem("transactions-sort-dir") as SortDir) || "desc");
   const [symbolFilter, setSymbolFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<TxnType | "all">("all");
+  const [scope, setScope] = useState<TxnScope>(() => {
+    const v = localStorage.getItem("transactions-scope");
+    return v === "stock" || v === "all" ? v : "stock";
+  });
   const [groupBy, setGroupBy] = useState<TxnGroupBy>(() => {
     const v = localStorage.getItem("transactions-group-by");
     return v === "flat" || v === "month" || v === "symbol" ? v : "month";
@@ -1056,12 +1171,21 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
   const handleGroupBy = (g: TxnGroupBy) => {
     setGroupBy(g); localStorage.setItem("transactions-group-by", g);
   };
+  const handleScope = (s: TxnScope) => {
+    setScope(s); localStorage.setItem("transactions-scope", s);
+  };
 
   const typed = useMemo<TypedTxn[]>(() => rows.map((row) => ({ row, type: classifyTxnType(row) })), [rows]);
+  // Ticker universe built off the full fetched set, not the filtered view, so
+  // it stays stable as the scope/type/symbol filters change.
+  const tickerUniverse = useMemo(() => buildTickerUniverse(rows), [rows]);
 
   const filtered = useMemo(() => {
     const q = symbolFilter.trim().toUpperCase();
     return typed.filter(({ row, type }) => {
+      // Stock scope = entries with an IBKR stock-asset leg, plus per-symbol
+      // dividend/foreign-tax-withholding entries resolved via entryTicker.
+      if (scope === "stock" && !entryTicker(row, tickerUniverse)) return false;
       if (typeFilter !== "all" && type !== typeFilter) return false;
       if (q) {
         // Match symbol column (joined symbols / currencies) OR narration/payee so
@@ -1076,24 +1200,24 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
       }
       return true;
     });
-  }, [typed, symbolFilter, typeFilter]);
+  }, [typed, symbolFilter, typeFilter, scope, tickerUniverse]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const av = txnSortValue(a, sortKey);
-      const bv = txnSortValue(b, sortKey);
+      const av = txnSortValue(a, sortKey, tickerUniverse);
+      const bv = txnSortValue(b, sortKey, tickerUniverse);
       const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, tickerUniverse]);
 
   const groups = useMemo(() => {
     if (groupBy === "flat") return [{ key: "", label: "", items: sorted }];
     const map = new Map<string, TypedTxn[]>();
     for (const it of sorted) {
-      const key = groupBy === "month" ? it.row.transaction_date.slice(0, 7) : primarySymbol(it.row);
+      const key = groupBy === "month" ? it.row.transaction_date.slice(0, 7) : primarySymbol(it.row, tickerUniverse);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(it);
     }
@@ -1103,7 +1227,7 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
       label: groupBy === "month" ? formatPeriodLabel(k) : k,
       items: map.get(k)!,
     }));
-  }, [sorted, groupBy]);
+  }, [sorted, groupBy, tickerUniverse]);
 
   const hp = { currentKey: sortKey, dir: sortDir, onSort: handleSort };
   const grouped = groupBy !== "flat";
@@ -1113,6 +1237,7 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
       <div className="px-3 py-1.5 bg-sol-base02/50 border-b border-sol-base02 flex items-center justify-between gap-2 flex-wrap">
         <span className="text-sol-base1 font-medium text-xs uppercase tracking-wide">Transactions · synced {formatRelativeTime(syncedAt)}</span>
         <div className="flex items-center gap-2">
+          <TxnScopeToggle value={scope} onChange={handleScope} />
           <TxnGroupByToggle value={groupBy} onChange={handleGroupBy} />
           <select
             value={typeFilter}
@@ -1144,7 +1269,7 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
             <TransactionHeader label="Date" sortKey="date" align="left" {...hp} />
             <TransactionHeader label="Type" sortKey="type" align="left" {...hp} />
             <TransactionHeader label="Symbol" sortKey="symbol" align="left" {...hp} />
-            <TransactionHeader label="Quantity" sortKey="quantity" align="right" {...hp} />
+            <TransactionHeader label="Shares" sortKey="quantity" align="right" {...hp} />
             <th className="py-1 px-3 font-medium text-right">Price</th>
             <TransactionHeader label="Amount" sortKey="amount" align="right" {...hp} />
             <th className="py-1 px-3 font-medium text-right">Commission</th>
@@ -1168,6 +1293,9 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
                 const price = entryPrice(row.postings || []);
                 const comm = entryCommission(row.postings || []);
                 const canExpand = (row.postings || []).length > 0;
+                const symbol = entryTicker(row, tickerUniverse) || row.symbol;
+                const shares = entryShares(row.postings || []);
+                const money = entryMoney(row.postings || []);
                 return (
                   <Fragment key={eid}>
                     <tr
@@ -1179,10 +1307,10 @@ function TransactionsTable({ rows, syncedAt }: { rows: TransactionRow[]; syncedA
                         <span className="ml-1">{row.transaction_date}</span>
                       </td>
                       <td className="py-0.5 px-3"><TxnTypeBadge type={type} /></td>
-                      <td className="py-0.5 px-3 text-sol-base1">{row.symbol}</td>
-                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.quantity)}</td>
+                      <td className="py-0.5 px-3 text-sol-base1">{symbol}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatShares(shares)}</td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{price ? formatTransactionValue(price.amount, price.currency) : "—"}</td>
-                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(row.amount, row.amount_currency)}</td>
+                      <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{formatTransactionValue(money)}</td>
                       <td className="py-0.5 px-3 text-right tabular-nums text-sol-base0">{comm ? formatTransactionValue(comm.amount, comm.currency) : "—"}</td>
                       <td className="py-0.5 px-3 text-sol-base0 truncate max-w-md">{row.payee || row.narration}</td>
                     </tr>
