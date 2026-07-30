@@ -143,6 +143,59 @@ class IsEligibleTest(FilterTestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "routine_prefix")
 
+    def test_skip_dispatch_prefix_without_trace_id(self):
+        # Real shape seen live: routine fan-out dispatch relayed with no
+        # trace-id, so the prefix has from:/from_chat:/to_chat: but no trace:.
+        text = (
+            "[from:manager from_chat:217696 to_chat:17990a]\n"
+            "ticker=GOOGL repo=/Users/roy/luohy15 log_threshold=material"
+        )
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "dispatch_prefix")
+
+    def test_skip_dispatch_prefix_variants(self):
+        for text in (
+            "[from:dev from_chat:aa to_chat:bb] look at todo 2871 please",
+            "[to_chat:17990a] ticker=GOOGL repo=/Users/roy/luohy15",
+            "[from:manager to:impl from_chat:aa] some relayed instruction here",
+        ):
+            ok, reason = eng_service.is_eligible(_msg(content=text))
+            self.assertFalse(ok, text)
+            self.assertEqual(reason, "dispatch_prefix", text)
+
+    def test_skip_trace_prefix_with_prose_body(self):
+        text = "[trace:2871 from:dev to:impl from_chat:aa to_chat:bb] I think we should refactor this"
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "trace_prefix")
+
+    def test_keep_bracketed_authored_prose(self):
+        text = "[draft] can you review this before I send it out today?"
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "ok")
+
+    def test_skip_key_value_payload_without_prefix(self):
+        text = "ticker=GOOGL repo=/Users/roy/luohy15 log_threshold=material"
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertFalse(ok)
+        self.assertEqual(reason, "key_value_payload")
+
+    def test_keep_prose_containing_equals_sign(self):
+        text = "set DEBUG=true and it worked after I restarted the worker"
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "ok")
+
+    def test_keep_bracketed_prose_with_meta_key_and_space(self):
+        # "to: " (colon followed by a space) is genuine prose, not a dispatch
+        # prefix, which is always "to:" immediately followed by a non-space.
+        text = "[note to: myself] remember to check the worker logs tomorrow morning"
+        ok, reason = eng_service.is_eligible(_msg(content=text))
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "ok")
+
     def test_skip_bootstrap(self):
         ok, reason = eng_service.is_eligible(_msg(content="load manager skill"))
         self.assertFalse(ok)

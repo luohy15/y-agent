@@ -32,6 +32,15 @@ _PATH_LINE_RE = re.compile(
 )
 _TRACE_PREFIX_RE = re.compile(r"^\s*\[trace:")
 _ROUTINE_PREFIX_RE = re.compile(r"^\s*\[routine:")
+# Leading bracketed dispatch/routine meta block, e.g. the no-trace-id relay
+# prefix `[from:manager from_chat:217696 to_chat:17990a]`. Keyed on the known
+# meta keys, NOT on any leading `[...]`, so authored prose that opens with a
+# bracket (e.g. `[draft] can you review this`) is still scanned.
+_LEADING_BRACKET_RE = re.compile(r"^\s*\[([^\]]*)\]")
+# Colon must be followed by a non-space: real dispatch prefixes are always
+# `from:manager` / `to_chat:17990a`, never `from: manager`, so this excludes
+# genuine prose like `[from: alice@example.com] can you help me draft a reply?`.
+_META_KEY_RE = re.compile(r"\b(?:trace|from|to|from_chat|to_chat|routine):\S")
 _UI_WRAPPER_TAG_RE = re.compile(
     r"<\s*(/?)\s*(selection|instruction)\b[^>]*>",
     re.IGNORECASE,
@@ -188,6 +197,13 @@ def _is_non_prose(text: str) -> Tuple[bool, Optional[str]]:
         return True, "shell"
     if len(lines) == 1 and _PATH_LINE_RE.match(lines[0]):
         return True, "path"
+    # Pure key=value machine payload (e.g. a dispatch body
+    # `ticker=GOOGL repo=/... log_threshold=material`): every whitespace
+    # token contains '='. Authored prose that merely contains '=' (e.g.
+    # `set DEBUG=true and it worked`) has bare tokens and is kept.
+    tokens = stripped.split()
+    if len(tokens) >= 2 and all("=" in tok for tok in tokens):
+        return True, "key_value_payload"
     # High symbol ratio across non-whitespace chars
     non_ws = re.sub(r"\s+", "", stripped)
     if non_ws:
@@ -226,6 +242,9 @@ def _eligible_text(
         return None, "trace_prefix"
     if _ROUTINE_PREFIX_RE.match(stripped):
         return None, "routine_prefix"
+    bracket = _LEADING_BRACKET_RE.match(stripped)
+    if bracket and _META_KEY_RE.search(bracket.group(1)):
+        return None, "dispatch_prefix"
     if stripped == MANAGER_BOOTSTRAP:
         return None, "bootstrap"
 

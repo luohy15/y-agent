@@ -37,7 +37,8 @@ this delivery.
    otherwise touch the live chat pipeline.
 2. As the user, I want the job to skip messages that aren't my own free-typed
    prose — assistant replies, cross-skill dispatch/notify messages (identified
-   by the `[trace:... from:...]` prefix), web UI `<selection>` /
+   by a leading bracketed meta prefix carrying `trace:` / `from:` / `to:` /
+   `from_chat:` / `to_chat:` / `routine:` keys), web UI `<selection>` /
    `<instruction>` wrapper contents, and non-prose content like code blocks,
    shell commands, or file paths — so the correction set stays relevant.
 3. As the user, I want the job to skip messages that are majority non-English
@@ -109,9 +110,25 @@ this delivery.
   `storage/src/storage/service/english_correction.py`, applied by the skill
   via `y english pending` before calling the LLM, so it stays unit-testable):
   - `role == "user"` only (never correct assistant output).
-  - Skip messages whose content starts with the `[trace:... from:...]`
-    dispatch prefix (see `api/src/api/controller/chat.py` notify path) —
-    these are cross-skill relayed text, not the user's own writing.
+  - Skip messages whose content starts with a bracketed meta prefix
+    containing any of the dispatch/routine meta keys `trace:`, `from:`,
+    `to:`, `from_chat:`, `to_chat:`, `routine:`, each immediately followed by
+    a non-space character (see `api/src/api/controller/chat.py` notify
+    path) — these are cross-skill relayed text, not the user's own writing.
+    The rule is keyed on those known meta keys, NOT on any leading `[...]`:
+    dispatches sent without a trace-id still carry
+    `[from:... from_chat:... to_chat:...]` and are skipped, while authored
+    prose that opens with a bracket (e.g. `[draft] can you review this`) is
+    still scanned. The colon-must-be-followed-by-non-space requirement is
+    what keeps genuine prose like `[note to: myself] remember to check the
+    worker logs` from being misread as a dispatch prefix, since real
+    prefixes are always `from:manager` / `to_chat:17990a`, never
+    `from: manager`.
+  - Skip pure key=value machine payloads (e.g. a dispatch body
+    `ticker=GOOGL repo=/... log_threshold=material`): when every
+    whitespace-separated token contains `=`, the message is a relayed
+    payload, not prose. Authored text that merely contains `=` (e.g.
+    `set DEBUG=true and it worked`) has bare tokens and is kept.
   - Remove complete `<selection>...</selection>` and
     `<instruction>...</instruction>` blocks before applying the remaining
     eligibility rules; persist only the authored remainder. Multiple and nested
