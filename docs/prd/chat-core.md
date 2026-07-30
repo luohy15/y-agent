@@ -269,7 +269,20 @@ mode (`-i`) serves a human at a terminal.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
-  conflicts on send are rejected, not silently rebased.
+  conflicts on send are rejected, not silently rebased. Two further guarantees
+  (todo 2930):
+  - **The `external_id` column is authoritative.** `chat` persists the field
+    both in its `json_content` blob and as a promoted column; the column is
+    what the runtime reads, and NULL there means "no resumable session" rather
+    than "look in the blob". So clearing a session handle in SQL works, and no
+    tool may re-derive the column from the blob's copy.
+  - **A refused handle is dropped, on the CLI's own evidence only.** When a
+    resumed turn dies and the run's stderr says `No conversation found with
+    session ID`, the handle is cleared so the next turn starts fresh instead of
+    retrying it forever. No other failure clears it: a launcher that never
+    started the CLI, an external kill, or a CLI-level startup failure all keep
+    the handle, because those are not evidence about the session and are
+    correlated across chats.
 - **Identity immutability**: backend, topic, skill, trace id, and routine id
   are write-once at the repository layer; later saves keep the existing value
   and log a warning on attempted mutation. Bot name and tier are deliberately
@@ -353,4 +366,4 @@ mode (`-i`) serves a human at a terminal.
 | 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
 | 2873 | Fully remove the temporary claude_tui backend + subscription /usage tooling; `_start_detached` defaults to claude_code and rejects unknown backends; migration repoints persisted backend pins claude_tui->claude_code with external_id preserved | - | `pages/plan-2873-remove-claude-tui.md` | - | `pages/review-2873-remove-claude-tui.md` | shipped |
 | 2885 | Prevent large Grok updates polls from deadlocking SSH persistence and retain the cumulative updates offset across resumed turns | - | `pages/plan-2885-grok-updates-poll-deadlock.md` | `pages/recovery-2885-aa346e-lost-turn.md` | `pages/review-2885-grok-updates-poll-deadlock.md` | shipped |
-| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |
+| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session. Follow-up: the `external_id` column becomes authoritative over the `json_content` copy (the Track A migration's NULL never reached the runtime and broke the 983 repointed chats that held a session handle), and a handle Claude Code affirmatively refuses is dropped instead of retried forever | - | `pages/plan-2930-single-backend.md` | `pages/decision-2930-external-id-column-authority.md` | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C), `pages/review-2930-external-id-column-authority.md` (column authority) | in progress |
