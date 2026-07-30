@@ -429,6 +429,7 @@ export const USAGE_LIMITS_FIXTURE = {
   providers: [
     { backend: "claude_code", provider: "anthropic", account_id: "claude-demo", account_name: "Claude subscription", observed_at: isoDaysAgo(0, -34 * MIN), source: "anthropic_oauth_usage", availability: "available", freshness: "fresh", error: null, windows: { five_hour: { used_percent: 42, remaining_percent: 58, reset_at: isoDaysAgo(0, 2 * HOUR + 12 * MIN) }, one_week: { used_percent: 18, remaining_percent: 82, reset_at: isoDaysAgo(-2, 17 * HOUR) } }, extra_windows: {} },
     { backend: "codex", provider: "openai", account_id: "codex-demo", account_name: "OpenAI subscription", observed_at: isoDaysAgo(0, -7 * MIN), source: "codex_rate_limit_headers", availability: "available", freshness: "stale", error: null, windows: { five_hour: { used_percent: 67, remaining_percent: 33, reset_at: isoDaysAgo(0, 46 * MIN) }, one_week: { used_percent: 84, remaining_percent: 16, reset_at: null } }, extra_windows: {} },
+    { backend: "grok", provider: "xai", account_id: "grok-demo", account_name: "Grok subscription", observed_at: isoDaysAgo(0, -12 * MIN), source: "xai_billing_credits", availability: "available", freshness: "fresh", error: null, windows: { billing_period: { used_percent: 54, remaining_percent: 46, reset_at: isoDaysAgo(-9, 0), extra: { monthlyLimit: 40 } } }, extra_windows: {} },
   ],
   errors: [{ origin: "https://relay-backup.example", error: "timeout" }],
 };
@@ -436,8 +437,9 @@ export const USAGE_LIMITS_FIXTURE = {
 export const USAGE_LIMITS_UNAVAILABLE_FIXTURE = {
   timezone: "Asia/Shanghai",
   providers: [
-    { backend: "claude_code", provider: "anthropic", account_id: "claude-setup", account_name: "Claude setup-token account", observed_at: null, source: "anthropic_oauth_usage", availability: "unavailable", freshness: "unavailable", error: "Setup-token accounts do not expose authoritative subscription percentages.", windows: { five_hour: null, one_week: null }, extra_windows: {} },
-    { backend: "codex", provider: "openai", account_id: "codex-pool", account_name: "Shared relay pool", observed_at: null, source: "codex_rate_limit_headers", availability: "unavailable", freshness: "unavailable", error: "No stable account scope is bound to this relay key.", windows: { five_hour: null, one_week: null }, extra_windows: {} },
+    { backend: "claude_code", provider: "anthropic", account_id: "claude-expired", account_name: "Claude subscription", observed_at: null, source: "claude_tui_usage", availability: "reauth_required", freshness: "unavailable", error: "reauth_required", windows: { five_hour: null, one_week: null }, extra_windows: {} },
+    { backend: "codex", provider: "openai", account_id: "codex-pool", account_name: "Shared relay pool", observed_at: null, source: "codex_rate_limit_headers", availability: "unavailable", freshness: "unavailable", error: "bad_payload", windows: { five_hour: null, one_week: null }, extra_windows: {} },
+    { backend: "grok", provider: "xai", account_id: "grok-demo", account_name: "Grok subscription", observed_at: null, source: "xai_billing_credits", availability: "unavailable", freshness: "unavailable", error: "not_logged_in", windows: { billing_period: null }, extra_windows: {} },
   ],
   errors: [],
 };

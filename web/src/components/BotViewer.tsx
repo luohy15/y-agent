@@ -69,10 +69,18 @@ interface DailyTotal {
 
 type LimitFreshness = "fresh" | "stale" | "unavailable";
 
+// Kinds a provider's `windows` map may carry. Claude/Codex report the rolling
+// five_hour/one_week pair; Grok (a billing-period credit account, not a rolling
+// window) reports billing_period instead. A card renders whichever of these its
+// own provider actually populates rather than assuming the 5h/1w pair.
+type UsageWindowKind = "five_hour" | "one_week" | "billing_period";
+
 interface UsageLimitWindow {
   used_percent: number | null;
   remaining_percent: number | null;
   reset_at: string | null;
+  // billing_period only: e.g. { monthlyLimit, prepaidBalance }.
+  extra?: Record<string, number | string | null> | null;
 }
 
 interface UsageLimitProvider {
@@ -85,7 +93,7 @@ interface UsageLimitProvider {
   availability: string;
   freshness: LimitFreshness;
   error: string | null;
-  windows: Record<"five_hour" | "one_week", UsageLimitWindow | null>;
+  windows: Partial<Record<UsageWindowKind, UsageLimitWindow | null>>;
   extra_windows: Record<string, UsageLimitWindow | null>;
 }
 
@@ -156,8 +164,55 @@ export function formatResetTime(timestamp: string | null, timezone?: string): st
   }
 }
 
+type ProviderKind = "claude" | "codex" | "grok";
+
+// Single source of truth for classifying a provider row off its stable
+// backend/provider identifiers, not display text — providerLabel, the card
+// mark, and reauthActionCopy all key off this rather than each other's output.
+function providerKind(provider: UsageLimitProvider): ProviderKind {
+  if (provider.backend === "codex" || provider.provider === "openai") return "codex";
+  if (provider.backend === "grok" || provider.provider === "xai" || provider.provider === "x-ai") return "grok";
+  return "claude";
+}
+
 function providerLabel(provider: UsageLimitProvider): string {
-  return provider.backend === "codex" || provider.provider === "openai" ? "GPT / Codex" : "Claude";
+  const kind = providerKind(provider);
+  if (kind === "codex") return "GPT / Codex";
+  if (kind === "grok") return "Grok";
+  return "Claude";
+}
+
+const WINDOW_ORDER: UsageWindowKind[] = ["five_hour", "one_week", "billing_period"];
+const WINDOW_LABELS: Record<UsageWindowKind, string> = {
+  five_hour: "5 hours",
+  one_week: "1 week",
+  billing_period: "Billing period",
+};
+
+// Stable error codes (never free-form text) mapped to human copy. An unknown/
+// unmapped code still gets a generic message rather than being dumped as prose.
+const ERROR_COPY: Record<string, string> = {
+  reauth_required: "This provider's login has expired and needs a fresh sign-in.",
+  parse_failed: "The usage reading could not be parsed this time.",
+  transport_error: "The usage request failed in transit; it will retry automatically.",
+  vm_unreachable: "The VM that reads usage is not reachable right now.",
+  cli_failed: "The usage CLI failed to run on the VM.",
+  bad_payload: "The provider returned an unexpected response shape.",
+  not_logged_in: "This account is not logged in yet.",
+};
+
+function friendlyErrorMessage(code: string | null, availability: string): string {
+  if (code) return ERROR_COPY[code] || "This provider hit an unexpected error while reading usage.";
+  return availability === "unavailable"
+    ? "This account does not expose authoritative subscription percentages."
+    : "Required usage windows are not available yet.";
+}
+
+// What the user should actually do about a reauth_required provider, per provider.
+function reauthActionCopy(kind: ProviderKind): string {
+  if (kind === "codex") return "The stored OpenAI credential is no longer valid. Re-run codex login, then y usage login openai --from-codex to refresh it.";
+  if (kind === "grok") return "The stored xAI credential is no longer valid. Re-run grok login, then y usage login xai --from-grok to refresh it.";
+  return "The Claude Max subscription login has expired (Anthropic's 30-day cap). Run claude login on the VM to restore usage reporting.";
 }
 
 // OpenAI's usage schema has no cache-write metric (cache writes are billed/reported as
@@ -1403,23 +1458,56 @@ function LimitWindowRow({ label, window }: { label: string; window: UsageLimitWi
   );
 }
 
-function UsageLimitCard({ provider, lastReadFailed }: { provider: UsageLimitProvider; lastReadFailed: boolean }) {
-  const unavailable = provider.freshness === "unavailable" || provider.availability === "unavailable";
-  const freshness: LimitFreshness = lastReadFailed && !unavailable ? "stale" : provider.freshness;
-  const badgeClasses = freshness === "fresh" ? "border-sol-green/40 bg-sol-green/10 text-sol-green" : freshness === "stale" ? "border-sol-yellow/40 bg-sol-yellow/10 text-sol-yellow" : "border-sol-red/40 bg-sol-red/10 text-sol-red";
-  const errorMessage = provider.error || (provider.availability === "unavailable" ? "This account does not expose authoritative subscription percentages." : "Required usage windows are not available yet.");
-  const mark = providerLabel(provider) === "Claude" ? "C" : "G";
+// The state the whole task exists to surface: an expired provider login. Distinct
+// from plain `unavailable` (an account that structurally never exposes usage) —
+// this one is actionable, so it tells the user what to run rather than sitting dark.
+function ReauthRequiredCard({ kind }: { kind: ProviderKind }) {
   return (
-    <article className="min-w-0 border-b border-sol-base02 p-3 last:border-b-0 @min-[620px]:border-b-0 @min-[620px]:border-r @min-[620px]:last:border-r-0">
-      <div className="mb-3 flex min-w-0 items-center gap-2">
-        <span className={`grid size-6 shrink-0 place-items-center rounded text-xs font-semibold ${mark === "C" ? "bg-sol-orange/15 text-sol-orange" : "bg-sol-blue/15 text-sol-blue"}`}>{mark}</span>
-        <div className="min-w-0 flex-1 truncate text-xs font-semibold text-sol-base1">{providerLabel(provider)}</div>
-        {lastReadFailed && <span className="text-[9px] text-sol-yellow">last read failed</span>}
-        <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${badgeClasses}`}>{freshness}</span>
+    <div className="rounded border border-sol-yellow/40 bg-sol-yellow/10 px-2.5 py-3 text-[10px] text-sol-base0">
+      <div className="mb-1 flex items-center gap-1.5 text-sol-yellow">
+        <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+        </svg>
+        <strong className="text-[10px] font-semibold uppercase tracking-wide">Re-login needed</strong>
       </div>
-      {unavailable ? <div className="rounded border border-dashed border-sol-base01 px-2.5 py-3 text-[10px] text-sol-base01"><strong className="mb-1 block text-sol-base0">Usage windows unavailable</strong>{errorMessage}</div> : <>
-        <div className="space-y-2.5"><LimitWindowRow label="5 hours" window={provider.windows.five_hour} /><LimitWindowRow label="1 week" window={provider.windows.one_week} /></div>
-      </>}
+      <p>{reauthActionCopy(kind)}</p>
+    </div>
+  );
+}
+
+function UsageLimitCard({ provider, lastReadFailed }: { provider: UsageLimitProvider; lastReadFailed: boolean }) {
+  const reauthRequired = provider.availability === "reauth_required";
+  const unavailable = !reauthRequired && (provider.freshness === "unavailable" || provider.availability === "unavailable");
+  const freshness: LimitFreshness = lastReadFailed && !unavailable && !reauthRequired ? "stale" : provider.freshness;
+  const badgeLabel = reauthRequired ? "action needed" : freshness;
+  const badgeClasses = reauthRequired
+    ? "border-sol-yellow/40 bg-sol-yellow/10 text-sol-yellow"
+    : freshness === "fresh" ? "border-sol-green/40 bg-sol-green/10 text-sol-green" : freshness === "stale" ? "border-sol-yellow/40 bg-sol-yellow/10 text-sol-yellow" : "border-sol-red/40 bg-sol-red/10 text-sol-red";
+  const errorMessage = friendlyErrorMessage(provider.error, provider.availability);
+  const kind = providerKind(provider);
+  const label = providerLabel(provider);
+  const mark = kind === "codex" ? "G" : kind === "grok" ? "X" : "C";
+  const markClasses = kind === "codex" ? "bg-sol-blue/15 text-sol-blue" : kind === "grok" ? "bg-sol-magenta/15 text-sol-magenta" : "bg-sol-orange/15 text-sol-orange";
+  const windows = WINDOW_ORDER
+    .map((kind) => ({ kind, window: provider.windows[kind] }))
+    .filter((w): w is { kind: UsageWindowKind; window: UsageLimitWindow } => Boolean(w.window));
+  return (
+    <article className="min-w-0 bg-sol-base03 p-3">
+      <div className="mb-3 flex min-w-0 items-center gap-2">
+        <span className={`grid size-6 shrink-0 place-items-center rounded text-xs font-semibold ${markClasses}`}>{mark}</span>
+        <div className="min-w-0 flex-1 truncate text-xs font-semibold text-sol-base1">{label}</div>
+        {lastReadFailed && !reauthRequired && <span className="text-[9px] text-sol-yellow">last read failed</span>}
+        <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${badgeClasses}`}>{badgeLabel}</span>
+      </div>
+      {reauthRequired ? (
+        <ReauthRequiredCard kind={kind} />
+      ) : unavailable || windows.length === 0 ? (
+        <div className="rounded border border-dashed border-sol-base01 px-2.5 py-3 text-[10px] text-sol-base01"><strong className="mb-1 block text-sol-base0">Usage windows unavailable</strong>{unavailable ? errorMessage : "No usage windows were reported."}</div>
+      ) : (
+        <div className="space-y-2.5">
+          {windows.map(({ kind, window }) => <LimitWindowRow key={kind} label={WINDOW_LABELS[kind]} window={window} />)}
+        </div>
+      )}
     </article>
   );
 }
@@ -1432,12 +1520,42 @@ export function UsageLimits() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
   const { data, error, isLoading, mutate } = useSWR<UsageLimitsResponse>(visible ? `${API}/api/usage/limits` : null, fetcher, { refreshInterval: USAGE_LIMIT_POLL_INTERVAL, revalidateOnFocus: true });
+  const [retrying, setRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
   const providers = data?.providers || [];
   const hasPartialError = Boolean(error || (data?.errors.length));
+
+  // A regular poll succeeding again means the retry's own failure is moot.
+  useEffect(() => {
+    if (!error) setRetryFailed(false);
+  }, [error]);
+
+  // Explicit user action only: a one-shot fetch of ?refresh=true, which bypasses both
+  // the backend's ~60s memo and the CLI's scrape cache. The fetched envelope is fed
+  // into the SWR cache under the plain (non-refresh) poll key with revalidate:false, so
+  // it never touches the key itself — the 60s auto-poll above must never see `refresh`,
+  // or it would respin the Anthropic TUI scrape every minute. Replaying `mutate()` with
+  // no args (the old wiring) just re-served the memoized failure, so a retry looked
+  // like it did nothing; this actually forces a fresh read.
+  const retry = async () => {
+    setRetrying(true);
+    setRetryFailed(false);
+    try {
+      const fresh = await fetcher(`${API}/api/usage/limits?refresh=true`);
+      await mutate(fresh, { revalidate: false });
+    } catch {
+      // Surface the failure immediately rather than leaving the button looking
+      // inert for up to 60s until the next regular poll reports it.
+      setRetryFailed(true);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
     <section className="@container shrink-0 overflow-hidden rounded border border-sol-base02 bg-sol-base03">
-      <div className="flex items-center gap-2 border-b border-sol-base02 px-3 py-2"><span className="text-[11px] font-semibold uppercase tracking-wide text-sol-base1">Subscription limits</span><span className="hidden text-[10px] text-sol-base01 @min-[460px]:inline">account-wide · updates every 60s</span>{hasPartialError && <span className="min-w-0 truncate text-[10px] text-sol-yellow" title="Some providers could not be refreshed">partial read</span>}<button onClick={() => void mutate()} disabled={isLoading} className={`ml-auto rounded px-1.5 py-0.5 text-xs text-sol-base0 hover:bg-sol-base02 hover:text-sol-base1 ${isLoading ? "animate-spin cursor-wait opacity-50" : "cursor-pointer"}`} title="Retry subscription status">↻</button></div>
-      {isLoading && !data ? <div className="p-3 text-xs italic text-sol-base01">Loading subscription limits...</div> : providers.length > 0 ? <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">{providers.map((provider, index) => <UsageLimitCard key={`${provider.backend}:${provider.account_id || index}`} provider={provider} lastReadFailed={Boolean(error)} />)}</div> : <div className="p-3 text-xs text-sol-base01">{error ? "Subscription limits could not be loaded. Retry to try again." : "No subscription accounts are configured."}</div>}
+      <div className="flex items-center gap-2 border-b border-sol-base02 px-3 py-2"><span className="text-[11px] font-semibold uppercase tracking-wide text-sol-base1">Subscription limits</span><span className="hidden text-[10px] text-sol-base01 @min-[460px]:inline">account-wide · updates every 60s</span>{hasPartialError && <span className="min-w-0 truncate text-[10px] text-sol-yellow" title="Some providers could not be refreshed">partial read</span>}{retryFailed && <span className="min-w-0 truncate text-[10px] text-sol-red" title="The retry request itself failed">retry failed</span>}<button onClick={() => void retry()} disabled={isLoading || retrying} className={`ml-auto rounded px-1.5 py-0.5 text-xs hover:bg-sol-base02 hover:text-sol-base1 ${retryFailed ? "text-sol-red" : "text-sol-base0"} ${isLoading || retrying ? "animate-spin cursor-wait opacity-50" : "cursor-pointer"}`} title="Retry subscription status">↻</button></div>
+      {isLoading && !data ? <div className="p-3 text-xs italic text-sol-base01">Loading subscription limits...</div> : providers.length > 0 ? <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-px bg-sol-base02">{providers.map((provider, index) => <UsageLimitCard key={`${provider.backend}:${provider.account_id || index}`} provider={provider} lastReadFailed={Boolean(error)} />)}</div> : <div className="p-3 text-xs text-sol-base01">{error ? "Subscription limits could not be loaded. Retry to try again." : "No subscription accounts are configured."}</div>}
     </section>
   );
 }
