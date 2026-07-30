@@ -83,6 +83,8 @@ def update_routine(user_id: int, routine_id: str, **fields) -> Optional[Routine]
     routine = routine_repo.get_routine(user_id, routine_id)
     if not routine:
         return None
+    if fields.get("guard") == "":
+        fields["guard"] = None  # `--guard ''` is the way to detach a guard
     for key, value in fields.items():
         if hasattr(routine, key):
             setattr(routine, key, value)

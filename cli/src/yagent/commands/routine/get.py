@@ -23,6 +23,8 @@ def routine_get(routine_id):
         click.echo(f"Work Dir:  {r['work_dir']}")
     if r.get('backend'):
         click.echo(f"Backend:   {r['backend']}")
+    if r.get('guard'):
+        click.echo(f"Guard:     {r['guard']}")
     click.echo(f"Message:   {r['message']}")
     if r.get('description'):
         click.echo(f"Desc:      {r['description']}")
