@@ -9,7 +9,8 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  * One artifact is one module with two surfaces:
  *   `panel`  (required) renders in the ~280px left sidebar
  *   `detail` (optional) renders full-width in the center surface, opened from
- *            the panel header or at /ui/<slug>
+ *            the panel header (no dedicated URL; it restores as a persisted
+ *            tab like any other file tab)
  * Delete the `detail` export for a sidebar-only artifact.
  *
  * Outgrowing one file? Keep this file as the thin entry and put sibling

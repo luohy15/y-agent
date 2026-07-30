@@ -96,8 +96,9 @@ Finance is the reference case and the first migration target.
     main content area, so that it gets the same space as a built-in panel.
 14. As a user, I want artifacts to render with the host's theme tokens, so that
     they look native and follow light/dark switches.
-15. As a user, I want an artifact reachable at its own route, so that I can
-    bookmark or link a specific panel.
+15. ~~As a user, I want an artifact reachable at its own route, so that I can
+    bookmark or link a specific panel.~~ Retired (todo 2943): see the Routing
+    decision under Implementation Decisions.
 16. As a user, I want a newly published artifact to appear without a rebuild or
     redeploy of the application, so that the core promise of the feature holds.
 17. As a user, I want artifact panels to participate in the existing sidebar
@@ -331,6 +332,18 @@ hint after a successful delete. A deleted artifact simply stops appearing in
 holding a stale list already renders the existing fetch-failure card for a
 version whose bundle 404s.
 
+### Routing (todo 2943)
+
+Artifacts have **no dedicated URL**. A `detail` surface opened from the panel
+header becomes an ordinary `ui:<slug>` entry in the file-tab strip, restored at
+its saved position from persisted tab state on reload, exactly like any other
+open file. There is no `/ui/<slug>` route; a legacy bookmark to that path
+redirects to `/`. Story 15 (bookmark/link a specific panel) is retired: it was
+found to require the address bar to track whichever tab happens to be open,
+which conflicts with Roy's request that the URL stay at the site root
+regardless of which tab is active. `navigateTo` in `@y/host` is unaffected: it
+is a generic path-push helper, not `/ui/`-specific.
+
 ## Testing Decisions
 
 Test the observable contract, not the loader's internals.
@@ -391,3 +404,4 @@ Test the observable contract, not the loader's internals.
 | 2412 | Dynamic UI artifact foundation; Finance as reference migration | - | `pages/plan-2412-ui-dynamic-artifacts.md` | `pages/decision-2412-runtime-contract.md`, `pages/decision-2412-s5-web-host-sdk.md`, `pages/decision-2412-module-shape.md` | `pages/review-2412-storage-schema.md`, `pages/review-2412-ui-api-round2.md`, `pages/review-2412-ui-sdk-cli.md`, `pages/review-2412-web-host-sdk.md`, `pages/review-2412-ui-loader-round2.md`, `pages/review-2412-ui-mount.md`, `pages/review-2412-module-shape-round2.md` | shipped |
 | 2933 | Multi-file artifact authoring, `lightweight-charts` shared external (contract v2), and re-port of ticker analysis onto the `finance` artifact; superseded built-in finance surface (`FinanceViewer`/`FinancePanel`/`TickerView`) removed | - | `pages/plan-2933-ticker-analysis-dynamic-ui.md` | - | `pages/review-2933-lightweight-charts-external.md`, `pages/review-2933-rm-builtin-finance.md` | shipped |
 | 2941 | `y ui delete <slug>` end to end: hard delete of the artifact + version rows, best-effort bundle-object cleanup, VM authoring source left untouched; retired the obsolete `finance-viewer` artifact | - | `pages/plan-2941-ui-artifact-deletion.md` | - | `pages/review-2941-ui-delete.md` | shipped |
+| 2943 | Retired `/ui/<slug>` (redirects to `/`); `ui:` tabs persist and restore at their saved tab position like any other file tab, closing story 15 in favor of the URL always staying at site root | - | `pages/plan-2943-ui-routing-tab-persist.md` | - | `pages/review-2943-ui-routing-tab-persist.md` | shipped |

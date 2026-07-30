@@ -39,6 +39,13 @@ export function artifactSlugFromTab(path: string): string | null {
   return path.startsWith("ui:") ? path.slice("ui:".length) : null;
 }
 
+// `artifact:` (inline chat chart) tabs hold their content only in an
+// in-memory map, so a restored tab would be dead; `ui:` tabs are fully
+// reconstructible from their slug, so they are safe to persist.
+export function isPersistableTab(path: string): boolean {
+  return !path.startsWith("artifact:");
+}
+
 export function artifactLabel(artifact: MountableUiArtifact): string {
   return artifact.active_version.label?.trim() || artifact.slug;
 }

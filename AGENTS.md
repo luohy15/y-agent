@@ -106,7 +106,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   version-skew / render failure cards and a one-click rollback. **One artifact is one
   module with two surfaces**: `export const panel` (required, ~280px sidebar) and
   `export const detail` (optional, center / full-width view opened from the panel
-  header or `/ui/<slug>`) — so an artifact takes exactly one ActivityBar entry.
+  header, restored as a persisted tab like any other file tab, with no dedicated
+  URL) — so an artifact takes exactly one ActivityBar entry.
   Versions are immutable and `active_version_id` is a pointer, so rollback needs
   no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
   it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`.

@@ -181,7 +181,8 @@ interface ArtifactMountProps {
   label?: string;
   // Which of the module's two surfaces to render (decision note
   // pages/decision-2412-module-shape.md). "detail" falls back to the panel
-  // when the module is panel-only, so `/ui/<slug>` is never a dead route.
+  // when the module is panel-only, so a persisted `ui:<slug>` tab is never a
+  // dead tab.
   surface?: "panel" | "detail";
   // Called after a rollback attempt succeeds (or hits a 409 conflict), so the
   // mount surface can refetch the artifact's current active version and

@@ -36,6 +36,7 @@ interface FileViewerProps {
   diffFiles?: Set<string>;
   artifactTabs?: Record<string, { type: ArtifactType; spec: string }>;
   uiArtifacts?: MountableUiArtifact[];
+  uiArtifactsLoaded?: boolean;
   onUiArtifactRolledBack?: () => void;
   isLoggedIn?: boolean;
   selectedTraceId?: string | null;
@@ -934,7 +935,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectTrace, onSelectCalendarEvent, calendarFocus, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectTrace, onSelectCalendarEvent, calendarFocus, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -1497,9 +1498,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   />
                 </div>
               ) : fileUiArtifactSlug ? (
-                <div className="flex h-full items-center justify-center p-4 text-sm text-sol-base01">
-                  UI artifact &quot;{fileUiArtifactSlug}&quot; is unavailable.
-                </div>
+                uiArtifactsLoaded ? (
+                  <div className="flex h-full items-center justify-center p-4 text-sm text-sol-base01">
+                    UI artifact &quot;{fileUiArtifactSlug}&quot; is unavailable.
+                  </div>
+                ) : null
               ) : fileArtifact && artifactTabs?.[filePath] ? (
                 <ArtifactView
                   type={artifactTabs[filePath].type}

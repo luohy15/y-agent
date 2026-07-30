@@ -17,7 +17,7 @@ export default function SmokeArtifact() {
 const sha256 = createHash("sha256").update(bundle).digest("hex");
 const screenshotDir = "/Users/roy/luohy15/assets/screenshots";
 
-test("imports a verified blob bundle into the sidebar and /ui route", async ({ page }) => {
+test("imports a verified blob bundle into the sidebar and the restored detail tab", async ({ page }) => {
   let bundleFetches = 0;
   await page.addInitScript(() => {
     localStorage.setItem("jwt_token", "playwright-token");
@@ -25,6 +25,9 @@ test("imports a verified blob bundle into the sidebar and /ui route", async ({ p
     localStorage.setItem("sidebarPanel", "artifact:smoke");
     localStorage.setItem("desktopSidebarOpen", "true");
     localStorage.setItem("activityBarOrder", JSON.stringify(["todo", "artifact:smoke", "notes"]));
+    localStorage.setItem("openFiles", JSON.stringify(["ui:smoke"]));
+    localStorage.setItem("activeFile", "ui:smoke");
+    localStorage.setItem("chatHide", "true");
   });
 
   await page.route("**/api/**", async (route) => {
@@ -60,7 +63,7 @@ test("imports a verified blob bundle into the sidebar and /ui route", async ({ p
     await route.fulfill({ contentType: "application/json", body: "[]" });
   });
 
-  await page.goto("/ui/smoke", { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const sidebarMount = page.locator('[data-ui-artifact-sidebar="smoke"]');
   const routeMount = page.locator('[data-ui-artifact-route="smoke"]');

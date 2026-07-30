@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { SWRConfig } from "swr";
 import App from "./App";
 import Landing from "./components/Landing";
@@ -41,7 +41,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/n/:shareId" element={<ShareNoteView />} />
         <Route path="/showcase" element={<Suspense fallback={null}><ScreenshotShowcase /></Suspense>} />
         <Route path="/trace/:traceId" element={<App />} />
-        <Route path="/ui/:uiSlug" element={<App />} />
+        <Route path="/ui/*" element={<Navigate to="/" replace />} />
         <Route path="/*" element={<App />} />
       </Routes>
     </BrowserRouter>

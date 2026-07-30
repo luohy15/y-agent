@@ -12,8 +12,9 @@
  *
  * A bare `export default MyPanel` is the shorthand for a panel-only artifact.
  * The host gives one sidebar entry per artifact; `detail`, when present, opens
- * in the center surface from the panel header and at `/ui/<slug>`. Neither
- * surface receives props.
+ * in the center surface from the panel header. There is no dedicated URL for
+ * a detail view; it restores as a persisted tab like any other file tab.
+ * Neither surface receives props.
  */
 
 declare module "react" {
