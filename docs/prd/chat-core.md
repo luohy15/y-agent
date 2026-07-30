@@ -277,12 +277,22 @@ mode (`-i`) serves a human at a terminal.
     than "look in the blob". So clearing a session handle in SQL works, and no
     tool may re-derive the column from the blob's copy.
   - **A refused handle is dropped, on the CLI's own evidence only.** When a
-    resumed turn dies and the run's stderr says `No conversation found with
-    session ID`, the handle is cleared so the next turn starts fresh instead of
-    retrying it forever. No other failure clears it: a launcher that never
-    started the CLI, an external kill, or a CLI-level startup failure all keep
-    the handle, because those are not evidence about the session and are
-    correlated across chats.
+    resumed turn is refused, the handle is cleared so the next turn starts fresh
+    instead of retrying it forever, and the turn reports the refusal by name
+    instead of a bare "exited with an error". The evidence is the CLI's own
+    `No conversation found with session ID` message, read from the run's final
+    `result` event (its structured `errors` list — the shape a refusal actually
+    produces: an error result event, not the absence of one) or, if a run left no
+    result event at all, from that run's stderr. Only those two, and only the
+    structured field — never text the model itself authored, which can quote the
+    message. No other failure clears the handle: a launcher that never started
+    the CLI, an external kill, or a CLI-level startup failure all keep it,
+    because those are not evidence about the session and are correlated across
+    chats. Missing or reworded evidence keeps the handle too, costing one wedged
+    turn rather than risking a live session. A refused turn also never *writes* a
+    handle, whatever the column currently holds: the refusal names the id it
+    rejected, so persisting it would resurrect a dead handle into a column
+    cleared out of band (by migration SQL) while the turn was in flight.
 - **Identity immutability**: backend, topic, skill, trace id, and routine id
   are write-once at the repository layer; later saves keep the existing value
   and log a warning on attempted mutation. Bot name and tier are deliberately
@@ -366,4 +376,4 @@ mode (`-i`) serves a human at a terminal.
 | 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
 | 2873 | Fully remove the temporary claude_tui backend + subscription /usage tooling; `_start_detached` defaults to claude_code and rejects unknown backends; migration repoints persisted backend pins claude_tui->claude_code with external_id preserved | - | `pages/plan-2873-remove-claude-tui.md` | - | `pages/review-2873-remove-claude-tui.md` | shipped |
 | 2885 | Prevent large Grok updates polls from deadlocking SSH persistence and retain the cumulative updates offset across resumed turns | - | `pages/plan-2885-grok-updates-poll-deadlock.md` | `pages/recovery-2885-aa346e-lost-turn.md` | `pages/review-2885-grok-updates-poll-deadlock.md` | shipped |
-| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session. Follow-up: the `external_id` column becomes authoritative over the `json_content` copy (the Track A migration's NULL never reached the runtime and broke the 983 repointed chats that held a session handle), and a handle Claude Code affirmatively refuses is dropped instead of retried forever | - | `pages/plan-2930-single-backend.md` | `pages/decision-2930-external-id-column-authority.md` | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C), `pages/review-2930-external-id-column-authority.md` (column authority) | in progress |
+| 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session. Follow-up: the `external_id` column becomes authoritative over the `json_content` copy (the Track A migration's NULL never reached the runtime and broke the 983 repointed chats that held a session handle), and a handle Claude Code affirmatively refuses is dropped instead of retried forever. That heal as first deployed (437b4f2) never fired: it sat on the no-result branch, while a refused resume emits an error `result` event (so `result_data` was always set and the probe was unreachable, and the event's echoed session id was re-persisted). Detection now reads the marker from that event's structured `errors` list, with the stderr probe kept only as the fallback for a run that leaves no result event | - | `pages/plan-2930-single-backend.md` | `pages/decision-2930-external-id-column-authority.md` | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C), `pages/review-2930-external-id-column-authority.md` + `pages/review-2930-external-id-column-authority-fixes.md` (column authority), `pages/review-2930-refused-handle-heal-branch.md` (heal branch) | in progress |

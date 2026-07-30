@@ -332,9 +332,12 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
     cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
-    if result.get("resume_refused") and cwd_matches and fresh.external_id:
-        # Claude Code itself named the handle as the cause: `_resume_refused`
-        # found "No conversation found with session ID" in the run's stderr.
+    resume_refused = bool(result.get("resume_refused"))
+    if resume_refused and cwd_matches and fresh.external_id:
+        # Claude Code itself named the handle as the cause: "No conversation
+        # found with session ID" in the run's own error result event
+        # (`_result_event_resume_refused`, the shape a refusal actually takes) or
+        # in its stderr (`_resume_refused`, the no-result fallback).
         # Drop it, otherwise every future turn retries the same dead handle and
         # the conversation is wedged forever (todo 2930's migrated chats, and
         # any chat whose session file is gone). Nothing recoverable is lost:
@@ -342,17 +345,31 @@ async def _apply_completion_metadata(fresh, result: dict, result_data: dict, pro
         # assets/claude-code backup *before* launching, so a refusal means
         # neither copy exists for this work_dir.
         #
-        # Gated on that affirmative signal and nothing else. An error status is
-        # not evidence about the handle: `work_dir not found` never launches the
-        # CLI at all, an external SIGTERM/SIGKILL may leave a perfectly live
-        # session, and a missing binary / bad credentials / bad --model are
-        # CLI-level failures that hit every chat at once — inferring a refusal
-        # from those would turn a transient outage into fleet-wide context loss.
+        # Gated on that affirmative signal and nothing else. Neither an error
+        # status nor which branch the turn took is evidence about the handle:
+        # `work_dir not found` never launches the CLI at all, an external
+        # SIGTERM/SIGKILL may leave a perfectly live session, and a missing binary
+        # / bad credentials / bad --model are CLI-level failures that hit every
+        # chat at once (and a bad --model lands in the very same result-event
+        # branch as a refusal) — inferring a refusal from any of that would turn a
+        # transient outage into fleet-wide context loss.
         logger.warning(
             "clearing refused external_id: chat_id={} external_id={} work_dir={}",
             chat_id, fresh.external_id, fresh.work_dir,
         )
         fresh.external_id = None
+    elif resume_refused:
+        # Refused, but the clearing gate above did not apply — most importantly
+        # because the handle was already cleared out of band (migration SQL) while
+        # this turn was in flight. A refusal must never write a handle either way:
+        # the refusal event echoes the refused id back as its own `session_id`, so
+        # falling through to the persist branch would resurrect the dead id into
+        # the column that was just cleaned, wedging the chat again.
+        logger.warning(
+            "skip external_id update: chat_id={} refused resume, nothing to persist "
+            "(external_id={} run_work_dir={} chat_work_dir={} claude session_id={})",
+            chat_id, fresh.external_id, run_work_dir, fresh.work_dir, effective_session_id,
+        )
     elif effective_session_id:
         if cwd_matches:
             fresh.external_id = effective_session_id

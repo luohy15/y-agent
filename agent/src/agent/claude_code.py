@@ -444,13 +444,50 @@ def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
 RESUME_REFUSED_MARKER = "No conversation found with session ID"
 
 
+def _result_event_resume_refused(result_data: Optional[Dict]) -> bool:
+    """Return True if the run's own `result` event says it refused the handle.
+
+    This is the branch a real refusal actually takes, verified against the CLI
+    on the VM (2.1.219). `claude -p -r <unknown-id>` does NOT die silently: it
+    writes a full stream-json result event to stdout and exits 1 —
+
+        {"type":"result","subtype":"error_during_execution","is_error":true,
+         "num_turns":0,"session_id":"<the refused id>", ...,
+         "errors":["No conversation found with session ID: <the refused id>"]}
+
+    Note what is missing: there is no `result` key, so the worker's error text
+    falls back to the bare "Claude Code exited with an error." That is the exact
+    symptom the wedged chats showed, and because `result_data` is set, the
+    no-result branch (and its `_resume_refused` stderr probe) is never reached —
+    which is why the first cut of this heal could not fire at all.
+
+    Read from the structured `errors` list only, never from `result` or the
+    stdout text: `errors` is the CLI's own, while `result` carries model-authored
+    prose that could quote the marker (a chat debugging *this* feature would).
+    Also gated on `is_error`: a run that recovered on its own reports a usable
+    session id, and that id must be persisted rather than dropped.
+
+    Fails safe when the shape or the wording changes: a missing/renamed `errors`
+    list, or a reworded message, returns False and the chat keeps its handle for
+    one more wedged turn — the cost the reviews accepted over a false positive.
+    """
+    if not isinstance(result_data, dict) or not result_data.get("is_error"):
+        return False
+    errors = result_data.get("errors")
+    if not isinstance(errors, list):
+        return False
+    return any(isinstance(e, str) and RESUME_REFUSED_MARKER in e for e in errors)
+
+
 def _resume_refused(client, chat_id: str) -> bool:
     """Return True if the CLI's stderr says it refused the recorded session id.
 
-    `claude -p -r <id>` with an id that does not exist under the current cwd
-    writes nothing to stdout and prints only "No conversation found with session
-    ID: <id>" to stderr, which the detach launcher redirects to
-    `/tmp/cc-<chat_id>.stderr`.
+    The stderr fallback for the no-result branch. A refusal also prints
+    "No conversation found with session ID: <id>" to stderr, which the detach
+    launcher redirects to `/tmp/cc-<chat_id>.stderr`, so this catches a refusal
+    that produced no stdout result event at all (a CLI version that dies before
+    writing one, or a result event lost to a tail failure).
+    `_result_event_resume_refused` handles the shape today's CLI actually emits.
 
     That file holds only the current run's stderr, so a marker found here is
     always this run's. `2>` truncating on open is half the reason; the other half
@@ -463,15 +500,21 @@ def _resume_refused(client, chat_id: str) -> bool:
     it passes no `-r`, so it can neither produce a marker nor let one act: the
     worker's heal also requires a recorded handle and a matching work_dir.
 
-    This is the ONLY affirmative signal that a resume handle is unusable. The
-    worker clears `chat.external_id` on it (see
-    `_apply_completion_metadata`), and every other signal available at this
-    point is ambiguous: a missing or mid-upgrade `claude` binary, bad
-    credentials, a bad `--model`, or a node OOM all produce the same
-    "exited before producing output: process exited with code N". Inferring a
-    refusal from those would drop the handle of every chat that takes a turn
-    during an unrelated CLI-level outage — the exact mass context loss todo 2930
-    is repairing.
+    Together with `_result_event_resume_refused` these are the ONLY affirmative
+    signals that a resume handle is unusable. The worker clears
+    `chat.external_id` on them (see `_apply_completion_metadata`), and every
+    other signal available at this point is ambiguous. Which branch those
+    ambiguous failures land in is *not* a reliable divide, so never infer one
+    from the other — assuming it is what made the first cut of this heal
+    unreachable. Probed live against 2.1.219: a bad `--model` produces an error
+    result event (with `errors: null`), i.e. the same branch as a refusal, while a
+    missing binary or a node OOM produces no result event at all
+    ("exited before producing output: process exited with code N"). Bad
+    credentials can do either, depending on how far startup gets. What separates
+    a refusal from all of them is only the marker itself, in a CLI-authored
+    field. Inferring a refusal from a branch or an exit code would drop the
+    handle of every chat that takes a turn during an unrelated CLI-level outage —
+    the exact mass context loss todo 2930 is repairing.
 
     Fails safe in every direction: an SSH or read error, a missing or empty
     stderr file, unrelated stderr, or a marker that has scrolled out of the
@@ -487,6 +530,20 @@ def _resume_refused(client, chat_id: str) -> bool:
         logger.warning("resume-refusal probe failed for chat {}: {}", chat_id, e)
         return False
     return RESUME_REFUSED_MARKER in tail
+
+
+def _resume_refused_message(backend: str, suffix: str = "") -> str:
+    """The user-visible text for a refused resume, shared by both branches.
+
+    Same cause either way, so same wording: name the refusal and say the handle
+    is being dropped, so the reader knows the next turn recovers by itself
+    instead of wedging again.
+    """
+    return (
+        f"{backend} refused the recorded session id (no conversation found with it "
+        f"under this work dir). The session handle is dropped, so the next turn "
+        f"starts a fresh session.{suffix}"
+    )
 
 
 def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None,
@@ -507,11 +564,7 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
     """
     suffix = _stream_error_suffix(stream_error)
     if resume_refused:
-        return (
-            f"{backend} exited before producing output: it refused the recorded session "
-            f"id (no conversation found with it under this work dir). The session handle "
-            f"is dropped, so the next turn starts a fresh session.{suffix}"
-        )
+        return _resume_refused_message(backend, suffix)
     generic = (
         f"{backend} exited before producing output — likely a session resume "
         f"failure or startup error.{suffix}"
@@ -1015,17 +1068,17 @@ async def tail_ssh_output(
         # all need SSH.
         no_result_session_alive = False
         no_result_error = None
-        no_result_resume_refused = False
+        resume_refused = False
         self_killed = False
         if exit_reason is None and result_data is None:
             self_killed = _consume_self_kill_sentinel(client, chat_id)
             if not self_killed:
                 no_result_session_alive = _tmux_session_alive(client, chat_id)
                 if not no_result_session_alive:
-                    no_result_resume_refused = _resume_refused(client, chat_id)
+                    resume_refused = _resume_refused(client, chat_id)
                     no_result_error = _no_result_error_message(
                         client, chat_id, "Claude Code", stream_error,
-                        resume_refused=no_result_resume_refused,
+                        resume_refused=resume_refused,
                     )
 
         if owns_client:
@@ -1092,11 +1145,12 @@ async def tail_ssh_output(
                     "consumed_steer_ids": consumed_steer_ids,
                 }
             # tmux session exited without ever emitting a stream-json `result`
-            # event. This can be a startup/resume failure (e.g. `claude -p -r
-            # <id>` with a session_id that doesn't exist in the current cwd) or
-            # an external SIGTERM/SIGKILL (reaper/OOM). The launcher exit code
-            # was read above for a precise message so the chat doesn't
-            # silently die.
+            # event: a startup failure that died before the CLI could report one
+            # (missing or mid-upgrade binary, node OOM) or an external
+            # SIGTERM/SIGKILL (reaper/OOM). Notably NOT where a refused `-r <id>`
+            # lands — the CLI reports that in an error result event, so it takes
+            # the branch below. The launcher exit code was read above for a
+            # precise message so the chat doesn't silently die.
             logger.warning(
                 "tail_ssh_output: chat_id={} exited with no result event (offset={})",
                 chat_id, current_offset,
@@ -1108,6 +1162,21 @@ async def tail_ssh_output(
             }
         elif result_data.get("is_error"):
             status = "error"
+            # The branch a real refusal takes: an error *result* event, not the
+            # absence of one. Its `errors` list carries the CLI's own refusal
+            # message while `result` is absent, so without this the turn is
+            # reported as a bare "exited with an error" and the dead handle is
+            # written straight back (the refusal event echoes the refused id as
+            # its `session_id`), wedging the chat forever.
+            if _result_event_resume_refused(result_data):
+                resume_refused = True
+                if not result_data.get("result"):
+                    result_data = {
+                        **result_data,
+                        "result": _resume_refused_message(
+                            "Claude Code", _stream_error_suffix(stream_error)
+                        ),
+                    }
 
         return {
             "offset": current_offset,
@@ -1117,10 +1186,11 @@ async def tail_ssh_output(
             "result_data": result_data,
             "status": status,
             "consumed_steer_ids": consumed_steer_ids,
-            # Only ever True on the no-result branch above, where the CLI's own
-            # stderr named the session id as the cause. The worker drops the
-            # handle on this and on nothing else.
-            "resume_refused": no_result_resume_refused,
+            # True only where Claude Code itself named the session id as the
+            # cause — in the error result event's `errors` list, or in this run's
+            # stderr on the no-result branch. The worker drops the handle on this
+            # and on nothing else.
+            "resume_refused": resume_refused,
         }
 
     except Exception as e:

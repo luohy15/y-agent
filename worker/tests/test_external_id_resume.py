@@ -4,8 +4,9 @@ Two halves of the same invariant:
   * a chat with no `external_id` launches a fresh session (no `-r`) — the state
     every chat migrated off codex/grok_build/gemini_cli/pi_cli must be in;
   * the handle is dropped when, and only when, Claude Code affirmatively refused
-    it (`resume_refused`, from the CLI's own stderr). Every other failed turn
-    keeps it: the death-report text alone cannot tell a refused handle from a
+    it (`resume_refused`, from the refusal message in the CLI's own error result
+    event, or from this run's stderr on the no-result branch). Every other failed
+    turn keeps it: the death-report text alone cannot tell a refused handle from a
     launcher that never started the CLI, an external kill, or a CLI-level outage
     that would otherwise wipe the whole fleet's handles at once.
 """
@@ -24,9 +25,9 @@ WORK_DIR = "/repo"
 # turn that ended without a final result event, plus the launcher's synthetic
 # work_dir failure. Only the first carries the affirmative refusal signal.
 REFUSED = (
-    "Claude Code exited before producing output: it refused the recorded session id "
-    "(no conversation found with it under this work dir). The session handle is "
-    "dropped, so the next turn starts a fresh session."
+    "Claude Code refused the recorded session id (no conversation found with it "
+    "under this work dir). The session handle is dropped, so the next turn starts "
+    "a fresh session."
 )
 EXIT_CODE_1 = (
     "Claude Code exited before producing output: process exited with code 1 "
@@ -144,6 +145,16 @@ class RefusedHandleTest(unittest.IsolatedAsyncioTestCase):
         await self._apply(chat, error_text=REFUSED, resume_refused=False)
         self.assertEqual(chat.external_id, "session-a")
 
+    async def test_refusal_does_not_re_persist_the_refused_id(self):
+        """The observed production failure. A refusal's result event echoes the
+        refused id back as its own `session_id`, so if clearing did not come
+        first the dead handle would be written straight back and the chat would
+        stay wedged forever — which is exactly what chat 9e932e did."""
+        chat = _chat(external_id="bogus-uuid")
+        await self._apply(chat, error_text=REFUSED, resume_refused=True,
+                          run_session_id="bogus-uuid")
+        self.assertIsNone(chat.external_id)
+
     async def test_refusal_with_mismatched_work_dir_keeps_the_handle(self):
         """Mirrors the existing cwd guard: a run whose cwd differs from the
         chat's says nothing about the handle recorded for that work_dir."""
@@ -165,6 +176,25 @@ class RefusedHandleTest(unittest.IsolatedAsyncioTestCase):
         chat = _chat(external_id=None)
         await self._apply(chat, error_text=REFUSED, resume_refused=True)
         self.assertIsNone(chat.external_id)
+
+    async def test_refusal_never_persists_after_an_out_of_band_clear(self):
+        """The clearing gate needs a handle to clear, so a handle cleared out of
+        band (migration SQL, twice in todo 2930's own trace) while a refused turn
+        was in flight used to fall through to the persist branch and resurrect the
+        echoed dead id into the column that was just cleaned. A refusal must never
+        write a handle, whatever the column currently holds."""
+        chat = _chat(external_id=None)
+        await self._apply(chat, error_text=REFUSED, resume_refused=True,
+                          run_session_id="bogus-uuid")
+        self.assertIsNone(chat.external_id)
+
+    async def test_refusal_with_mismatched_work_dir_persists_nothing_either(self):
+        """Same rule under the cwd guard: no clear (the run says nothing about the
+        handle recorded for another work_dir) and no write."""
+        chat = _chat(external_id="session-a")
+        await self._apply(chat, error_text=REFUSED, resume_refused=True,
+                          run_session_id="bogus-uuid", run_work_dir="/other")
+        self.assertEqual(chat.external_id, "session-a")
 
 
 if __name__ == "__main__":
