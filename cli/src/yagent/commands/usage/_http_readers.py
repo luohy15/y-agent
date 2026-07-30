@@ -1,6 +1,6 @@
 """`codex_usage_api` + `xai_billing_credits` readers (todo 2872 sub-task 3):
 direct HTTP reads of the two providers' subscription usage, using the
-y-agent-owned grant refreshed by `_refresh.ensure_access_token`.
+vendor CLI's own grant (read through by `_refresh.ensure_access_token`).
 
 Response shapes below are LIVE-VERIFIED (todo 2872, 2026-07-30, against a
 real Claude Max + Codex Pro + xAI account) -- both diverge from the plan's
@@ -84,8 +84,8 @@ def read_codex_provider() -> dict:
                     error=ERROR_REAUTH_REQUIRED, availability=ERROR_REAUTH_REQUIRED,
                     windows={}, extra_windows={}, observed_at=observed_at)
 
-    record = store.get_record("openai") or {}
-    account_id = (record.get("extra") or {}).get("chatgpt_account_id")
+    grant = store.read_grant("openai") or {}
+    account_id = (grant.get("extra") or {}).get("chatgpt_account_id")
     headers = {
         "Authorization": f"Bearer {access_token}",
         "User-Agent": CODEX_USER_AGENT,

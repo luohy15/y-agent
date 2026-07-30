@@ -12,9 +12,9 @@ reverse-engineered from claude-relay-service and documented in the plan for
 the refresh grant -- that is the piece unit-tested against mocked httpx here.
 
 Each `refresh_*` function returns a plain result dict rather than raising on
-`invalid_grant`, so a dead grant can flip `status=reauth_required` instead of
+`invalid_grant`, so a dead grant can flip to `reauth_required` instead of
 crashing a live/limits read:
-    {"ok": True, "access_token", "refresh_token", "expires_at", "scopes"?, "extra"?}
+    {"ok": True, "access_token", "refresh_token", "expires_at", "scopes"?, "extra"?, "id_token"?}
     {"ok": False, "reauth_required": True, "error": "invalid_grant"}
 Transport/HTTP errors that are *not* invalid_grant still raise -- those are
 transient and must not be mistaken for a dead grant.
@@ -60,6 +60,10 @@ def refresh_openai(refresh_token: str) -> dict:
         "ok": True,
         "access_token": body["access_token"],
         "refresh_token": body.get("refresh_token"),
+        # Codex's own auth.json stores the id_token verbatim (it is where
+        # chatgpt_account_id lives on read-through); pass it along so the
+        # write-back can keep it current too.
+        "id_token": body.get("id_token"),
         "expires_at": _expires_at_from(body, _OPENAI_DEFAULT_EXPIRES_IN),
         "scopes": OPENAI_SCOPE.split(),
         "extra": extra,

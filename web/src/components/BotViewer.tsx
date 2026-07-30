@@ -210,8 +210,8 @@ function friendlyErrorMessage(code: string | null, availability: string): string
 
 // What the user should actually do about a reauth_required provider, per provider.
 function reauthActionCopy(kind: ProviderKind): string {
-  if (kind === "codex") return "The stored OpenAI credential is no longer valid. Re-run codex login, then y usage login openai --from-codex to refresh it.";
-  if (kind === "grok") return "The stored xAI credential is no longer valid. Re-run grok login, then y usage login xai --from-grok to refresh it.";
+  if (kind === "codex") return "The Codex CLI's login has expired. Run codex login on the VM to restore usage reporting.";
+  if (kind === "grok") return "The Grok CLI's login has expired. Run grok login on the VM to restore usage reporting.";
   return "The Claude Max subscription login has expired (Anthropic's 30-day cap). Run claude login on the VM to restore usage reporting.";
 }
 

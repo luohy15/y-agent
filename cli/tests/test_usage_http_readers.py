@@ -4,18 +4,40 @@ a real account) and diverge from the plan's reverse-engineered guesses --
 these fixtures are transcribed from the real payloads, not invented.
 """
 
-import os
+import base64
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from yagent.commands.usage import _credentials as store
 from yagent.commands.usage import _http_readers as hr
 
 
 def _iso(delta_seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=delta_seconds)).isoformat().replace("+00:00", "Z")
+
+
+def _jwt(exp_delta_seconds: float) -> str:
+    exp = int((datetime.now(timezone.utc) + timedelta(seconds=exp_delta_seconds)).timestamp())
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=").decode()
+    return f"header.{payload}.sig"
+
+
+def _write_codex_auth(path: Path, *, access_expires_in=3600, refresh_token="rt") -> None:
+    path.write_text(json.dumps({
+        "tokens": {"access_token": _jwt(access_expires_in), "refresh_token": refresh_token},
+    }), encoding="utf-8")
+
+
+def _write_grok_auth(path: Path, *, expires_at=None, refresh_token="rt") -> None:
+    path.write_text(json.dumps({
+        "issuer::client": {
+            "key": "at", "refresh_token": refresh_token,
+            "expires_at": expires_at or _iso(3600),
+        }
+    }), encoding="utf-8")
 
 
 # Transcribed from a live GET https://chatgpt.com/backend-api/codex/usage response.
@@ -115,11 +137,12 @@ class ParseXaiWindowTest(unittest.TestCase):
 class ReadCodexProviderTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._env_patch = patch.dict(os.environ, {"Y_AGENT_HOME": self._tmp.name})
-        self._env_patch.start()
+        self._path = Path(self._tmp.name) / "codex-auth.json"
+        self._path_patch = patch("yagent.commands.usage._credentials.codex_auth_path", return_value=self._path)
+        self._path_patch.start()
 
     def tearDown(self):
-        self._env_patch.stop()
+        self._path_patch.stop()
         self._tmp.cleanup()
 
     def test_not_logged_in_when_no_credentials(self):
@@ -130,41 +153,33 @@ class ReadCodexProviderTest(unittest.TestCase):
         self.assertEqual(row["error"], "not_logged_in")
 
     def test_available_row_on_a_good_response(self):
-        store.set_record("openai", {
-            "refresh_token": "rt", "access_token": "at", "expires_at": _iso(3600), "status": "active",
-        })
+        _write_codex_auth(self._path)
         with patch("yagent.commands.usage._http_readers.httpx.get",
                     return_value=_http_response(200, _CODEX_LIVE_BODY)) as get:
             row = hr.read_codex_provider()
 
         headers = get.call_args.kwargs["headers"]
-        self.assertEqual(headers["Authorization"], "Bearer at")
+        self.assertTrue(headers["Authorization"].startswith("Bearer "))
         self.assertEqual(headers["originator"], "codex_cli_rs")
         self.assertEqual(row["availability"], "available")
         self.assertIsNone(row["error"])
         self.assertIn("one_week", row["windows"])
 
     def test_401_maps_to_reauth_required(self):
-        store.set_record("openai", {
-            "refresh_token": "rt", "access_token": "at", "expires_at": _iso(3600), "status": "active",
-        })
+        _write_codex_auth(self._path)
         with patch("yagent.commands.usage._http_readers.httpx.get", return_value=_http_response(401)):
             row = hr.read_codex_provider()
         self.assertEqual(row["availability"], "reauth_required")
         self.assertEqual(row["error"], "reauth_required")
 
     def test_server_error_maps_to_transport_error(self):
-        store.set_record("openai", {
-            "refresh_token": "rt", "access_token": "at", "expires_at": _iso(3600), "status": "active",
-        })
+        _write_codex_auth(self._path)
         with patch("yagent.commands.usage._http_readers.httpx.get", return_value=_http_response(500)):
             row = hr.read_codex_provider()
         self.assertEqual(row["error"], "transport_error")
 
     def test_unrecognized_body_maps_to_parse_failed_not_a_crash(self):
-        store.set_record("openai", {
-            "refresh_token": "rt", "access_token": "at", "expires_at": _iso(3600), "status": "active",
-        })
+        _write_codex_auth(self._path)
         with patch("yagent.commands.usage._http_readers.httpx.get",
                     return_value=_http_response(200, {"unexpected": "shape"})):
             row = hr.read_codex_provider()
@@ -174,11 +189,12 @@ class ReadCodexProviderTest(unittest.TestCase):
 class ReadXaiProviderTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._env_patch = patch.dict(os.environ, {"Y_AGENT_HOME": self._tmp.name})
-        self._env_patch.start()
+        self._path = Path(self._tmp.name) / "grok-auth.json"
+        self._path_patch = patch("yagent.commands.usage._credentials.grok_auth_path", return_value=self._path)
+        self._path_patch.start()
 
     def tearDown(self):
-        self._env_patch.stop()
+        self._path_patch.stop()
         self._tmp.cleanup()
 
     def test_not_logged_in_when_no_credentials(self):
@@ -188,9 +204,7 @@ class ReadXaiProviderTest(unittest.TestCase):
         self.assertEqual(row["error"], "not_logged_in")
 
     def test_available_row_on_a_good_response(self):
-        store.set_record("xai", {
-            "refresh_token": "rt", "access_token": "at", "expires_at": _iso(3600), "status": "active",
-        })
+        _write_grok_auth(self._path)
         with patch("yagent.commands.usage._http_readers.httpx.get",
                     return_value=_http_response(200, _XAI_LIVE_BODY)) as get:
             row = hr.read_xai_provider()

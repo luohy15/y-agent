@@ -1,14 +1,17 @@
-"""Ensure a fresh access token for a provider (sub-task 2): refresh via
-`_oauth`, mandatory write-back of the (possibly rotated) grant through
-`_credentials`, `invalid_grant` -> `status=reauth_required` instead of a
-raised transport error.
+"""Ensure a fresh access token for a provider (todo 2872 read-through
+redesign): read the vendor CLI's own credential file as the single source of
+truth, refresh via `_oauth` when the access token is expired, and write the
+rotated grant straight back into that same vendor file -- never into a
+y-agent-owned copy. `y usage login <provider>` no longer exists: there is
+nothing left to import, because there is no second grant.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from . import _credentials as store
+from . import _credentials as vendor
 from . import _oauth
 from ._errors import CredentialsMissingError, ReauthRequiredError
 
@@ -17,9 +20,9 @@ from ._errors import CredentialsMissingError, ReauthRequiredError
 _EXPIRY_MARGIN_SECONDS = 60
 
 
-def _is_valid(record: dict) -> bool:
-    token = record.get("access_token")
-    expires_at = record.get("expires_at")
+def _is_valid(grant: dict) -> bool:
+    token = grant.get("access_token")
+    expires_at = grant.get("expires_at")
     if not token or not expires_at:
         return False
     try:
@@ -31,49 +34,56 @@ def _is_valid(record: dict) -> bool:
     return datetime.now(timezone.utc) < exp - timedelta(seconds=_EXPIRY_MARGIN_SECONDS)
 
 
-def ensure_access_token(provider: str) -> str:
-    """Return a usable access token for `provider`, refreshing (and
-    persisting the rotated grant) if the stored one is missing or expiring
-    within the margin.
+def ensure_access_token(provider: str, *, path: Path | None = None) -> str:
+    """Return a usable access token for `provider`, read straight from the
+    vendor CLI's own credential file, refreshing (and writing the rotated
+    grant back into that same file) if the stored one is missing or
+    expiring within the margin.
 
-    Raises `CredentialsMissingError` if no grant is stored yet, or
-    `ReauthRequiredError` if the stored refresh_token is/was rejected
-    (`invalid_grant`) -- a prior `reauth_required` status short-circuits
-    before a doomed network round trip.
+    Raises `CredentialsMissingError` if the vendor file doesn't exist or
+    holds no refresh_token (not logged in), or `ReauthRequiredError` if the
+    provider rejected the refresh_token (`invalid_grant`) -- in that case
+    the vendor file is left completely untouched.
     """
-    record = store.get_record(provider)
-    if not record or not record.get("refresh_token"):
+    path = path or vendor.vendor_auth_path(provider)
+    grant = vendor.read_grant(provider, path)
+    if grant is None:
         raise CredentialsMissingError(provider)
-    if record.get("status") == "reauth_required":
-        raise ReauthRequiredError(provider)
-    if _is_valid(record):
-        return record["access_token"]
+    if _is_valid(grant):
+        return grant["access_token"]
 
-    refresh_fn = _oauth.REFRESH_FUNCS[provider]
-    result = refresh_fn(record["refresh_token"])
-    if not result.get("ok"):
-        store.update_record(
-            provider,
-            status="reauth_required",
-            last_error=result.get("error"),
-            last_refresh_at=store.now_iso(),
-        )
-        raise ReauthRequiredError(provider)
+    outcome: dict = {}
 
-    updates = {
-        "access_token": result["access_token"],
-        # Mandatory write-back: prefer the rotated token; fall back to the
-        # existing one only if this response omitted it, so a single
-        # malformed response can't strand the grant unrefreshable.
-        "refresh_token": result.get("refresh_token") or record["refresh_token"],
-        "expires_at": result["expires_at"],
-        "status": "active",
-        "last_refresh_at": store.now_iso(),
-        "last_error": None,
-    }
-    if result.get("scopes"):
-        updates["scopes"] = result["scopes"]
-    if result.get("extra"):
-        updates["extra"] = {**(record.get("extra") or {}), **result["extra"]}
-    store.update_record(provider, **updates)
-    return updates["access_token"]
+    def _refresh_under_lock(data: dict):
+        # Re-read under the lock: another process may have already
+        # refreshed this provider while we waited to acquire it.
+        current = vendor.extract_grant(provider, data)
+        if current is None:
+            return None  # not logged in; nothing to refresh or write
+        if _is_valid(current):
+            outcome["access_token"] = current["access_token"]
+            return None  # no-op: nothing to write, the file is already fresh
+
+        refresh_fn = _oauth.REFRESH_FUNCS[provider]
+        result = refresh_fn(current["refresh_token"])
+        if not result.get("ok"):
+            # Never write on failure -- the vendor file must stay
+            # byte-identical so a dead grant never masquerades as a partial
+            # rotation.
+            outcome["error"] = result.get("error")
+            return None
+
+        outcome["access_token"] = result["access_token"]
+        return vendor.apply_refresh(provider, data, result)
+
+    vendor.mutate_vendor_file(path, _refresh_under_lock)
+
+    if "access_token" not in outcome:
+        # Either `_refresh_under_lock` flagged it explicitly, or the vendor
+        # file vanished between our unlocked read above and the lock being
+        # acquired (so `fn` was never even called) -- both are "not logged
+        # in" from here.
+        if outcome.get("error"):
+            raise ReauthRequiredError(provider)
+        raise CredentialsMissingError(provider)
+    return outcome["access_token"]
