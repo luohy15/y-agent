@@ -277,8 +277,9 @@ expired-login card tells the user to run.
 54. As a web user, I want one metric charted at a time via a Tokens | Cost |
     Requests toggle, so that the axis and stacking stay meaningful.
 55. As a web user, I want a per-model-by-period table under the chart with a
-    range-sum column and a per-column totals row consistent with the chart's
-    per-period totals, so that chart and table never disagree.
+    range-sum column and a per-column totals row consistent with the unfiltered
+    chart's per-period totals, so that chart and table never disagree (see
+    story 61 for the one deliberate exception, a legend "Other" filter).
 56. As a web user, I want the over-time table to open scrolled to the most
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
@@ -289,19 +290,53 @@ expired-login card tells the user to run.
     entirely, so that it remains focused on spend history instead of current
     provider capacity.
 
+### Over-time legend and chart filter
+
+59. As a web user, I want a legend row under the over-time chart listing the top
+    five models by the selected metric plus an "Other" bucket, each with the
+    color swatch used for its stack segments, so that I can tell which color is
+    which model without hovering every bar.
+60. As a web user, I want clicking a legend entry to filter the chart down to
+    just that model's per-period values, and clicking the same entry again to
+    clear the filter, so that I can read one model's trend without the other
+    models stacked on top of it.
+61. As a web user, I want the legend's "Other" entry to cover every model
+    outside its own top five rather than mirroring the chart's "Other" stack
+    segment, so that the six legend entries together account for 100% of every
+    period and no model is missing from the legend; I accept that a filtered
+    "Other" bar therefore reconciles with no single row of the table.
+62. As a web user, I want an active filter to be obvious on screen (the other
+    legend entries dimmed, and the caption under the chart naming the filtered
+    model and how to clear it), so that a filtered chart is never mistaken for
+    the full picture.
+63. As a web user, I want the caption to disclose the "Other" filter's scope
+    ("Filtered to Other (all models outside the top 5)") rather than just naming
+    it, so that I understand why an Other bar reconciles with no row of the
+    table below instead of reading the mismatch as a bug.
+64. As a web user relying on assistive technology, I want each legend entry to
+    expose its toggle state programmatically rather than through dimming alone,
+    so that which model the chart is filtered to is announced, not just seen.
+65. As a web user, I want the filter to survive a granularity change and to
+    clear itself automatically when the filtered model is no longer in the top
+    five (for example after switching metric), so that the chart never renders a
+    stale or empty filter.
+66. As a web user, I want the per-model-by-period table under the chart to keep
+    showing every model regardless of the chart filter, so that the filter stays
+    a chart-reading aid while the table remains the complete record of the range.
+
 ### Controls and state
 
-59. As a web user, I want a free-text time input accepting the shared grammar,
+67. As a web user, I want a free-text time input accepting the shared grammar,
     with independent per-mode values (Live defaults to today, Over-time
     defaults to the current month) persisted across sessions, so that each mode
     remembers its own natural window.
-60. As a web user, I want the usage view's mode, view toggle, granularity, and
+68. As a web user, I want the usage view's mode, view toggle, granularity, and
     time inputs persisted in local storage, so that the panel reopens the way I
     left it.
-61. As a web user, I want wide ranges ("all", a full year) to return complete
+69. As a web user, I want wide ranges ("all", a full year) to return complete
     data rather than silently truncating at a small row limit, so that
     long-window charts are trustworthy.
-62. As a web user, I want tokens formatted compactly (K / M / B), costs as
+70. As a web user, I want tokens formatted compactly (K / M / B), costs as
     dollars with cents, and requests as plain numbers, consistently across
     cards, charts, tooltips, and tables, so that numbers are readable at every
     scale.
@@ -603,9 +638,66 @@ expired-login card tells the user to run.
 - **Metric selector.** One metric at a time (Tokens default, Cost, Requests),
   shared by the donut, heatmap, over-time chart, and tables' default sort.
   Tokens means total tokens including cache.
-- **Top-N convention.** Charts show the top seven models by the selected
-  metric over the range, descending, with the remainder folded into "Other";
-  chart and table use the same fold so totals always reconcile.
+- **Top-N convention: two folds that coexist.** The *series* fold is top seven
+  models by the selected metric over the range, descending, remainder into
+  "Other". It is the one the donut, the over-time stack, and every table use, so
+  chart and table totals always reconcile. The over-time **legend** applies a
+  second, coarser top-five-plus-Other fold *on top of* that same seven-element
+  array. Both conventions are live and neither replaces the other, because they
+  answer different questions: seven segments is the amount of detail a chart can
+  carry before the tail is noise, while a legend is a scannable index and a row
+  of click targets, and five entries plus Other stay readable in one wrapped row
+  inside a narrow resizable panel where eight would crowd or wrap awkwardly. The
+  legend fold is *derived from* the series fold (it takes the first five named
+  models of the existing rank order rather than re-deriving totals), so legend
+  order can never disagree with stack order, and an unfiltered stack renders
+  exactly as it did before the legend existed. The cost of the second fold is
+  that the two "Other" buckets do not denote the same set, which is deliberate
+  and covered in the next two bullets.
+- **Over-time legend and click-to-filter.** A legend row sits under the chart,
+  one button per legend entry, dot swatch plus model name, styled like the Live
+  donut's dot-legend so the two panels read as one system. Swatch color comes
+  from the same rank-to-palette formula the tooltip already uses, so swatch,
+  bar, and tooltip colors always agree. The one exception is the legend's own
+  "Other" entry, whose swatch is pinned to the neutral color unconditionally
+  (see the next-but-one bullet). Clicking an entry filters the chart to that
+  model and dims the others; clicking it again clears, and each entry carries a
+  pressed state so the toggle is exposed to assistive technology rather than
+  conveyed by dimming alone. While filtered, the stacked bars are replaced by a
+  single-series bar of that model's per-period values and the caption under the
+  chart names the filtered model and the way to clear it; for the "Other" case
+  the caption additionally spells out the bucket's scope ("all models outside
+  the top 5"), since that is the one filter whose total matches no table row.
+  The filter is view state only: it clears itself
+  when the model leaves the top five (metric switch) and survives a granularity
+  change, since the legend depends on the range, not the bucketing.
+- **The legend's "Other" partitions the period; the chart's "Other" is the
+  tail.** The legend's Other reads per-period values straight from the raw
+  per-period data (every model, no fold) rather than from the chart's folded
+  rows, so the six legend entries sum to 100% of every period. That makes a
+  filtered Other bar total intentionally match **no** row of the table below:
+  the table's Other row is ranks eight and beyond, while the legend's Other is
+  ranks six and beyond. The alternative (legend Other = chart Other) was
+  rejected because it would leave ranks six and seven represented by no legend
+  entry at all, i.e. a legend that silently omits two of the models it is
+  drawing. A legend that adds up is worth more than one that is arithmetically
+  interchangeable with a table row.
+- **The legend "Other" swatch is neutral in every dataset.** Because the two
+  Other buckets denote different sets, giving the legend's Other the chart's
+  Other color (which the shared rank-to-palette formula would do once more than
+  seven models exist) would imply a one-to-one mapping to a single stack segment
+  that does not hold, and would flip the same entry between two colors depending
+  on how many models the range happens to contain. The swatch is therefore
+  pinned to the neutral color unconditionally. The shared color function itself
+  is deliberately left alone, so the filtered bar and the tooltip keep the color
+  semantics they had; only the legend swatch differs.
+- **The chart filter does not filter the table.** Filtering is scoped to the
+  chart; the per-model-by-period table under it always shows every model. This
+  is what the requesting todo asked for ("filter the chart") and it keeps the
+  table as the complete record of the range, but it is surprising enough to be
+  worth stating: a user may reasonably expect the table to follow. It is
+  recorded here as delivered behavior, not as an oversight; extending the filter
+  to the table stays out of scope until asked for.
 - **Donut presentation** follows the relay dashboard's distribution chart:
   no on-slice labels, a bottom dot-legend (wrapped a few items per centered
   row, sorted by share descending to match slice order), hover tooltip with
@@ -706,8 +798,19 @@ expired-login card tells the user to run.
   bar is "no new type errors versus HEAD", verified against a detached
   worktree of HEAD rather than asserted, because the project's baseline
   `tsc --noEmit` is not clean. Chart and table consistency is checked by
-  construction (chart per-period totals equal table column totals because both
-  derive from the same fold).
+  construction (unfiltered chart per-period totals equal table column totals
+  because both derive from the same seven-plus-Other fold).
+- **The two folds are checked by their reconciliation contracts, not their
+  internals:** the six legend entries' per-period values sum to that period's
+  total (the legend partitions the period), a legend-Other filtered bar equals
+  the period total minus the top five and is asserted to be *different* from the
+  table's Other row whenever more than seven models exist, and the legend is
+  asserted to carry no Other entry at all when five or fewer named models exist.
+  Toggling a filter on and off is asserted to restore the original stack, and
+  the table is asserted unchanged across both states. The legend's Other swatch
+  is asserted neutral on both sides of the seven-model boundary, the caption is
+  asserted to state the Other bucket's scope while that filter is active, and
+  the legend entries are asserted to expose their pressed state.
 - **Tab-scoping visual checks** confirm that Live shows Subscription limits but
   not the Daily tokens widget, while Over-time shows the Daily tokens widget
   but never renders or requests Subscription limits.
@@ -737,6 +840,7 @@ expired-login card tells the user to run.
 | 2953 | Fixed Live-tab day-boundary bug: relative time tokens (`today`, `ytd`, etc.) resolved in the process timezone (UTC) instead of `Y_AGENT_TIMEZONE`, showing yesterday's usage for the first 8 hours of each local day | - | `pages/plan-2953.md` | this PRD | - | in progress |
 | 2970 | Frontend migrated off the built-in `BotList.tsx`/`BotViewer.tsx` onto the dynamic `bot` UI artifact (see `docs/prd/ui-dynamic-artifacts.md`); the built-in components and their vitest coverage were deleted, with no in-bundle fallback | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |
 | 2980 | Daily-tokens heatmap: the no-usage level was `SOL.base02`, the same value as the card border and table header, so empty cells vanished into the chrome under solarized-light. Level 0 is now a neutral gray derived per theme (`mix(base01, base03, 0.3)`), GitHub-style — a green tint was tried first and rejected for reading as "has usage". Colors moved from a module-level `HEATMAP_COLORS` const to `heatmapColors(colors)` called under `useThemeColors()`, since the const froze at import and would not repaint on a live theme toggle | - | - | - | - | shipped (`bot` artifact v5, `dbd2393185ff…`) |
+| 2981 | "Tokens over time" gained a legend row: the top 5 models by usage plus an `Other` bucket, each with a color swatch, and clicking one filters the chart to that model (clicking again clears). The legend fold (top-5+`Other`) is derived from the existing series fold (top-7+`Other`) rather than computed independently, so legend order can never disagree with stack order. Legend `Other` reads per-period values straight from the raw per-period data, so the six entries partition 100% of every period; the consequence is that a filtered `Other` total intentionally reconciles with no single table row (table `Other` is ranks 8+, legend `Other` is ranks 6+). The table below the chart is deliberately not filtered. Nit pass in the same delivery pinned the legend `Other` swatch to the neutral ink in every dataset, disclosed the `Other` filter's scope in the caption, and added `aria-pressed` to the legend toggles | - | - | this PRD | `pages/review-2981-usage-over-time-legend.md` | shipped (`bot` artifact v6, `ee1136139151…`) |
 
 ## Out of Scope
 
@@ -753,6 +857,10 @@ expired-login card tells the user to run.
   Redis, unrecoverable) and the lifetime cumulative anchor (rejected design).
 - **Server-side over-time aggregation** (revisit only if client payloads grow
   large) and a shared web chart-helper library extraction (follow-up).
+- **Filtering the over-time table from the chart legend**, and multi-select
+  legend filtering (only one model at a time, click again to clear). Both are
+  deferred rather than rejected: the legend filter is a chart-reading aid, and
+  neither has been asked for.
 - **Relay admin credentials in the deployed system** (backfill stays a manual
   one-shot with invocation-time credentials).
 - **A CLI listing/reporting surface** for spend rows (only sync and backfill
@@ -791,6 +899,10 @@ expired-login card tells the user to run.
   connection error raised mid-refresh.
 - **`y usage credentials` raises an httpx traceback on a network blip** where
   it should print a status line like every other outcome.
+- **The filtered chart's tooltip prints the same number twice** ("Total: X"
+  then "<model>: X"), because with a single series the range total and the
+  model's value are the same figure. Harmless and cosmetic; dropping the Total
+  line while a filter is active is the fix.
 - **Unresolved probe:** whether a cheap vendor command could make the vendor
   CLI refresh its own credential file, so y-agent would only ever read it and
   never write at all. That would retire the entire write-safety surface above.
