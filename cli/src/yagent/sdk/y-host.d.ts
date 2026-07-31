@@ -87,6 +87,8 @@ declare module "swr" {
     fetcher?: Fetcher<Data>,
     config?: any,
   ): SWRResponse<Data, Error>;
+  export function useSWRConfig(): { mutate: (matcher: any, data?: any, opts?: any) => Promise<any> };
+  export const mutate: (matcher: any, data?: any, opts?: any) => Promise<any>;
 }
 
 declare module "recharts" {
