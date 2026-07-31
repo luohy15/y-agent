@@ -235,9 +235,31 @@ class Chat:
             result['context_window'] = self.context_window
         return result
 
+    def context_usage_ratio(self) -> Optional[float]:
+        if not self.context_window:
+            return None
+        used = (
+            (self.input_tokens or 0)
+            + (self.output_tokens or 0)
+            + (self.cache_read_input_tokens or 0)
+            + (self.cache_creation_input_tokens or 0)
+        )
+        return used / self.context_window
+
     def update_messages(self, messages: List[Message]) -> None:
         self.messages = sorted(
             [msg for msg in messages if msg.role != 'system'],
             key=lambda x: (x.unix_timestamp)
         )
         self.update_time = get_utc_iso8601_timestamp()
+
+
+def trailing_user_messages(messages: List[Message]) -> List[Message]:
+    """Return user messages that have not yet received a non-user response."""
+    trailing = []
+    for msg in reversed(messages):
+        if msg.role != 'user':
+            break
+        trailing.append(msg)
+    trailing.reverse()
+    return trailing

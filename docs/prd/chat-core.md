@@ -216,6 +216,11 @@ mode (`-i`) serves a human at a terminal.
     so that a chat's place in the session tree cannot drift. Bot name and
     tier are excluded: they are routing state that follows the bot each run
     actually used, so an accepted re-bot is persisted rather than refused.
+53. As a user sending a message into a chat that is already past the
+    recommended context-handoff threshold (20% of its context window), I
+    want a `[context-handoff-reminder]` block appended to the end of my
+    message, so that the receiving session is nudged to wrap up and hand off
+    per AGENTS.md rather than running unboundedly long.
 
 ## Implementation Decisions
 
@@ -321,6 +326,18 @@ mode (`-i`) serves a human at a terminal.
 - **Post-turn hooks** (Telegram reply delivery, unread marking, plan-to-todo
   extraction, trace registration) run in the worker after completion, keyed
   off the same chat record.
+- **Handoff reminder is appended at write time, in-band** (plan-2951): each
+  of the five existing-chat inbound write sites (web/CLI send, notify
+  existing-chat, Telegram routed/steer/DM) appends the handoff reminder to the
+  persisted message content itself rather than at prompt-assembly time,
+  so steer (which forwards `msg.content` verbatim into the live stdin pipe)
+  and Lambda-handoff turn relaunches (which reread already-persisted
+  messages) both see it for free with no separate recomputation path. At
+  most one reminder is appended per pending batch: before appending, the
+  helper scans backwards from the end of `chat.messages` to the first
+  non-user message, and skips if the marker is already present in that
+  trailing run, so several steer messages arriving in one over-threshold
+  window don't each get their own copy.
 
 ## Testing Decisions
 
@@ -365,7 +382,15 @@ mode (`-i`) serves a human at a terminal.
   subsystem consumes chat records but has its own views and share flow.
 - **Context monitor auto-restart** (fresh-chat rollover at context/turn
   thresholds): a policy layered on top of chats, worth its own PRD if it
-  changes.
+  changes. Distinct from the context-handoff reminder above: the reminder is
+  an earlier, softer nag appended to in-band message content at 20% usage;
+  it does not restart or roll over a chat by itself.
+- **Handoff reminder wording and per-role handoff mechanics**: the handoff
+  reminder text is role-agnostic in code (`build_handoff_reminder`, no branching on
+  chat.topic / chat.skill) and defers classification (callback vs.
+  self-restart) to the session itself, per the AGENTS.md "Context handoff"
+  playbook owned by the `hr` skill (todo 2976). This PRD owns only the
+  mechanism: when the reminder fires, where it is appended, and idempotency.
 - **Chat import** (`y chat import`, `import-claude`) and the legacy pandoc
   HTML export: maintenance utilities, not part of the core contract.
 

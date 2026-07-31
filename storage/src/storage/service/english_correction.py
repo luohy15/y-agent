@@ -12,6 +12,7 @@ from storage.dto.english_correction import EnglishCorrection
 from storage.entity.chat import ChatEntity
 from storage.repository import english_correction as correction_repo
 from storage.service import user_preference as user_pref_service
+from storage.service.chat import HANDOFF_REMINDER_MARKER
 from storage.util import generate_id, get_unix_timestamp
 
 WATERMARK_KEY = "english_correction_scan"
@@ -48,6 +49,13 @@ _UI_WRAPPER_TAG_RE = re.compile(
 _UI_WRAPPER_MARKER_RE = re.compile(
     r"<\s*/?\s*(?:selection|instruction)\b",
     re.IGNORECASE,
+)
+# Trailing `\n\n[context-handoff-reminder] ...` block appended by
+# storage.service.chat.maybe_append_handoff_reminder (plan-2951). Injected
+# text, not the user's own prose, so it must not reach eligibility or the
+# corrected-text output — same treatment as _strip_ui_wrapper_blocks.
+_HANDOFF_REMINDER_RE = re.compile(
+    r"\n\n" + re.escape(HANDOFF_REMINDER_MARKER) + r".*\Z", re.DOTALL
 )
 _WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]")
@@ -185,6 +193,10 @@ def _strip_ui_wrapper_blocks(text: str) -> Optional[str]:
     return "".join(parts).strip()
 
 
+def _strip_handoff_reminder(text: str) -> str:
+    return _HANDOFF_REMINDER_RE.sub("", text)
+
+
 def _is_non_prose(text: str) -> Tuple[bool, Optional[str]]:
     stripped = text.strip()
     if not stripped:
@@ -236,6 +248,7 @@ def _eligible_text(
     text = _strip_ui_wrapper_blocks(_message_text(message))
     if text is None:
         return None, "malformed_ui_wrapper"
+    text = _strip_handoff_reminder(text)
     stripped = text.strip()
 
     if _TRACE_PREFIX_RE.match(stripped):

@@ -119,6 +119,18 @@ class IsEligibleTest(FilterTestCase):
         self.assertEqual(normalized, prose)
         self.assertEqual(reason, "ok")
 
+    def test_trailing_handoff_reminder_stripped_before_eligibility(self):
+        prose = "Can you check whether my own sentence is clear enough?"
+        reminder = (
+            f"{eng_service.HANDOFF_REMINDER_MARKER} This session is at 25% of its "
+            "context window (recommended handoff threshold: 20%). Wrap up at a "
+            "clean boundary and hand off per AGENTS.md 'Context handoff'."
+        )
+        text_with_reminder = f"{prose}\n\n{reminder}"
+        without = eng_service._eligible_text(_msg(content=prose))
+        with_reminder = eng_service._eligible_text(_msg(content=text_with_reminder))
+        self.assertEqual(with_reminder, without)
+
     def test_skip_assistant(self):
         ok, reason = eng_service.is_eligible(_msg(role="assistant"))
         self.assertFalse(ok)

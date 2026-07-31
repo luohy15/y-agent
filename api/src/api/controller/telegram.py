@@ -341,9 +341,10 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
         await _send_message(telegram_chat_id, f"chat /{target_chat_id} not found", message_thread_id=message_thread_id)
         return {"ok": True}
 
+    from storage.service import chat as chat_service
     msg_dict = {
         "role": "user",
-        "content": text,
+        "content": chat_service.maybe_append_handoff_reminder(target_chat, text),
         "timestamp": get_utc_iso8601_timestamp(),
         "unix_timestamp": get_unix_timestamp(),
         "id": generate_message_id(),
@@ -414,9 +415,10 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     # non-root topics serialize naturally because they're scoped to a single task.
     if topic == 'manager' and chat and chat.running:
         logger.info("_handle_message: manager chat {} is busy, steering message into running chat", chat.id)
+        from storage.service import chat as chat_service
         msg_dict = {
             "role": "user",
-            "content": text,
+            "content": chat_service.maybe_append_handoff_reminder(chat, text),
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
@@ -433,9 +435,10 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
 
     if chat:
         # Append message to existing chat
+        from storage.service import chat as chat_service
         msg_dict = {
             "role": "user",
-            "content": text,
+            "content": chat_service.maybe_append_handoff_reminder(chat, text),
             "timestamp": get_utc_iso8601_timestamp(),
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),

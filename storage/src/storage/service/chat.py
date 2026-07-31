@@ -5,13 +5,55 @@ from typing import List, Optional
 
 import boto3
 
-from storage.entity.dto import Chat, Message
+from storage.entity.dto import Chat, Message, trailing_user_messages
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
 
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, generate_id, generate_message_id, build_message_path
 
 IS_WINDOWS = sys.platform == 'win32'
+
+CONTEXT_HANDOFF_THRESHOLD = 0.20
+HANDOFF_REMINDER_MARKER = "[context-handoff-reminder]"
+
+
+def build_handoff_reminder(chat: Chat, ratio: float) -> str:
+    """Build the (role-agnostic) handoff reminder appended to an over-threshold send.
+
+    Wording is grounded in the AGENTS.md "Context handoff" playbook (todo 2976):
+    it defers the parent-vs-self-restart classification to the session itself
+    rather than branching on chat.topic / chat.skill here, since the session
+    knows its own tree position better than the send pipeline does.
+    """
+    pct = round(ratio * 100)
+    threshold_pct = round(CONTEXT_HANDOFF_THRESHOLD * 100)
+    return (
+        f"{HANDOFF_REMINDER_MARKER} This session is at {pct}% of its context window "
+        f"(recommended handoff threshold: {threshold_pct}%). Wrap up at a clean "
+        "boundary and hand off per AGENTS.md 'Context handoff': if a parent is "
+        "awaiting your result, record durable state in the todo and callback to "
+        "the parent (do not self-restart); otherwise restart yourself into a "
+        "fresh session per your skill's Session restart section."
+    )
+
+
+def maybe_append_handoff_reminder(chat: Chat, content: str) -> str:
+    """Append a handoff reminder to `content` when `chat` is over threshold.
+
+    No-op when: usage is unknown (ratio is None), usage is at/under threshold,
+    or a trailing user message (since the last non-user message) already
+    carries the marker (one reminder per pending batch, see plan-2951 I2).
+    """
+    ratio = chat.context_usage_ratio()
+    if ratio is None or ratio <= CONTEXT_HANDOFF_THRESHOLD:
+        return content
+
+    for msg in trailing_user_messages(chat.messages):
+        msg_content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        if HANDOFF_REMINDER_MARKER in msg_content:
+            return content
+
+    return f"{content}\n\n{build_handoff_reminder(chat, ratio)}"
 
 
 async def list_chats(

@@ -11,9 +11,24 @@ hits a live DB or the network.
 """
 
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from api.controller import telegram as tg
+from storage.dto.chat import Chat
+from storage.service.chat import HANDOFF_REMINDER_MARKER
+
+
+def _chat(*, id, context_window=None, input_tokens=None, topic=None, running=False):
+    return Chat(
+        id=id,
+        create_time="2026-07-30T00:00:00Z",
+        update_time="2026-07-30T00:00:00Z",
+        messages=[],
+        topic=topic,
+        running=running,
+        context_window=context_window,
+        input_tokens=input_tokens,
+    )
 
 
 class FakeRequest:
@@ -95,6 +110,91 @@ class TelegramWebhookRoutingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp, {"ok": True})
         restart.assert_awaited_once_with(42)
         send.assert_awaited_once_with(10, "New session started.", message_thread_id=None)
+
+
+class TelegramHandoffReminderTest(unittest.IsolatedAsyncioTestCase):
+    """Covers the three existing-chat telegram write sites that append the
+    context-handoff reminder: _handle_routed_message, and both existing-chat
+    branches of _handle_message (the manager-steer branch, exercised via a
+    running=True root chat, and the plain-append branch, via running=False).
+    The new-chat branch is untouched by design (context_window is always
+    None for a brand-new chat)."""
+
+    async def test_routed_message_into_over_threshold_chat_gets_marker(self):
+        user = type("User", (), {"id": 42})()
+        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=300)  # ratio 0.3
+        save = AsyncMock()
+        with (
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch("storage.repository.chat.get_chat", AsyncMock(return_value=target_chat)),
+            patch("storage.repository.chat.save_chat_by_id", save),
+            patch("storage.service.chat.send_chat_message", MagicMock()),
+        ):
+            resp = await tg._handle_routed_message(10, 20, "ba4988", "hello there")
+        self.assertEqual(resp, {"ok": True})
+        saved_content = save.call_args.args[0].messages[-1].content
+        self.assertIn(HANDOFF_REMINDER_MARKER, saved_content)
+
+    async def test_routed_message_into_under_threshold_chat_unchanged(self):
+        user = type("User", (), {"id": 42})()
+        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=100)  # ratio 0.1
+        save = AsyncMock()
+        with (
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch("storage.repository.chat.get_chat", AsyncMock(return_value=target_chat)),
+            patch("storage.repository.chat.save_chat_by_id", save),
+            patch("storage.service.chat.send_chat_message", MagicMock()),
+        ):
+            await tg._handle_routed_message(10, 20, "ba4988", "hello there")
+        saved_content = save.call_args.args[0].messages[-1].content
+        self.assertEqual(saved_content, "hello there")
+
+    async def test_existing_chat_dm_into_over_threshold_chat_gets_marker(self):
+        user = type("User", (), {"id": 42, "email": "u@example.com"})()
+        existing = _chat(id="c1", topic="dev", running=False, context_window=1000, input_tokens=300)
+        save = AsyncMock()
+        with (
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch.object(tg, "find_latest_chat_by_topic", return_value=existing),
+            patch("storage.repository.chat.save_chat_by_id", save),
+            patch("storage.service.chat.send_chat_message", MagicMock()),
+        ):
+            await tg._handle_message(10, 20, "hello there")
+        saved_content = save.call_args.args[0].messages[-1].content
+        self.assertIn(HANDOFF_REMINDER_MARKER, saved_content)
+
+    async def test_manager_steer_into_over_threshold_running_chat_gets_marker(self):
+        # topic defaults to 'manager' when there is no forum thread_id, and
+        # running=True routes through the steer branch (distinct code path
+        # from the plain existing-chat append above).
+        user = type("User", (), {"id": 42, "email": "u@example.com"})()
+        existing = _chat(id="m1", topic="manager", running=True, context_window=1000, input_tokens=300)
+        save = AsyncMock()
+        with (
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch.object(tg, "find_latest_chat_by_topic", return_value=existing),
+            patch("storage.repository.chat.save_chat_by_id", save),
+        ):
+            resp = await tg._handle_message(10, 20, "hello there")
+        self.assertEqual(resp, {"ok": True})
+        saved_content = save.call_args.args[0].messages[-1].content
+        self.assertIn(HANDOFF_REMINDER_MARKER, saved_content)
+
+    async def test_new_chat_dm_does_not_get_marker(self):
+        # A brand-new chat has context_window=None -> the reminder is a
+        # structural no-op; the new-chat branch is not wired to the helper.
+        user = type("User", (), {"id": 42, "email": "u@example.com"})()
+        save = AsyncMock()
+        with (
+            patch.object(tg, "get_user_by_telegram_id", return_value=user),
+            patch.object(tg, "find_latest_chat_by_topic", return_value=None),
+            patch("storage.repository.chat.save_chat", save),
+            patch("storage.repository.chat.release_topic", MagicMock(return_value=0)),
+            patch("storage.service.chat.send_chat_message", MagicMock()),
+        ):
+            await tg._handle_message(10, 20, "hello there")
+        saved_content = save.call_args.args[1].messages[-1].content
+        self.assertEqual(saved_content, "hello there")
 
 
 class TelegramRoutePrefixRegexTest(unittest.TestCase):

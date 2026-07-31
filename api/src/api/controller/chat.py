@@ -262,7 +262,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
-    user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort))
+    prompt = chat_service.maybe_append_handoff_reminder(chat, req.prompt)
+    user_msg = Message.from_dict(_message_dict("user", prompt, images, req.reasoning_effort))
     chat.messages.append(user_msg)
     chat.interrupted = False
 
@@ -645,6 +646,8 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
         parts.append(f'from_chat:{req.from_chat_id}')
     parts.append(f'to_chat:{chat_id}')
     msg_content = f"[{' '.join(parts)}]\n{req.message}"
+    if existing_chat:
+        msg_content = chat_service.maybe_append_handoff_reminder(existing_chat, msg_content)
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)

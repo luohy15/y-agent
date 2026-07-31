@@ -7,7 +7,7 @@ import threading
 from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
-from storage.entity.dto import BotConfig, Message, _throughput_enabled
+from storage.entity.dto import BotConfig, Message, _throughput_enabled, trailing_user_messages
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
@@ -35,21 +35,10 @@ REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
 
 
-def _trailing_user_messages(messages) -> list:
-    """Return user messages that have not yet received a non-user response."""
-    trailing = []
-    for msg in reversed(messages):
-        if msg.role != "user":
-            break
-        trailing.append(msg)
-    trailing.reverse()
-    return trailing
-
-
 def resolve_reasoning_effort(messages, backend: str) -> str | None:
     """Resolve and validate the newest explicit per-turn effort override."""
     reasoning_effort = None
-    for msg in _trailing_user_messages(messages):
+    for msg in trailing_user_messages(messages):
         if msg.reasoning_effort is not None:
             reasoning_effort = msg.reasoning_effort.lower()
 
@@ -72,7 +61,7 @@ def _pending_user_text_and_images(messages) -> tuple[str, list]:
     plan-2662-steer-race.md): the moment any new turn starts, every
     unanswered trailing user message is folded into its prompt.
     """
-    trailing = _trailing_user_messages(messages)
+    trailing = trailing_user_messages(messages)
 
     texts = []
     images = []

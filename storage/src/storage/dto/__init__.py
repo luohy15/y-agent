@@ -7,7 +7,7 @@ from storage.dto.bot import (
     _throughput_enabled,
 )
 from storage.dto.vm import VmConfig
-from storage.dto.chat import ContentPart, Message, Chat
+from storage.dto.chat import ContentPart, Message, Chat, trailing_user_messages
 from storage.dto.todo import TodoHistoryEntry, Todo
 from storage.dto.calendar_event import CalendarEvent
 from storage.dto.link import Link, LinkActivity, LinkSummary
@@ -26,7 +26,7 @@ __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
     "effective_openrouter_config", "_throughput_enabled",
     "VmConfig",
-    "ContentPart", "Message", "Chat",
+    "ContentPart", "Message", "Chat", "trailing_user_messages",
     "TodoHistoryEntry", "Todo",
     "CalendarEvent",
     "Link", "LinkActivity", "LinkSummary",

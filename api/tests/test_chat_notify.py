@@ -7,6 +7,7 @@ Covers the pure branching that downstream sessions depend on:
   - chat resolution precedence: explicit chat_id > topic+trace lookup > new
   - topic-mismatch / work_dir-mismatch 400s
   - already-running -> steer (don't enqueue a new worker task)
+  - handoff-reminder append on the existing-chat branch (over/under threshold)
 
 DB / SSH / vm-config are mocked; nothing touches a real database.
 """
@@ -19,10 +20,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 
 from api.controller import chat as chat_controller
+from storage.dto.chat import Chat
+from storage.service.chat import HANDOFF_REMINDER_MARKER
 
 
 def _request(user_id=123):
     return SimpleNamespace(state=SimpleNamespace(user_id=user_id))
+
+
+def _existing_chat(*, id, topic=None, work_dir=None, running=False, messages=None, context_window=None, input_tokens=None):
+    """Build a real Chat DTO for the `existing`/`found` notify-target fixture.
+
+    Defaults to no usage data (context_window=None), matching the pre-reminder
+    test fixtures exactly: `context_usage_ratio()` is None so
+    `maybe_append_handoff_reminder` is a no-op.
+    """
+    return Chat(
+        id=id,
+        create_time="2026-07-30T00:00:00Z",
+        update_time="2026-07-30T00:00:00Z",
+        messages=messages or [],
+        topic=topic,
+        work_dir=work_dir,
+        running=running,
+        context_window=context_window,
+        input_tokens=input_tokens,
+    )
 
 
 class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
@@ -116,7 +139,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     # --- root-topic ('manager') callback rejection ---------------------------------
 
     async def test_existing_manager_chat_rejects_callback(self):
-        existing = SimpleNamespace(id="m1", topic="manager", work_dir=None, running=False)
+        existing = _existing_chat(id="m1", topic="manager", work_dir=None, running=False)
         req = chat_controller.NotifyRequest(message="result", chat_id="m1")
         m = self._patches(existing=existing)
         with m.stack:
@@ -147,7 +170,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     # --- chat resolution precedence ------------------------------------------------
 
     async def test_explicit_chat_id_takes_precedence_over_topic_trace(self):
-        existing = SimpleNamespace(id="c1", topic="dev", work_dir=None, running=False)
+        existing = _existing_chat(id="c1", topic="dev", work_dir=None, running=False)
         req = chat_controller.NotifyRequest(
             message="x", chat_id="c1", topic="dev", trace_id="2484",
         )
@@ -159,7 +182,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
         m.find.assert_not_called()
 
     async def test_topic_trace_lookup_resolves_existing_chat(self):
-        found = SimpleNamespace(id="f9", topic="dev", work_dir=None, running=False)
+        found = _existing_chat(id="f9", topic="dev", work_dir=None, running=False)
         req = chat_controller.NotifyRequest(message="x", topic="dev", trace_id="2484")
         m = self._patches(existing=found, found=found)
         with m.stack:
@@ -173,7 +196,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     # --- mismatch guards -----------------------------------------------------------
 
     async def test_topic_mismatch_rejected(self):
-        existing = SimpleNamespace(id="c1", topic="dev", work_dir=None, running=False)
+        existing = _existing_chat(id="c1", topic="dev", work_dir=None, running=False)
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="ops")
         m = self._patches(existing=existing)
         with m.stack:
@@ -183,7 +206,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("topic mismatch", ctx.exception.detail)
 
     async def test_work_dir_mismatch_rejected(self):
-        existing = SimpleNamespace(id="c1", topic="dev", work_dir="/a", running=False)
+        existing = _existing_chat(id="c1", topic="dev", work_dir="/a", running=False)
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev", work_dir="/b")
         m = self._patches(existing=existing)
         with m.stack:
@@ -196,7 +219,7 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     # --- already-running -> steer (no new worker task) -----------------------------
 
     async def test_running_chat_does_not_enqueue_worker(self):
-        existing = SimpleNamespace(id="c1", topic="dev", work_dir=None, running=True)
+        existing = _existing_chat(id="c1", topic="dev", work_dir=None, running=True)
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
         m = self._patches(existing=existing)
         with m.stack:
@@ -204,12 +227,36 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
         m.send.assert_not_called()
 
     async def test_idle_existing_chat_enqueues_worker(self):
-        existing = SimpleNamespace(id="c1", topic="dev", work_dir=None, running=False)
+        existing = _existing_chat(id="c1", topic="dev", work_dir=None, running=False)
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
         m = self._patches(existing=existing)
         with m.stack:
             await chat_controller.post_chat_notify(req, _request())
         m.send.assert_called_once()
+
+    # --- handoff reminder ------------------------------------------------------------
+
+    async def test_over_threshold_existing_chat_appends_reminder(self):
+        existing = _existing_chat(
+            id="c1", topic="dev", running=False,
+            context_window=1000, input_tokens=300,  # ratio 0.3 > 0.20 threshold
+        )
+        req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
+        m = self._patches(existing=existing)
+        with m.stack:
+            await chat_controller.post_chat_notify(req, _request())
+        self.assertIn(HANDOFF_REMINDER_MARKER, self._appended_content(m))
+
+    async def test_under_threshold_existing_chat_content_unchanged(self):
+        existing = _existing_chat(
+            id="c1", topic="dev", running=False,
+            context_window=1000, input_tokens=100,  # ratio 0.1 <= 0.20 threshold
+        )
+        req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
+        m = self._patches(existing=existing)
+        with m.stack:
+            await chat_controller.post_chat_notify(req, _request())
+        self.assertEqual(self._appended_content(m), "[to:dev to_chat:c1]\nx")
 
 
 if __name__ == "__main__":
