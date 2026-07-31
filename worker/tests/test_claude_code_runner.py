@@ -40,6 +40,35 @@ class ClaudeCodeEnvTest(unittest.TestCase):
             )
         self.assertEqual(params["env"]["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"], "1")
 
+    def test_relay_model_is_forwarded_verbatim_with_first_party_base_url(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_claude_code_params(
+                _chat(),
+                "chat-1",
+                1,
+                BotConfig(
+                    name="sol",
+                    backend="claude_code",
+                    model="gpt-5.6-sol[1m]",
+                    base_url="https://cc1.yovy.app/api",
+                ),
+            )
+        model_index = params["cmd"].index("--model")
+        self.assertEqual(params["cmd"][model_index + 1], "gpt-5.6-sol[1m]")
+        self.assertEqual(params["env"]["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"], "1")
+
+    def test_direct_config_does_not_set_first_party_base_url_escape_hatch(self):
+        vm = VmConfig(name="vm", vm_name="user@example.com", api_token="key", work_dir="/repo")
+        with patch("worker.runner.agent_config.resolve_vm_config", return_value=vm):
+            params = _build_claude_code_params(
+                _chat(),
+                "chat-1",
+                1,
+                BotConfig(name="claude_code", backend="claude_code", model="sonnet"),
+            )
+        self.assertNotIn("_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL", params["env"])
+
 
 class StartDetachedBackendSelectionTest(unittest.IsolatedAsyncioTestCase):
     async def test_empty_backend_defaults_to_claude_code(self):
