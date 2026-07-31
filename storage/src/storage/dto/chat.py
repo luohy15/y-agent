@@ -235,16 +235,18 @@ class Chat:
             result['context_window'] = self.context_window
         return result
 
-    def context_usage_ratio(self) -> Optional[float]:
-        if not self.context_window:
-            return None
-        used = (
+    def used_tokens(self) -> int:
+        return (
             (self.input_tokens or 0)
             + (self.output_tokens or 0)
             + (self.cache_read_input_tokens or 0)
             + (self.cache_creation_input_tokens or 0)
         )
-        return used / self.context_window
+
+    def context_usage_ratio(self) -> Optional[float]:
+        if not self.context_window:
+            return None
+        return self.used_tokens() / self.context_window
 
     def update_messages(self, messages: List[Message]) -> None:
         self.messages = sorted(

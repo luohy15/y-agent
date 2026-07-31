@@ -216,11 +216,13 @@ mode (`-i`) serves a human at a terminal.
     so that a chat's place in the session tree cannot drift. Bot name and
     tier are excluded: they are routing state that follows the bot each run
     actually used, so an accepted re-bot is persisted rather than refused.
-53. As a user sending a message into a chat that is already past the
-    recommended context-handoff threshold (20% of its context window), I
-    want a `[context-handoff-reminder]` block appended to the end of my
-    message, so that the receiving session is nudged to wrap up and hand off
-    per AGENTS.md rather than running unboundedly long.
+53. As a user sending a message into a chat that has already used more
+    tokens than the recommended context-handoff threshold
+    (`min(50% of its context window, 200k tokens)`), I want a
+    `[context-handoff-reminder]` block appended to the end of my message,
+    stating the session's actual usage, so that the receiving session is
+    nudged to wrap up and hand off per AGENTS.md rather than running
+    unboundedly long.
 
 ## Implementation Decisions
 
@@ -338,6 +340,15 @@ mode (`-i`) serves a human at a terminal.
   non-user message, and skips if the marker is already present in that
   trailing run, so several steer messages arriving in one over-threshold
   window don't each get their own copy.
+- **Handoff threshold is `min(50% of context window, 200k tokens)`, not a flat
+  ratio** (todo 2951 revision, supersedes the original 20%-ratio decision): a
+  flat percentage fired 5x earlier in absolute terms on a 200k-window bot than
+  on a 1M-window (fable-class) bot. The absolute cap makes the trigger mean
+  the same token budget everywhere: a 200k-window bot fires at 50% usage
+  (100k tokens), a 1M-window bot fires at 20% usage (200k tokens). The
+  reminder wording states the session's actual usage percentage and token
+  count rather than a fixed threshold percentage, since the effective
+  percentage now varies by window size.
 
 ## Testing Decisions
 
@@ -383,8 +394,9 @@ mode (`-i`) serves a human at a terminal.
 - **Context monitor auto-restart** (fresh-chat rollover at context/turn
   thresholds): a policy layered on top of chats, worth its own PRD if it
   changes. Distinct from the context-handoff reminder above: the reminder is
-  an earlier, softer nag appended to in-band message content at 20% usage;
-  it does not restart or roll over a chat by itself.
+  an earlier, softer nag appended to in-band message content once usage
+  exceeds `min(50% of context window, 200k tokens)`; it does not restart or
+  roll over a chat by itself.
 - **Handoff reminder wording and per-role handoff mechanics**: the handoff
   reminder text is role-agnostic in code (`build_handoff_reminder`, no branching on
   chat.topic / chat.skill) and defers classification (callback vs.
@@ -402,4 +414,4 @@ mode (`-i`) serves a human at a terminal.
 | 2873 | Fully remove the temporary claude_tui backend + subscription /usage tooling; `_start_detached` defaults to claude_code and rejects unknown backends; migration repoints persisted backend pins claude_tui->claude_code with external_id preserved | - | `pages/plan-2873-remove-claude-tui.md` | - | `pages/review-2873-remove-claude-tui.md` | shipped |
 | 2885 | Prevent large Grok updates polls from deadlocking SSH persistence and retain the cumulative updates offset across resumed turns | - | `pages/plan-2885-grok-updates-poll-deadlock.md` | `pages/recovery-2885-aa346e-lost-turn.md` | `pages/review-2885-grok-updates-poll-deadlock.md` | shipped |
 | 2930 | Remove the codex / gemini_cli / grok_build / pi_cli agentic backends so claude_code is the only detached backend; `_start_detached` rejects every other backend; the two steer delivery families collapse to live stdin injection; migration repoints persisted chat pins to claude_code and NULLs `external_id` (a foreign CLI session id is not resumable by `claude -p -r`). Chat identity narrows to backend-only: bot name and tier leave the write-once set so a same-backend re-bot on a live chat persists, keeping `external_id` and the session. Follow-up: the `external_id` column becomes authoritative over the `json_content` copy (the Track A migration's NULL never reached the runtime and broke the 983 repointed chats that held a session handle), and a handle Claude Code affirmatively refuses is dropped instead of retried forever. That heal as first deployed (437b4f2) never fired: it sat on the no-result branch, while a refused resume emits an error `result` event (so `result_data` was always set and the probe was unreachable, and the event's echoed session id was re-persisted). Detection now reads the marker from that event's structured `errors` list, with the stderr probe kept only as the fallback for a run that leaves no result event | - | `pages/plan-2930-single-backend.md` | `pages/decision-2930-external-id-column-authority.md` | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C), `pages/review-2930-external-id-column-authority.md` + `pages/review-2930-external-id-column-authority-fixes.md` (column authority), `pages/review-2930-refused-handle-heal-branch.md` (heal branch) | in progress |
-| 2951 | Append a context-handoff reminder to inbound user messages once a chat passes 20% context-window usage. `Chat.context_usage_ratio()` becomes the single Python source for the percentage (the TS copy in `ChatView` stays display-only); `maybe_append_handoff_reminder` runs at the API layer into the persisted message content, wired at all five existing-chat write sites (API send + notify, Telegram routed / DM steer / DM append). Chat-creation sites are deliberately skipped (`context_window is None` makes the check a no-op). Idempotency is structural: the append is decided once where the `Message` is built, deduped across the trailing user batch via the shared `trailing_user_messages()` that the worker also uses to concatenate a prompt, and no worker/agent path recomputes it. Wording is role-agnostic (no branching on `chat.topic` / `chat.skill`) and defers callback-vs-self-restart to the session per the AGENTS.md "Context handoff" playbook (todo 2976). `english_correction` strips the trailing reminder block so an injected nag is never scored as the user's own prose. Blob-only usage fields, so no migration and no new columns | - | `pages/plan-2951-context-handoff-reminder.md` | - | `pages/review-2951-context-handoff-reminder.md` | shipped |
+| 2951 | Append a context-handoff reminder to inbound user messages once a chat's used tokens exceed `min(50% of context window, 200k tokens)` (revised from a flat 20% ratio, which fired 5x earlier in absolute terms on 200k-window bots than on 1M-window fable-class ones). `Chat.context_usage_ratio()` remains the single Python source for the displayed percentage, and `Chat.used_tokens()` is the shared absolute-token accessor both it and the threshold comparison use; `maybe_append_handoff_reminder` runs at the API layer into the persisted message content, wired at all five existing-chat write sites (API send + notify, Telegram routed / DM steer / DM append). Chat-creation sites are deliberately skipped (`context_window is None` makes the check a no-op). Idempotency is structural: the append is decided once where the `Message` is built, deduped across the trailing user batch via the shared `trailing_user_messages()` that the worker also uses to concatenate a prompt, and no worker/agent path recomputes it. Reminder wording states the session's actual usage percentage and token count (no hardcoded threshold percentage, since the effective percentage now varies by window size) and is role-agnostic (no branching on `chat.topic` / `chat.skill`), deferring callback-vs-self-restart to the session per the AGENTS.md "Context handoff" playbook (todo 2976). `english_correction` strips the trailing reminder block so an injected nag is never scored as the user's own prose. Blob-only usage fields, so no migration and no new columns | - | `pages/plan-2951-context-handoff-reminder.md` | - | `pages/review-2951-context-handoff-reminder.md` | shipped |

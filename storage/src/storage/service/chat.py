@@ -13,7 +13,13 @@ from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, generate
 
 IS_WINDOWS = sys.platform == 'win32'
 
-CONTEXT_HANDOFF_THRESHOLD = 0.20
+CONTEXT_HANDOFF_RATIO = 0.50
+# The reminder fires once used tokens exceed the smaller of this ratio's share
+# of the context window or the absolute cap below, so a 200k-window bot fires
+# at 50% usage (100k tokens) while a 1M-window (fable-class) bot fires at 20%
+# usage (200k tokens) - the same absolute token budget either way, rather than
+# a flat ratio that would fire 5x earlier in absolute terms on the 200k bot.
+CONTEXT_HANDOFF_ABSOLUTE_TOKENS = 200_000
 HANDOFF_REMINDER_MARKER = "[context-handoff-reminder]"
 
 
@@ -26,26 +32,35 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
     knows its own tree position better than the send pipeline does.
     """
     pct = round(ratio * 100)
-    threshold_pct = round(CONTEXT_HANDOFF_THRESHOLD * 100)
+    used = chat.used_tokens()
     return (
-        f"{HANDOFF_REMINDER_MARKER} This session is at {pct}% of its context window "
-        f"(recommended handoff threshold: {threshold_pct}%). Wrap up at a clean "
-        "boundary and hand off per AGENTS.md 'Context handoff': if a parent is "
-        "awaiting your result, record durable state in the todo and callback to "
-        "the parent (do not self-restart); otherwise restart yourself into a "
-        "fresh session per your skill's Session restart section."
+        f"{HANDOFF_REMINDER_MARKER} This session is at {pct}% of its context "
+        f"window ({used:,} tokens used) and has crossed the handoff threshold. "
+        "Wrap up at a clean boundary and hand off per AGENTS.md 'Context "
+        "handoff': if a parent is awaiting your result, record durable state "
+        "in the todo and callback to the parent (do not self-restart); "
+        "otherwise restart yourself into a fresh session per your skill's "
+        "Session restart section."
     )
 
 
 def maybe_append_handoff_reminder(chat: Chat, content: str) -> str:
     """Append a handoff reminder to `content` when `chat` is over threshold.
 
-    No-op when: usage is unknown (ratio is None), usage is at/under threshold,
-    or a trailing user message (since the last non-user message) already
-    carries the marker (one reminder per pending batch, see plan-2951 I2).
+    No-op when: usage is unknown (ratio is None), usage is at/under the
+    min(ratio, absolute) threshold, or a trailing user message (since the last
+    non-user message) already carries the marker (one reminder per pending
+    batch, see plan-2951 I2).
     """
     ratio = chat.context_usage_ratio()
-    if ratio is None or ratio <= CONTEXT_HANDOFF_THRESHOLD:
+    if ratio is None:
+        return content
+
+    threshold_tokens = min(
+        chat.context_window * CONTEXT_HANDOFF_RATIO,
+        CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
+    )
+    if chat.used_tokens() <= threshold_tokens:
         return content
 
     for msg in trailing_user_messages(chat.messages):

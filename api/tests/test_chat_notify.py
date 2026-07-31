@@ -239,7 +239,8 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     async def test_over_threshold_existing_chat_appends_reminder(self):
         existing = _existing_chat(
             id="c1", topic="dev", running=False,
-            context_window=1000, input_tokens=300,  # ratio 0.3 > 0.20 threshold
+            # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+            context_window=1000, input_tokens=600,  # 600 > 500 threshold
         )
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
         m = self._patches(existing=existing)
@@ -250,7 +251,8 @@ class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):
     async def test_under_threshold_existing_chat_content_unchanged(self):
         existing = _existing_chat(
             id="c1", topic="dev", running=False,
-            context_window=1000, input_tokens=100,  # ratio 0.1 <= 0.20 threshold
+            # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+            context_window=1000, input_tokens=400,  # 400 <= 500 threshold
         )
         req = chat_controller.NotifyRequest(message="x", chat_id="c1", topic="dev")
         m = self._patches(existing=existing)

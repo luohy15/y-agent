@@ -2,7 +2,8 @@ import unittest
 
 from storage.dto.chat import Chat, Message
 from storage.service.chat import (
-    CONTEXT_HANDOFF_THRESHOLD,
+    CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
+    CONTEXT_HANDOFF_RATIO,
     HANDOFF_REMINDER_MARKER,
     maybe_append_handoff_reminder,
 )
@@ -28,10 +29,11 @@ def _assistant_message(content: str, ts: int) -> Message:
 
 
 def _over_threshold_chat(messages=None) -> Chat:
+    # 200k window: threshold is min(0.5 * 200_000, 200_000) = 100_000 tokens.
     return _chat(
         messages=messages,
-        context_window=1000,
-        input_tokens=300,  # ratio 0.3 > 0.20 threshold
+        context_window=200_000,
+        input_tokens=150_000,  # 150_000 > 100_000 threshold
     )
 
 
@@ -41,11 +43,12 @@ class MaybeAppendHandoffReminderTest(unittest.TestCase):
         self.assertEqual(maybe_append_handoff_reminder(chat, "hello"), "hello")
 
     def test_under_threshold_leaves_content_unchanged(self):
-        chat = _chat(context_window=1000, input_tokens=100)  # ratio 0.1
+        chat = _chat(context_window=200_000, input_tokens=50_000)  # < 100_000 threshold
         self.assertEqual(maybe_append_handoff_reminder(chat, "hello"), "hello")
 
     def test_exactly_at_threshold_leaves_content_unchanged(self):
-        chat = _chat(context_window=1000, input_tokens=int(1000 * CONTEXT_HANDOFF_THRESHOLD))
+        threshold = int(200_000 * CONTEXT_HANDOFF_RATIO)
+        chat = _chat(context_window=200_000, input_tokens=threshold)
         self.assertEqual(maybe_append_handoff_reminder(chat, "hello"), "hello")
 
     def test_over_threshold_appends_marker(self):
@@ -68,6 +71,26 @@ class MaybeAppendHandoffReminderTest(unittest.TestCase):
         result = maybe_append_handoff_reminder(chat, "hello")
         self.assertTrue(result.startswith("hello\n\n"))
         self.assertIn(HANDOFF_REMINDER_MARKER, result)
+
+    def test_200k_window_does_not_fire_at_45_percent(self):
+        chat = _chat(context_window=200_000, input_tokens=90_000)  # 45% < 50% threshold
+        self.assertEqual(maybe_append_handoff_reminder(chat, "hello"), "hello")
+
+    def test_200k_window_fires_at_55_percent(self):
+        chat = _chat(context_window=200_000, input_tokens=110_000)  # 55% > 50% threshold
+        result = maybe_append_handoff_reminder(chat, "hello")
+        self.assertIn(HANDOFF_REMINDER_MARKER, result)
+
+    def test_1m_window_fires_at_21_percent_above_absolute_cap(self):
+        # 1M window: threshold is min(0.5 * 1_000_000, 200_000) = 200_000 tokens.
+        chat = _chat(context_window=1_000_000, input_tokens=210_000)  # 21% > 200_000 cap
+        self.assertGreater(210_000, CONTEXT_HANDOFF_ABSOLUTE_TOKENS)
+        result = maybe_append_handoff_reminder(chat, "hello")
+        self.assertIn(HANDOFF_REMINDER_MARKER, result)
+
+    def test_1m_window_does_not_fire_at_19_percent(self):
+        chat = _chat(context_window=1_000_000, input_tokens=190_000)  # 19% < 200_000 cap
+        self.assertEqual(maybe_append_handoff_reminder(chat, "hello"), "hello")
 
 
 if __name__ == "__main__":

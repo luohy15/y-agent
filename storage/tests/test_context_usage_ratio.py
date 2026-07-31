@@ -44,5 +44,24 @@ class ContextUsageRatioTest(unittest.TestCase):
         self.assertEqual(chat.context_usage_ratio(), 0.1)
 
 
+class UsedTokensTest(unittest.TestCase):
+    def test_no_context_window_still_sums_tokens(self):
+        chat = _chat(context_window=None, input_tokens=100, output_tokens=50)
+        self.assertEqual(chat.used_tokens(), 150)
+
+    def test_all_fields_set_returns_sum(self):
+        chat = _chat(
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=30,
+            cache_creation_input_tokens=20,
+        )
+        self.assertEqual(chat.used_tokens(), 200)
+
+    def test_partially_none_token_fields_treated_as_zero(self):
+        chat = _chat(input_tokens=100, output_tokens=None)
+        self.assertEqual(chat.used_tokens(), 100)
+
+
 if __name__ == "__main__":
     unittest.main()

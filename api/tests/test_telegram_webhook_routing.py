@@ -122,7 +122,8 @@ class TelegramHandoffReminderTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_routed_message_into_over_threshold_chat_gets_marker(self):
         user = type("User", (), {"id": 42})()
-        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=300)  # ratio 0.3
+        # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=600)  # 600 > 500
         save = AsyncMock()
         with (
             patch.object(tg, "get_user_by_telegram_id", return_value=user),
@@ -137,7 +138,8 @@ class TelegramHandoffReminderTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_routed_message_into_under_threshold_chat_unchanged(self):
         user = type("User", (), {"id": 42})()
-        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=100)  # ratio 0.1
+        # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+        target_chat = _chat(id="ba4988", context_window=1000, input_tokens=400)  # 400 <= 500
         save = AsyncMock()
         with (
             patch.object(tg, "get_user_by_telegram_id", return_value=user),
@@ -151,7 +153,8 @@ class TelegramHandoffReminderTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_existing_chat_dm_into_over_threshold_chat_gets_marker(self):
         user = type("User", (), {"id": 42, "email": "u@example.com"})()
-        existing = _chat(id="c1", topic="dev", running=False, context_window=1000, input_tokens=300)
+        # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+        existing = _chat(id="c1", topic="dev", running=False, context_window=1000, input_tokens=600)
         save = AsyncMock()
         with (
             patch.object(tg, "get_user_by_telegram_id", return_value=user),
@@ -168,7 +171,8 @@ class TelegramHandoffReminderTest(unittest.IsolatedAsyncioTestCase):
         # running=True routes through the steer branch (distinct code path
         # from the plain existing-chat append above).
         user = type("User", (), {"id": 42, "email": "u@example.com"})()
-        existing = _chat(id="m1", topic="manager", running=True, context_window=1000, input_tokens=300)
+        # window 1000 -> min(0.5 * 1000, 200_000) = 500 token threshold
+        existing = _chat(id="m1", topic="manager", running=True, context_window=1000, input_tokens=600)
         save = AsyncMock()
         with (
             patch.object(tg, "get_user_by_telegram_id", return_value=user),
