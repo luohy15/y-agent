@@ -10,7 +10,6 @@ import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
 import ChatView from "./ChatView";
-import BotViewer from "./BotViewer";
 import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import UserMenu from "./UserMenu";
@@ -21,11 +20,6 @@ installFetchMock();
 try {
   // Show all todo statuses (the fixture mixes pending/active/completed).
   localStorage.setItem("todoListStatusFilter", "all");
-  // Bot usage: land on the Live usage view (donut + daily contribution heatmap), with a
-  // wide time range so the heatmap spans the whole fixture window.
-  localStorage.setItem("botView", "usage");
-  localStorage.setItem("botUsageMode", "live");
-  localStorage.setItem("botUsageLiveTime", "all");
 } catch {
   // localStorage may be unavailable in some headless contexts; harmless.
 }
@@ -96,10 +90,6 @@ export default function ScreenshotShowcase() {
 
         <PanelFrame name="tags-drilldown" title="tags · TagList (drill-down)" width={320} height={560}>
           <TagList isLoggedIn onNavigate={noop} />
-        </PanelFrame>
-
-        <PanelFrame name="bot-usage" title="bot · BotViewer (usage)" width={560} height={760}>
-          <BotViewer />
         </PanelFrame>
 
         <PanelFrame name="chat" title="chat · ChatView (snapshot)" width={560} height={680}>

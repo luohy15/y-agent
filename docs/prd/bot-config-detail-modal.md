@@ -167,6 +167,10 @@ Settled contract:
   reopen.
 - Keep coverage in the focused Bot viewer config-modal test suite with mocked
   list and config endpoints so cold vs warm cache conditions are deterministic.
+  **Retired by todo 2970**: the built-in `BotViewer.configModal.test.tsx` suite
+  behind stories 22-23 was deleted along with `BotList.tsx`/`BotViewer.tsx` when
+  the frontend moved onto the `bot` UI artifact, which has no test harness. There
+  is no replacement coverage; this is an accepted loss (see `ui-dynamic-artifacts.md`).
 - Required regression cases for the load contract:
   - Cold open: list payload lacks or differs on detail-only fields; after the
     config response resolves, Weight / Max Tokens / API Path match the config
@@ -197,3 +201,4 @@ Settled contract:
 |------|---------|--------|------|-----------|--------|--------|
 | 2865 | Config-tab detail opens in a modal with standard close interactions; row status-dot stays independent | - | `pages/plan-2865-bot-config-detail-modal.md` | - | `pages/review-2865-bot-config-modal.md` | shipped |
 | 2868 | Modal form seeds only from loaded config detail; save/toggle invalidates config cache so Weight and other fields never show stale/empty values | - | `pages/plan-2868-bot-config-modal-weight-load.md` | - | `pages/review-2868-bot-config-modal-weight-load.md` | shipped |
+| 2970 | Frontend migrated off the built-in `BotList.tsx`/`BotViewer.tsx` onto the dynamic `bot` UI artifact (see `docs/prd/ui-dynamic-artifacts.md`); the focused `BotViewer.configModal.test.tsx` suite behind stories 22-23 was retired with the built-in, with no replacement coverage | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |

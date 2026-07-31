@@ -735,6 +735,7 @@ expired-login card tells the user to run.
 | 2890 | Daily tokens heatmap weeks start Monday instead of Sunday | - | - | - | - | shipped |
 | 2872 | Subscription limit windows read directly from Anthropic / OpenAI / xAI instead of claude-relay-service: three providers, per-provider window kinds, VM-side CLI reads, and read-through of each vendor CLI's own credential file | - | `pages/plan-2872-direct-provider-usage.md` (supersedes `pages/plan-2872-provider-usage-window-ownership.md`) | this PRD | `pages/review-2872-backend-usage-limits.md`, `pages/review-2872-backend-usage-limits-round2.md`, `pages/review-2872-web-usage-cards.md` | shipped (`09df56b` backend, `dfd75a2` web, `0c2c773` CLI, `3acdbc7` read-through) |
 | 2953 | Fixed Live-tab day-boundary bug: relative time tokens (`today`, `ytd`, etc.) resolved in the process timezone (UTC) instead of `Y_AGENT_TIMEZONE`, showing yesterday's usage for the first 8 hours of each local day | - | `pages/plan-2953.md` | this PRD | - | in progress |
+| 2970 | Frontend migrated off the built-in `BotList.tsx`/`BotViewer.tsx` onto the dynamic `bot` UI artifact (see `docs/prd/ui-dynamic-artifacts.md`); the built-in components and their vitest coverage were deleted, with no in-bundle fallback | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |
 
 ## Out of Scope
 

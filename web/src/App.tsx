@@ -20,7 +20,6 @@ import EntityList from "./components/EntityList";
 import TagList from "./components/TagList";
 import type { TagResultItem } from "./api";
 import { navigateTag, openTodo } from "./utils/tagNavigate";
-import BotList from "./components/BotList";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
@@ -80,15 +79,15 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
-    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter(isPersistableTab); } catch { return []; }
+    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter(isPersistableTab).filter((p) => p !== "bot.md"); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("activeFile") || null;
-    return saved && !isPersistableTab(saved) ? null : saved;
+    return saved && (!isPersistableTab(saved) || saved === "bot.md") ? null : saved;
   });
   const [previewFile, setPreviewFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("previewFile") || null;
-    return saved && !isPersistableTab(saved) ? null : saved;
+    return saved && (!isPersistableTab(saved) || saved === "bot.md") ? null : saved;
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
   // Which mounted artifacts actually define a detail surface. Only known once
@@ -906,7 +905,6 @@ export default function App() {
               todo: { path: "todo.md", label: "Open todo.md" },
               calendar: { path: "calendar.md", label: "Open calendar.md" },
               dev: { path: "dev.md", label: "Open dev.md" },
-              bots: { path: "bot.md", label: "Open bot.md" },
             };
             const panelFile = sidebarArtifact
               ? (uiArtifactHasDetail[sidebarArtifact.slug]
@@ -944,8 +942,6 @@ export default function App() {
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
               ) : sidebarPanel === "tags" ? (
                 <TagList isLoggedIn={auth.isLoggedIn} onNavigate={handleTagNavigate} />
-              ) : sidebarPanel === "bots" ? (
-                <BotList isLoggedIn={auth.isLoggedIn} onChange={refreshBotList} />
               ) : sidebarPanel === "calendar" ? (
                 <ScheduleList isLoggedIn={auth.isLoggedIn} onSelectEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} />
               ) : sidebarPanel === "reminder" ? (

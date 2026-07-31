@@ -7,7 +7,6 @@ import TodoViewer from "./TodoViewer";
 import CalendarViewer from "./CalendarViewer";
 import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
-import BotViewer from "./BotViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
@@ -969,13 +968,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isEnglishPreview = !isDiff && !isTrace && activeFileName === "english.md";
   const isEmail = !isDiff && !isTrace && activeFileName === "email.md";
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
-  const isBot = !isDiff && !isTrace && activeFileName === "bot.md";
 
   // Fetch file when it becomes active and isn't cached
   useEffect(() => {
     if (mode === "public") return;
     if (!activeFile) return;
-    if (isDiff || isArtifact || isUiArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isEmail || isDev || isBot) return;
+    if (isDiff || isArtifact || isUiArtifact || isTrace || isTodo || isCalendar || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -1006,7 +1004,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, isArtifact, isBot, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isLinkPreview, isLinksMd, isTodo, isTrace, isUiArtifact, vmQuery, mode]);
+  }, [activeFile, cache, isArtifact, isCalendar, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isLinkPreview, isLinksMd, isTodo, isTrace, isUiArtifact, vmQuery, mode]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -1088,10 +1086,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
       return;
     }
-    if (isBot) {
-      mutate((key) => typeof key === "string" && key.includes("/api/bot/list"));
-      return;
-    }
     // Clear cache entry so useEffect re-fetches
     setCache((prev) => {
       const next = { ...prev };
@@ -1102,7 +1096,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, isBot, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isTodo, isCalendar, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -1340,7 +1334,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isBot && !isArtifact && !isUiArtifact && !isLinksMd && (
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (
             <a
               href={`https://github.com/luohy15/y-history/commits/main/${historyFilePath}`}
               target="_blank"
@@ -1351,7 +1345,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               History
             </a>
           )}
-          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isBot && !isArtifact && !isUiArtifact && !isLinksMd && (() => {
+          {!isTodo && !isCalendar && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (() => {
             const fileData = cache[activeFile];
             if (!fileData) return null;
             // Binary files (images/PDFs) load into blobUrl with no text content;
@@ -1472,7 +1466,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileEnglishPreview = !fileDiff && !fileTrace && fileName === "english.md";
           const fileEmail = !fileDiff && !fileTrace && fileName === "email.md";
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
-          const fileBot = !fileDiff && !fileTrace && fileName === "bot.md";
           const isActive = filePath === activeFile;
           const fileData = cache[filePath];
           const fileExt = getExt(fileName);
@@ -1482,7 +1475,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileArtifact || fileUiArtifactSlug || fileTodo || fileCalendar || fileEmail || fileDev || fileBot || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileArtifact || fileUiArtifactSlug || fileTodo || fileCalendar || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -1547,8 +1540,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <EmailViewer threadId={selectedThreadId || null} account={selectedThreadAccount || null} />
               ) : fileDev ? (
                 <DevViewer />
-              ) : fileBot ? (
-                <BotViewer />
               ) : !fileData || fileData.loading ? (
                 <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
               ) : fileData.error ? (
