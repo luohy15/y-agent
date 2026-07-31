@@ -688,7 +688,13 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     # Build env
     api_base_url = bot_config.base_url if bot_config.base_url else None
     api_key = bot_config.api_key if bot_config.api_key else None
-    env = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+    env = {
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        # Global override so bot model config stays a plain model id (no [1m]
+        # suffix): Claude Code only fills in this window for model ids it has
+        # no registry entry for, so known Claude models are unaffected.
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+    }
     if api_base_url:
         env["ANTHROPIC_BASE_URL"] = api_base_url
         # Relay hosts are treated as third-party by the Claude Code CLI,
