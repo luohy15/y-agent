@@ -248,6 +248,50 @@ after the host redeploys. It carries a version, and artifact metadata records a
 `min_host_version`; an artifact requiring a newer host than the running app
 refuses to mount with an explicit message rather than failing obscurely.
 
+### Host↔artifact navigation: a retained intent channel (contract v3)
+
+An artifact mounts with **no props** (Routing decision, above): `ArtifactMount`
+renders `<Artifact />` bare, so neither surface has a built-in way to receive a
+target from outside itself. That is fine for a leaf artifact, but the calendar
+migration (todo 2979) is not a leaf: built-in host code (a click on a calendar
+event inside a trace waterfall, a tag drill-down) needs to tell the artifact
+"show me this date", and the artifact's own panel needs to open its own detail
+tab. Contract v2 had no channel for either direction.
+
+Contract v3 adds two small, additive functions to `@y/host`:
+
+- `useArtifactIntent<T>(slug)` — host → artifact. Reads (and subscribes to) the
+  latest intent the host has set for that slug.
+- `openArtifactDetail(slug)` — artifact → host. Asks the host to open that
+  artifact's detail tab, the same code path the panel header's "Open ... full
+  view" button already uses.
+
+The store backing `useArtifactIntent` is **retained (latched), not a
+fire-and-forget event**. This is the load-bearing property: the host sets the
+intent and opens the tab in the same tick, but the artifact mount is
+asynchronous (`authFetch` → sha256 verify → blob import), so a plain
+`window.dispatchEvent` would fire before any listener exists and the first
+focus, the common case of clicking an event while the artifact's tab is
+closed, would be silently lost. The store instead holds the last intent per
+slug, so a late-mounting artifact reads it on first render and later intents
+arrive through the same hook's subscription.
+
+The host-side setter (`setArtifactIntent`, `web/src/host/intents.ts`) and the
+opener registration (`registerArtifactDetailOpener`) are deliberately **not**
+exported on `@y/host`. Only built-in host code sets an intent or registers the
+opener; an artifact can read and consume its own intent and ask to open its
+own detail tab, but it has no way to set another artifact's intent or hijack
+another artifact's detail-open action. Intent payloads are artifact-defined
+(`{ kind, ...fields }`, generic on the host side) so a future consumer of the
+channel needs no further contract bump to add its own payload shape.
+
+**Deploy-ordering hazard.** `min_host_version` is stamped from the CLI
+package's `contract.json` at publish time, so once contract v3 merges to
+`main`, *any* `y ui publish` of *any* slug (including an unrelated republish of
+an already-shipped artifact) stamps `min_host_version: 3` and strands that
+artifact on a host still serving v2. A contract bump must therefore merge and
+deploy web together, with no publish run in the gap.
+
 ### Styling
 
 Tailwind 4 generates CSS by scanning source files at build time, so the host's
@@ -406,3 +450,4 @@ Test the observable contract, not the loader's internals.
 | 2941 | `y ui delete <slug>` end to end: hard delete of the artifact + version rows, best-effort bundle-object cleanup, VM authoring source left untouched; retired the obsolete `finance-viewer` artifact | - | `pages/plan-2941-ui-artifact-deletion.md` | - | `pages/review-2941-ui-delete.md` | shipped |
 | 2943 | Retired `/ui/<slug>` (redirects to `/`); `ui:` tabs persist and restore at their saved tab position like any other file tab, closing story 15 in favor of the URL always staying at site root | - | `pages/plan-2943-ui-routing-tab-persist.md` | - | `pages/review-2943-ui-routing-tab-persist.md` | shipped |
 | 2970 | Re-port of the bot view (config + usage) onto the `bot` artifact; superseded built-in bot surface (`BotList`/`BotViewer`) removed. Accepted regression: the `onChange -> refreshBotList` wiring on the old `App.tsx:948` `<BotList>` is gone (chat picker sees a new bot only after reload) | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |
+| 2979 | Retained per-slug host↔artifact intent channel (`useArtifactIntent`, `openArtifactDetail`, contract v2 → v3) closing the first host-callback gap a migration has needed rather than accepted; re-port of the calendar view (agenda panel + week grid, drag/resize, event modal) onto the `calendar` artifact; superseded built-in calendar surface (`CalendarViewer`/`ScheduleList`) removed, all three inbound navigation paths retargeted | - | `pages/plan-2979-calendar-dynamic-ui.md` | - | `pages/review-2979-s0-host-intent.md`, `pages/review-2979-s1-calendar-artifact.md`, `pages/review-2979-s2-rm-builtin-calendar.md` | shipped |

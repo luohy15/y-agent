@@ -110,16 +110,31 @@ entity + controller + service + CLI slices, and most have a web panel.
   URL) — so an artifact takes exactly one ActivityBar entry.
   Versions are immutable and `active_version_id` is a pointer, so rollback needs
   no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
-  it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`.
+  it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`
+  (current version 3). Contract v3 (todo 2979) added a retained, per-slug host↔artifact
+  intent channel for artifacts that need navigation crossing the module boundary: `@y/host`
+  exposes `useArtifactIntent<T>(slug)` (reads the latest intent the host set for that slug;
+  latched, so an artifact that mounts *after* the host set the intent still sees it on
+  first render) and `openArtifactDetail(slug)` (ask the host to open that artifact's detail
+  tab — the same path the panel header's "Open ... full view" button uses). The host-side
+  setter (`setArtifactIntent`, in `web/src/host/intents.ts`) and the opener registration
+  (`registerArtifactDetailOpener`) are deliberately **not** exported on `hostSdk`: only
+  built-in host code (`App.tsx`, `tagNavigate.ts`) can set an intent or register the opener,
+  so one artifact cannot set another artifact's intent or hijack its detail-open action.
   The built-in Finance panel (`FinancePanel`/`FinanceViewer`) that the dynamic
   `finance` artifact was originally migrated from has since been deleted (todo 2933),
-  and the same migration has since been repeated for the Bots panel: the built-in
+  the same migration has since been repeated for the Bots panel: the built-in
   `BotList`/`BotViewer` that the `bot` artifact was migrated from has been deleted
-  (todo 2970). Neither has an in-bundle fallback left, and the recovery path for a
-  broken artifact is `y ui rollback <slug>`, not restoring built-in code. `y ui
-  delete <slug>` (todo 2941) hard-deletes the artifact and all of its version rows,
-  best-effort cleans up the stored bundle bytes, and leaves the VM authoring source
-  (`.tsx` / `.json` / parts directory) untouched.
+  (todo 2970), and again for the Calendar panel: the built-in `CalendarViewer`/
+  `ScheduleList` that the `calendar` artifact was migrated from has been deleted (todo
+  2979) — the first of these migrations where host code (a trace click, a tag drill-down)
+  needed to navigate into the artifact with a target date, which is what contract v3's
+  intent channel exists for. None of the three has an in-bundle fallback left, and the
+  recovery path for a broken artifact is `y ui rollback <slug>`, not restoring built-in
+  code. The calendar migration did not touch the backend: `/api/calendar-event` and the
+  `y calendar` CLI are unchanged. `y ui delete <slug>` (todo 2941) hard-deletes the
+  artifact and all of its version rows, best-effort cleans up the stored bundle bytes,
+  and leaves the VM authoring source (`.tsx` / `.json` / parts directory) untouched.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
