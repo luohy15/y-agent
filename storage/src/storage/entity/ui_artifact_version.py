@@ -20,6 +20,7 @@ class UiArtifactVersionEntity(Base, BaseEntity):
     min_host_version = Column(Integer, nullable=False, default=1)
     source_digest = Column(String, nullable=True)
     built_at = Column(String, nullable=True)
+    description = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "version_id"),

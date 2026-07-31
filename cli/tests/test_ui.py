@@ -287,6 +287,40 @@ class UiListTest(unittest.TestCase):
         self.assertIn("v2", result.output)
 
 
+class UiVersionsDescriptionTest(unittest.TestCase):
+    def test_versions_shows_description_when_present_and_omits_none(self):
+        payload_versions = [
+            {
+                "version_id": "ver_2",
+                "version_no": 2,
+                "sha256": "b" * 64,
+                "label": "Demo",
+                "built_at": "2026-07-31T00:00:00Z",
+                "description": "[2991] fix overflow",
+            },
+            {
+                "version_id": "ver_1",
+                "version_no": 1,
+                "sha256": "a" * 64,
+                "label": "Demo",
+                "built_at": "2026-07-30T00:00:00Z",
+                "description": None,
+            },
+        ]
+        with patch(
+            "yagent.commands.ui.versions.resolve_artifact",
+            return_value={"artifact_id": "art_1", "slug": "demo", "active_version_id": "ver_2"},
+        ), patch(
+            "yagent.commands.ui.versions.list_versions",
+            return_value=payload_versions,
+        ):
+            result = CliRunner().invoke(ui_group, ["versions", "demo"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("[2991] fix overflow", result.output)
+        v1_line = next(line for line in result.output.splitlines() if "v1" in line)
+        self.assertNotIn("None", v1_line)
+
+
 class UiPublishTest(unittest.TestCase):
     def test_publish_posts_multipart_and_prints_version(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -367,6 +401,38 @@ class UiPublishTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("staged", result.output)
             self.assertFalse(pub.call_args.kwargs["activate"])
+
+    def test_publish_desc_flag_composes_and_threads_through_publish_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"x")
+            manifest = {
+                "slug": "demo",
+                "sha256": "a" * 64,
+                "source_digest": "b" * 64,
+                "min_host_version": 1,
+                "bytes": 1,
+                "bundle": str(bundle),
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "2991"}), \
+                 patch(
+                     "yagent.commands.ui.publish.build_artifact",
+                     return_value=manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.ui.publish.resolve_or_create",
+                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.ui.publish.publish_bundle",
+                     return_value={"version_no": 1, "sha256": "a" * 64},
+                 ) as pub:
+                result = CliRunner().invoke(
+                    ui_group, ["publish", "demo", "-d", "fix overflow"]
+                )
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(pub.call_args.kwargs["description"], "[2991] fix overflow")
 
     def test_publish_build_failure_exits_nonzero_without_api(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -491,6 +557,38 @@ class PublishApiShapeTest(unittest.TestCase):
         self.assertEqual(kwargs["data"]["sha256"], "x" * 64)
         self.assertEqual(kwargs["data"]["activate"], "true")
         self.assertEqual(kwargs["data"]["label"], "Demo")
+        self.assertNotIn("description", kwargs["data"])
+
+    def test_publish_bundle_includes_description_only_when_given(self):
+        from yagent.commands.ui import _api
+
+        with patch("yagent.commands.ui._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                artifact_id="art_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+                min_host_version=1,
+                source_digest="y" * 64,
+                activate=True,
+                description="[2991] fix overflow",
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["description"], "[2991] fix overflow")
+
+
+class ComposeDescriptionTest(unittest.TestCase):
+    def test_compose_description_d2_table(self):
+        from yagent.commands.ui.publish import _compose_description
+
+        self.assertEqual(
+            _compose_description("fix chart overflow", "2991"), "[2991] fix chart overflow"
+        )
+        self.assertEqual(_compose_description(None, "2991"), "[2991]")
+        self.assertEqual(_compose_description("fix chart overflow", None), "fix chart overflow")
+        self.assertIsNone(_compose_description(None, None))
 
 
 if __name__ == "__main__":

@@ -152,6 +152,43 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
 
+    async def test_publish_with_description_returns_it_in_response_body(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(version_no=3, sha256=sha, storage_key=f"ui/art_a1/{sha}.js", description="[2991] fix overflow")
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.ui_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), _upload(content), "art_a1", sha, description="[2991] fix overflow",
+            )
+        self.assertEqual(result["description"], "[2991] fix overflow")
+        self.assertEqual(pub_fn.call_args.kwargs["description"], "[2991] fix overflow")
+
+    async def test_publish_without_description_returns_none(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(version_no=3, sha256=sha, storage_key=f"ui/art_a1/{sha}.js")
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.ui_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(_request(), _upload(content), "art_a1", sha, description=None)
+        self.assertIsNone(result["description"])
+        self.assertIsNone(pub_fn.call_args.kwargs["description"])
+
+    async def test_description_over_200_chars_is_400_and_inserts_no_version(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        too_long = "x" * 201
+        with patch.object(ctrl.ui_service, "get_artifact", return_value=_artifact()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.ui_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(_request(), _upload(content), "art_a1", sha, description=too_long)
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
 
 class LocalFallbackTest(unittest.IsolatedAsyncioTestCase):
     async def test_local_storage_round_trip(self):

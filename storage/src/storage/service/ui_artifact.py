@@ -66,6 +66,7 @@ def publish(
     icon: Optional[str] = None,
     min_host_version: int = 1,
     source_digest: Optional[str] = None,
+    description: Optional[str] = None,
     activate: bool = True,
 ) -> Optional[UiArtifactVersion]:
     """Insert a new immutable version; move the active pointer unless activate=False.
@@ -88,6 +89,7 @@ def publish(
         min_host_version=min_host_version,
         source_digest=source_digest,
         built_at=get_utc_iso8601_timestamp(),
+        description=description,
     )
     if activate:
         artifact_repo.set_active_version(user_id, artifact_id, version.version_id)

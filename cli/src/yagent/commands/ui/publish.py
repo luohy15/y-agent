@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import click
 import httpx
@@ -13,6 +15,20 @@ from ._api import publish_bundle, resolve_or_create
 from ._build import build_artifact
 from ._paths import meta_path, validate_slug
 from ._sdk import load_contract
+
+
+def _compose_description(desc: Optional[str], trace_id: Optional[str]) -> Optional[str]:
+    """Compose the stored description from --desc and Y_TRACE_ID (plan 2991 D2).
+
+    trace_id set + desc given -> "[<trace_id>] <desc>"
+    trace_id set + desc absent -> "[<trace_id>]"
+    trace_id unset + desc given -> "<desc>"
+    trace_id unset + desc absent -> None
+    """
+    if trace_id:
+        tag = f"[{trace_id}]"
+        return f"{tag} {desc}" if desc else tag
+    return desc
 
 
 @click.command("publish")
@@ -24,12 +40,15 @@ from ._sdk import load_contract
 )
 @click.option("--label", default=None, help="Override sidebar label from <slug>.json")
 @click.option("--icon", default=None, help="Override sidebar icon from <slug>.json")
-def ui_publish(slug, no_activate, label, icon):
+@click.option("-d", "--desc", default=None, help="Description/tag for this version, auto-prefixed with [Y_TRACE_ID]")
+def ui_publish(slug, no_activate, label, icon, desc):
     """Build the artifact and publish it. A build error leaves the active version untouched."""
     try:
         slug = validate_slug(slug)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    description = _compose_description(desc, os.environ.get("Y_TRACE_ID"))
 
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
@@ -70,6 +89,7 @@ def ui_publish(slug, no_activate, label, icon):
             icon=icon,
             min_host_version=min_host_version,
             source_digest=manifest["source_digest"],
+            description=description,
             activate=not no_activate,
         )
     except httpx.HTTPStatusError as exc:

@@ -18,6 +18,7 @@ def _entity_to_dto(entity: UiArtifactVersionEntity) -> UiArtifactVersion:
         min_host_version=entity.min_host_version,
         source_digest=entity.source_digest,
         built_at=entity.built_at,
+        description=entity.description,
         created_at=entity.created_at,
         updated_at=entity.updated_at,
         created_at_unix=entity.created_at_unix,
@@ -37,6 +38,7 @@ def create_version(
     min_host_version: int = 1,
     source_digest: Optional[str] = None,
     built_at: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> UiArtifactVersion:
     with get_db() as session:
         entity = UiArtifactVersionEntity(
@@ -51,6 +53,7 @@ def create_version(
             min_host_version=min_host_version,
             source_digest=source_digest,
             built_at=built_at,
+            description=description,
         )
         session.add(entity)
         session.flush()

@@ -32,7 +32,8 @@ def ui_versions(slug):
         mark = "*" if v.get("version_id") == active_id else " "
         label = v.get("label") or ""
         built = v.get("built_at") or v.get("created_at") or ""
-        click.echo(
-            f" {mark} v{v['version_no']:<4} {v['sha256'][:12]}…  "
-            f"{label:16} {built}"
-        )
+        description = v.get("description") or ""
+        line = f" {mark} v{v['version_no']:<4} {v['sha256'][:12]}…  {label:16} {built}"
+        if description:
+            line += f"  {description}"
+        click.echo(line)

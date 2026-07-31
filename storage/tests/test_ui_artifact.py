@@ -67,7 +67,13 @@ class PublishTest(UiArtifactTestCase):
     def test_second_publish_leaves_version_1_row_byte_identical(self):
         artifact = artifact_service.create_artifact(1, "finance")
         v1 = artifact_service.publish(
-            1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js", label="Finance", icon="chart"
+            1,
+            artifact.artifact_id,
+            sha256="aaa",
+            storage_key="ui/finance/aaa.js",
+            label="Finance",
+            icon="chart",
+            description="[2412] initial publish",
         )
         artifact_service.publish(1, artifact.artifact_id, sha256="bbb", storage_key="ui/finance/bbb.js")
 
@@ -78,7 +84,18 @@ class PublishTest(UiArtifactTestCase):
         self.assertEqual(v1_after.label, "Finance")
         self.assertEqual(v1_after.icon, "chart")
         self.assertEqual(v1_after.built_at, v1.built_at)
+        self.assertEqual(v1_after.description, "[2412] initial publish")
 
+    def test_publish_description_round_trips_through_list_versions(self):
+        artifact = artifact_service.create_artifact(1, "finance")
+        v1 = artifact_service.publish(
+            1, artifact.artifact_id, sha256="aaa", storage_key="ui/finance/aaa.js", description="[2991] fix overflow"
+        )
+        self.assertEqual(v1.description, "[2991] fix overflow")
+
+        versions = artifact_service.list_versions(1, artifact.artifact_id)
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0].description, "[2991] fix overflow")
 
     def test_publish_to_unknown_artifact_returns_none_and_inserts_nothing(self):
         result = artifact_service.publish(1, "nope99", sha256="aaa", storage_key="ui/x/aaa.js")

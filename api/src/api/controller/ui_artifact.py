@@ -197,6 +197,7 @@ async def publish(
     icon: Optional[str] = Form(None),
     min_host_version: int = Form(1),
     source_digest: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
     activate: bool = Form(True),
 ):
     user_id = _get_user_id(request)
@@ -204,6 +205,8 @@ async def publish(
     # the client-supplied artifact_id.
     if not ui_service.get_artifact(user_id, artifact_id):
         raise HTTPException(status_code=404, detail="Artifact not found")
+    if isinstance(description, str) and len(description) > 200:
+        raise HTTPException(status_code=400, detail="description must be at most 200 characters")
     content = await file.read()
     actual_sha256 = hashlib.sha256(content).hexdigest()
     if actual_sha256 != sha256.strip().lower():
@@ -219,6 +222,7 @@ async def publish(
         icon=icon,
         min_host_version=min_host_version,
         source_digest=source_digest,
+        description=description,
         activate=activate,
     )
     if not version:

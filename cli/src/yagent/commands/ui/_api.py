@@ -49,6 +49,7 @@ def publish_bundle(
     min_host_version: int,
     source_digest: str,
     activate: bool,
+    description: Optional[str] = None,
 ) -> dict:
     files = {
         "file": ("bundle.js", bundle_bytes, "text/javascript"),
@@ -65,6 +66,8 @@ def publish_bundle(
         data["icon"] = icon
     if source_digest is not None:
         data["source_digest"] = source_digest
+    if description is not None:
+        data["description"] = description
     return api_request("POST", "/api/ui/publish", files=files, data=data).json()
 
 

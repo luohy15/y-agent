@@ -346,7 +346,7 @@ y finance beancount update-market-data
 y ui create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
 y ui list
 y ui versions <slug>
-y ui publish <slug> [--no-activate] [--label <text>] [--icon <key>]
+y ui publish <slug> [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
 y ui rollback <slug>
 y ui activate <slug> <version_no>
 y ui enable <slug> | y ui disable <slug>

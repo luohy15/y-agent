@@ -145,6 +145,9 @@ Finance is the reference case and the first migration target.
     hide a panel while keeping its history.
 33. As a user, I want artifacts scoped to their owner, so that my personal panels
     are mine and do not appear for other users.
+45. As a user, I want each published version to carry a short description / todo
+    tag, so that `y ui versions` correlates a version with the change that
+    produced it.
 
 ### Safety and failure handling
 
@@ -326,10 +329,50 @@ ui_artifact_version
   min_host_version host contract floor
   source_digest    hash of the source that produced this build
   built_at
+  description      free-form per-publish description/tag, nullable
 ```
 
 Versions are immutable; nothing but `active_version_id` and `enabled` ever
 changes after a publish.
+
+### Version descriptions (todo 2991)
+
+`description` is a single nullable free-form column, not a second structured
+`trace_id` / `todo_id` column alongside a free-text one: Roy's own framing was
+disjunctive ("a description **or** tag"), no query-by-todo surface was asked
+for, and the composition below already puts the todo id in the output. A
+structured column can be added later if a "which version came from todo N"
+query ever materialises.
+
+`y ui publish` gains `-d / --desc TEXT`. The CLI composes the stored value
+from `--desc` and the `Y_TRACE_ID` environment variable (agents dispatch with
+`Y_TRACE_ID` set to the todo id, so this auto-tags a version with its
+originating todo without relying on an agent to remember to write it):
+
+| `Y_TRACE_ID` | `--desc` | Stored `description` |
+|---|---|---|
+| `2991` | `"fix chart overflow"` | `[2991] fix chart overflow` |
+| `2991` | absent | `[2991]` |
+| unset | `"fix chart overflow"` | `fix chart overflow` |
+| unset | absent | `NULL` |
+
+The server stays dumb: `POST /ui/publish` takes `description` as one more
+optional form field (rejecting anything over 200 characters with a 400) and
+passes it straight through to `ui_service.publish` and `create_version`.
+
+**Write-once; no post-publish edit.** No `PATCH`/annotate endpoint and no
+`y ui annotate` exist for this field. Version-row immutability is already
+asserted in the entity docstring, the service module docstring, and the
+"Schema" section above; adding a mutation path for `description` alone would
+carve an exception into that invariant for a field whose only cost, if wrong,
+is republishing. If this is later revised, the honest framing is "metadata is
+mutable, build identity is not" — a deliberate revision of the invariant, not
+an implementation detail of this change.
+
+No `@y/host` / contract change: the field rides along in `/api/ui/list`'s
+`active_version` payload for free, and there is no version-history UI to
+extend it into (see "Failure isolation" above for the one place a version is
+named to the user today).
 
 ### Selection
 
@@ -451,3 +494,4 @@ Test the observable contract, not the loader's internals.
 | 2943 | Retired `/ui/<slug>` (redirects to `/`); `ui:` tabs persist and restore at their saved tab position like any other file tab, closing story 15 in favor of the URL always staying at site root | - | `pages/plan-2943-ui-routing-tab-persist.md` | - | `pages/review-2943-ui-routing-tab-persist.md` | shipped |
 | 2970 | Re-port of the bot view (config + usage) onto the `bot` artifact; superseded built-in bot surface (`BotList`/`BotViewer`) removed. Accepted regression: the `onChange -> refreshBotList` wiring on the old `App.tsx:948` `<BotList>` is gone (chat picker sees a new bot only after reload) | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |
 | 2979 | Retained per-slug host↔artifact intent channel (`useArtifactIntent`, `openArtifactDetail`, contract v2 → v3) closing the first host-callback gap a migration has needed rather than accepted; re-port of the calendar view (agenda panel + week grid, drag/resize, event modal) onto the `calendar` artifact; superseded built-in calendar surface (`CalendarViewer`/`ScheduleList`) removed, all three inbound navigation paths retargeted | - | `pages/plan-2979-calendar-dynamic-ui.md` | - | `pages/review-2979-s0-host-intent.md`, `pages/review-2979-s1-calendar-artifact.md`, `pages/review-2979-s2-rm-builtin-calendar.md` | shipped |
+| 2991 | Per-version `description` on `ui_artifact_version`: `y ui publish -d/--desc`, auto-tagged `[<Y_TRACE_ID>] ` by the CLI, write-once (no annotate endpoint, no contract bump) | - | `pages/plan-2991-ui-version-description.md` | - | - | in progress |
