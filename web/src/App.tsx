@@ -38,6 +38,7 @@ import {
   mountableUiArtifacts,
   type UiArtifact,
 } from "./host/artifacts";
+import { registerArtifactDetailOpener } from "./host/intents";
 
 interface VmConfigItem {
   name: string;
@@ -198,6 +199,11 @@ export default function App() {
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, []);
+
+  // Contract v3 (plan sub-task S0, pages/plan-2979-calendar-dynamic-ui.md
+  // Part D): give any artifact's `openArtifactDetail(slug)` call the same
+  // tab-open path the "Open <label> full view" button already uses.
+  useEffect(() => registerArtifactDetailOpener((slug) => handleOpenFile(artifactTabKey(slug))), [handleOpenFile]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;

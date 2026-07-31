@@ -60,7 +60,7 @@ class SdkPackageDataTest(unittest.TestCase):
         self.assertTrue((root / "shims" / "y-host.cjs").is_file())
         self.assertTrue((root / "templates" / "starter.tsx").is_file())
         contract = load_contract()
-        self.assertEqual(contract["version"], 2)
+        self.assertEqual(contract["version"], 3)
         self.assertIn("react", contract["externals"])
         self.assertIn("@y/host", contract["externals"])
         self.assertIn("lightweight-charts", contract["externals"])
@@ -101,6 +101,8 @@ class SdkPackageDataTest(unittest.TestCase):
             "getTopicColor",
             "getTopicChartColors",
             "navigateTo",
+            "useArtifactIntent",
+            "openArtifactDetail",
         ]
         for name in required:
             self.assertIn(name, block, f"missing runtime export {name!r} in y-host.d.ts")

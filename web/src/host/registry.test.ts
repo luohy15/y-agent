@@ -17,8 +17,8 @@ describe("host runtime registry", () => {
     expect(EXTERNALS.every((specifier) => specifier in registry.modules)).toBe(true);
   });
 
-  it("bumps the host contract version to 2 for the lightweight-charts external", () => {
-    expect(HOST_CONTRACT_VERSION).toBe(2);
+  it("bumps the host contract version to 3 for the artifact intent channel", () => {
+    expect(HOST_CONTRACT_VERSION).toBe(3);
   });
 
   it("registers a react whose default export is reference-identical to the app's own react import", () => {

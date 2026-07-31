@@ -212,4 +212,12 @@ declare module "@y/host" {
 
   // navigation.ts — push history + popstate (artifacts cannot import react-router)
   export function navigateTo(path: string): void;
+
+  // intents.ts — host->artifact focus channel (contract v3). The store is
+  // retained: a late-mounting subscriber still gets the latest intent set for
+  // its slug before it mounted.
+  /** Read + subscribe to the latest focus intent the host set for `slug`. */
+  export function useArtifactIntent<T = unknown>(slug: string): T | null;
+  /** Ask the host to open this artifact's detail surface as a tab. */
+  export function openArtifactDetail(slug: string): void;
 }

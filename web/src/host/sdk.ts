@@ -16,6 +16,7 @@ import {
 } from "../components/badges";
 import { ListEmpty, ListError, ListLoading } from "../components/ListStates";
 import { HOST_CONTRACT_VERSION } from "./contract";
+import { openArtifactDetail, useArtifactIntent } from "./intents";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
 
@@ -48,6 +49,10 @@ export const hostSdk = {
 
   // navigation.ts
   navigateTo,
+
+  // intents.ts
+  useArtifactIntent,
+  openArtifactDetail,
 };
 
 export type { ThemeColors } from "./theme";
