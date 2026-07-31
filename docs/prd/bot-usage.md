@@ -251,8 +251,9 @@ expired-login card tells the user to run.
     viewport.
 48. As a web user, I want a GitHub-style daily contribution heatmap (one cell
     per day, weeks as columns left to right, Monday at top, a five-bucket
-    sequential color scale, month labels, weekday gutter, hover tooltip with
-    date and exact value, and a Less-to-More legend), so that heavy and idle
+    sequential color scale on absolute per-metric thresholds, month labels,
+    weekday gutter, hover tooltip with date and exact value, and a legend of
+    numeric swatches rather than a Less-to-More row), so that heavy and idle
     days are visible over a year at a glance.
 49. As a web user, I want the heatmap driven by the same selected metric as the
     donut and table, so that switching Tokens / Cost / Requests re-colors
@@ -713,13 +714,22 @@ expired-login card tells the user to run.
 - **Heatmap.** GitHub contribution semantics: week columns left to right,
   Monday to Sunday top to bottom, month labels on the column containing each
   month's first day, Mon/Wed/Fri gutter labels, five-bucket sequential
-  Solarized-green scale where bucket boundaries are ratios of the window
-  maximum (0 empty, then quartile-style thresholds at 25/50/75 percent), hover
-  tooltip with date and exact metric value, Less-to-More legend. The grid
-  scales to the panel width (never scrolls horizontally; scales up to a cap on
-  wide panels) with the wrapper height set explicitly since CSS transforms do
-  not shrink layout boxes. The Daily tokens widget belongs in the Over-time
-  tab, alongside the stacked chart and period table; it is absent from Live.
+  Solarized-green scale where bucket boundaries are absolute per-metric
+  thresholds (100M tokens / $100 cost / 1,000 requests per step, five steps to
+  a `5x` ceiling), hover tooltip with date and exact metric value, and a
+  legend of numeric-labeled swatches (0 plus the five step values) rather than
+  a Less-to-More row. Days above the ceiling leave the discrete scale for a
+  linear ramp interpolated toward the window's maximum, with the legend
+  showing an extra ramp swatch only when that maximum exceeds the ceiling.
+  Colors are opaque greens sampled off one gradient per theme mode rather than
+  alpha-over-card steps, since alpha flips direction with the theme and cannot
+  continue past `alpha=1`. Because the thresholds are absolute, a quiet window
+  no longer self-normalizes: an idle month renders uniformly pale instead of
+  spreading across the full scale, which is intended. The grid scales to the
+  panel width (never scrolls horizontally; scales up to a cap on wide panels)
+  with the wrapper height set explicitly since CSS transforms do not shrink
+  layout boxes. The Daily tokens widget belongs in the Over-time tab, alongside
+  the stacked chart and period table; it is absent from Live.
 - **Over-time.** Client-side bucketing of the fetched daily rows into daily /
   weekly (Monday-start) / monthly periods; stacked chart plus a
   model-by-period table with a range-sum column and a totals row; the table
