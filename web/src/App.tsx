@@ -23,7 +23,6 @@ import { navigateTag, openTodo } from "./utils/tagNavigate";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
-import ScheduleList from "./components/ScheduleList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -38,7 +37,7 @@ import {
   mountableUiArtifacts,
   type UiArtifact,
 } from "./host/artifacts";
-import { registerArtifactDetailOpener } from "./host/intents";
+import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 
 interface VmConfigItem {
   name: string;
@@ -51,6 +50,11 @@ interface BotConfigItem {
   backend: string | null;
   model: string;
 }
+
+// Tabs for panels that migrated to a dynamic-load UI artifact and no longer
+// exist as a host file path. A browser holding one of these in its restored
+// tab state would otherwise fetch a nonexistent file.
+const RETIRED_TABS = new Set(["bot.md", "calendar.md"]);
 
 type RightPanel = "chats" | "notes" | "links" | "files" | "diff";
 type ChatContextPanel = "notes" | "links" | "files" | "diff";
@@ -80,15 +84,15 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
-    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter(isPersistableTab).filter((p) => p !== "bot.md"); } catch { return []; }
+    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter(isPersistableTab).filter((p) => !RETIRED_TABS.has(p)); } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("activeFile") || null;
-    return saved && (!isPersistableTab(saved) || saved === "bot.md") ? null : saved;
+    return saved && (!isPersistableTab(saved) || RETIRED_TABS.has(saved)) ? null : saved;
   });
   const [previewFile, setPreviewFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("previewFile") || null;
-    return saved && (!isPersistableTab(saved) || saved === "bot.md") ? null : saved;
+    return saved && (!isPersistableTab(saved) || RETIRED_TABS.has(saved)) ? null : saved;
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
   // Which mounted artifacts actually define a detail surface. Only known once
@@ -144,9 +148,6 @@ export default function App() {
     traceTodoDirtyRef.current = false;
     setSelectedTraceId(id);
   }, []);
-  // Calendar navigation target from TraceView event clicks; fresh object identity
-  // per click so CalendarViewer re-jumps even when the date is unchanged.
-  const [calendarFocus, setCalendarFocus] = useState<{ date: string } | null>(null);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
   const [chatListRoutineName, setChatListRoutineName] = useState<string | null>(localStorage.getItem("chatListRoutineName") || null);
   const [chatListRoutineOnly, setChatListRoutineOnly] = useState<boolean>(() => localStorage.getItem("chatListRoutineOnly") === "true");
@@ -583,7 +584,6 @@ export default function App() {
       setSelectedLinkLinkId,
       setSelectedLinkContentKey,
       handleSelectFeed,
-      setCalendarFocus,
       setSelectedThreadId,
       setSelectedThreadAccount,
       setSidebarPanel,
@@ -909,7 +909,6 @@ export default function App() {
             const sidebarArtifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
             const panelFileMap: Partial<Record<SidebarPanel, { path: string; label: string }>> = {
               todo: { path: "todo.md", label: "Open todo.md" },
-              calendar: { path: "calendar.md", label: "Open calendar.md" },
               dev: { path: "dev.md", label: "Open dev.md" },
             };
             const panelFile = sidebarArtifact
@@ -948,8 +947,6 @@ export default function App() {
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
               ) : sidebarPanel === "tags" ? (
                 <TagList isLoggedIn={auth.isLoggedIn} onNavigate={handleTagNavigate} />
-              ) : sidebarPanel === "calendar" ? (
-                <ScheduleList isLoggedIn={auth.isLoggedIn} onSelectEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "routine" ? (
@@ -1057,7 +1054,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onSelectCalendarEvent={(startTime) => { setCalendarFocus({ date: startTime }); handleOpenFile("calendar.md"); }} calendarFocus={calendarFocus} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}

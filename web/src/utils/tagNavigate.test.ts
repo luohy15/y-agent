@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authFetchMock } = vi.hoisted(() => ({ authFetchMock: vi.fn() }));
+const { authFetchMock, setArtifactIntentMock } = vi.hoisted(() => ({ authFetchMock: vi.fn(), setArtifactIntentMock: vi.fn() }));
 vi.mock("../api", () => ({ API: "", authFetch: authFetchMock }));
+vi.mock("../host/intents", () => ({ setArtifactIntent: setArtifactIntentMock }));
 
 import { navigateTag, openTodo, type TagNavigateDeps } from "./tagNavigate";
 
@@ -23,7 +24,6 @@ function makeDeps(): TagNavigateDeps {
     setSelectedLinkLinkId: vi.fn(),
     setSelectedLinkContentKey: vi.fn(),
     handleSelectFeed: vi.fn(),
-    setCalendarFocus: vi.fn(),
     setSelectedThreadId: vi.fn(),
     setSelectedThreadAccount: vi.fn(),
     setSidebarPanel: vi.fn(),
@@ -43,6 +43,7 @@ async function waitForCall(fn: { mock: { calls: unknown[][] } }) {
 describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
   beforeEach(() => {
     authFetchMock.mockReset();
+    setArtifactIntentMock.mockReset();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -113,15 +114,15 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     expect(deps.handleSelectFeed).toHaveBeenCalledWith("rf-2", "rf-2");
   });
 
-  it("calendar_event: fetches start_time and focuses the calendar view", async () => {
+  it("calendar_event: fetches start_time and focuses the calendar artifact", async () => {
     authFetchMock.mockResolvedValue(jsonResponse({ event_id: "ev-1", start_time: "2026-07-27T10:00:00Z" }));
     const deps = makeDeps();
     navigateTag("calendar_event", { id: "ev-1", title: "y-agent tag review" }, deps);
 
     expect(authFetchMock).toHaveBeenCalledWith("/api/calendar/detail?event_id=ev-1");
-    await waitForCall(deps.setCalendarFocus as ReturnType<typeof vi.fn>);
-    expect(deps.setCalendarFocus).toHaveBeenCalledWith({ date: "2026-07-27T10:00:00Z" });
-    expect(deps.handleOpenFile).toHaveBeenCalledWith("calendar.md");
+    await waitForCall(deps.handleOpenFile as ReturnType<typeof vi.fn>);
+    expect(setArtifactIntentMock).toHaveBeenCalledWith("calendar", expect.objectContaining({ kind: "focus-date", date: "2026-07-27T10:00:00Z" }));
+    expect(deps.handleOpenFile).toHaveBeenCalledWith("ui:calendar");
     expect(deps.setSidebarPanel).not.toHaveBeenCalled();
   });
 
@@ -131,8 +132,8 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     navigateTag("calendar_event", { id: "ev-2" }, deps);
     await waitForCall(deps.setSidebarPanel as ReturnType<typeof vi.fn>);
 
-    expect(deps.setCalendarFocus).not.toHaveBeenCalled();
-    expect(deps.setSidebarPanel).toHaveBeenCalledWith("calendar");
+    expect(setArtifactIntentMock).not.toHaveBeenCalled();
+    expect(deps.setSidebarPanel).toHaveBeenCalledWith("artifact:calendar");
   });
 
   it("calendar_event: falls back to the Calendar panel on a failed detail fetch (e.g. 404)", async () => {
@@ -141,7 +142,7 @@ describe("navigateTag / openTodo (Tags panel 10-way dispatch)", () => {
     navigateTag("calendar_event", { id: "ev-deleted" }, deps);
     await waitForCall(deps.setSidebarPanel as ReturnType<typeof vi.fn>);
 
-    expect(deps.setSidebarPanel).toHaveBeenCalledWith("calendar");
+    expect(deps.setSidebarPanel).toHaveBeenCalledWith("artifact:calendar");
     expect(deps.handleOpenFile).not.toHaveBeenCalled();
   });
 

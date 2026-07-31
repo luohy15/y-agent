@@ -5,6 +5,8 @@
 // `authFetch` instead of only through the TagList component boundary.
 import { API, authFetch, type TagResultItem } from "../api";
 import type { SidebarPanel } from "../components/ActivityBar";
+import { artifactPanelKey, artifactTabKey } from "../host/artifacts";
+import { setArtifactIntent } from "../host/intents";
 
 export interface OpenTodoDeps {
   requestSelectTraceId: (id: string | null) => void;
@@ -37,7 +39,6 @@ export interface TagNavigateDeps extends OpenTodoDeps {
   setSelectedLinkLinkId: (id: string | null) => void;
   setSelectedLinkContentKey: (key: string | null) => void;
   handleSelectFeed: (feedId: string, label: string) => void;
-  setCalendarFocus: (focus: { date: string } | null) => void;
   setSelectedThreadId: (id: string | null) => void;
   setSelectedThreadAccount: (account: string | null) => void;
   setSidebarPanel: (panel: SidebarPanel) => void;
@@ -79,10 +80,12 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
       authFetch(`${API}/api/calendar/detail?event_id=${encodeURIComponent(item.id)}`)
         .then((r) => r.json())
         .then((d) => {
-          if (d.start_time) { deps.setCalendarFocus({ date: d.start_time }); deps.handleOpenFile("calendar.md"); }
-          else deps.setSidebarPanel("calendar");
+          if (d.start_time) {
+            setArtifactIntent("calendar", { kind: "focus-date", date: d.start_time, nonce: Date.now() });
+            deps.handleOpenFile(artifactTabKey("calendar"));
+          } else deps.setSidebarPanel(artifactPanelKey("calendar"));
         })
-        .catch(() => { deps.setSidebarPanel("calendar"); });
+        .catch(() => { deps.setSidebarPanel(artifactPanelKey("calendar")); });
       break;
     case "email":
       authFetch(`${API}/api/email/${encodeURIComponent(item.id)}`)
