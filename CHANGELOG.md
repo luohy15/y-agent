@@ -13,6 +13,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Hot-loadable module system (3020)**: modules now use the canonical
+  `$Y_AGENT_HOME/modules/<slug>/` source layout and a single `y module` lifecycle
+  (`create` / `schema-sql` / `publish` / `versions` / `activate` / `rollback` /
+  `enable` / `disable` / `delete`). A publish creates one immutable API+UI version with
+  hash verification and schema preflight; migrations remain maintainer-applied SQL, and
+  rollback or deletion never changes tables or authoring source. Every publish and
+  backend dispatch are gated to `Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed when
+  unset), local CLI groups resolve lazily, and `routine vm_command` runs deterministic
+  module commands on the owner's VM. `common` is reserved for shared tables and is
+  vendored into consumer bundles. Phases 1–6 are in the tree but currently local,
+  unpushed, and undeployed. Finance is the planned reference full-stack module: phase 7
+  is approved/prepared but uncommitted and not cut over, so production remains finance
+  v18 UI-only on `/api/finance/*` with the built-in `y finance` group.
 
 ### Changed
 

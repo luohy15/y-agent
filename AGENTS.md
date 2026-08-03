@@ -90,53 +90,37 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline in `MessageBubble` via lazy Mermaid / Vega-Lite / sanitized
   SVG rendering. Plain `svg` fences remain code blocks.
-- **Dynamic UI artifacts** — user-owned React panels published as data instead of
-  shipped in the bundle (`module` + `module_version`, `/api/module/*`, `y module`).
-  Source is a `.tsx` entry on the VM under `$Y_AGENT_HOME/ui/<slug>.tsx`; multi-file
-  authoring is supported via a conventional parts directory
-  `$Y_AGENT_HOME/ui/<slug>/` (imported from the entry as `./<slug>/<name>`), so an
-  artifact isn't forced into one large file — the entry stays thin (imports plus the
-  two surface exports) and logic/components live in the parts directory. `y module
-  publish <slug>` builds it with the SDK in `cli/src/yagent/sdk/` (esbuild + Tailwind,
-  externals redirected to CJS shims reading `globalThis.__Y_HOST__`; the generated
-  Tailwind `@source` covers both the entry and the parts directory glob), POSTs the
-  bytes, and the API recomputes sha256 before storing. The web loader
-  (`web/src/host/`) authFetches the bundle, verifies the hash, blob-imports it, and
-  mounts it inside a per-artifact error boundary with distinct fetch / integrity /
-  version-skew / render failure cards and a one-click rollback. **One artifact is one
-  module with two surfaces**: `export const panel` (required, ~280px sidebar) and
-  `export const detail` (optional, center / full-width view opened from the panel
-  header, restored as a persisted tab like any other file tab, with no dedicated
-  URL) — so an artifact takes exactly one ActivityBar entry.
-  Versions are immutable and `active_version_id` is a pointer, so rollback needs
-  no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
-  it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`
-  (current version 4). Contract v3 (todo 2979) added a retained, per-slug host↔artifact
-  intent channel for artifacts that need navigation crossing the module boundary: `@y/host`
-  exposes `useArtifactIntent<T>(slug)` (reads the latest intent the host set for that slug;
-  latched, so an artifact that mounts *after* the host set the intent still sees it on
-  first render) and `openArtifactDetail(slug)` (ask the host to open that artifact's detail
-  tab, using the same path as the panel header's "Open ... full view" button). Contract v4
-  (todo 3006) adds `runHostCommand(name, payload?)`, so artifacts can ask the host to run
-  registered navigation or refresh actions. The host-side intent setter
-  (`setArtifactIntent`, in `web/src/host/intents.ts`), detail-opener registration
-  (`registerArtifactDetailOpener`), and command registration (`registerHostCommand`, in
-  `web/src/host/commands.ts`) are deliberately **not** exported on `hostSdk`: only built-in
-  host code can register these actions, so one artifact cannot hijack another artifact's
-  intent, detail-open action, or host command. The built-in Finance panel
-  (`FinancePanel`/`FinanceViewer`) that the dynamic `finance` artifact was originally
-  migrated from has since been deleted (todo 2933), followed by the built-in Bots panel
-  (`BotList`/`BotViewer`) for the `bot` artifact (todo 2970), Calendar
-  (`CalendarViewer`/`ScheduleList`) for the `calendar` artifact (todo 2979), and Todo
-  (`TodoList`/`TodoViewer`/`TodoContextMenu`) for the `todo` artifact (todo 3006). None
-  has an in-bundle fallback. `TraceView` remains built-in because it also serves the
-  unauthenticated public trace-share projection, while artifacts are owner-scoped and
-  JWT-gated. The recovery path for a broken artifact is `y module rollback <slug>`, not
-  restoring built-in code. The calendar migration did not touch the backend:
-  `/api/calendar-event` and the `y calendar` CLI are unchanged. `y module delete <slug>`
-  (todo 2941) hard-deletes the
-  artifact and all of its version rows, best-effort cleans up the stored bundle bytes,
-  and leaves the VM authoring source (`.tsx` / `.json` / parts directory) untouched.
+- **Hot-loadable modules** — a user-owned module is one versioned domain with
+  optional API and UI parts, local CLI commands, and module-owned data. Canonical source
+  lives only at `$Y_AGENT_HOME/modules/<slug>/`: `module.json`, an import-free
+  `__init__.py`, optional `api.py` and `cli.py`, `ui/index.tsx`, and optional
+  module-local `entities/`, `repository/`, `migration/`, and `tests/` directories.
+  `y <slug>` discovers the local source lazily, importing only the invoked module group.
+  `y module publish <slug>` builds API and UI bytes together, server-verifies their
+  hashes and schema preflight, creates one immutable `module_version`, and atomically
+  moves its active pointer. The API dispatches `/api/module/<slug>/*` through a lazy,
+  hash-verified per-version sub-application; the web loader preserves the established
+  `@y/host` browser contract, integrity check, error boundary, `panel` surface, and
+  optional `detail` surface. Backend modules run in-process under the shared API role,
+  so every publish and backend dispatch are restricted to
+  `Y_AGENT_MODULE_MAINTAINER_USER_ID` and fail closed when it is unset. The module owns
+  its entities, repositories, SQL, and hand-applied migration files. The host owns
+  authentication, session/transaction management, dependencies, and VM execution.
+  `y module schema-sql <slug>` prints DDL only; migrations are never run by publish,
+  activation, or loading, and must remain expand-only while an older version is
+  rollback-reachable. A module may reference kernel tables but not another module's
+  tables. Shared tables belong to reserved `common`, vendored into consuming API bundles
+  at publish time. `y module rollback <slug>` or `y module activate <slug> <version>`
+  changes code only. `y module delete <slug>` removes deployed metadata and bundle bytes
+  but leaves source and tables intact. Phases 1–6 of this system are present in the tree
+  but currently local, unpushed, and undeployed; with the maintainer env unset every
+  publish fails closed. Finance is the planned reference full-stack module: phase 7 is
+  approved/prepared in worktree `…-3020-p7` and
+  `pages/rollout-3020-finance-module-cutover.md`, but uncommitted and not cut over.
+  Production still runs finance as UI-only version 18 on `/api/finance/*` with the
+  built-in `y finance` group. A module has no worker half: deterministic scheduled work
+  is a `routine` `vm_command` action that executes argv on the owner's VM, while
+  judgment-shaped work remains chat dispatch.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -148,10 +132,12 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Finance / Email / Calendar** — DB-backed finance views under `y finance`
   mirror `/api/finance/*` (balance sheet, income statement, holdings,
   transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
-  producer / low-level local view layer. Multi-account Gmail sync: per-account
-  IMAP app passwords live in the `email_account` table (`y email account
-  add/list/rm`), `y email sync-gmail` fans out over all registered accounts,
-  and `email.account` tags each row with its source address (filterable via
+  producer / low-level local view layer. The full-stack finance module cutover
+  (local `modules/finance` source + `/api/module/finance/*`) is prepared but not
+  executed; see `pages/rollout-3020-finance-module-cutover.md`. Multi-account Gmail
+  sync: per-account IMAP app passwords live in the `email_account` table
+  (`y email account add/list/rm`), `y email sync-gmail` fans out over all registered
+  accounts, and `email.account` tags each row with its source address (filterable via
   `?account=` / `--account` / the EmailList dropdown). Full-stack calendar
   events with timezone-aware filtering.
 
@@ -213,7 +199,8 @@ Grouped by feature area:
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
   `note_todo_relation.py`, `entity.py`, `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
-  `finance.py`, `english_correction.py`
+  `finance.py`, `english_correction.py`; module-owned routes (after cutover/deploy)
+  are dispatched under `/api/module/<slug>/*`
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
   `bot_config.py`, `dev_worktree.py`, `tg_topic.py`
 
@@ -331,7 +318,8 @@ y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
 # DB-backed finance views (friendly tables by default; --json emits the raw
-# envelope, same shape as GET /api/finance/*)
+# envelope, same shape as GET /api/finance/*). Full-stack module cutover is prepared
+# but not executed (pages/rollout-3020-finance-module-cutover.md).
 y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance investment-returns [--user-id <id>] [--vm-name <name>] [--time ytd] [--history] [--granularity monthly] [--convert USD] [--json]
@@ -345,11 +333,12 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 y finance beancount snapshot
 y finance beancount update-market-data
 
-# Dynamic UI artifacts. Source is $Y_AGENT_HOME/ui/<slug>.tsx (+ <slug>.json for
-# label/icon); the module exports `panel` (required) and `detail` (optional).
+# Modules. Canonical source is $Y_AGENT_HOME/modules/<slug>/ with module.json and
+# ui/index.tsx (`panel` required, `detail` optional); API/CLI/data parts are optional.
 y module create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
 y module list
 y module versions <slug>
+y module schema-sql <slug>  # print DDL only; migrations are maintainer-applied SQL
 y module publish <slug> [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
 y module rollback <slug>
 y module activate <slug> <version_no>
@@ -385,8 +374,9 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
   `Y_AGENT_MODULE_BUNDLE_DIR` (local module bundle store used when
   `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`),
   `Y_AGENT_MODULE_MAINTAINER_USER_ID` (the public string `user.user_id` of the
-  single account trusted to publish and dispatch backend modules; publish and
-  dispatch 403 for everyone else and fail closed when this is unset).
+  single account trusted to publish modules and dispatch backend modules; every
+  publish and backend dispatch 403 for everyone else and fail closed when this is
+  unset; currently unset in this environment).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

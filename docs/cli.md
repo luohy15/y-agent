@@ -79,7 +79,8 @@ y dev wt add /path/to/repo my-feature
 y dev commit my-feature -m "wip"
 y dev wt rm my-feature
 
-# Finance — DB-backed views matching /api/finance/*
+# Finance — built-in CLI views mirroring /api/finance/* (full-stack module cutover
+# is prepared but not executed; see pages/rollout-3020-finance-module-cutover.md)
 y finance balance-sheet --convert USD
 y finance income-statement --time month --convert USD
 y finance holdings --base-currency USD
@@ -91,6 +92,30 @@ y finance fire-progress
 y finance beancount snapshot
 y finance beancount update-market-data
 ```
+
+## Modules
+
+A module is one user-owned, versioned domain. Its canonical authoring directory is
+`$Y_AGENT_HOME/modules/<slug>/`, containing `module.json`, optional `api.py` and
+`cli.py`, `ui/index.tsx`, and any module-owned entities, repositories, migrations, and
+tests. `y <slug>` loads local source lazily, so edit and test a module command before
+publishing it. `y module publish <slug>` atomically publishes the API/UI pair after an
+API-side schema preflight. It never applies DDL: use `y module schema-sql <slug>` to
+print reviewed DDL, then the maintainer applies migration SQL manually with `psql`.
+
+```bash
+y module create scratch
+y module schema-sql scratch          # print only, never execute
+y module publish scratch -d "refresh scratch module"
+y module rollback scratch             # code only; source, schedules, and tables remain
+```
+
+Only the configured `Y_AGENT_MODULE_MAINTAINER_USER_ID` can publish a module or
+dispatch a backend module. The gate applies to every publish (including UI-only) and is
+deliberately fail-closed when unset. Phases 1–6 of the module system are in the tree
+but currently local, unpushed, and undeployed; with the maintainer env unset here, every
+publish 403s. `common` is a reserved shared module: it owns shared tables and is
+vendored into consumer bundles at publish time.
 
 ## All command groups
 
@@ -105,11 +130,12 @@ y finance beancount update-market-data
 | `assoc` / `unassoc` | Link or unlink notes / links to a todo |
 | `calendar` | Events: `import` an ICS, list, CRUD |
 | `reminder` | Time-based reminders delivered via Telegram |
-| `routine` | Cron-style auto-fired chats: add / list / enable / disable / run |
+| `routine` | Cron-style chat dispatch or deterministic owner-VM commands: add / list / enable / disable / run |
+| `module` | Versioned module management: create / publish / list / versions / activate / rollback / enable / disable / delete / schema-sql |
 | `link` | Link archive: `fetch`, `get`, `list`, `sync-chrome`, `tldr`, `import-page` |
 | `rss` | Feeds: `add`, `list`, `update`, `import-opml`, remove / restore |
 | `email` | Gmail: `sync-gmail`, `list`, `get`, multi-account `account add/list/rm` |
-| `finance` | DB-backed views (balance-sheet / holdings / …); `beancount` is the ledger producer |
+| `finance` | Built-in finance CLI views mirroring `/api/finance/*`; `beancount` is the ledger producer. Full-stack module cutover is prepared but not executed |
 | `image` | `generate` (Gemini/OpenAI), `splice`, `tinify` (TinyPNG) |
 | `pdf` | `parse` a PDF into Markdown |
 | `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |

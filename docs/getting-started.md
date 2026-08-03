@@ -102,7 +102,7 @@ The activity bar carries several lighter-weight subsystems:
 - **Email** — multi-account Gmail sync (`y email sync-gmail`) for lightweight inbox review; filter by source account.
 - **Calendar** — timezone-aware events with a current-time ticker; import an ICS with `y calendar import file.ics`.
 - **Bots** — manage bot configs (Claude Code, plus the inline Perplexity / OpenAI backends): add, enable/disable, set model + API key, then pick one per chat or per routine.
-- **Finance** — a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress, rendered as charts by the `finance` dynamic UI artifact. The same views are available from `y finance balance-sheet` / `holdings` / `fire-progress` and mirror `/api/finance/*`; `y finance beancount` is the ledger-side producer.
+- **Finance** — a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress. Production still serves the built-in stack: UI-only finance v18 calling `/api/finance/*`, with the built-in `y finance` group and `y finance beancount` as the ledger-side producer. Finance is the planned reference full-stack module; phase 7 is approved/prepared but uncommitted and not cut over (`pages/rollout-3020-finance-module-cutover.md`).
 
 ## Files
 
@@ -129,13 +129,13 @@ Forum topics are great for "one chat per project" — the topic name is the pers
 
 ## Routine
 
-Recurring jobs live under **Routine**. Each routine is a cron-like schedule that dispatches a chat to a topic every interval. Use it for:
+Recurring jobs live under **Routine**. A routine is a cron-like schedule that either dispatches a chat to a topic or runs an argv command on its owner's VM. Use chat dispatch for judgment-shaped work and `vm_command` for deterministic module commands. Use it for:
 
 - Daily journal prompts.
 - Weekly digest of new RSS items.
 - Hourly health checks against an external service.
 
-The schedule + payload are stored as a routine row; the admin Lambda fires them on EventBridge.
+The schedule + payload are stored as a routine row; the admin Lambda fires them on EventBridge. A VM command runs local source, so it is not changed by module publish, rollback, or deletion.
 
 ## Tips
 

@@ -67,6 +67,22 @@ Two paths, split by whether you run the server or just use one. Each page opens 
 
 - [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
 
+## Hot-loadable modules
+
+A module is a user-owned, versioned domain at `$Y_AGENT_HOME/modules/<slug>/`. It can
+contain local CLI commands, a lazy-loaded API half, a published React UI half, and its
+own ORM entities, repositories, and hand-applied migration SQL. `y module publish <slug>`
+publishes API and UI atomically without a full application deploy; `y module rollback`
+repoints code without altering data. `y module schema-sql <slug>` prints DDL but never
+executes it. Every publish and backend dispatch require the explicitly configured trusted
+maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`) and fail closed when it is unset.
+Phases 1–6 of the module system are in the tree but currently local, unpushed, and
+undeployed; the maintainer env is unset here, so publish is fail-closed today. Finance
+is the planned reference full-stack migration: phase 7 is approved/prepared but
+uncommitted and not cut over (`pages/rollout-3020-finance-module-cutover.md`). Production
+still serves finance as UI-only version 18 on `/api/finance/*` with the built-in
+`y finance` group.
+
 ## Blog Post
 
 Longer write-up, design rationale, and comparisons: [full blog post](https://luohy15.com/y-agent-introduction).
