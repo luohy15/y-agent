@@ -55,7 +55,9 @@ _CODEX_LIVE_BODY = {
     "credits": {"has_credits": False, "unlimited": False, "balance": "0"},
 }
 
-# Transcribed from a live GET https://cli-chat-proxy.grok.com/v1/billing?format=credits response.
+# Transcribed from a live GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
+# response (2026-07-30). Kept as the regression case that an explicit
+# `creditUsagePercent` is still honoured when present.
 _XAI_LIVE_BODY = {
     "config": {
         "currentPeriod": {
@@ -75,6 +77,44 @@ _XAI_LIVE_BODY = {
         "topUpMethod": "TOP_UP_METHOD_SAVED_PAYMENT_METHOD",
         "billingPeriodStart": "2026-07-25T17:09:02.794945+00:00",
         "billingPeriodEnd": "2026-08-01T17:09:02.794945+00:00",
+    }
+}
+
+# Transcribed from a live GET https://cli-chat-proxy.grok.com/v1/billing
+# response (no `format` param, 2026-08-03, todo 3001): the plain view no
+# longer needs a `format` param for usable numbers -- it carries an explicit
+# `used`/`monthlyLimit` ratio and no `creditUsagePercent` at all.
+_XAI_LIVE_BODY_PLAIN_2026_08_03 = {
+    "config": {
+        "monthlyLimit": {"val": 150000},
+        "used": {"val": 337},
+        "onDemandCap": {"val": 0},
+        "billingPeriodStart": "2026-08-01T00:00:00+00:00",
+        "billingPeriodEnd": "2026-09-01T00:00:00+00:00",
+        "history": [
+            {"billingCycle": {"year": 2026, "month": 7},
+             "includedUsed": {"val": 0}, "onDemandUsed": {"val": 0}, "totalUsed": {"val": 0}},
+        ],
+    }
+}
+
+# Transcribed from a live GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
+# response (2026-08-03, todo 3001): the account's credits view has dropped
+# both `creditUsagePercent` and `productUsage` since 2026-07-30.
+_XAI_LIVE_BODY_CREDITS_2026_08_03 = {
+    "config": {
+        "currentPeriod": {
+            "type": "USAGE_PERIOD_TYPE_WEEKLY",
+            "start": "2026-08-01T17:09:02.794945+00:00",
+            "end": "2026-08-08T17:09:02.794945+00:00",
+        },
+        "onDemandCap": {"val": 0},
+        "onDemandUsed": {"val": 0},
+        "isUnifiedBillingUser": True,
+        "prepaidBalance": {"val": 0},
+        "topUpMethod": "TOP_UP_METHOD_SAVED_PAYMENT_METHOD",
+        "billingPeriodStart": "2026-08-01T17:09:02.794945+00:00",
+        "billingPeriodEnd": "2026-08-08T17:09:02.794945+00:00",
     }
 }
 
@@ -132,6 +172,35 @@ class ParseXaiWindowTest(unittest.TestCase):
         window = hr._parse_xai_window({"config": {"creditUsagePercent": 5.0}})
         self.assertNotIn("extra", window)
         self.assertIsNone(window["reset_at"])
+
+    def test_plain_payload_derives_percent_from_used_over_monthly_limit(self):
+        window = hr._parse_xai_window(_XAI_LIVE_BODY_PLAIN_2026_08_03)
+        self.assertAlmostEqual(window["used_percent"], 337 / 150000 * 100)
+        self.assertEqual(window["reset_at"], "2026-09-01T00:00:00Z")
+        self.assertEqual(window["extra"], {
+            "onDemandCap": 0, "used": 337, "monthlyLimit": 150000,
+        })
+
+    def test_explicit_credit_usage_percent_wins_over_derived(self):
+        body = {"config": {"creditUsagePercent": 5.0, "used": {"val": 1}, "monthlyLimit": {"val": 100}}}
+        window = hr._parse_xai_window(body)
+        self.assertEqual(window["used_percent"], 5.0)
+
+    def test_derive_returns_none_without_both_fields(self):
+        self.assertIsNone(hr._parse_xai_window({"config": {"used": {"val": 1}}}))
+        self.assertIsNone(hr._parse_xai_window({"config": {"monthlyLimit": {"val": 100}}}))
+
+    def test_derive_returns_none_on_zero_or_missing_denominator(self):
+        self.assertIsNone(hr._parse_xai_window(
+            {"config": {"used": {"val": 1}, "monthlyLimit": {"val": 0}}}))
+        self.assertIsNone(hr._parse_xai_window(
+            {"config": {"used": {"val": 1}, "monthlyLimit": {"val": None}}}))
+
+    def test_derive_returns_none_on_non_numeric_values(self):
+        self.assertIsNone(hr._parse_xai_window(
+            {"config": {"used": {"val": "1"}, "monthlyLimit": {"val": 100}}}))
+        self.assertIsNone(hr._parse_xai_window(
+            {"config": {"used": {"val": True}, "monthlyLimit": {"val": 100}}}))
 
 
 class ReadCodexProviderTest(unittest.TestCase):
@@ -214,6 +283,46 @@ class ReadXaiProviderTest(unittest.TestCase):
         self.assertIn("x-grok-client-version", headers)
         self.assertEqual(row["availability"], "available")
         self.assertIn("billing_period", row["windows"])
+
+    def test_plain_view_requested_first_and_never_falls_back_when_it_parses(self):
+        _write_grok_auth(self._path)
+        with patch("yagent.commands.usage._http_readers.httpx.get",
+                    return_value=_http_response(200, _XAI_LIVE_BODY_PLAIN_2026_08_03)) as get:
+            row = hr.read_xai_provider()
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.args[0], hr.XAI_BILLING_URL)
+        self.assertEqual(row["availability"], "available")
+        self.assertAlmostEqual(row["windows"]["billing_period"]["used_percent"], 337 / 150000 * 100)
+
+    def test_falls_back_to_credits_view_when_plain_view_has_no_window(self):
+        _write_grok_auth(self._path)
+        responses = [
+            _http_response(200, _XAI_LIVE_BODY_CREDITS_2026_08_03),
+            _http_response(200, _XAI_LIVE_BODY),
+        ]
+        with patch("yagent.commands.usage._http_readers.httpx.get", side_effect=responses) as get:
+            row = hr.read_xai_provider()
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[0].args[0], hr.XAI_BILLING_URL)
+        self.assertEqual(get.call_args_list[1].args[0], hr.XAI_BILLING_CREDITS_URL)
+        self.assertEqual(row["availability"], "available")
+        self.assertEqual(row["windows"]["billing_period"]["used_percent"], 2.0)
+
+    def test_parse_failed_when_both_views_yield_no_window(self):
+        _write_grok_auth(self._path)
+        responses = [
+            _http_response(200, {"config": {}}),
+            _http_response(200, {"config": {}}),
+        ]
+        with patch("yagent.commands.usage._http_readers.httpx.get", side_effect=responses) as get:
+            row = hr.read_xai_provider()
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(row["availability"], "unavailable")
+        self.assertEqual(row["error"], "parse_failed")
+        self.assertEqual(row["windows"], {})
 
 
 if __name__ == "__main__":

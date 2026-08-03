@@ -433,10 +433,11 @@ expired-login card tells the user to run.
   anthropic (drive the `claude` CLI's own `/usage` view in an ephemeral tmux
   session and parse the rendered pane), `codex_usage_api` for openai/codex
   (authenticated GET of the Codex usage endpoint), `xai_billing_credits` for
-  xai (authenticated GET of the xAI CLI's billing endpoint). The three run
-  concurrently; one reader's failure is isolated into the envelope's `errors[]`
-  and can never take the other two down. There is no provider-selector flag:
-  callers take the whole envelope or nothing.
+  xai (authenticated GET of the xAI CLI's billing endpoint, tried in two
+  shapes; see below). The three run concurrently; one reader's failure is
+  isolated into the envelope's `errors[]` and can never take the other two
+  down. There is no provider-selector flag: callers take the whole envelope or
+  nothing.
 - **claude-relay-service is not in this path at all.** The earlier design read
   both providers through a CRS self-service endpoint backed by CRS's Redis
   snapshots. That was removed, not wrapped: CRS's per-key fan-out, its
@@ -449,12 +450,27 @@ expired-login card tells the user to run.
   1-week; Codex reports its rolling rate-limit windows, keyed on each window's
   own reported duration and **never** on primary/secondary position (a live
   sample returned the one-week window as "primary" with the secondary null);
-  xAI reports one `billing_period` credit-usage row with the period end as its
-  reset. A row is usable when **any** window carries a real percentage.
-  Demanding the 5-hour/1-week pair would leave Grok permanently unavailable.
-  Claude's optional model-specific weekly window is retained under
-  `extra_windows`, and a provider-specific `extra` map (xAI's prepaid balance,
-  on-demand cap/used, unified-billing flag) rides along on the window.
+  xAI reports one `billing_period` usage row with the period end as its reset.
+  A row is usable when **any** window carries a real percentage. Demanding the
+  5-hour/1-week pair would leave Grok permanently unavailable. Claude's
+  optional model-specific weekly window is retained under `extra_windows`, and
+  a provider-specific `extra` map (xAI's `used`/`monthlyLimit`, prepaid
+  balance, on-demand cap/used, unified-billing flag) rides along on the
+  window.
+- **xAI's percent has two source shapes, plain-first (todo 3001).** The
+  reader is not a single fixed-field parse: it requests the plain
+  `GET /v1/billing` view first and derives `used_percent` from
+  `config.used.val / config.monthlyLimit.val * 100` (guarded against a
+  missing/non-numeric/zero-or-negative denominator: a malformed pair
+  normalizes to no window, never a fabricated percent); only when that view
+  yields no window does it fall back to `GET /v1/billing?format=credits` and
+  read `config.creditUsagePercent` directly when present. Both shapes share
+  one parser and the same `billing_period` window kind, so nothing downstream
+  (contract, envelope, web card) needs to know which shape produced a given
+  reading. Plain-first exists because, as of 2026-08-03, the account's
+  `?format=credits` view stopped carrying `creditUsagePercent` while the plain
+  view's `used`/`monthlyLimit` pair stayed populated (the reverse of the
+  shape this reader originally shipped against, todo 2872).
 - **Execution on the VM, not in Lambda.** All provider HTTP and the scrape live
   in `y usage limits [--json] [--refresh]`, which runs on the user's VM;
   `GET /api/usage/limits` SSH-execs it and normalizes the returned envelope.
@@ -853,6 +869,7 @@ expired-login card tells the user to run.
 | 2981 | "Tokens over time" gained a legend row: the top 5 models by usage plus an `Other` bucket, each with a color swatch, and clicking one filters the chart to that model (clicking again clears). The legend fold (top-5+`Other`) is derived from the existing series fold (top-7+`Other`) rather than computed independently, so legend order can never disagree with stack order. Legend `Other` reads per-period values straight from the raw per-period data, so the six entries partition 100% of every period; the consequence is that a filtered `Other` total intentionally reconciles with no single table row (table `Other` is ranks 8+, legend `Other` is ranks 6+). The table below the chart is deliberately not filtered. Nit pass in the same delivery pinned the legend `Other` swatch to the neutral ink in every dataset, disclosed the `Other` filter's scope in the caption, and added `aria-pressed` to the legend toggles | - | - | this PRD | `pages/review-2981-usage-over-time-legend.md` | shipped (`bot` artifact v6, `ee1136139151…`) |
 | 2982 | Daily-tokens heatmap rebucketed from share-of-window-max to absolute per-metric thresholds (100M tokens / `$`100 cost / 1000 requests, five steps to a `5x` ceiling), with values above the ceiling leaving the discrete scale on a linear ramp interpolated to the window max. Six visual states: the todo-2980 empty gray plus five steps plus the ramp. The color model changed with it: alpha-over-card `rgba` steps were replaced by opaque greens sampled off one gradient per theme *mode* (`lum(base03)` picks light `#7bd992`→`#126329` or dark `#126329`→`#7bd992`), because alpha steps flip direction with the theme as a compositing side effect and cannot continue past `alpha=1`, which would have reversed the scale on one mode. `#9be9a8` (GitHub's) was rejected for landing within 0.005 luminance of the 2980 empty gray on light. Ramp position floors its denominator at `max(windowMax - ceiling, ceiling)` so a lone 505M day does not paint full depth. Absolute thresholds mean a quiet window no longer self-normalizes and renders uniformly pale — confirmed intended | `pages/design-2982.html` | - | this PRD | `pages/review-2982-heatmap-absolute-buckets.md` | shipped (`bot` artifact v9, `f617a3d5c617…`; v7 shipped the ramp painting black — `mix()` returns an `rgb()` string that `hexToRgb()` could not parse — fixed forward by making the ramp one expression on the same gradient rather than a precomputed endpoint two color representations had to agree on) |
 | 2988 | Removed the small explanatory captions beside dashboard titles across Subscription limits, the daily heatmap, the over-time chart, and the history table | - | - | - | - | shipped (`bot` artifact v8, `1ba893108ee3…`) |
+| 3001 | Grok card went `parse_failed` when xAI's `?format=credits` view stopped carrying `creditUsagePercent` (2026-08-03). Fixed by making the xAI reader plain-view-first: derive `used_percent` from `config.used.val` / `config.monthlyLimit.val` on `GET /v1/billing`, falling back to the legacy `creditUsagePercent` shape on `?format=credits` only if the plain view yields no window. No API/web/DB change — same `billing_period` window kind, same envelope contract, same `bot` artifact. Whether `creditUsagePercent` is gone for good or merely zero-omitted, and end-to-end confirmation via `y usage limits --json` on the VM, are unverified from this sandboxed impl session (no VM/SSH access); pending a run from an environment with VM access | - | `pages/plan-3001-grok-usage-parse.md` | this PRD | - | implemented, pending VM verification |
 
 ## Out of Scope
 
