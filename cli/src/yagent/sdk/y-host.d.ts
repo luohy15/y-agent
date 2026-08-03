@@ -87,8 +87,32 @@ declare module "swr" {
     fetcher?: Fetcher<Data>,
     config?: any,
   ): SWRResponse<Data, Error>;
-  export function useSWRConfig(): { mutate: (matcher: any, data?: any, opts?: any) => Promise<any> };
+  export function useSWRConfig(): {
+    cache: { keys(): IterableIterator<string>; get(key: string): any; set(key: string, value: any): void; delete(key: string): void };
+    mutate: (matcher: any, data?: any, opts?: any) => Promise<any>;
+  };
   export const mutate: (matcher: any, data?: any, opts?: any) => Promise<any>;
+}
+
+// Contract v4 subpath external — same host-instance guarantee as top-level `swr`.
+declare module "swr/infinite" {
+  import type { Key, Fetcher, SWRResponse } from "swr";
+  export type SWRInfiniteKeyLoader = (index: number, previousPageData: any) => Key;
+  export interface SWRInfiniteResponse<Data = any, Error = any> extends SWRResponse<Data[], Error> {
+    size: number;
+    setSize: (size: number | ((size: number) => number)) => Promise<Data[] | undefined>;
+  }
+  export default function useSWRInfinite<Data = any, Error = any>(
+    getKey: SWRInfiniteKeyLoader,
+    fetcher?: Fetcher<Data>,
+    config?: any,
+  ): SWRInfiniteResponse<Data, Error>;
+  export function infinite<Data = any, Error = any>(
+    getKey: SWRInfiniteKeyLoader,
+    fetcher?: Fetcher<Data>,
+    config?: any,
+  ): SWRInfiniteResponse<Data, Error>;
+  export function unstable_serialize(getKey: SWRInfiniteKeyLoader): string;
 }
 
 declare module "recharts" {
@@ -220,4 +244,26 @@ declare module "@y/host" {
   export function useArtifactIntent<T = unknown>(slug: string): T | null;
   /** Ask the host to open this artifact's detail surface as a tab. */
   export function openArtifactDetail(slug: string): void;
+
+  // commands.ts — artifact->host named command channel (contract v4). An
+  // unregistered name is a silent no-op. Registration is host-internal and
+  // not exported here (same partition as setArtifactIntent).
+  /** Ask the host to run a named command (e.g. "todo.open", "chat.refreshList"). */
+  export function runHostCommand(name: string, payload?: unknown): void;
+
+  // optimisticMutate.ts — shared optimistic list patcher (contract v4).
+  // `swr` must come from `useSWRConfig()`, never the top-level `swr` mutate.
+  export type CacheKeyMatcher = string | RegExp | ((key: string) => boolean);
+  export interface SWRCacheHandle {
+    cache: { keys(): IterableIterator<string>; get(key: string): any; set(key: string, value: any): void; delete(key: string): void };
+    mutate: (matcher: any, data?: any, opts?: any) => Promise<any>;
+  }
+  export function optimisticListMutate<T>(
+    swr: SWRCacheHandle,
+    matcher: CacheKeyMatcher,
+    idKey: keyof T,
+    id: string,
+    patch: Partial<T>,
+    request: () => Promise<unknown>,
+  ): Promise<void>;
 }

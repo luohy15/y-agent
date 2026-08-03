@@ -1,11 +1,12 @@
 {
-  "version": 3,
+  "version": 4,
   "externals": [
     "react",
     "react-dom",
     "react-dom/client",
     "react/jsx-runtime",
     "swr",
+    "swr/infinite",
     "recharts",
     "lightweight-charts",
     "@y/host"

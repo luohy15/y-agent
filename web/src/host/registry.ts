@@ -15,6 +15,7 @@ import * as ReactDOM from "react-dom";
 import * as ReactDOMClient from "react-dom/client";
 import * as JsxRuntime from "react/jsx-runtime";
 import * as SWR from "swr";
+import * as SWRInfinite from "swr/infinite";
 import * as Recharts from "recharts";
 import * as LightweightCharts from "lightweight-charts";
 import { EXTERNALS, HOST_CONTRACT_VERSION } from "./contract";
@@ -49,6 +50,7 @@ const modules: Record<string, unknown> = {
   "react-dom/client": asModule(ReactDOMClient as unknown as Record<string, unknown>),
   "react/jsx-runtime": asModule(JsxRuntime as unknown as Record<string, unknown>),
   swr: asModule(SWR as unknown as Record<string, unknown>),
+  "swr/infinite": asModule(SWRInfinite as unknown as Record<string, unknown>),
   recharts: asModule(Recharts as unknown as Record<string, unknown>),
   "lightweight-charts": asModule(LightweightCharts as unknown as Record<string, unknown>),
   "@y/host": { ...hostSdk, __esModule: true, default: hostSdk },

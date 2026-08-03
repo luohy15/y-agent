@@ -71,6 +71,7 @@ try {
       "react-dom/client": shim("react-dom-client.cjs"),
       "react/jsx-runtime": shim("react-jsx-runtime.cjs"),
       swr: shim("swr.cjs"),
+      "swr/infinite": shim("swr-infinite.cjs"),
       recharts: shim("recharts.cjs"),
       "lightweight-charts": shim("lightweight-charts.cjs"),
       "@y/host": shim("y-host.cjs"),

@@ -60,10 +60,11 @@ class SdkPackageDataTest(unittest.TestCase):
         self.assertTrue((root / "shims" / "y-host.cjs").is_file())
         self.assertTrue((root / "templates" / "starter.tsx").is_file())
         contract = load_contract()
-        self.assertEqual(contract["version"], 3)
+        self.assertEqual(contract["version"], 4)
         self.assertIn("react", contract["externals"])
         self.assertIn("@y/host", contract["externals"])
         self.assertIn("lightweight-charts", contract["externals"])
+        self.assertIn("swr/infinite", contract["externals"])
         # F1/F2 markers must stay in the build recipe.
         build = (root / "build.mjs").read_text(encoding="utf-8")
         self.assertIn("theme(reference)", build)
@@ -103,6 +104,8 @@ class SdkPackageDataTest(unittest.TestCase):
             "navigateTo",
             "useArtifactIntent",
             "openArtifactDetail",
+            "runHostCommand",
+            "optimisticListMutate",
         ]
         for name in required:
             self.assertIn(name, block, f"missing runtime export {name!r} in y-host.d.ts")

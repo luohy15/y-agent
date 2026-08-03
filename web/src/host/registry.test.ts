@@ -17,8 +17,13 @@ describe("host runtime registry", () => {
     expect(EXTERNALS.every((specifier) => specifier in registry.modules)).toBe(true);
   });
 
-  it("bumps the host contract version to 3 for the artifact intent channel", () => {
-    expect(HOST_CONTRACT_VERSION).toBe(3);
+  it("bumps the host contract version to 4 for the host-command channel + swr/infinite", () => {
+    expect(HOST_CONTRACT_VERSION).toBe(4);
+  });
+
+  it("registers the swr/infinite subpath external", () => {
+    const registry = globalThis.__Y_HOST__!;
+    expect(registry.modules["swr/infinite"]).toBeDefined();
   });
 
   it("registers a react whose default export is reference-identical to the app's own react import", () => {

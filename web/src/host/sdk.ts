@@ -16,9 +16,11 @@ import {
 } from "../components/badges";
 import { ListEmpty, ListError, ListLoading } from "../components/ListStates";
 import { HOST_CONTRACT_VERSION } from "./contract";
+import { runHostCommand } from "./commands";
 import { openArtifactDetail, useArtifactIntent } from "./intents";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
+import { optimisticListMutate } from "../utils/optimisticMutate";
 
 export const hostSdk = {
   HOST_CONTRACT_VERSION,
@@ -53,6 +55,12 @@ export const hostSdk = {
   // intents.ts
   useArtifactIntent,
   openArtifactDetail,
+
+  // commands.ts (contract v4) — artifact -> host named command channel
+  runHostCommand,
+
+  // optimisticMutate.ts (contract v4) — shared list optimistic patcher
+  optimisticListMutate,
 };
 
 export type { ThemeColors } from "./theme";
