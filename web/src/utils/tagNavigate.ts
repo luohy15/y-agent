@@ -16,9 +16,9 @@ export interface OpenTodoDeps {
   handleOpenFile: (path: string) => void;
 }
 
-// Shared by TodoList's own row click (App.tsx sidebarPanel === "todo") and the
-// Tags panel's todo navigation: select the todo's trace, then either land on
-// its latest chat or open trace.md.
+// Shared by the Todo artifact's host command and the Tags panel's todo
+// navigation: select the todo's trace, then either land on its latest chat or
+// open trace.md.
 export function openTodo(todoId: string, deps: OpenTodoDeps): void {
   deps.requestSelectTraceId(todoId);
   deps.setChatListTraceId(todoId);

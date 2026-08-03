@@ -3,7 +3,6 @@ import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
-import TodoViewer from "./TodoViewer";
 import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
@@ -58,7 +57,6 @@ interface FileViewerProps {
   onPreviewFile?: (path: string, line?: number) => void;
   pendingLines?: Record<string, number | undefined>;
   onConsumeLine?: (path: string) => void;
-  onChatListRefresh?: () => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
   // Public trace projection: render note tabs keyed by note `share_id`, with content
   // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
@@ -931,14 +929,11 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onChatListRefresh, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
-  const [todoViewMode, setTodoViewMode] = useState<"table" | "kanban">(() => {
-    return (localStorage.getItem("todoViewMode") as "table" | "kanban") || "table";
-  });
   const [editContent, setEditContent] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -957,7 +952,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isUiArtifact = !!activeFile?.startsWith("ui:");
   const isTrace = !isDiff && !isArtifact && !isUiArtifact && activeFileName === "trace.md";
-  const isTodo = !isDiff && !isTrace && activeFileName.endsWith("todo.md");
   const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
   const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
   const isEntityPreview = !isDiff && !isTrace && activeFileName === "entity.md";
@@ -969,7 +963,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   useEffect(() => {
     if (mode === "public") return;
     if (!activeFile) return;
-    if (isDiff || isArtifact || isUiArtifact || isTrace || isTodo || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isEmail || isDev) return;
+    if (isDiff || isArtifact || isUiArtifact || isTrace || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isEmail || isDev) return;
     if (cache[activeFile] && !cache[activeFile].error) return;
 
     const ext = getExt(activeFile);
@@ -1000,7 +994,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         })
         .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
     }
-  }, [activeFile, cache, isArtifact, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isLinkPreview, isLinksMd, isTodo, isTrace, isUiArtifact, vmQuery, mode]);
+  }, [activeFile, cache, isArtifact, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isLinkPreview, isLinksMd, isTrace, isUiArtifact, vmQuery, mode]);
 
   // Clean up blob URLs, cache, and editContent for closed files
   useEffect(() => {
@@ -1041,10 +1035,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     if (!activeFile) return;
     if (isTrace) {
       mutate((key) => typeof key === "string" && key.includes("/api/trace/"));
-      return;
-    }
-    if (isTodo) {
-      mutate((key) => typeof key === "string" && key.includes("/api/todo/"));
       return;
     }
     if (isLinkPreview) {
@@ -1088,7 +1078,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       delete next[activeFile];
       return next;
     });
-  }, [activeFile, isTodo, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const isDirty = useCallback((path: string) => {
     return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
@@ -1234,15 +1224,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               <span className={i === arr.length - 1 ? "text-sol-base1" : ""}>{part}</span>
             </span>
           ))}
-          {isTodo && (
-            <button
-              onClick={() => setTodoViewMode((v) => { const next = v === "table" ? "kanban" : "table"; localStorage.setItem("todoViewMode", next); return next; })}
-              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-              title={todoViewMode === "table" ? "Switch to kanban" : "Switch to table"}
-            >
-              {todoViewMode === "table" ? "Kanban" : "Table"}
-            </button>
-          )}
           {isLinkPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
@@ -1317,7 +1298,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               )}
             </button>
           )}
-          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isTodo && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && (
+          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && (
             <button
               onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
               className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
@@ -1326,7 +1307,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
             </button>
           )}
-          {!isTodo && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (
+          {!isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (
             <a
               href={`https://github.com/luohy15/y-history/commits/main/${historyFilePath}`}
               target="_blank"
@@ -1337,7 +1318,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               History
             </a>
           )}
-          {!isTodo && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (() => {
+          {!isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (() => {
             const fileData = cache[activeFile];
             if (!fileData) return null;
             // Binary files (images/PDFs) load into blobUrl with no text content;
@@ -1450,7 +1431,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileUiArtifact = fileUiArtifactSlug ? uiArtifacts.find((artifact) => artifact.slug === fileUiArtifactSlug) : undefined;
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
           const fileTrace = !fileDiff && !fileArtifact && !fileUiArtifactSlug && fileName === "trace.md";
-          const fileTodo = !fileDiff && !fileTrace && fileName.endsWith("todo.md");
           const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
           const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
           const fileEntityPreview = !fileDiff && !fileTrace && fileName === "entity.md";
@@ -1466,7 +1446,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileArtifact || fileUiArtifactSlug || fileTodo || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
@@ -1497,8 +1477,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 />
               ) : fileTrace ? (
                 <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} defaultWorkDir={defaultWorkDir} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onSelectCalendarEvent={onSelectCalendarEvent} onOpenFile={onPreviewFile} onTraceTodoDirtyChange={onTraceTodoDirtyChange} />
-              ) : fileTodo ? (
-                <TodoViewer viewMode={todoViewMode} onChatListRefresh={onChatListRefresh} />
               ) : fileLinkPreview ? (
                 <LinkContentView activityId={selectedLinkId || null} linkId={selectedLinkLinkId || null} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} onExternalLinkClick={onExternalLinkClick} />
               ) : fileLinksMd ? (

@@ -111,28 +111,30 @@ entity + controller + service + CLI slices, and most have a web panel.
   Versions are immutable and `active_version_id` is a pointer, so rollback needs
   no rebuild. The `@y/host` surface (`web/src/host/sdk.ts`) is a stability obligation:
   it and the contract version have one physical source, `cli/src/yagent/sdk/contract.json`
-  (current version 3). Contract v3 (todo 2979) added a retained, per-slug host↔artifact
+  (current version 4). Contract v3 (todo 2979) added a retained, per-slug host↔artifact
   intent channel for artifacts that need navigation crossing the module boundary: `@y/host`
   exposes `useArtifactIntent<T>(slug)` (reads the latest intent the host set for that slug;
   latched, so an artifact that mounts *after* the host set the intent still sees it on
   first render) and `openArtifactDetail(slug)` (ask the host to open that artifact's detail
-  tab — the same path the panel header's "Open ... full view" button uses). The host-side
-  setter (`setArtifactIntent`, in `web/src/host/intents.ts`) and the opener registration
-  (`registerArtifactDetailOpener`) are deliberately **not** exported on `hostSdk`: only
-  built-in host code (`App.tsx`, `tagNavigate.ts`) can set an intent or register the opener,
-  so one artifact cannot set another artifact's intent or hijack its detail-open action.
-  The built-in Finance panel (`FinancePanel`/`FinanceViewer`) that the dynamic
-  `finance` artifact was originally migrated from has since been deleted (todo 2933),
-  the same migration has since been repeated for the Bots panel: the built-in
-  `BotList`/`BotViewer` that the `bot` artifact was migrated from has been deleted
-  (todo 2970), and again for the Calendar panel: the built-in `CalendarViewer`/
-  `ScheduleList` that the `calendar` artifact was migrated from has been deleted (todo
-  2979) — the first of these migrations where host code (a trace click, a tag drill-down)
-  needed to navigate into the artifact with a target date, which is what contract v3's
-  intent channel exists for. None of the three has an in-bundle fallback left, and the
-  recovery path for a broken artifact is `y ui rollback <slug>`, not restoring built-in
-  code. The calendar migration did not touch the backend: `/api/calendar-event` and the
-  `y calendar` CLI are unchanged. `y ui delete <slug>` (todo 2941) hard-deletes the
+  tab, using the same path as the panel header's "Open ... full view" button). Contract v4
+  (todo 3006) adds `runHostCommand(name, payload?)`, so artifacts can ask the host to run
+  registered navigation or refresh actions. The host-side intent setter
+  (`setArtifactIntent`, in `web/src/host/intents.ts`), detail-opener registration
+  (`registerArtifactDetailOpener`), and command registration (`registerHostCommand`, in
+  `web/src/host/commands.ts`) are deliberately **not** exported on `hostSdk`: only built-in
+  host code can register these actions, so one artifact cannot hijack another artifact's
+  intent, detail-open action, or host command. The built-in Finance panel
+  (`FinancePanel`/`FinanceViewer`) that the dynamic `finance` artifact was originally
+  migrated from has since been deleted (todo 2933), followed by the built-in Bots panel
+  (`BotList`/`BotViewer`) for the `bot` artifact (todo 2970), Calendar
+  (`CalendarViewer`/`ScheduleList`) for the `calendar` artifact (todo 2979), and Todo
+  (`TodoList`/`TodoViewer`/`TodoContextMenu`) for the `todo` artifact (todo 3006). None
+  has an in-bundle fallback. `TraceView` remains built-in because it also serves the
+  unauthenticated public trace-share projection, while artifacts are owner-scoped and
+  JWT-gated. The recovery path for a broken artifact is `y ui rollback <slug>`, not
+  restoring built-in code. The calendar migration did not touch the backend:
+  `/api/calendar-event` and the `y calendar` CLI are unchanged. `y ui delete <slug>`
+  (todo 2941) hard-deletes the
   artifact and all of its version rows, best-effort cleans up the stored bundle bytes,
   and leaves the VM authoring source (`.tsx` / `.json` / parts directory) untouched.
 - **Image transport** — API image ingestion stores bytes only under
@@ -245,7 +247,9 @@ Grouped by feature area:
   read-only projection (snapshot ChatView + injected Note/Link panels + public FileViewer)
 - `components/FileTree.tsx`, `FileViewer.tsx` — lazy tree + edit mode (syntax
   highlighting, line numbers)
-- `components/TodoList.tsx`, `TodoViewer.tsx` — kanban + pagination + pin
+- `host/commands.ts` — internal registration for artifact-invoked host commands
+- Todo list and modal detail are the runtime-loaded `todo` artifact; `TraceView` stays
+  bundled because `PublicTraceApp` must render it for unauthenticated trace shares
 - `components/NoteList.tsx`, `LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx` —
   subsystem panels
 - `components/DiffViewer.tsx`, `GitPanel.tsx` — git status + diff

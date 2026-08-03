@@ -5,7 +5,6 @@ import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type UiArtifact 
 import UserMenu from "./UserMenu";
 
 export type BuiltInSidebarPanel =
-  | "todo"
   | "notes"
   | "chats"
   | "links"
@@ -42,11 +41,6 @@ export interface PanelItem {
 }
 
 export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
-  { key: "todo", label: "Todo", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  )},
   { key: "notes", label: "Notes", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
@@ -146,7 +140,7 @@ const LEGACY_STORAGE_KEY_APPS = "activityBarOrderApps";
 
 // Old app keys → new panel keys.
 const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
-  "todo.md": null, // folded into existing "todo" panel
+  "todo.md": "artifact:todo",
   "calendar.md": "artifact:calendar",
   "finance.bean": "artifact:finance",
   "emails.md": "email",

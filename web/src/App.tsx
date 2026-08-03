@@ -11,7 +11,6 @@ import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./componen
 import FileSearchDialog from "./components/FileSearchDialog";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
-import TodoList from "./components/TodoList";
 import LinkList from "./components/LinkList";
 import NoteList from "./components/NoteList";
 import EmailList from "./components/EmailList";
@@ -37,6 +36,7 @@ import {
   mountableUiArtifacts,
   type UiArtifact,
 } from "./host/artifacts";
+import { registerHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 
 interface VmConfigItem {
@@ -54,7 +54,7 @@ interface BotConfigItem {
 // Tabs for panels that migrated to a dynamic-load UI artifact and no longer
 // exist as a host file path. A browser holding one of these in its restored
 // tab state would otherwise fetch a nonexistent file.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md"]);
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md"]);
 
 type RightPanel = "chats" | "notes" | "links" | "files" | "diff";
 type ChatContextPanel = "notes" | "links" | "files" | "diff";
@@ -107,7 +107,7 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
-    return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "todo";
+    return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
@@ -207,9 +207,37 @@ export default function App() {
   useEffect(() => registerArtifactDetailOpener((slug) => handleOpenFile(artifactTabKey(slug))), [handleOpenFile]);
 
   useEffect(() => {
+    const todoIdFromPayload = (payload: unknown) => {
+      if (!payload || typeof payload !== "object") return null;
+      const { todoId } = payload as { todoId?: unknown };
+      return typeof todoId === "string" ? todoId : null;
+    };
+    const unregisterOpen = registerHostCommand("todo.open", (payload) => {
+      const todoId = todoIdFromPayload(payload);
+      if (!todoId) return;
+      openTodo(todoId, { requestSelectTraceId, setChatListTraceId, setSelectedChatId, setChatHide, handleOpenFile });
+      setSidebarOpen(false);
+    });
+    const unregisterOpenTrace = registerHostCommand("todo.openTrace", (payload) => {
+      const todoId = todoIdFromPayload(payload);
+      if (!todoId) return;
+      requestSelectTraceId(todoId);
+      handleOpenFile("trace.md");
+    });
+    const unregisterRefreshList = registerHostCommand("chat.refreshList", () => {
+      setChatListRefreshKey((key) => key + 1);
+    });
+    return () => {
+      unregisterOpen();
+      unregisterOpenTrace();
+      unregisterRefreshList();
+    };
+  }, [handleOpenFile, requestSelectTraceId]);
+
+  useEffect(() => {
     if (uiArtifactsLoading) return;
     const slug = artifactSlugFromPanel(sidebarPanel);
-    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("todo");
+    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("chats");
   }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
   const openFilesRef = useRef(openFiles);
@@ -402,7 +430,7 @@ export default function App() {
     if (urlTraceId) {
       setSelectedTraceId(urlTraceId);
       handleOpenFile("trace.md");
-      setSidebarPanel("todo");
+      setSidebarPanel("artifact:todo");
     }
   }, [urlTraceId, handleOpenFile]);
 
@@ -908,7 +936,6 @@ export default function App() {
             const artifactSlug = artifactSlugFromPanel(sidebarPanel);
             const sidebarArtifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
             const panelFileMap: Partial<Record<SidebarPanel, { path: string; label: string }>> = {
-              todo: { path: "todo.md", label: "Open todo.md" },
               dev: { path: "dev.md", label: "Open dev.md" },
             };
             const panelFile = sidebarArtifact
@@ -931,8 +958,6 @@ export default function App() {
                     ))}
                   />
                 </div>
-              ) : sidebarPanel === "todo" ? (
-                <TodoList isLoggedIn={auth.isLoggedIn} onSelectTodo={(todoId) => { openTodo(todoId, { requestSelectTraceId, setChatListTraceId, setSelectedChatId, setChatHide, handleOpenFile }); setSidebarOpen(false); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} />
               ) : sidebarPanel === "chats" ? (
                 <ChatList isLoggedIn={auth.isLoggedIn} selectedChatId={selectedChatId} onSelectChat={handleSelectChat} refreshKey={chatListRefreshKey} routineName={chatListRoutineName} onClearRoutineName={() => setChatListRoutineName(null)} routineOnly={chatListRoutineOnly} onToggleRoutineOnly={() => setChatListRoutineOnly((v) => !v)} onClearRoutineOnly={() => setChatListRoutineOnly(false)} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
               ) : sidebarPanel === "notes" ? (
@@ -1054,7 +1079,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onChatListRefresh={() => setChatListRefreshKey((k) => k + 1)} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
