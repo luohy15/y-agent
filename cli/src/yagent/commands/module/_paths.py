@@ -1,9 +1,4 @@
-"""Paths for module UI sources and the materialized SDK on the VM.
-
-Phase 1 (todo 3020) keeps the on-disk layout under $Y_AGENT_HOME/ui/
-unchanged; the module source layout move to $Y_AGENT_HOME/modules/ is
-Phase 2.
-"""
+"""Paths for canonical module sources and the materialized SDK on the VM."""
 
 from __future__ import annotations
 
@@ -20,25 +15,33 @@ def agent_home() -> Path:
     return Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent")))
 
 
-def ui_dir() -> Path:
-    """Artifact sources live under $Y_AGENT_HOME/ui (plan: ~/luohy15/ui/)."""
-    return agent_home() / "ui"
+def modules_dir() -> Path:
+    """Canonical module source directory: $Y_AGENT_HOME/modules."""
+    return agent_home() / "modules"
+
+
+def source_dir(slug: str) -> Path:
+    return modules_dir() / slug
+
+
+def ui_dir(slug: str) -> Path:
+    return source_dir(slug) / "ui"
 
 
 def sdk_dir() -> Path:
-    return ui_dir() / ".sdk"
+    return modules_dir() / ".sdk"
 
 
 def source_path(slug: str) -> Path:
-    return ui_dir() / f"{slug}.tsx"
+    return ui_dir(slug) / "index.tsx"
 
 
 def meta_path(slug: str) -> Path:
-    return ui_dir() / f"{slug}.json"
+    return source_dir(slug) / "module.json"
 
 
 def build_out_dir(slug: str) -> Path:
-    return ui_dir() / ".build" / slug
+    return source_dir(slug) / ".build"
 
 
 def validate_slug(slug: str) -> str:

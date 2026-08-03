@@ -1,4 +1,4 @@
-"""Materialize the in-repo SDK onto the VM under ~/…/ui/.sdk/ (decision D7)."""
+"""Materialize the in-repo SDK under $Y_AGENT_HOME/modules/.sdk/."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ._paths import sdk_dir, ui_dir
+from ._paths import modules_dir, sdk_dir
 
 # cli/src/yagent/commands/module/_sdk.py → cli/src/yagent/sdk
 _PACKAGE_SDK = Path(__file__).resolve().parents[2] / "sdk"
@@ -54,7 +54,7 @@ def package_sdk_digest(root: Path | None = None) -> str:
 
 
 def ensure_sdk(*, force: bool = False, install: bool = True) -> Path:
-    """Copy package SDK → $Y_AGENT_HOME/ui/.sdk and npm install once.
+    """Copy package SDK → $Y_AGENT_HOME/modules/.sdk and npm install once.
 
     Re-materializes when the packaged content digest changes (any file under
     the shipped SDK, not only contract.json version), when the dest is
@@ -62,7 +62,7 @@ def ensure_sdk(*, force: bool = False, install: bool = True) -> Path:
     """
     dest = sdk_dir()
     src = package_sdk_root()
-    ui_dir().mkdir(parents=True, exist_ok=True)
+    modules_dir().mkdir(parents=True, exist_ok=True)
 
     expected = package_sdk_digest(src)
     marker = dest / _DIGEST_MARKER

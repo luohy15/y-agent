@@ -10,7 +10,7 @@ import click
 import httpx
 
 from ._api import create_module, resolve_module
-from ._paths import meta_path, source_path, ui_dir, validate_slug
+from ._paths import meta_path, source_dir, source_path, ui_dir, validate_slug
 from ._sdk import ensure_sdk, package_sdk_root
 
 
@@ -25,7 +25,7 @@ from ._sdk import ensure_sdk, package_sdk_root
     help="Scaffold locally only; skip POST /api/module/create",
 )
 def module_create(slug, label, icon, force, no_register):
-    """Scaffold a starter module under $Y_AGENT_HOME/ui/ and bootstrap the SDK."""
+    """Scaffold a starter module under $Y_AGENT_HOME/modules/ and bootstrap the SDK."""
     try:
         slug = validate_slug(slug)
     except ValueError as exc:
@@ -40,16 +40,19 @@ def module_create(slug, label, icon, force, no_register):
     meta = meta_path(slug)
     if (src.exists() or meta.exists()) and not force:
         raise click.ClickException(
-            f"module {slug!r} already exists ({src.name} / {meta.name}); use --force to overwrite"
+            f"module {slug!r} already exists ({source_dir(slug)}); use --force to overwrite"
         )
 
     templates = package_sdk_root() / "templates"
-    ui_dir().mkdir(parents=True, exist_ok=True)
+    ui_dir(slug).mkdir(parents=True, exist_ok=True)
     shutil.copy2(templates / "starter.tsx", src)
 
     meta_body = {
         "label": label or slug.replace("-", " ").replace("_", " ").title(),
         "icon": icon,
+        "description": "",
+        "parts": ["ui"],
+        "min_backend_version": None,
     }
     meta.write_text(json.dumps(meta_body, indent=2) + "\n", encoding="utf-8")
 

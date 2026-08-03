@@ -12,7 +12,7 @@ from ._sdk import ensure_sdk
 
 
 def build_artifact(slug: str) -> dict:
-    """Build <slug>.tsx. Returns the manifest dict (sha256, bundle path, …).
+    """Build <slug>/ui/index.tsx. Returns the manifest dict (sha256, bundle path, …).
 
     On esbuild/tailwind failure, raises RuntimeError with the compiler message
     and does not touch any remote state (PRD story 6).
@@ -32,7 +32,7 @@ def build_artifact(slug: str) -> dict:
         "--slug",
         slug,
         "--src",
-        str(ui_dir()),
+        str(ui_dir(slug)),
         "--out",
         str(out),
     ]

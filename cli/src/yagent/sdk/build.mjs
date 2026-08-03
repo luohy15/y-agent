@@ -1,7 +1,7 @@
 /*
  * Artifact build recipe for `y module publish` (lifted from spike-2412/build.mjs).
  *
- *   1. esbuild  : <slug>.tsx -> ESM bundle, externals redirected to alias shims
+ *   1. esbuild  : index.tsx -> ESM bundle, externals redirected to alias shims
  *   2. tailwind : generated CSS entry -> utilities-only stylesheet
  *                 (theme(reference) + source(none) + no preflight — F1/F2)
  *   3. scope    : wrap stylesheet so it cannot restyle host chrome (@scope)
@@ -9,7 +9,7 @@
  *   5. hash     : sha256 of the final bytes -> manifest.json
  *
  * Run (from the materialized SDK dir on the VM):
- *   node build.mjs --slug <slug> --src <ui-dir> --out <out-dir> [--scope=scope|prefix|none]
+ *   node build.mjs --slug <slug> --src <module-ui-dir> --out <out-dir> [--scope=scope|prefix|none]
  */
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
@@ -41,7 +41,7 @@ if (!slug) {
   process.exit(2);
 }
 
-const tsxPath = path.join(srcDir, `${slug}.tsx`);
+const tsxPath = path.join(srcDir, "index.tsx");
 if (!fs.existsSync(tsxPath)) {
   console.error(`source not found: ${tsxPath}`);
   process.exit(1);
@@ -96,8 +96,8 @@ if (leftoverImports.length) {
 }
 
 // --------------------------------------------------------------- 2. tailwind
-// Authors only write <slug>.tsx; the CSS entry is generated so the three D3
-// requirements (theme(reference), source(none), no preflight) cannot be forgotten.
+// Authors write ui/index.tsx and sibling files; the CSS entry is generated so
+// the three D3 requirements (theme(reference), source(none), no preflight) cannot be forgotten.
 // theme(reference) on the default theme import is MANDATORY (F1) or spacing /
 // radius / text utilities silently vanish. source(none) is MANDATORY (F2) or
 // Tailwind scans the whole VM home directory.
@@ -108,7 +108,7 @@ const cacheDir = path.join(here, ".cache");
 fs.mkdirSync(cacheDir, { recursive: true });
 const cssEntry = path.join(cacheDir, `${slug}.entry.css`);
 const tsxRel = path.relative(cacheDir, tsxPath).split(path.sep).join("/");
-const partsDir = path.join(srcDir, slug);
+const partsDir = srcDir;
 const partsRel = path.relative(cacheDir, partsDir).split(path.sep).join("/");
 fs.writeFileSync(
   cssEntry,
@@ -118,8 +118,7 @@ fs.writeFileSync(
     '@import "tailwindcss/utilities.css" layer(utilities) source(none);',
     '@import "../theme.css";',
     `@source "${tsxRel.startsWith(".") ? tsxRel : `./${tsxRel}`}";`,
-    // Sibling parts directory (ui/<slug>/**). A no-op glob when the directory
-    // doesn't exist — most artifacts stay single-file.
+    // The full UI tree covers sibling parts below the canonical index entry.
     `@source "${partsRel.startsWith(".") ? partsRel : `./${partsRel}`}/**/*.{tsx,ts}";`,
     "",
   ].join("\n"),
@@ -221,10 +220,9 @@ const css = scopeCss(cssRaw, slug, scopeMode);
 const bundle = `${js}\nexport const css = ${JSON.stringify(css)};\nexport const slug = ${JSON.stringify(slug)};\nexport const minHostVersion = ${minHostVersion};\n`;
 
 // ------------------------------------------------------------------- 5. hash
-// source_digest covers the entry plus every part file, so editing a sibling
-// file under ui/<slug>/ (and nothing else) still changes this field — the
-// bundle sha256 stays the integrity control, but source_digest is meant to
-// reflect "did any source input change", which the parts dir is now one of.
+// source_digest covers the whole UI tree, so editing any sibling file changes
+// this field. The bundle sha256 stays the integrity control, while source_digest
+// reflects whether any source input changed.
 function collectPartFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   const out = [];

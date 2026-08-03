@@ -38,8 +38,8 @@ def _compose_description(desc: Optional[str], trace_id: Optional[str]) -> Option
     is_flag=True,
     help="Stage a version without making it active (PRD story 7)",
 )
-@click.option("--label", default=None, help="Override sidebar label from <slug>.json")
-@click.option("--icon", default=None, help="Override sidebar icon from <slug>.json")
+@click.option("--label", default=None, help="Override sidebar label from module.json")
+@click.option("--icon", default=None, help="Override sidebar icon from module.json")
 @click.option("-d", "--desc", default=None, help="Description/tag for this version, auto-prefixed with [Y_TRACE_ID]")
 def module_publish(slug, no_activate, label, icon, desc):
     """Build the module and publish it. A build error leaves the active version untouched."""

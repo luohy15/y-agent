@@ -14,7 +14,14 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from yagent.commands.module.click import module_group
-from yagent.commands.module._paths import SLUG_RE, meta_path, source_path, ui_dir, validate_slug
+from yagent.commands.module._paths import (
+    SLUG_RE,
+    meta_path,
+    modules_dir,
+    source_dir,
+    source_path,
+    validate_slug,
+)
 from yagent.commands.module._sdk import (
     _DIGEST_MARKER,
     ensure_sdk,
@@ -141,6 +148,17 @@ class SlugValidationTest(unittest.TestCase):
                 validate_slug(bad)
 
 
+class ModuleSourceLayoutTest(unittest.TestCase):
+    def test_modules_dir_has_no_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict(
+                "os.environ",
+                {"Y_AGENT_HOME": str(home), "Y_AGENT_MODULES_DIR": "/tmp/elsewhere"},
+            ):
+                self.assertEqual(modules_dir(), home / "modules")
+
+
 class SdkRefreshTest(unittest.TestCase):
     def test_ensure_sdk_refreshes_when_packaged_content_changes(self):
         """A fix to build.mjs (no contract bump) must re-materialize ~/ui/.sdk."""
@@ -227,10 +245,13 @@ class ModuleCreateTest(unittest.TestCase):
                 self.assertEqual(meta["label"], "Demo")
                 self.assertEqual(meta["icon"], "box")
                 create_fn.assert_called_once_with("demo")
+                self.assertEqual(source_path("demo"), home / "modules" / "demo" / "ui" / "index.tsx")
+                self.assertEqual(meta_path("demo"), home / "modules" / "demo" / "module.json")
+                self.assertTrue(source_dir("demo").is_dir())
                 # SDK materialized
-                self.assertTrue((ui_dir() / ".sdk" / "build.mjs").is_file())
-                self.assertTrue((ui_dir() / ".sdk" / "shims" / "react.cjs").is_file())
-                self.assertTrue((ui_dir() / ".sdk" / _DIGEST_MARKER).is_file())
+                self.assertTrue((modules_dir() / ".sdk" / "build.mjs").is_file())
+                self.assertTrue((modules_dir() / ".sdk" / "shims" / "react.cjs").is_file())
+                self.assertTrue((modules_dir() / ".sdk" / _DIGEST_MARKER).is_file())
 
     def test_create_rejects_invalid_slug(self):
         result = CliRunner().invoke(module_group, ["create", "Bad Slug"])
@@ -356,8 +377,8 @@ class ModulePublishTest(unittest.TestCase):
                      },
                  ) as pub:
                 # Write meta so label/icon resolve
-                (home / "ui").mkdir(parents=True)
-                (home / "ui" / "demo.json").write_text(
+                meta_path("demo").parent.mkdir(parents=True)
+                meta_path("demo").write_text(
                     json.dumps({"label": "Demo", "icon": "box"}), encoding="utf-8"
                 )
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
@@ -512,13 +533,11 @@ class ModuleDeleteTest(unittest.TestCase):
                      return_value={"module_id": "mod_1", "slug": "demo", "deleted_versions": 2},
                  ) as del_fn:
                 result = CliRunner().invoke(module_group, ["delete", "demo", "--yes"])
-                expected_source = source_path("demo")
-                expected_meta = meta_path("demo")
+                expected_source = source_dir("demo")
         self.assertEqual(result.exit_code, 0, result.output)
         del_fn.assert_called_once_with("mod_1")
         self.assertIn("Deleted demo", result.output)
         self.assertIn(str(expected_source), result.output)
-        self.assertIn(str(expected_meta), result.output)
 
     def test_delete_without_yes_prompts_and_aborts_on_no(self):
         with patch(

@@ -6,7 +6,7 @@ import click
 import httpx
 
 from ._api import delete_module, resolve_module
-from ._paths import meta_path, source_path, ui_dir, validate_slug
+from ._paths import source_dir, validate_slug
 
 
 @click.command("delete")
@@ -45,8 +45,4 @@ def module_delete(slug, yes):
         f"Deleted {slug} ({result.get('deleted_versions', 0)} version(s) removed)"
     )
     click.echo("Authoring source was left untouched:")
-    click.echo(f"  {source_path(slug)}")
-    click.echo(f"  {meta_path(slug)}")
-    parts_dir = ui_dir() / slug
-    if parts_dir.is_dir():
-        click.echo(f"  {parts_dir}/")
+    click.echo(f"  {source_dir(slug)}/")
