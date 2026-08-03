@@ -1039,3 +1039,394 @@ class SchemaSqlTest(unittest.TestCase):
                 self._cleanup_sys_modules("scratch-empty")
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(result.output, "")
+
+
+def _write_module_cli(
+    home: Path,
+    slug: str,
+    *,
+    cli_body: str,
+    label: str | None = None,
+    init_body: str = "# empty\n",
+    module_json: bool = True,
+) -> Path:
+    root = home / "modules" / slug
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "__init__.py").write_text(init_body, encoding="utf-8")
+    (root / "cli.py").write_text(cli_body, encoding="utf-8")
+    if module_json:
+        meta = {"label": label or slug.title(), "icon": "box", "parts": ["cli"]}
+        (root / "module.json").write_text(json.dumps(meta), encoding="utf-8")
+    return root
+
+
+def _cleanup_ymod(slug: str) -> None:
+    import sys
+
+    from yagent.commands.module._local import package_name_for
+
+    pkg = package_name_for(slug)
+    for key in list(sys.modules):
+        if key == pkg or key.startswith(pkg + "."):
+            sys.modules.pop(key, None)
+
+
+def _ymod_keys_in_sys_modules() -> list[str]:
+    """Keys that look like local or published module packages."""
+    return [k for k in sys.modules if k == "ymod" or k.startswith("ymod_")]
+
+
+class LazyModuleDiscoveryTest(unittest.TestCase):
+    """Plan 5.1: listdir + module.json only; no module Python on help path."""
+
+    def test_discover_skips_dot_invalid_and_non_cli_entries(self):
+        from yagent.commands.module._lazy import discover_module_slugs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            modules = home / "modules"
+            modules.mkdir()
+            # Dot entries (SDK + bak) must never become commands.
+            (modules / ".sdk").mkdir()
+            (modules / ".sdk-node_modules.bak").mkdir()
+            # Invalid slug (underscore) and non-dir file.
+            (modules / "bad_slug").mkdir()
+            (modules / "bad_slug" / "module.json").write_text("{}", encoding="utf-8")
+            (modules / "readme.txt").write_text("nope\n", encoding="utf-8")
+            # UI-only: module.json but no cli.py.
+            ui_only = modules / "ui-only"
+            ui_only.mkdir()
+            (ui_only / "module.json").write_text(
+                json.dumps({"label": "UI Only", "icon": "box"}), encoding="utf-8"
+            )
+            # Valid CLI module.
+            _write_module_cli(
+                home,
+                "good-mod",
+                label="Good Mod",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('good-mod')\n"
+                    "def group():\n"
+                    "    '''Good.'''\n"
+                    "    pass\n"
+                ),
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                self.assertEqual(discover_module_slugs(), ["good-mod"])
+
+    def test_help_lists_module_label_without_importing_cli(self):
+        import sys
+
+        from yagent.command_option import cli
+        from yagent.commands.module._local import package_name_for
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "scratch-help",
+                label="Scratch Help",
+                cli_body=(
+                    "import click\n"
+                    "raise RuntimeError('cli must not import on --help')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    before = set(_ymod_keys_in_sys_modules())
+                    result = CliRunner().invoke(cli, ["--help"])
+                    after = set(_ymod_keys_in_sys_modules())
+            finally:
+                _cleanup_ymod("scratch-help")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("scratch-help", result.output)
+            self.assertIn("Scratch Help", result.output)
+            # Help path must not leave any ymod_* import behind.
+            self.assertEqual(after - before, set())
+            self.assertNotIn(package_name_for("scratch-help"), sys.modules)
+
+    def test_unrelated_command_does_not_import_module_cli(self):
+        import sys
+
+        from yagent.command_option import cli
+        from yagent.commands.module._local import package_name_for
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "side-effect",
+                label="Side Effect",
+                cli_body=(
+                    "import click\n"
+                    "raise RuntimeError('side-effect module imported')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    before = set(_ymod_keys_in_sys_modules())
+                    # `todo --help` is a real built-in; resolving it must not
+                    # import any module CLI package.
+                    result = CliRunner().invoke(cli, ["todo", "--help"])
+                    after = set(_ymod_keys_in_sys_modules())
+            finally:
+                _cleanup_ymod("side-effect")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(after - before, set())
+            self.assertNotIn(package_name_for("side-effect"), sys.modules)
+            self.assertNotIn(f"{package_name_for('side-effect')}.cli", sys.modules)
+
+
+class LazyModuleInvocationTest(unittest.TestCase):
+    """Plan 5.1/5.2: import on use, common injection, isolation, collision."""
+
+    def test_module_command_loads_local_cli_and_common(self):
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            common = home / "modules" / "common"
+            common.mkdir(parents=True)
+            (common / "__init__.py").write_text("FLAG = 'from-common'\n", encoding="utf-8")
+            _write_module_cli(
+                home,
+                "consumer",
+                label="Consumer",
+                cli_body=(
+                    "import click\n"
+                    "from .common import FLAG\n\n"
+                    "@click.group('consumer')\n"
+                    "def group():\n"
+                    "    '''Consumer module.'''\n"
+                    "    pass\n\n"
+                    "@group.command('ping')\n"
+                    "def ping():\n"
+                    "    click.echo(FLAG)\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(cli, ["consumer", "ping"])
+            finally:
+                _cleanup_ymod("consumer")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(result.output.strip(), "from-common")
+
+    def test_broken_module_cli_does_not_break_built_ins(self):
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "broken",
+                label="Broken",
+                cli_body="raise RuntimeError('broken on purpose')\n",
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    broken = CliRunner().invoke(cli, ["broken", "anything"])
+                    # Built-in still works in the same process after the failure.
+                    todo = CliRunner().invoke(cli, ["todo", "--help"])
+            finally:
+                _cleanup_ymod("broken")
+            self.assertNotEqual(broken.exit_code, 0)
+            self.assertIn("Failed to load CLI for module 'broken'", broken.output)
+            self.assertIn("broken on purpose", broken.output)
+            self.assertEqual(todo.exit_code, 0, todo.output)
+            self.assertIn("Manage todos", todo.output)
+
+    def test_built_in_wins_on_name_collision(self):
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            # A module that steals the built-in `todo` name must not be used.
+            _write_module_cli(
+                home,
+                "todo",
+                label="Shadow Todo",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('todo')\n"
+                    "def group():\n"
+                    "    '''Shadow.'''\n"
+                    "    pass\n\n"
+                    "@group.command('list')\n"
+                    "def list_cmd():\n"
+                    "    click.echo('SHADOW')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    # Help still lists `todo` once (built-in), and the built-in
+                    # help text is the one that appears.
+                    help_result = CliRunner().invoke(cli, ["--help"])
+                    todo_help = CliRunner().invoke(cli, ["todo", "--help"])
+            finally:
+                _cleanup_ymod("todo")
+            self.assertEqual(help_result.exit_code, 0, help_result.output)
+            self.assertEqual(help_result.output.count("  todo"), 1)
+            self.assertNotIn("Shadow Todo", help_result.output)
+            self.assertEqual(todo_help.exit_code, 0, todo_help.output)
+            self.assertIn("Manage todos", todo_help.output)
+            self.assertNotIn("SHADOW", todo_help.output)
+
+    def test_module_without_group_export_errors_clearly(self):
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "nogroup",
+                label="No Group",
+                cli_body="VALUE = 1\n",
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(cli, ["nogroup", "--help"])
+            finally:
+                _cleanup_ymod("nogroup")
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("must export `group`", result.output)
+
+    def test_group_option_parses_and_reaches_callback(self):
+        """Regression for F1: a group-level option must not be dropped."""
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "optmod",
+                label="Opt Mod",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('optmod')\n"
+                    "@click.option('--flavor', default='plain')\n"
+                    "def group(flavor):\n"
+                    "    click.echo(f'group={flavor}')\n\n"
+                    "@group.command('sub')\n"
+                    "def sub():\n"
+                    "    click.echo('sub ran')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    with_opt = CliRunner().invoke(
+                        cli, ["optmod", "--flavor", "spicy", "sub"]
+                    )
+                    default = CliRunner().invoke(cli, ["optmod", "sub"])
+            finally:
+                _cleanup_ymod("optmod")
+            self.assertEqual(with_opt.exit_code, 0, with_opt.output)
+            self.assertIn("group=spicy", with_opt.output)
+            self.assertIn("sub ran", with_opt.output)
+            # No raw TypeError traceback; a missing option is a clean Click error.
+            self.assertNotIn("TypeError", with_opt.output)
+            self.assertEqual(default.exit_code, 0, default.output)
+            self.assertNotIn("No such option", default.output)
+
+    def test_help_lists_group_option_and_unknown_option_fails_cleanly(self):
+        """Help advertises the option, and a bad value is a Click error, not
+        a raw traceback."""
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "optmod",
+                label="Opt Mod",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('optmod')\n"
+                    "@click.option('--flavor', default='plain')\n"
+                    "def group(flavor):\n"
+                    "    pass\n\n"
+                    "@group.command('sub')\n"
+                    "def sub():\n"
+                    "    pass\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    help_result = CliRunner().invoke(cli, ["optmod", "--help"])
+                    bad = CliRunner().invoke(
+                        cli, ["optmod", "--bogus", "sub"]
+                    )
+            finally:
+                _cleanup_ymod("optmod")
+            self.assertEqual(help_result.exit_code, 0, help_result.output)
+            self.assertIn("--flavor", help_result.output)
+            self.assertNotEqual(bad.exit_code, 0)
+            self.assertIn("No such option: --bogus", bad.output)
+            self.assertNotIn("Traceback", bad.output)
+
+    def test_invoke_without_command_runs_group_callback(self):
+        """Regression for F1: an invoke_without_command group runs its callback
+        (not help) when invoked bare."""
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "iwcm",
+                label="IWCM",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('iwcm', invoke_without_command=True)\n"
+                    "def group():\n"
+                    "    click.echo('group callback ran')\n\n"
+                    "@group.command('ping')\n"
+                    "def ping():\n"
+                    "    click.echo('ping')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    bare = CliRunner().invoke(cli, ["iwcm"])
+                    sub = CliRunner().invoke(cli, ["iwcm", "ping"])
+            finally:
+                _cleanup_ymod("iwcm")
+            self.assertEqual(bare.exit_code, 0, bare.output)
+            self.assertEqual(bare.output.strip(), "group callback ran")
+            self.assertEqual(sub.exit_code, 0, sub.output)
+            self.assertIn("ping", sub.output)
+
+    def test_group_callback_with_click_pass_context(self):
+        """Context arrives through the delegated make_context (PRD story 27).
+
+        A plain group only runs its callback when a subcommand follows, so
+        invoke `sub`; the callback must receive a real context, not a
+        positional-arg TypeError."""
+        from yagent.command_option import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            _write_module_cli(
+                home,
+                "pcmod",
+                label="Pc Mod",
+                cli_body=(
+                    "import click\n\n"
+                    "@click.group('pcmod')\n"
+                    "@click.pass_context\n"
+                    "def group(ctx):\n"
+                    "    click.echo(f'name={ctx.info_name}')\n\n"
+                    "@group.command('sub')\n"
+                    "def sub():\n"
+                    "    click.echo('sub')\n"
+                ),
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(cli, ["pcmod", "sub"])
+            finally:
+                _cleanup_ymod("pcmod")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("name=pcmod", result.output)
+            self.assertNotIn("Traceback", result.output)

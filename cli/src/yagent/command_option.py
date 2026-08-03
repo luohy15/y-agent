@@ -29,9 +29,10 @@ from yagent.commands.cookies.click import cookies_group
 from yagent.commands.claude.click import claude_group
 from yagent.commands.usage.click import usage_group
 from yagent.commands.module.click import module_group
+from yagent.commands.module._lazy import LazyModuleGroup
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
-@click.group(context_settings=CONTEXT_SETTINGS)
+@click.group(cls=LazyModuleGroup, context_settings=CONTEXT_SETTINGS)
 def cli():
     """Personal command-line toolkit."""
     load_global_config()
