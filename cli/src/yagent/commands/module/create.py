@@ -1,4 +1,4 @@
-"""`y ui create <slug>` — scaffold source + materialize SDK (decision D5/D7)."""
+"""`y module create <slug>` — scaffold source + materialize SDK (decision D5/D7)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 import click
 import httpx
 
-from ._api import create_artifact, resolve_artifact
+from ._api import create_module, resolve_module
 from ._paths import meta_path, source_path, ui_dir, validate_slug
 from ._sdk import ensure_sdk, package_sdk_root
 
@@ -22,10 +22,10 @@ from ._sdk import ensure_sdk, package_sdk_root
 @click.option(
     "--no-register",
     is_flag=True,
-    help="Scaffold locally only; skip POST /api/ui/create",
+    help="Scaffold locally only; skip POST /api/module/create",
 )
-def ui_create(slug, label, icon, force, no_register):
-    """Scaffold a starter artifact under $Y_AGENT_HOME/ui/ and bootstrap the SDK."""
+def module_create(slug, label, icon, force, no_register):
+    """Scaffold a starter module under $Y_AGENT_HOME/ui/ and bootstrap the SDK."""
     try:
         slug = validate_slug(slug)
     except ValueError as exc:
@@ -40,7 +40,7 @@ def ui_create(slug, label, icon, force, no_register):
     meta = meta_path(slug)
     if (src.exists() or meta.exists()) and not force:
         raise click.ClickException(
-            f"artifact {slug!r} already exists ({src.name} / {meta.name}); use --force to overwrite"
+            f"module {slug!r} already exists ({src.name} / {meta.name}); use --force to overwrite"
         )
 
     templates = package_sdk_root() / "templates"
@@ -53,19 +53,19 @@ def ui_create(slug, label, icon, force, no_register):
     }
     meta.write_text(json.dumps(meta_body, indent=2) + "\n", encoding="utf-8")
 
-    artifact_id = None
+    module_id = None
     if not no_register:
         try:
-            existing = resolve_artifact(slug)
+            existing = resolve_module(slug)
             if existing:
-                artifact_id = existing["artifact_id"]
-                click.echo(f"Already registered: {slug} ({artifact_id})")
+                module_id = existing["module_id"]
+                click.echo(f"Already registered: {slug} ({module_id})")
             else:
-                created = create_artifact(slug)
-                artifact_id = created["artifact_id"]
-                click.echo(f"Registered: {slug} ({artifact_id})")
+                created = create_module(slug)
+                module_id = created["module_id"]
+                click.echo(f"Registered: {slug} ({module_id})")
         except httpx.HTTPStatusError as exc:
-            # S3 may not have shipped POST /api/ui/create yet; local scaffold still succeeds.
+            # S3 may not have shipped POST /api/module/create yet; local scaffold still succeeds.
             detail = _http_detail(exc)
             click.echo(
                 f"Warning: could not register with API ({exc.response.status_code}: {detail}). "
@@ -81,7 +81,7 @@ def ui_create(slug, label, icon, force, no_register):
 
     click.echo(f"Created {src}")
     click.echo(f"         {meta}")
-    click.echo(f"Edit the source, then: y ui publish {slug}")
+    click.echo(f"Edit the source, then: y module publish {slug}")
 
 
 def _http_detail(exc: httpx.HTTPStatusError) -> str:

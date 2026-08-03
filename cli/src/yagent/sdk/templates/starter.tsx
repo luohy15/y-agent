@@ -3,7 +3,7 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
 
 /**
  * Starter UI artifact. Edit this file, then:
- *   y ui publish <slug>
+ *   y module publish <slug>
  * The host supplies react / @y/host / swr / recharts via the runtime registry.
  *
  * One artifact is one module with two surfaces:
@@ -16,7 +16,7 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  * Outgrowing one file? Keep this file as the thin entry and put sibling
  * modules under a same-named parts directory next to it (e.g.
  * `ui/<slug>/panel.tsx`, `ui/<slug>/format.ts`), imported here with relative
- * specifiers. `y ui publish` bundles relative imports and scans the parts
+ * specifiers. `y module publish` bundles relative imports and scans the parts
  * directory for Tailwind classes automatically — no other config needed.
  */
 function StarterPanel() {

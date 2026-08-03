@@ -26,7 +26,7 @@ async function flushMicrotasks() {
 }
 
 function ref(overrides: Partial<ArtifactVersionRef> = {}): ArtifactVersionRef {
-  return { version_id: "v1", version_no: 3, sha256: "a".repeat(64), min_host_version: 1, ...overrides };
+  return { version_id: "v1", version_no: 3, ui_sha256: "a".repeat(64), min_host_version: 1, ...overrides };
 }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -285,7 +285,7 @@ describe("ArtifactMount", () => {
     container.remove();
   });
 
-  it("rolls back on click: posts artifact_id + from_version_id and calls onRolledBack instead of reloading", async () => {
+  it("rolls back on click: posts module_id + from_version_id and calls onRolledBack instead of reloading", async () => {
     loadArtifactMock.mockRejectedValue(new ArtifactLoadError("fetch", "Bundle fetch failed (HTTP 500)."));
     authFetchMock.mockResolvedValue(jsonResponse(200, { version_id: "v-prev" }));
     const reloadSpy = vi.fn();
@@ -312,11 +312,11 @@ describe("ArtifactMount", () => {
     });
 
     expect(authFetchMock).toHaveBeenCalledWith(
-      "http://test.local/api/ui/rollback",
+      "http://test.local/api/module/rollback",
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse((authFetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toEqual({ artifact_id: "art-xyz", from_version_id: "v-current" });
+    expect(body).toEqual({ module_id: "art-xyz", from_version_id: "v-current" });
     expect(onRolledBack).toHaveBeenCalledTimes(1);
     expect(reloadSpy).not.toHaveBeenCalled();
 

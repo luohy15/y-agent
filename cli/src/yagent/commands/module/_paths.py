@@ -1,4 +1,9 @@
-"""Paths for UI artifact sources and the materialized SDK on the VM."""
+"""Paths for module UI sources and the materialized SDK on the VM.
+
+Phase 1 (todo 3020) keeps the on-disk layout under $Y_AGENT_HOME/ui/
+unchanged; the module source layout move to $Y_AGENT_HOME/modules/ is
+Phase 2.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import os
 import re
 from pathlib import Path
 
-# Must match api/controller/ui_artifact.py SLUG_RE exactly so create/publish
+# Must match api/controller/module.py SLUG_RE exactly so create/publish
 # cannot accept a slug the API will reject (or reject one the API accepts).
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 

@@ -11,7 +11,7 @@ import { HOST_CONTRACT_VERSION } from "./contract";
 export interface ArtifactVersionRef {
   version_id: string;
   version_no: number;
-  sha256: string;
+  ui_sha256: string;
   min_host_version: number;
 }
 
@@ -52,7 +52,7 @@ interface ArtifactModule {
 }
 
 function bundleUrl(versionId: string): string {
-  return `${API}/api/ui/artifact/${encodeURIComponent(versionId)}/bundle`;
+  return `${API}/api/module/bundle/${encodeURIComponent(versionId)}`;
 }
 
 function toHex(buffer: ArrayBuffer): string {
@@ -83,11 +83,11 @@ export function loadArtifact(version: ArtifactVersionRef): Promise<LoadedArtifac
   }
 
   const url = bundleUrl(version.version_id);
-  const key = `${url}::${version.sha256}`;
+  const key = `${url}::${version.ui_sha256}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const promise = fetchAndVerify(url, version.sha256).catch((err) => {
+  const promise = fetchAndVerify(url, version.ui_sha256).catch((err) => {
     // Don't pin a failed load in the cache: a retry (e.g. after the user fixes
     // a plain-HTTP origin, or a transient network blip) should refetch rather
     // than replay the same rejection forever.

@@ -1,11 +1,11 @@
-"""`y ui enable <slug>` / `y ui disable <slug>`."""
+"""`y module enable <slug>` / `y module disable <slug>`."""
 
 from __future__ import annotations
 
 import click
 import httpx
 
-from ._api import resolve_artifact, set_enabled
+from ._api import resolve_module, set_enabled
 from ._paths import validate_slug
 
 
@@ -15,12 +15,12 @@ def _toggle(slug: str, enabled: bool) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    artifact = resolve_artifact(slug)
-    if not artifact:
-        raise click.ClickException(f"unknown artifact {slug!r}")
+    module = resolve_module(slug)
+    if not module:
+        raise click.ClickException(f"unknown module {slug!r}")
 
     try:
-        updated = set_enabled(artifact["artifact_id"], enabled)
+        updated = set_enabled(module["module_id"], enabled)
     except httpx.HTTPStatusError as exc:
         detail = ""
         try:
@@ -38,13 +38,13 @@ def _toggle(slug: str, enabled: bool) -> None:
 
 @click.command("enable")
 @click.argument("slug")
-def ui_enable(slug):
-    """Show the artifact in the host panel list."""
+def module_enable(slug):
+    """Show the module in the host panel list."""
     _toggle(slug, True)
 
 
 @click.command("disable")
 @click.argument("slug")
-def ui_disable(slug):
-    """Hide the artifact without deleting history."""
+def module_disable(slug):
+    """Hide the module without deleting history."""
     _toggle(slug, False)

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ._paths import sdk_dir, ui_dir
 
-# cli/src/yagent/commands/ui/_sdk.py → cli/src/yagent/sdk
+# cli/src/yagent/commands/module/_sdk.py → cli/src/yagent/sdk
 _PACKAGE_SDK = Path(__file__).resolve().parents[2] / "sdk"
 
 # Written into the materialized SDK; when it diverges from a fresh digest of

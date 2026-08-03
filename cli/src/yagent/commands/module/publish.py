@@ -1,4 +1,4 @@
-"""`y ui publish <slug>` — build on the VM and POST the bundle to the API."""
+"""`y module publish <slug>` — build on the VM and POST the bundle to the API."""
 
 from __future__ import annotations
 
@@ -41,8 +41,8 @@ def _compose_description(desc: Optional[str], trace_id: Optional[str]) -> Option
 @click.option("--label", default=None, help="Override sidebar label from <slug>.json")
 @click.option("--icon", default=None, help="Override sidebar icon from <slug>.json")
 @click.option("-d", "--desc", default=None, help="Description/tag for this version, auto-prefixed with [Y_TRACE_ID]")
-def ui_publish(slug, no_activate, label, icon, desc):
-    """Build the artifact and publish it. A build error leaves the active version untouched."""
+def module_publish(slug, no_activate, label, icon, desc):
+    """Build the module and publish it. A build error leaves the active version untouched."""
     try:
         slug = validate_slug(slug)
     except ValueError as exc:
@@ -69,11 +69,11 @@ def ui_publish(slug, no_activate, label, icon, desc):
     )
 
     try:
-        artifact = resolve_or_create(slug)
+        module = resolve_or_create(slug)
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)
         raise click.ClickException(
-            f"could not resolve/create artifact {slug!r}: "
+            f"could not resolve/create module {slug!r}: "
             f"{exc.response.status_code} {detail}"
         ) from exc
 
@@ -82,7 +82,7 @@ def ui_publish(slug, no_activate, label, icon, desc):
 
     try:
         version = publish_bundle(
-            artifact_id=artifact["artifact_id"],
+            module_id=module["module_id"],
             bundle_bytes=bundle_bytes,
             sha256=manifest["sha256"],
             label=label,
@@ -101,7 +101,7 @@ def ui_publish(slug, no_activate, label, icon, desc):
     state = "staged" if no_activate else "active"
     click.echo(
         f"Published {slug} v{version['version_no']} ({state}) "
-        f"sha256={version['sha256'][:12]}… "
+        f"sha256={version['ui_sha256'][:12]}… "
         f"({manifest['bytes']} bytes)"
     )
 

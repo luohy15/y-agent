@@ -1,9 +1,8 @@
 import type { ArtifactVersionRef } from "./loader";
 
-export interface UiArtifact extends Record<string, unknown> {
-  artifact_id: string;
+export interface Module extends Record<string, unknown> {
+  module_id: string;
   slug: string;
-  kind: string;
   active_version_id: string | null;
   enabled: boolean;
   active_version: (ArtifactVersionRef & {
@@ -12,14 +11,14 @@ export interface UiArtifact extends Record<string, unknown> {
   }) | null;
 }
 
-export type MountableUiArtifact = UiArtifact & {
-  active_version: NonNullable<UiArtifact["active_version"]>;
+export type MountableModule = Module & {
+  active_version: NonNullable<Module["active_version"]>;
 };
 
-export function mountableUiArtifacts(artifacts: UiArtifact[]): MountableUiArtifact[] {
+export function mountableUiArtifacts(artifacts: Module[]): MountableModule[] {
   return artifacts.filter(
-    (artifact): artifact is MountableUiArtifact =>
-      artifact.enabled && artifact.kind === "panel" && artifact.active_version !== null,
+    (artifact): artifact is MountableModule =>
+      artifact.enabled && !!artifact.active_version?.ui_sha256,
   );
 }
 
@@ -46,6 +45,6 @@ export function isPersistableTab(path: string): boolean {
   return !path.startsWith("artifact:");
 }
 
-export function artifactLabel(artifact: MountableUiArtifact): string {
+export function artifactLabel(artifact: MountableModule): string {
   return artifact.active_version.label?.trim() || artifact.slug;
 }

@@ -3,7 +3,7 @@
 // externals list have one physical copy, `cli/src/yagent/sdk/contract.json`
 // (the CLI's editable install resolves the SDK directory relative to the
 // installed module, so it must live under `cli/`), so the SDK materialized
-// for `y ui publish` and the deployed web host can never disagree within a
+// for `y module publish` and the deployed web host can never disagree within a
 // release.
 import contract from "../../../cli/src/yagent/sdk/contract.json";
 

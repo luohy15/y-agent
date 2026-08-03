@@ -32,21 +32,20 @@ test("imports a verified blob bundle into the sidebar and the restored detail ta
 
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/api/ui/list") {
+    if (url.pathname === "/api/module/list") {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify([{
-          artifact_id: "artifact-smoke",
+          module_id: "module-smoke",
           slug: "smoke",
-          kind: "panel",
           active_version_id: "version-smoke",
           enabled: true,
           active_version: {
             version_id: "version-smoke",
-            artifact_id: "artifact-smoke",
+            module_id: "module-smoke",
             version_no: 1,
-            sha256,
-            storage_key: `ui/artifact-smoke/${sha256}.js`,
+            ui_sha256: sha256,
+            ui_storage_key: `module/module-smoke/${sha256}.js`,
             label: "Smoke UI",
             icon: "box",
             min_host_version: 1,
@@ -55,7 +54,7 @@ test("imports a verified blob bundle into the sidebar and the restored detail ta
       });
       return;
     }
-    if (url.pathname === "/api/ui/artifact/version-smoke/bundle") {
+    if (url.pathname === "/api/module/bundle/version-smoke") {
       bundleFetches += 1;
       await route.fulfill({ contentType: "text/javascript", body: bundle });
       return;

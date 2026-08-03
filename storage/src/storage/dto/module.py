@@ -3,10 +3,9 @@ from typing import Dict, Optional
 
 
 @dataclass
-class UiArtifact:
-    artifact_id: str
+class Module:
+    module_id: str
     slug: str
-    kind: str = "panel"
     active_version_id: Optional[str] = None
     enabled: bool = True
     created_at: Optional[str] = None
@@ -15,11 +14,10 @@ class UiArtifact:
     updated_at_unix: Optional[int] = None
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'UiArtifact':
+    def from_dict(cls, data: Dict) -> 'Module':
         return cls(
-            artifact_id=data['artifact_id'],
+            module_id=data['module_id'],
             slug=data['slug'],
-            kind=data.get('kind', 'panel'),
             active_version_id=data.get('active_version_id'),
             enabled=data.get('enabled', True),
             created_at=data.get('created_at'),
@@ -30,9 +28,8 @@ class UiArtifact:
 
     def to_dict(self) -> Dict:
         result = {
-            'artifact_id': self.artifact_id,
+            'module_id': self.module_id,
             'slug': self.slug,
-            'kind': self.kind,
             'active_version_id': self.active_version_id,
             'enabled': self.enabled,
         }

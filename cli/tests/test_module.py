@@ -1,4 +1,4 @@
-"""Unit tests for `y ui` (todo 2412, S4).
+"""Unit tests for `y module` (todo 2412 origin, renamed under todo 3020 phase 1).
 
 API and the node build are mocked; SDK package data and scaffolding are real.
 """
@@ -13,9 +13,9 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from yagent.commands.ui.click import ui_group
-from yagent.commands.ui._paths import SLUG_RE, meta_path, source_path, ui_dir, validate_slug
-from yagent.commands.ui._sdk import (
+from yagent.commands.module.click import module_group
+from yagent.commands.module._paths import SLUG_RE, meta_path, source_path, ui_dir, validate_slug
+from yagent.commands.module._sdk import (
     _DIGEST_MARKER,
     ensure_sdk,
     load_contract,
@@ -32,9 +32,9 @@ def _resp(payload, status_code=200):
     return m
 
 
-class UiGroupHelpTest(unittest.TestCase):
+class ModuleGroupHelpTest(unittest.TestCase):
     def test_group_help_lists_commands(self):
-        result = CliRunner().invoke(ui_group, ["--help"])
+        result = CliRunner().invoke(module_group, ["--help"])
         self.assertEqual(result.exit_code, 0)
         for name in (
             "create",
@@ -123,7 +123,7 @@ class SdkPackageDataTest(unittest.TestCase):
 
 
 class SlugValidationTest(unittest.TestCase):
-    """CLI slug rule must match api/controller/ui_artifact.py SLUG_RE exactly."""
+    """CLI slug rule must match api/controller/module.py SLUG_RE exactly."""
 
     API_SLUG_RE = r"^[a-z0-9][a-z0-9-]{0,62}$"
 
@@ -147,7 +147,7 @@ class SdkRefreshTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
-                 patch("yagent.commands.ui._sdk._ensure_npm_install"):
+                 patch("yagent.commands.module._sdk._ensure_npm_install"):
                 dest = ensure_sdk()
                 build_path = dest / "build.mjs"
                 self.assertTrue(build_path.is_file())
@@ -174,7 +174,7 @@ class SdkRefreshTest(unittest.TestCase):
                     )
                     expected = package_sdk_digest(pkg)
                     with patch(
-                        "yagent.commands.ui._sdk.package_sdk_root",
+                        "yagent.commands.module._sdk.package_sdk_root",
                         return_value=pkg,
                     ):
                         ensure_sdk()
@@ -191,7 +191,7 @@ class SdkRefreshTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
-                 patch("yagent.commands.ui._sdk._ensure_npm_install"):
+                 patch("yagent.commands.module._sdk._ensure_npm_install"):
                 dest = ensure_sdk()
                 build_path = dest / "build.mjs"
                 # Mutate dest file but keep marker in sync → without package
@@ -208,18 +208,18 @@ class SdkRefreshTest(unittest.TestCase):
                 self.assertIn("local_only", build_path.read_text(encoding="utf-8"))
 
 
-class UiCreateTest(unittest.TestCase):
+class ModuleCreateTest(unittest.TestCase):
     def test_create_scaffolds_source_and_meta(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
-                 patch("yagent.commands.ui._sdk._ensure_npm_install"), \
-                 patch("yagent.commands.ui.create.resolve_artifact", return_value=None), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
-                     "yagent.commands.ui.create.create_artifact",
-                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
                  ) as create_fn:
-                result = CliRunner().invoke(ui_group, ["create", "demo"])
+                result = CliRunner().invoke(module_group, ["create", "demo"])
 
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertTrue(source_path("demo").is_file())
@@ -233,22 +233,22 @@ class UiCreateTest(unittest.TestCase):
                 self.assertTrue((ui_dir() / ".sdk" / _DIGEST_MARKER).is_file())
 
     def test_create_rejects_invalid_slug(self):
-        result = CliRunner().invoke(ui_group, ["create", "Bad Slug"])
+        result = CliRunner().invoke(module_group, ["create", "Bad Slug"])
         self.assertNotEqual(result.exit_code, 0)
-        result2 = CliRunner().invoke(ui_group, ["create", "demo_panel"])
+        result2 = CliRunner().invoke(module_group, ["create", "demo_panel"])
         self.assertNotEqual(result2.exit_code, 0)
 
     def test_create_accepts_digit_start_slug(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
-                 patch("yagent.commands.ui._sdk._ensure_npm_install"), \
-                 patch("yagent.commands.ui.create.resolve_artifact", return_value=None), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
-                     "yagent.commands.ui.create.create_artifact",
-                     return_value={"artifact_id": "art_9", "slug": "9lives"},
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_9", "slug": "9lives"},
                  ):
-                result = CliRunner().invoke(ui_group, ["create", "9lives"])
+                result = CliRunner().invoke(module_group, ["create", "9lives"])
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertTrue(source_path("9lives").is_file())
 
@@ -256,11 +256,11 @@ class UiCreateTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
-                 patch("yagent.commands.ui._sdk._ensure_npm_install"), \
-                 patch("yagent.commands.ui.create.resolve_artifact") as resolve_fn, \
-                 patch("yagent.commands.ui.create.create_artifact") as create_fn:
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module") as resolve_fn, \
+                 patch("yagent.commands.module.create.create_module") as create_fn:
                 result = CliRunner().invoke(
-                    ui_group, ["create", "local-only", "--no-register"]
+                    module_group, ["create", "local-only", "--no-register"]
                 )
                 self.assertEqual(result.exit_code, 0, result.output)
                 resolve_fn.assert_not_called()
@@ -268,12 +268,12 @@ class UiCreateTest(unittest.TestCase):
                 self.assertTrue(source_path("local-only").is_file())
 
 
-class UiListTest(unittest.TestCase):
+class ModuleListTest(unittest.TestCase):
     def test_list_prints_active_version(self):
         payload = [
             {
                 "slug": "finance",
-                "artifact_id": "art_a",
+                "module_id": "mod_a",
                 "enabled": True,
                 "active_version_id": "ver_1",
                 "active_version": {
@@ -283,20 +283,20 @@ class UiListTest(unittest.TestCase):
                 },
             }
         ]
-        with patch("yagent.commands.ui.list.list_artifacts", return_value=payload):
-            result = CliRunner().invoke(ui_group, ["list"])
+        with patch("yagent.commands.module.list.list_modules", return_value=payload):
+            result = CliRunner().invoke(module_group, ["list"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("finance", result.output)
         self.assertIn("v2", result.output)
 
 
-class UiVersionsDescriptionTest(unittest.TestCase):
+class ModuleVersionsDescriptionTest(unittest.TestCase):
     def test_versions_shows_description_when_present_and_omits_none(self):
         payload_versions = [
             {
                 "version_id": "ver_2",
                 "version_no": 2,
-                "sha256": "b" * 64,
+                "ui_sha256": "b" * 64,
                 "label": "Demo",
                 "built_at": "2026-07-31T00:00:00Z",
                 "description": "[2991] fix overflow",
@@ -304,27 +304,27 @@ class UiVersionsDescriptionTest(unittest.TestCase):
             {
                 "version_id": "ver_1",
                 "version_no": 1,
-                "sha256": "a" * 64,
+                "ui_sha256": "a" * 64,
                 "label": "Demo",
                 "built_at": "2026-07-30T00:00:00Z",
                 "description": None,
             },
         ]
         with patch(
-            "yagent.commands.ui.versions.resolve_artifact",
-            return_value={"artifact_id": "art_1", "slug": "demo", "active_version_id": "ver_2"},
+            "yagent.commands.module.versions.resolve_module",
+            return_value={"module_id": "mod_1", "slug": "demo", "active_version_id": "ver_2"},
         ), patch(
-            "yagent.commands.ui.versions.list_versions",
+            "yagent.commands.module.versions.list_versions",
             return_value=payload_versions,
         ):
-            result = CliRunner().invoke(ui_group, ["versions", "demo"])
+            result = CliRunner().invoke(module_group, ["versions", "demo"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("[2991] fix overflow", result.output)
         v1_line = next(line for line in result.output.splitlines() if "v1" in line)
         self.assertNotIn("None", v1_line)
 
 
-class UiPublishTest(unittest.TestCase):
+class ModulePublishTest(unittest.TestCase):
     def test_publish_posts_multipart_and_prints_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -340,18 +340,18 @@ class UiPublishTest(unittest.TestCase):
             }
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
                  patch(
-                     "yagent.commands.ui.publish.build_artifact",
+                     "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.resolve_or_create",
-                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.publish_bundle",
+                     "yagent.commands.module.publish.publish_bundle",
                      return_value={
                          "version_no": 3,
-                         "sha256": manifest["sha256"],
+                         "ui_sha256": manifest["sha256"],
                          "version_id": "ver_3",
                      },
                  ) as pub:
@@ -360,13 +360,13 @@ class UiPublishTest(unittest.TestCase):
                 (home / "ui" / "demo.json").write_text(
                     json.dumps({"label": "Demo", "icon": "box"}), encoding="utf-8"
                 )
-                result = CliRunner().invoke(ui_group, ["publish", "demo"])
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("v3", result.output)
             self.assertIn("active", result.output)
             kwargs = pub.call_args.kwargs
-            self.assertEqual(kwargs["artifact_id"], "art_1")
+            self.assertEqual(kwargs["module_id"], "mod_1")
             self.assertEqual(kwargs["sha256"], manifest["sha256"])
             self.assertEqual(kwargs["label"], "Demo")
             self.assertTrue(kwargs["activate"])
@@ -387,19 +387,19 @@ class UiPublishTest(unittest.TestCase):
             }
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
                  patch(
-                     "yagent.commands.ui.publish.build_artifact",
+                     "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.resolve_or_create",
-                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.publish_bundle",
-                     return_value={"version_no": 1, "sha256": "a" * 64},
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": "a" * 64},
                  ) as pub:
                 result = CliRunner().invoke(
-                    ui_group, ["publish", "demo", "--no-activate"]
+                    module_group, ["publish", "demo", "--no-activate"]
                 )
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("staged", result.output)
@@ -420,19 +420,19 @@ class UiPublishTest(unittest.TestCase):
             }
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "2991"}), \
                  patch(
-                     "yagent.commands.ui.publish.build_artifact",
+                     "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.resolve_or_create",
-                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
                  patch(
-                     "yagent.commands.ui.publish.publish_bundle",
-                     return_value={"version_no": 1, "sha256": "a" * 64},
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": "a" * 64},
                  ) as pub:
                 result = CliRunner().invoke(
-                    ui_group, ["publish", "demo", "-d", "fix overflow"]
+                    module_group, ["publish", "demo", "-d", "fix overflow"]
                 )
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertEqual(pub.call_args.kwargs["description"], "[2991] fix overflow")
@@ -442,107 +442,107 @@ class UiPublishTest(unittest.TestCase):
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
                  patch(
-                     "yagent.commands.ui.publish.build_artifact",
+                     "yagent.commands.module.publish.build_artifact",
                      side_effect=RuntimeError("ERROR: Unexpected \")\""),
                  ), \
-                 patch("yagent.commands.ui.publish.resolve_or_create") as resolve_fn, \
-                 patch("yagent.commands.ui.publish.publish_bundle") as pub_fn:
-                result = CliRunner().invoke(ui_group, ["publish", "demo"])
+                 patch("yagent.commands.module.publish.resolve_or_create") as resolve_fn, \
+                 patch("yagent.commands.module.publish.publish_bundle") as pub_fn:
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("Unexpected", result.output + (result.stderr or ""))
             resolve_fn.assert_not_called()
             pub_fn.assert_not_called()
 
 
-class UiPointerCommandsTest(unittest.TestCase):
+class ModulePointerCommandsTest(unittest.TestCase):
     def test_rollback_resolves_slug(self):
         with patch(
-            "yagent.commands.ui.rollback.resolve_artifact",
-            return_value={"artifact_id": "art_1", "slug": "demo"},
+            "yagent.commands.module.rollback.resolve_module",
+            return_value={"module_id": "mod_1", "slug": "demo"},
         ), patch(
-            "yagent.commands.ui.rollback.rollback",
+            "yagent.commands.module.rollback.rollback",
             return_value={"active_version_id": "ver_prev"},
         ) as rb:
-            result = CliRunner().invoke(ui_group, ["rollback", "demo"])
+            result = CliRunner().invoke(module_group, ["rollback", "demo"])
         self.assertEqual(result.exit_code, 0, result.output)
-        rb.assert_called_once_with("art_1")
+        rb.assert_called_once_with("mod_1")
 
     def test_activate_by_number(self):
         with patch(
-            "yagent.commands.ui.activate.resolve_artifact",
-            return_value={"artifact_id": "art_1", "slug": "demo"},
+            "yagent.commands.module.activate.resolve_module",
+            return_value={"module_id": "mod_1", "slug": "demo"},
         ), patch(
-            "yagent.commands.ui.activate.activate",
+            "yagent.commands.module.activate.activate",
             return_value={"active_version_id": "ver_1"},
         ) as act:
-            result = CliRunner().invoke(ui_group, ["activate", "demo", "1"])
+            result = CliRunner().invoke(module_group, ["activate", "demo", "1"])
         self.assertEqual(result.exit_code, 0, result.output)
-        act.assert_called_once_with("art_1", 1)
+        act.assert_called_once_with("mod_1", 1)
 
     def test_disable_and_enable(self):
         with patch(
-            "yagent.commands.ui.enable.resolve_artifact",
-            return_value={"artifact_id": "art_1", "slug": "demo"},
+            "yagent.commands.module.enable.resolve_module",
+            return_value={"module_id": "mod_1", "slug": "demo"},
         ), patch(
-            "yagent.commands.ui.enable.set_enabled",
+            "yagent.commands.module.enable.set_enabled",
             side_effect=[
                 {"enabled": False},
                 {"enabled": True},
             ],
         ) as se:
-            r1 = CliRunner().invoke(ui_group, ["disable", "demo"])
-            r2 = CliRunner().invoke(ui_group, ["enable", "demo"])
+            r1 = CliRunner().invoke(module_group, ["disable", "demo"])
+            r2 = CliRunner().invoke(module_group, ["enable", "demo"])
         self.assertEqual(r1.exit_code, 0, r1.output)
         self.assertEqual(r2.exit_code, 0, r2.output)
-        self.assertEqual(se.call_args_list[0].args, ("art_1", False))
-        self.assertEqual(se.call_args_list[1].args, ("art_1", True))
+        self.assertEqual(se.call_args_list[0].args, ("mod_1", False))
+        self.assertEqual(se.call_args_list[1].args, ("mod_1", True))
 
 
-class UiDeleteTest(unittest.TestCase):
+class ModuleDeleteTest(unittest.TestCase):
     def test_delete_with_yes_skips_prompt_and_prints_local_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
                  patch(
-                     "yagent.commands.ui.delete.resolve_artifact",
-                     return_value={"artifact_id": "art_1", "slug": "demo"},
+                     "yagent.commands.module.delete.resolve_module",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
                  patch(
-                     "yagent.commands.ui.delete.delete_artifact",
-                     return_value={"artifact_id": "art_1", "slug": "demo", "deleted_versions": 2},
+                     "yagent.commands.module.delete.delete_module",
+                     return_value={"module_id": "mod_1", "slug": "demo", "deleted_versions": 2},
                  ) as del_fn:
-                result = CliRunner().invoke(ui_group, ["delete", "demo", "--yes"])
+                result = CliRunner().invoke(module_group, ["delete", "demo", "--yes"])
                 expected_source = source_path("demo")
                 expected_meta = meta_path("demo")
         self.assertEqual(result.exit_code, 0, result.output)
-        del_fn.assert_called_once_with("art_1")
+        del_fn.assert_called_once_with("mod_1")
         self.assertIn("Deleted demo", result.output)
         self.assertIn(str(expected_source), result.output)
         self.assertIn(str(expected_meta), result.output)
 
     def test_delete_without_yes_prompts_and_aborts_on_no(self):
         with patch(
-            "yagent.commands.ui.delete.resolve_artifact",
-            return_value={"artifact_id": "art_1", "slug": "demo"},
-        ), patch("yagent.commands.ui.delete.delete_artifact") as del_fn:
-            result = CliRunner().invoke(ui_group, ["delete", "demo"], input="n\n")
+            "yagent.commands.module.delete.resolve_module",
+            return_value={"module_id": "mod_1", "slug": "demo"},
+        ), patch("yagent.commands.module.delete.delete_module") as del_fn:
+            result = CliRunner().invoke(module_group, ["delete", "demo"], input="n\n")
         self.assertNotEqual(result.exit_code, 0)
         del_fn.assert_not_called()
 
-    def test_delete_unknown_artifact_fails(self):
-        with patch("yagent.commands.ui.delete.resolve_artifact", return_value=None):
-            result = CliRunner().invoke(ui_group, ["delete", "demo", "--yes"])
+    def test_delete_unknown_module_fails(self):
+        with patch("yagent.commands.module.delete.resolve_module", return_value=None):
+            result = CliRunner().invoke(module_group, ["delete", "demo", "--yes"])
         self.assertNotEqual(result.exit_code, 0)
 
 
 class PublishApiShapeTest(unittest.TestCase):
     def test_publish_bundle_sends_multipart_fields(self):
-        from yagent.commands.ui import _api
+        from yagent.commands.module import _api
 
-        with patch("yagent.commands.ui._api.api_request") as api:
+        with patch("yagent.commands.module._api.api_request") as api:
             api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
             _api.publish_bundle(
-                artifact_id="art_1",
+                module_id="mod_1",
                 bundle_bytes=b"export default 1;",
                 sha256="x" * 64,
                 label="Demo",
@@ -553,22 +553,43 @@ class PublishApiShapeTest(unittest.TestCase):
             )
         args, kwargs = api.call_args
         self.assertEqual(args[0], "POST")
-        self.assertEqual(args[1], "/api/ui/publish")
+        self.assertEqual(args[1], "/api/module/publish")
         self.assertIn("files", kwargs)
         self.assertEqual(kwargs["files"]["file"][0], "bundle.js")
-        self.assertEqual(kwargs["data"]["artifact_id"], "art_1")
+        self.assertEqual(kwargs["data"]["module_id"], "mod_1")
         self.assertEqual(kwargs["data"]["sha256"], "x" * 64)
         self.assertEqual(kwargs["data"]["activate"], "true")
         self.assertEqual(kwargs["data"]["label"], "Demo")
+        self.assertEqual(kwargs["data"]["min_host_version"], "1")
+        self.assertNotIn("min_backend_version", kwargs["data"])
         self.assertNotIn("description", kwargs["data"])
 
-    def test_publish_bundle_includes_description_only_when_given(self):
-        from yagent.commands.ui import _api
+    def test_publish_bundle_includes_min_backend_version_only_when_given(self):
+        from yagent.commands.module import _api
 
-        with patch("yagent.commands.ui._api.api_request") as api:
+        with patch("yagent.commands.module._api.api_request") as api:
             api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
             _api.publish_bundle(
-                artifact_id="art_1",
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+                min_host_version=1,
+                min_backend_version=2,
+                source_digest="y" * 64,
+                activate=True,
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["min_backend_version"], "2")
+
+    def test_publish_bundle_includes_description_only_when_given(self):
+        from yagent.commands.module import _api
+
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
                 bundle_bytes=b"export default 1;",
                 sha256="x" * 64,
                 label="Demo",
@@ -584,7 +605,7 @@ class PublishApiShapeTest(unittest.TestCase):
 
 class ComposeDescriptionTest(unittest.TestCase):
     def test_compose_description_d2_table(self):
-        from yagent.commands.ui.publish import _compose_description
+        from yagent.commands.module.publish import _compose_description
 
         self.assertEqual(
             _compose_description("fix chart overflow", "2991"), "[2991] fix chart overflow"

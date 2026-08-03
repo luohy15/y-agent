@@ -3,15 +3,18 @@ from typing import Dict, Optional
 
 
 @dataclass
-class UiArtifactVersion:
+class ModuleVersion:
     version_id: str
-    artifact_id: str
+    module_id: str
     version_no: int
-    sha256: str
-    storage_key: str
+    ui_sha256: Optional[str] = None
+    ui_storage_key: Optional[str] = None
+    api_sha256: Optional[str] = None
+    api_storage_key: Optional[str] = None
     label: Optional[str] = None
     icon: Optional[str] = None
     min_host_version: int = 1
+    min_backend_version: Optional[int] = None
     source_digest: Optional[str] = None
     built_at: Optional[str] = None
     description: Optional[str] = None
@@ -21,16 +24,19 @@ class UiArtifactVersion:
     updated_at_unix: Optional[int] = None
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'UiArtifactVersion':
+    def from_dict(cls, data: Dict) -> 'ModuleVersion':
         return cls(
             version_id=data['version_id'],
-            artifact_id=data['artifact_id'],
+            module_id=data['module_id'],
             version_no=data['version_no'],
-            sha256=data['sha256'],
-            storage_key=data['storage_key'],
+            ui_sha256=data.get('ui_sha256'),
+            ui_storage_key=data.get('ui_storage_key'),
+            api_sha256=data.get('api_sha256'),
+            api_storage_key=data.get('api_storage_key'),
             label=data.get('label'),
             icon=data.get('icon'),
             min_host_version=data.get('min_host_version', 1),
+            min_backend_version=data.get('min_backend_version'),
             source_digest=data.get('source_digest'),
             built_at=data.get('built_at'),
             description=data.get('description'),
@@ -43,13 +49,16 @@ class UiArtifactVersion:
     def to_dict(self) -> Dict:
         result = {
             'version_id': self.version_id,
-            'artifact_id': self.artifact_id,
+            'module_id': self.module_id,
             'version_no': self.version_no,
-            'sha256': self.sha256,
-            'storage_key': self.storage_key,
+            'ui_sha256': self.ui_sha256,
+            'ui_storage_key': self.ui_storage_key,
+            'api_sha256': self.api_sha256,
+            'api_storage_key': self.api_storage_key,
             'label': self.label,
             'icon': self.icon,
             'min_host_version': self.min_host_version,
+            'min_backend_version': self.min_backend_version,
             'source_digest': self.source_digest,
             'built_at': self.built_at,
             'description': self.description,

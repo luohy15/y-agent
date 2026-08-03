@@ -19,7 +19,7 @@ def build_artifact(slug: str) -> dict:
     """
     src = source_path(slug)
     if not src.is_file():
-        raise FileNotFoundError(f"source not found: {src} (run: y ui create {slug})")
+        raise FileNotFoundError(f"source not found: {src} (run: y module create {slug})")
 
     sdk = ensure_sdk()
     out = build_out_dir(slug)

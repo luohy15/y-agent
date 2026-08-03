@@ -91,12 +91,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   `artifact-svg` render inline in `MessageBubble` via lazy Mermaid / Vega-Lite / sanitized
   SVG rendering. Plain `svg` fences remain code blocks.
 - **Dynamic UI artifacts** — user-owned React panels published as data instead of
-  shipped in the bundle (`ui_artifact` + `ui_artifact_version`, `/api/ui/*`, `y ui`).
+  shipped in the bundle (`module` + `module_version`, `/api/module/*`, `y module`).
   Source is a `.tsx` entry on the VM under `$Y_AGENT_HOME/ui/<slug>.tsx`; multi-file
   authoring is supported via a conventional parts directory
   `$Y_AGENT_HOME/ui/<slug>/` (imported from the entry as `./<slug>/<name>`), so an
   artifact isn't forced into one large file — the entry stays thin (imports plus the
-  two surface exports) and logic/components live in the parts directory. `y ui
+  two surface exports) and logic/components live in the parts directory. `y module
   publish <slug>` builds it with the SDK in `cli/src/yagent/sdk/` (esbuild + Tailwind,
   externals redirected to CJS shims reading `globalThis.__Y_HOST__`; the generated
   Tailwind `@source` covers both the entry and the parts directory glob), POSTs the
@@ -131,9 +131,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   (`TodoList`/`TodoViewer`/`TodoContextMenu`) for the `todo` artifact (todo 3006). None
   has an in-bundle fallback. `TraceView` remains built-in because it also serves the
   unauthenticated public trace-share projection, while artifacts are owner-scoped and
-  JWT-gated. The recovery path for a broken artifact is `y ui rollback <slug>`, not
+  JWT-gated. The recovery path for a broken artifact is `y module rollback <slug>`, not
   restoring built-in code. The calendar migration did not touch the backend:
-  `/api/calendar-event` and the `y calendar` CLI are unchanged. `y ui delete <slug>`
+  `/api/calendar-event` and the `y calendar` CLI are unchanged. `y module delete <slug>`
   (todo 2941) hard-deletes the
   artifact and all of its version rows, best-effort cleans up the stored bundle bytes,
   and leaves the VM authoring source (`.tsx` / `.json` / parts directory) untouched.
@@ -261,9 +261,9 @@ Grouped by feature area:
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `file`, `english`, `ui`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
+  `file`, `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
 - `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
-  `y ui create`: `contract.json` (single source of truth for the externals list and
+  `y module create`: `contract.json` (single source of truth for the externals list and
   the `@y/host` contract version, also imported by `web/src/host/contract.ts`),
   `shims/*.cjs`, `theme.css`, `y-host.d.ts`, `build.mjs`, `templates/starter.*`
 
@@ -347,14 +347,14 @@ y finance beancount update-market-data
 
 # Dynamic UI artifacts. Source is $Y_AGENT_HOME/ui/<slug>.tsx (+ <slug>.json for
 # label/icon); the module exports `panel` (required) and `detail` (optional).
-y ui create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
-y ui list
-y ui versions <slug>
-y ui publish <slug> [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
-y ui rollback <slug>
-y ui activate <slug> <version_no>
-y ui enable <slug> | y ui disable <slug>
-y ui delete <slug> [-y|--yes]
+y module create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
+y module list
+y module versions <slug>
+y module publish <slug> [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
+y module rollback <slug>
+y module activate <slug> <version_no>
+y module enable <slug> | y module disable <slug>
+y module delete <slug> [-y|--yes]
 
 # Push/pull files between this Mac and the EC2 host (rsync over SSH).
 y file upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
@@ -382,7 +382,7 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
   `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`,
-  `Y_AGENT_UI_BUNDLE_DIR` (local dynamic-UI bundle store used when
+  `Y_AGENT_MODULE_BUNDLE_DIR` (local module bundle store used when
   `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.

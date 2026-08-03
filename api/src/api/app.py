@@ -49,7 +49,7 @@ from api.controller.user_preference import router as user_preference_router
 from api.controller.cookies import router as cookies_router
 from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
-from api.controller.ui_artifact import router as ui_artifact_router
+from api.controller.module import router as module_router
 from api.middleware.auth import AuthMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
@@ -96,7 +96,7 @@ api_router.include_router(user_preference_router)
 api_router.include_router(cookies_router)
 api_router.include_router(inline_router)
 api_router.include_router(health_router)
-api_router.include_router(ui_artifact_router)
+api_router.include_router(module_router)
 app.include_router(api_router)
 
 def main():

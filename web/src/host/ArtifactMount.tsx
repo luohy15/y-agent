@@ -88,14 +88,14 @@ function RollbackButton({
     setStatus("pending");
     setDetail(undefined);
     try {
-      const res = await authFetch(`${API}/api/ui/rollback`, {
+      const res = await authFetch(`${API}/api/module/rollback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ artifact_id: artifactId, from_version_id: versionId }),
+        body: JSON.stringify({ module_id: artifactId, from_version_id: versionId }),
       });
       if (res.status === 409) {
         // Someone published a newer version since this card was rendered
-        // (e.g. `y ui publish` from the VM); rolling back "the version before
+        // (e.g. `y module publish` from the VM); rolling back "the version before
         // whatever is active now" would demote that newer version instead of
         // the one this card is about. Refuse and let the host refresh state.
         setStatus("conflict");
@@ -234,7 +234,7 @@ export default function ArtifactMount({
     return () => {
       cancelled = true;
     };
-  }, [version.version_id, version.sha256, version.min_host_version]);
+  }, [version.version_id, version.ui_sha256, version.min_host_version]);
 
   // D2/D3 (decision note): the module's inlined `css` export is injected as a
   // scoped <style> on mount and removed on unmount so a swapped-out artifact

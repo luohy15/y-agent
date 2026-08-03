@@ -34,7 +34,7 @@ import {
   artifactTabKey,
   isPersistableTab,
   mountableUiArtifacts,
-  type UiArtifact,
+  type Module,
 } from "./host/artifacts";
 import { registerHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
@@ -67,7 +67,7 @@ export default function App() {
     data: uiArtifacts = [],
     isLoading: uiArtifactsLoading,
     mutate: mutateUiArtifacts,
-  } = useSWR<UiArtifact[]>(auth.isLoggedIn ? `${API}/api/ui/list?enabled_only=true` : null, jsonFetcher);
+  } = useSWR<Module[]>(auth.isLoggedIn ? `${API}/api/module/list?enabled_only=true` : null, jsonFetcher);
   const mountedUiArtifacts = useMemo(() => mountableUiArtifacts(uiArtifacts), [uiArtifacts]);
   const uiArtifactBySlug = useMemo(
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
@@ -948,7 +948,7 @@ export default function App() {
                 <div className="h-full overflow-auto" data-ui-artifact-sidebar={sidebarArtifact.slug}>
                   <ArtifactMount
                     slug={sidebarArtifact.slug}
-                    artifactId={sidebarArtifact.artifact_id}
+                    artifactId={sidebarArtifact.module_id}
                     version={sidebarArtifact.active_version}
                     label={artifactLabel(sidebarArtifact)}
                     surface="panel"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefCallback } from "react";
 import { isPreview } from "../hooks/useAuth";
 import { useUserPreference, type SyncStatus } from "../hooks/useUserPreference";
-import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type UiArtifact } from "../host/artifacts";
+import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type Module } from "../host/artifacts";
 import UserMenu from "./UserMenu";
 
 export type BuiltInSidebarPanel =
@@ -30,7 +30,7 @@ interface ActivityBarProps {
   email?: string | null;
   gsiReady?: boolean;
   onLogout?: () => void;
-  artifacts?: UiArtifact[];
+  artifacts?: Module[];
   artifactsLoaded?: boolean;
 }
 
@@ -122,7 +122,7 @@ function artifactIcon(icon?: string | null): ReactNode {
   return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21 8-9-5-9 5 9 5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></svg>;
 }
 
-export function buildActivityPanelItems(artifacts: UiArtifact[]): PanelItem[] {
+export function buildActivityPanelItems(artifacts: Module[]): PanelItem[] {
   return [
     ...BUILT_IN_PANEL_ITEMS,
     ...mountableUiArtifacts(artifacts).map((artifact) => ({

@@ -18,7 +18,7 @@ import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactVi
 import { parseFrontMatter } from "../utils/markdown";
 import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, requestPdfExport, type MarkdownExportFormat } from "../utils/markdownExport";
 import ArtifactMount from "../host/ArtifactMount";
-import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableUiArtifact } from "../host/artifacts";
+import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
 
 
 interface FileViewerProps {
@@ -32,7 +32,7 @@ interface FileViewerProps {
   defaultWorkDir?: string;
   diffFiles?: Set<string>;
   artifactTabs?: Record<string, { type: ArtifactType; spec: string }>;
-  uiArtifacts?: MountableUiArtifact[];
+  uiArtifacts?: MountableModule[];
   uiArtifactsLoaded?: boolean;
   onUiArtifactRolledBack?: () => void;
   isLoggedIn?: boolean;
@@ -131,7 +131,7 @@ function inlineArtifactLabel(path: string, artifactTabs?: Record<string, { type:
   return artifactTabs?.[path]?.type ?? "artifact";
 }
 
-function uiArtifactLabelForPath(path: string, artifacts: MountableUiArtifact[]): string {
+function uiArtifactLabelForPath(path: string, artifacts: MountableModule[]): string {
   const slug = artifactSlugFromTab(path);
   const artifact = slug ? artifacts.find((item) => item.slug === slug) : undefined;
   return artifact ? uiArtifactLabel(artifact) : slug ?? "ui";
@@ -1454,7 +1454,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <div className="h-full overflow-auto" data-ui-artifact-route={fileUiArtifact.slug}>
                   <ArtifactMount
                     slug={fileUiArtifact.slug}
-                    artifactId={fileUiArtifact.artifact_id}
+                    artifactId={fileUiArtifact.module_id}
                     version={fileUiArtifact.active_version}
                     label={uiArtifactLabel(fileUiArtifact)}
                     surface="detail"

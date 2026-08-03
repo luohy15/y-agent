@@ -405,7 +405,7 @@ warranted, so the artifact row and every one of its `ui_artifact_version` rows
 are removed outright. The service layer deletes version rows first, then the
 artifact row, and returns the deleted versions' `storage_key`s to the caller;
 the controller uses those keys to best-effort delete the underlying bundle
-objects (S3 or the local `Y_AGENT_UI_BUNDLE_DIR`) after the DB rows are gone.
+objects (S3 or the local `Y_AGENT_MODULE_BUNDLE_DIR`) after the DB rows are gone.
 Order matters in one direction only: orphaned bundle bytes after a successful
 row delete are acceptable (nothing points at them anymore) and are left for
 the object store's own housekeeping if the cleanup call itself fails; a DB row

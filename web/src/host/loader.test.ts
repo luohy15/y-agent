@@ -22,7 +22,7 @@ function ref(overrides: Partial<ArtifactVersionRef> = {}): ArtifactVersionRef {
   return {
     version_id: "v1",
     version_no: 1,
-    sha256: "0".repeat(64),
+    ui_sha256: "0".repeat(64),
     min_host_version: 1,
     ...overrides,
   };
@@ -47,7 +47,7 @@ describe("loadArtifact", () => {
     const importSpy = vi.spyOn(artifactImporter, "importBundle");
 
     await expect(
-      loadArtifact(ref({ version_id: "tampered-version", sha256: "f".repeat(64) })),
+      loadArtifact(ref({ version_id: "tampered-version", ui_sha256: "f".repeat(64) })),
     ).rejects.toMatchObject({ kind: "integrity" });
     expect(importSpy).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe("loadArtifact", () => {
       css: ".x{}",
     });
 
-    const artifact = await loadArtifact(ref({ version_id: "ok-version", sha256 }));
+    const artifact = await loadArtifact(ref({ version_id: "ok-version", ui_sha256: sha256 }));
     expect(artifact.Panel).toBe(FakePanel);
     expect(artifact.Detail).toBe(FakeDetail);
     expect(artifact.css).toBe(".x{}");
@@ -84,7 +84,7 @@ describe("loadArtifact", () => {
     const FakePanel = () => null;
     vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: FakePanel, css: "" });
 
-    const artifact = await loadArtifact(ref({ version_id: "default-only-version", sha256 }));
+    const artifact = await loadArtifact(ref({ version_id: "default-only-version", ui_sha256: sha256 }));
     expect(artifact.Panel).toBe(FakePanel);
     expect(artifact.Detail).toBeNull();
   });
@@ -101,7 +101,7 @@ describe("loadArtifact", () => {
       css: "",
     });
 
-    const artifact = await loadArtifact(ref({ version_id: "both-version", sha256 }));
+    const artifact = await loadArtifact(ref({ version_id: "both-version", ui_sha256: sha256 }));
     expect(artifact.Panel).toBe(NamedPanel);
   });
 
@@ -114,7 +114,7 @@ describe("loadArtifact", () => {
     authFetchMock.mockResolvedValue(fakeResponse(bytes));
     vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ panel: () => null, detail: null, css: "" });
 
-    const artifact = await loadArtifact(ref({ version_id: "null-detail-version", sha256 }));
+    const artifact = await loadArtifact(ref({ version_id: "null-detail-version", ui_sha256: sha256 }));
     expect(artifact.Detail).toBeNull();
   });
 
@@ -128,7 +128,7 @@ describe("loadArtifact", () => {
       css: "",
     });
 
-    await expect(loadArtifact(ref({ version_id: "bad-detail-version", sha256 }))).rejects.toMatchObject({
+    await expect(loadArtifact(ref({ version_id: "bad-detail-version", ui_sha256: sha256 }))).rejects.toMatchObject({
       kind: "bundle",
     });
   });
@@ -139,7 +139,7 @@ describe("loadArtifact", () => {
     authFetchMock.mockResolvedValue(fakeResponse(bytes));
     vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: () => null, css: "" });
 
-    const v = ref({ version_id: "dedup-version", sha256 });
+    const v = ref({ version_id: "dedup-version", ui_sha256: sha256 });
     const [a, b] = await Promise.all([loadArtifact(v), loadArtifact(v)]);
     expect(a.Panel).toBe(b.Panel);
     expect(authFetchMock).toHaveBeenCalledTimes(1);
@@ -159,8 +159,8 @@ describe("loadArtifact", () => {
     authFetchMock.mockResolvedValueOnce(fakeResponse(good)).mockResolvedValueOnce(fakeResponse(evil));
     vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: () => null, css: "" });
 
-    await loadArtifact(ref({ version_id: "good-version", sha256 }));
-    await expect(loadArtifact(ref({ version_id: "evil-version", sha256 }))).rejects.toMatchObject({
+    await loadArtifact(ref({ version_id: "good-version", ui_sha256: sha256 }));
+    await expect(loadArtifact(ref({ version_id: "evil-version", ui_sha256: sha256 }))).rejects.toMatchObject({
       kind: "integrity",
     });
     expect(authFetchMock).toHaveBeenCalledTimes(2);
@@ -187,7 +187,7 @@ describe("loadArtifact", () => {
     authFetchMock.mockResolvedValue(fakeResponse(bytes));
     vi.spyOn(artifactImporter, "importBundle").mockRejectedValue(new Error("boom"));
 
-    await expect(loadArtifact(ref({ version_id: "eval-throw-version", sha256 }))).rejects.toMatchObject({
+    await expect(loadArtifact(ref({ version_id: "eval-throw-version", ui_sha256: sha256 }))).rejects.toMatchObject({
       kind: "bundle",
     });
   });
@@ -198,7 +198,7 @@ describe("loadArtifact", () => {
     authFetchMock.mockResolvedValue(fakeResponse(bytes));
     vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ css: "" });
 
-    await expect(loadArtifact(ref({ version_id: "no-default-version", sha256 }))).rejects.toMatchObject({
+    await expect(loadArtifact(ref({ version_id: "no-default-version", ui_sha256: sha256 }))).rejects.toMatchObject({
       kind: "bundle",
     });
   });

@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildActivityPanelItems, BUILT_IN_PANEL_ITEMS } from "./ActivityBar";
-import type { UiArtifact } from "../host/artifacts";
+import type { Module } from "../host/artifacts";
 
-function artifact(slug: string, enabled: boolean, active = true): UiArtifact {
+function artifact(slug: string, enabled: boolean, active = true): Module {
   return {
-    artifact_id: `artifact-${slug}`,
+    module_id: `artifact-${slug}`,
     slug,
-    kind: "panel",
     active_version_id: active ? `version-${slug}` : null,
     enabled,
     active_version: active ? {
       version_id: `version-${slug}`,
       version_no: 1,
-      sha256: "a".repeat(64),
+      ui_sha256: "a".repeat(64),
       min_host_version: 1,
       label: `${slug} label`,
       icon: "box",
