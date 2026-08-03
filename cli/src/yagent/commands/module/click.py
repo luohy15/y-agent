@@ -7,6 +7,7 @@ from .enable import module_disable, module_enable
 from .list import module_list
 from .publish import module_publish
 from .rollback import module_rollback
+from .schema_sql import module_schema_sql
 from .versions import module_versions
 
 
@@ -25,3 +26,4 @@ module_group.add_command(module_activate)
 module_group.add_command(module_enable)
 module_group.add_command(module_disable)
 module_group.add_command(module_delete)
+module_group.add_command(module_schema_sql)

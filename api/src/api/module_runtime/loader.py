@@ -6,6 +6,7 @@ in a warm container; rollback to an already-loaded version is free (plan D11).
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import importlib
 import importlib.util
@@ -85,6 +86,7 @@ def load_from_bytes(
     version: ModuleVersion,
     api_bytes: bytes,
     expected_sha256: str,
+    cache: bool = True,
 ) -> LoadedModule:
     """Materialize + import a module API half from already-fetched bytes.
 
@@ -111,7 +113,7 @@ def load_from_bytes(
         )
 
     cached = _cache.get(actual)
-    if cached is not None:
+    if cache and cached is not None:
         return cached
 
     root = extract_root_for(actual)
@@ -121,8 +123,10 @@ def load_from_bytes(
         _extract_zip(api_bytes, root, slug)
         router = _import_router(slug, pkg_name, root, version)
     except ModuleRuntimeError:
+        evict_package(pkg_name)
         raise
     except Exception as exc:
+        evict_package(pkg_name)
         raise ModuleImportError(
             slug,
             f"import failed for {slug} v{version.version_no}: {exc}",
@@ -139,7 +143,8 @@ def load_from_bytes(
         router=router,
         app=app,
     )
-    _cache[actual] = loaded
+    if cache:
+        _cache[actual] = loaded
     return loaded
 
 
@@ -261,7 +266,17 @@ def _extract_zip(api_bytes: bytes, root: Path, slug: str) -> None:
     marker.write_text("ok\n", encoding="utf-8")
 
 
-def _import_router(slug: str, pkg_name: str, root: Path, version: ModuleVersion) -> APIRouter:
+def _prepare_package_root(
+    slug: str,
+    root: Path,
+    *,
+    version_id: Optional[str] = None,
+    version_no: Optional[int] = None,
+) -> Path:
+    """Validate `__init__.py` (present, empty per D11) and return the adjusted
+    root. Shared by the request-path loader and the publish-time preflight
+    importer (`import_candidate_for_preflight`) so both exercise the exact
+    same checks (plan D7)."""
     init_py = root / "__init__.py"
     if not init_py.is_file():
         # Zip may nest under a single top-level dir; accept that shape too.
@@ -273,54 +288,77 @@ def _import_router(slug: str, pkg_name: str, root: Path, version: ModuleVersion)
             raise ModuleImportError(
                 slug,
                 f"API bundle for {slug} is missing __init__.py",
-                version_id=version.version_id,
-                version_no=version.version_no,
+                version_id=version_id,
+                version_no=version_no,
             )
 
     # Empty __init__ is required (D11): loading .api must not pull .cli.
     init_text = init_py.read_text(encoding="utf-8").strip()
     if init_text and not all(
-        line.startswith("#") or not line.strip() for line in init_text.splitlines()
+        line.lstrip().startswith("#") or not line.strip() for line in init_text.splitlines()
     ):
-        # Allow comments-only; refuse any import statements that would couple halves.
-        if "import" in init_text:
-            raise ModuleImportError(
-                slug,
-                f"__init__.py for {slug} must stay empty (found imports); "
-                "API and CLI halves must load independently",
-                version_id=version.version_id,
-                version_no=version.version_no,
-            )
+        raise ModuleImportError(
+            slug,
+            f"__init__.py for {slug} must stay empty; "
+            "API and CLI halves must load independently",
+            version_id=version_id,
+            version_no=version_no,
+        )
+    return root
 
+
+def evict_package(pkg_name: str) -> None:
+    """Remove a package and every imported child from sys.modules."""
+    for key in list(sys.modules):
+        if key == pkg_name or key.startswith(pkg_name + "."):
+            sys.modules.pop(key, None)
+
+
+def _import_submodule(pkg_name: str, root: Path, dotted: str):
+    """Import `<pkg_name>.<dotted>`, execing the top-level package first if it
+    is not already registered under this content-hash-qualified name.
+
+    On any failure, unregisters `pkg_name` and every submodule from
+    `sys.modules` so a later retry of the same hash never reuses a
+    half-imported package.
+    """
     if pkg_name in sys.modules:
         # Same content hash already imported under this package name: reuse.
-        api_mod = importlib.import_module(f"{pkg_name}.api")
-    else:
-        spec = importlib.util.spec_from_file_location(
-            pkg_name,
-            init_py,
-            submodule_search_locations=[str(root)],
-        )
-        if spec is None or spec.loader is None:
-            raise ModuleImportError(
-                slug,
-                f"could not build import spec for {slug}",
-                version_id=version.version_id,
-                version_no=version.version_no,
-            )
-        pkg = importlib.util.module_from_spec(spec)
-        sys.modules[pkg_name] = pkg
-        try:
-            spec.loader.exec_module(pkg)
-            api_mod = importlib.import_module(f"{pkg_name}.api")
-        except Exception:
-            # Don't leave a half-imported package in sys.modules for a later retry
-            # of the same hash to trip over.
-            sys.modules.pop(pkg_name, None)
-            for key in list(sys.modules):
-                if key.startswith(pkg_name + "."):
-                    sys.modules.pop(key, None)
-            raise
+        return importlib.import_module(f"{pkg_name}.{dotted}")
+
+    init_py = root / "__init__.py"
+    spec = importlib.util.spec_from_file_location(
+        pkg_name,
+        init_py,
+        submodule_search_locations=[str(root)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not build import spec for {pkg_name}")
+    pkg = importlib.util.module_from_spec(spec)
+    sys.modules[pkg_name] = pkg
+    try:
+        spec.loader.exec_module(pkg)
+        return importlib.import_module(f"{pkg_name}.{dotted}")
+    except Exception:
+        evict_package(pkg_name)
+        raise
+
+
+def _import_router(slug: str, pkg_name: str, root: Path, version: ModuleVersion) -> APIRouter:
+    root = _prepare_package_root(
+        slug, root, version_id=version.version_id, version_no=version.version_no
+    )
+    try:
+        api_mod = _import_submodule(pkg_name, root, "api")
+    except ModuleRuntimeError:
+        raise
+    except Exception as exc:
+        raise ModuleImportError(
+            slug,
+            f"import failed for {slug} v{version.version_no}: {exc}",
+            version_id=version.version_id,
+            version_no=version.version_no,
+        ) from exc
 
     router = getattr(api_mod, "router", None)
     if router is None:
@@ -338,3 +376,57 @@ def _import_router(slug: str, pkg_name: str, root: Path, version: ModuleVersion)
             version_no=version.version_no,
         )
     return router
+
+
+def import_candidate_for_preflight(
+    slug: str, api_bytes: bytes, min_backend_version: Optional[int] = None
+) -> tuple:
+    """Load a candidate through the request loader before publishing it.
+
+    The candidate differs only in that it has no persisted version row and is
+    not inserted into the request cache. Successful preflight packages remain
+    resident for request-path reuse. Every failed path evicts the entire
+    content-hash-qualified package before returning an error.
+    """
+    actual = hashlib.sha256(api_bytes).hexdigest()
+    pkg_name = package_name_for(slug, actual)
+    version = ModuleVersion(
+        version_id="preflight",
+        module_id="preflight",
+        version_no=0,
+        api_sha256=actual,
+        min_backend_version=min_backend_version,
+    )
+
+    try:
+        loaded = load_from_bytes(
+            slug=slug,
+            version=version,
+            api_bytes=api_bytes,
+            expected_sha256=actual,
+            cache=False,
+        )
+
+        # `ModuleNotFoundError` here is the module-level import of our own typed
+        # error (api.module_runtime.errors.ModuleNotFoundError), which shadows
+        # the builtin error importlib raises when `<pkg>.entities` is absent.
+        try:
+            entities_mod = importlib.import_module(f"{pkg_name}.entities")
+        except builtins.ModuleNotFoundError as exc:
+            if exc.name != f"{pkg_name}.entities":
+                raise ModuleImportError(
+                    slug, f"import failed for {slug}.entities: {exc}"
+                ) from exc
+            entities_mod = None
+        except Exception as exc:
+            raise ModuleImportError(slug, f"import failed for {slug}.entities: {exc}") from exc
+
+        metadata = None
+        if entities_mod is not None:
+            metadata = getattr(entities_mod, "metadata", None)
+            if metadata is None:
+                raise ModuleImportError(slug, f"{slug}.entities does not export `metadata`")
+        return pkg_name, loaded.router, metadata
+    except Exception:
+        evict_package(pkg_name)
+        raise

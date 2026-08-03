@@ -1,18 +1,23 @@
 """module controller (todo 2412 origin, renamed under todo 3020 phase 1;
-phase 3 adds dual-half publish for UI + API bundles).
+phase 3 adds dual-half publish for UI + API bundles; phase 4 adds the schema
+preflight below).
 
 The API owns the bundle write: the CLI builds locally and POSTs bytes, the
 server recomputes sha256 (the client's claimed hash is never trusted) and
-writes the content-addressed object under the module/ prefix. Module Python
-is never *executed* on the management path here; the request-path loader in
-api.module_runtime does that lazily. When Y_AGENT_S3_BUCKET is unset (local
-dev) bundles are written to a local directory with the same keys.
+writes the content-addressed object under the module/ prefix. When
+Y_AGENT_S3_BUCKET is unset (local dev) bundles are written to a local
+directory with the same keys.
 
 Publish order is verify-ownership -> recompute hashes of both halves ->
-write bundle bytes -> insert one version row spanning both halves. The key
-is content-addressed so an orphaned object is harmless, whereas an orphaned
-active pointer is a broken panel. Schema preflight (phase 4) slots in after
-hash recompute and before the write.
+[api half: import through the request-path loader, preflight declared
+entities against information_schema] -> write bundle bytes -> insert one
+version row spanning both halves. The key is content-addressed so an
+orphaned object is harmless, whereas an orphaned active pointer is a broken
+panel. The preflight import (D7) is the one place module Python is executed
+outside a real request: it is the exact loader path
+`api.module_runtime.loader.load_active_module` will use once the version row
+exists, so a publish that passes it is guaranteed to load at request time
+too, and a failure moves neither the bundle bytes nor the active pointer.
 """
 
 import hashlib
@@ -27,6 +32,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from api.module_runtime.errors import ModuleRuntimeError
+from api.module_runtime.loader import evict_package, import_candidate_for_preflight, package_name_for
+from api.module_runtime.preflight import SchemaPreflightError, check_metadata_against_database
+from storage.database.base import get_engine
 from storage.dto.module import Module
 from storage.service import module as module_service
 
@@ -342,6 +351,32 @@ async def publish(
             status_code=400,
             detail="at least one of file (UI) or api_file (API) is required",
         )
+
+    # Phase 4 (D7): when an API half is uploaded, import it through the exact
+    # loader path load_active_module will later use for the same content hash,
+    # and — if the module declares entities — preflight their metadata against
+    # information_schema. Both checks run before either bundle is written or
+    # the version row exists, so a failure here moves nothing.
+    if api_content is not None:
+        candidate_min_backend_version = (
+            min_backend_version if isinstance(min_backend_version, int) else None
+        )
+        candidate_package_name = package_name_for(module.slug, api_actual)
+        preflight_succeeded = False
+        try:
+            _pkg_name, _router, entities_metadata = import_candidate_for_preflight(
+                module.slug, api_content, candidate_min_backend_version
+            )
+            if entities_metadata is not None:
+                check_metadata_against_database(module.slug, entities_metadata, get_engine())
+            preflight_succeeded = True
+        except ModuleRuntimeError as exc:
+            raise HTTPException(status_code=400, detail=exc.detail()) from exc
+        except SchemaPreflightError as exc:
+            raise HTTPException(status_code=400, detail=exc.report) from exc
+        finally:
+            if not preflight_succeeded:
+                evict_package(candidate_package_name)
 
     # Write both halves before inserting the version row so a mid-write crash
     # leaves only orphan content-addressed objects (harmless).

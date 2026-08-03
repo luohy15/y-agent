@@ -7,19 +7,24 @@ touches a real database or S3.
 import hashlib
 import io
 import os
+import sys
 import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import storage.database.base as dbbase
 import storage.entity.user  # noqa: F401 - registers UserEntity with Base.metadata
 from api.controller import module as ctrl
+from api.module_runtime import loader as module_loader
+from api.module_runtime.preflight import SchemaPreflightError, check_metadata_against_database
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
 from storage.repository.user import get_or_create_user
@@ -266,6 +271,10 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         writes = []
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
              patch.object(
+                 ctrl, "import_candidate_for_preflight",
+                 return_value=("ymod_finance_x", object(), None),
+             ) as preflight_fn, \
+             patch.object(
                  ctrl, "_write_bundle",
                  side_effect=lambda key, content, **k: writes.append((key, content, k.get("content_type"))),
              ), \
@@ -279,6 +288,7 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
                 api_sha256=api_sha,
                 min_backend_version=1,
             )
+        preflight_fn.assert_called_once_with("finance", api, 1)
         self.assertEqual(result["version_no"], 4)
         self.assertEqual(len(writes), 2)
         self.assertEqual(writes[0][0], f"module/mod_a1/{ui_sha}.js")
@@ -302,6 +312,10 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
             api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
         )
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(
+                 ctrl, "import_candidate_for_preflight",
+                 return_value=("ymod_finance_x", object(), None),
+             ), \
              patch.object(ctrl, "_write_bundle") as write_fn, \
              patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
             result = await ctrl.publish(
@@ -341,6 +355,224 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
+
+
+def _module_zip_with_table(table_name: str, extra_column_sql: str = "") -> bytes:
+    """A minimal API-half zip: a trivial router plus one entity declared
+    against its own DeclarativeBase (plan D11), so `<pkg>.entities.metadata`
+    is non-empty and the publish-time preflight (D7) has something to check."""
+    files = {
+        "__init__.py": "# empty\n",
+        "api.py": "from fastapi import APIRouter\nrouter = APIRouter()\n",
+        "entities/__init__.py": (
+            "from .base import Base\n"
+            "from . import widget  # noqa: F401\n"
+            "metadata = Base.metadata\n"
+        ),
+        "entities/base.py": (
+            "from sqlalchemy.orm import DeclarativeBase\n\n\n"
+            "class Base(DeclarativeBase):\n"
+            "    pass\n"
+        ),
+        "entities/widget.py": (
+            "from sqlalchemy import Column, Integer, String\n"
+            "from .base import Base\n\n\n"
+            "class Widget(Base):\n"
+            f"    __tablename__ = {table_name!r}\n"
+            "    id = Column(Integer, primary_key=True)\n"
+            "    name = Column(String)\n"
+            f"{extra_column_sql}"
+        ),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, content in sorted(files.items()):
+            zf.writestr(name, content)
+    return buf.getvalue()
+
+
+class SchemaPreflightTest(unittest.IsolatedAsyncioTestCase):
+    """Plan 4.3: the publish handler preflights a module's declared entities
+    against information_schema before writing bundles or inserting a version.
+    """
+
+    def setUp(self):
+        self._owner_patch = patch.object(ctrl, "default_owner_user_id", return_value=123)
+        self._owner_patch.start()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._extract_patch = patch.object(module_loader, "EXTRACT_ROOT", Path(self._tmpdir.name))
+        self._extract_patch.start()
+
+    def tearDown(self):
+        self._owner_patch.stop()
+        self._extract_patch.stop()
+        for key in list(sys.modules):
+            if key.startswith("ymod_"):
+                sys.modules.pop(key, None)
+        self._tmpdir.cleanup()
+
+    def _sqlite_engine(self):
+        return create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+
+    async def test_publish_rejects_backend_contract_skew_before_writes(self):
+        api_bytes = _module_zip_with_no_entities()
+        api_sha = hashlib.sha256(api_bytes).hexdigest()
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(),
+                    api_file=_upload(api_bytes),
+                    module_id="mod_a1",
+                    api_sha256=api_sha,
+                    min_backend_version=99,
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.detail["kind"], "backend_version")
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+    async def test_publish_refused_when_declared_table_is_missing(self):
+        api_bytes = _module_zip_with_table("widget_missing")
+        api_sha = hashlib.sha256(api_bytes).hexdigest()
+        module = _module(active_version_id="ver_prev")
+        with patch.object(ctrl.module_service, "get_module", return_value=module), \
+             patch.object(ctrl, "get_engine", return_value=self._sqlite_engine()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), api_file=_upload(api_bytes), module_id="mod_a1", api_sha256=api_sha
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("widget_missing", ctx.exception.detail)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+        # The active pointer never moved: publish() was never called.
+        self.assertEqual(module.active_version_id, "ver_prev")
+        pkg_name = module_loader.package_name_for("finance", api_sha)
+        self.assertFalse(any(key == pkg_name or key.startswith(pkg_name + ".") for key in sys.modules))
+
+    async def test_publish_succeeds_after_table_is_created(self):
+        api_bytes = _module_zip_with_table("widget_ok")
+        api_sha = hashlib.sha256(api_bytes).hexdigest()
+        engine = self._sqlite_engine()
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE widget_ok (id INTEGER PRIMARY KEY, name VARCHAR)"))
+        version = _version(
+            version_no=1,
+            ui_sha256=None,
+            ui_storage_key=None,
+            api_sha256=api_sha,
+            api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
+        )
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "get_engine", return_value=engine), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), api_file=_upload(api_bytes), module_id="mod_a1", api_sha256=api_sha
+            )
+        self.assertEqual(result["api_sha256"], api_sha)
+        write_fn.assert_called_once()
+        pub_fn.assert_called_once()
+
+    async def test_extra_database_column_not_declared_by_model_is_not_an_error(self):
+        api_bytes = _module_zip_with_table("widget_extra")
+        api_sha = hashlib.sha256(api_bytes).hexdigest()
+        engine = self._sqlite_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE widget_extra "
+                    "(id INTEGER PRIMARY KEY, name VARCHAR, extra_col VARCHAR)"
+                )
+            )
+        version = _version(
+            version_no=1,
+            ui_sha256=None,
+            ui_storage_key=None,
+            api_sha256=api_sha,
+            api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
+        )
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "get_engine", return_value=engine), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), api_file=_upload(api_bytes), module_id="mod_a1", api_sha256=api_sha
+            )
+        self.assertEqual(result["api_sha256"], api_sha)
+        write_fn.assert_called_once()
+
+    async def test_module_with_no_entities_skips_preflight(self):
+        api_bytes = _module_zip_with_no_entities()
+        api_sha = hashlib.sha256(api_bytes).hexdigest()
+        version = _version(
+            version_no=1,
+            ui_sha256=None,
+            ui_storage_key=None,
+            api_sha256=api_sha,
+            api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
+        )
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "get_engine") as engine_fn, \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), api_file=_upload(api_bytes), module_id="mod_a1", api_sha256=api_sha
+            )
+        self.assertEqual(result["api_sha256"], api_sha)
+        write_fn.assert_called_once()
+        pub_fn.assert_called_once()
+        # No entities submodule -> no reason to touch the database at all.
+        engine_fn.assert_not_called()
+
+
+class SchemaQualifiedPreflightTest(unittest.TestCase):
+    def test_uses_schema_qualified_identifiers_without_manual_quoting(self):
+        from sqlalchemy import Column, Integer, MetaData, Table
+
+        metadata = MetaData()
+        Table("Widget", metadata, Column("Name", Integer), schema="Analytics")
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspector.get_columns.return_value = [{"name": "Name"}]
+        with patch("api.module_runtime.preflight.sa_inspect", return_value=inspector):
+            check_metadata_against_database("scratch", metadata, MagicMock())
+        inspector.has_table.assert_called_once_with("Widget", schema="Analytics")
+        inspector.get_columns.assert_called_once_with("Widget", schema="Analytics")
+
+    def test_reports_multiple_schema_qualified_tables_and_columns(self):
+        from sqlalchemy import Column, Integer, MetaData, Table
+
+        metadata = MetaData()
+        Table("missing", metadata, Column("id", Integer), schema="analytics")
+        Table("present", metadata, Column("id", Integer), Column("name", Integer), schema="audit")
+        inspector = MagicMock()
+        inspector.has_table.side_effect = [False, True]
+        inspector.get_columns.return_value = [{"name": "id"}]
+        with patch("api.module_runtime.preflight.sa_inspect", return_value=inspector):
+            with self.assertRaises(SchemaPreflightError) as ctx:
+                check_metadata_against_database("scratch", metadata, MagicMock())
+        self.assertIn("analytics.missing", ctx.exception.report)
+        self.assertIn("audit.present", ctx.exception.report)
+        self.assertIn("name", ctx.exception.report)
+
+
+def _module_zip_with_no_entities() -> bytes:
+    files = {
+        "__init__.py": "# empty\n",
+        "api.py": "from fastapi import APIRouter\nrouter = APIRouter()\n",
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, content in sorted(files.items()):
+            zf.writestr(name, content)
+    return buf.getvalue()
 
 
 class DefaultOwnerResolverTest(unittest.IsolatedAsyncioTestCase):

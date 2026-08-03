@@ -6,6 +6,7 @@ API and the node build are mocked; SDK package data and scaffolding are real.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -839,3 +840,202 @@ class CreateScaffoldsEmptyInitTest(unittest.TestCase):
             self.assertTrue(init_py.is_file())
             body = init_py.read_text(encoding="utf-8")
             self.assertNotIn("import", body)
+
+
+class CreateScaffoldsDataLayerTest(unittest.TestCase):
+    """Plan 4.1: `y module create` scaffolds the module's own DeclarativeBase,
+    exported metadata, and hand-applied repository/migration READMEs."""
+
+    def test_create_writes_entities_repository_migration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
+                 patch(
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_1", "slug": "scratch-data"},
+                 ):
+                result = CliRunner().invoke(
+                    module_group, ["create", "scratch-data", "--no-register"]
+                )
+            self.assertEqual(result.exit_code, 0, result.output)
+            root = home / "modules" / "scratch-data"
+            self.assertTrue((root / "entities" / "__init__.py").is_file())
+            self.assertTrue((root / "entities" / "base.py").is_file())
+            self.assertTrue((root / "repository" / "README.md").is_file())
+            self.assertTrue((root / "migration" / "README.md").is_file())
+
+            entities_init = (root / "entities" / "__init__.py").read_text(encoding="utf-8")
+            self.assertIn("metadata", entities_init)
+            base_py = (root / "entities" / "base.py").read_text(encoding="utf-8")
+            self.assertIn("DeclarativeBase", base_py)
+            self.assertNotIn("import storage.entity.base", base_py)
+            self.assertNotIn("from storage.entity.base", base_py)
+
+    def test_declared_table_isolated_from_host_metadata(self):
+        """A table declared against the scaffolded Base is visible on the
+        module's own metadata, and never on storage.entity.base.Base."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
+                 patch(
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_1", "slug": "scratch-data"},
+                 ):
+                CliRunner().invoke(module_group, ["create", "scratch-data", "--no-register"])
+
+            root = home / "modules" / "scratch-data"
+            (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
+            (root / "entities" / "widget.py").write_text(
+                "from sqlalchemy import Column, Integer\n"
+                "from .base import Base\n\n\n"
+                "class Widget(Base):\n"
+                "    __tablename__ = 'scratch_widget'\n"
+                "    id = Column(Integer, primary_key=True)\n",
+                encoding="utf-8",
+            )
+            init_text = (root / "entities" / "__init__.py").read_text(encoding="utf-8")
+            (root / "entities" / "__init__.py").write_text(
+                init_text.replace(
+                    "from .base import Base  # noqa: F401",
+                    "from .base import Base  # noqa: F401\nfrom . import widget  # noqa: F401",
+                ),
+                encoding="utf-8",
+            )
+
+            from yagent.commands.module._local import import_local_entities, package_name_for
+
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    entities_mod = import_local_entities("scratch-data")
+                self.assertIn("scratch_widget", entities_mod.metadata.tables)
+
+                import storage.entity.base as host_base
+
+                self.assertNotIn("scratch_widget", host_base.Base.metadata.tables)
+            finally:
+                import sys
+
+                pkg = package_name_for("scratch-data")
+                for key in list(sys.modules):
+                    if key == pkg or key.startswith(pkg + "."):
+                        sys.modules.pop(key, None)
+
+
+class SchemaSqlTest(unittest.TestCase):
+    """Plan 4.2: `y module schema-sql <slug>` prints DDL, never touches a DB."""
+
+    def _scaffold(self, home: Path, slug: str, table_sql: str | None) -> None:
+        with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+             patch("yagent.commands.module._sdk._ensure_npm_install"), \
+             patch("yagent.commands.module.create.resolve_module", return_value=None), \
+             patch(
+                 "yagent.commands.module.create.create_module",
+                 return_value={"module_id": "mod_1", "slug": slug},
+             ):
+            CliRunner().invoke(module_group, ["create", slug, "--no-register"])
+        root = home / "modules" / slug
+        (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
+        if table_sql is not None:
+            (root / "entities" / "widget.py").write_text(table_sql, encoding="utf-8")
+            init_path = root / "entities" / "__init__.py"
+            init_path.write_text(
+                init_path.read_text(encoding="utf-8").replace(
+                    "from .base import Base  # noqa: F401",
+                    "from .base import Base  # noqa: F401\nfrom . import widget  # noqa: F401",
+                ),
+                encoding="utf-8",
+            )
+
+    def _cleanup_sys_modules(self, slug: str) -> None:
+        import sys
+
+        from yagent.commands.module._local import package_name_for
+
+        pkg = package_name_for(slug)
+        for key in list(sys.modules):
+            if key == pkg or key.startswith(pkg + "."):
+                sys.modules.pop(key, None)
+
+    def test_prints_create_table_ddl_with_database_url_unset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._scaffold(
+                home,
+                "scratch-sql",
+                "from sqlalchemy import Column, Integer, String\n"
+                "from .base import Base\n\n\n"
+                "class Widget(Base):\n"
+                "    __tablename__ = 'scratch_widget'\n"
+                "    id = Column(Integer, primary_key=True)\n"
+                "    name = Column(String)\n",
+            )
+            import os
+
+            env = dict(os.environ)
+            env.pop("DATABASE_URL", None)
+            env.pop("DATABASE_URL_DEV", None)
+            env["Y_AGENT_HOME"] = str(home)
+            try:
+                with patch.dict("os.environ", env, clear=True):
+                    result = CliRunner().invoke(module_group, ["schema-sql", "scratch-sql"])
+            finally:
+                self._cleanup_sys_modules("scratch-sql")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("CREATE TABLE scratch_widget", result.output)
+            self.assertIn("name", result.output)
+
+    def test_schema_sql_rejects_nonempty_root_before_cli_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / "modules" / "unsafe-root"
+            (root / "entities").mkdir(parents=True)
+            (root / "__init__.py").write_text(
+                "from . import cli\n", encoding="utf-8"
+            )
+            (root / "cli.py").write_text(
+                "raise RuntimeError('cli side effect must not run')\n", encoding="utf-8"
+            )
+            (root / "entities" / "__init__.py").write_text(
+                "metadata = None\n", encoding="utf-8"
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(module_group, ["schema-sql", "unsafe-root"])
+                from yagent.commands.module._local import package_name_for
+
+                pkg = package_name_for("unsafe-root")
+                self.assertNotIn(pkg, sys.modules)
+                self.assertNotIn(f"{pkg}.cli", sys.modules)
+            finally:
+                self._cleanup_sys_modules("unsafe-root")
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("must stay empty", result.output)
+            self.assertNotIn("cli side effect", result.output)
+
+    def test_module_with_no_entities_prints_nothing_and_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
+                 patch(
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_1", "slug": "scratch-empty"},
+                 ):
+                CliRunner().invoke(module_group, ["create", "scratch-empty", "--no-register"])
+            root = home / "modules" / "scratch-empty"
+            (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
+            import shutil as _shutil
+
+            _shutil.rmtree(root / "entities")
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(module_group, ["schema-sql", "scratch-empty"])
+            finally:
+                self._cleanup_sys_modules("scratch-empty")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(result.output, "")

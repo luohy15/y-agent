@@ -28,6 +28,18 @@ def ui_dir(slug: str) -> Path:
     return source_dir(slug) / "ui"
 
 
+def entities_dir(slug: str) -> Path:
+    return source_dir(slug) / "entities"
+
+
+def repository_dir(slug: str) -> Path:
+    return source_dir(slug) / "repository"
+
+
+def migration_dir(slug: str) -> Path:
+    return source_dir(slug) / "migration"
+
+
 def sdk_dir() -> Path:
     return modules_dir() / ".sdk"
 

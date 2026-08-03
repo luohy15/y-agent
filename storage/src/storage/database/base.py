@@ -96,6 +96,22 @@ def init_tables():
     Base.metadata.create_all(bind=_engine)
 
 
+def get_engine() -> Engine:
+    """Return the process engine, auto-initializing like get_db() does.
+
+    Read-only consumers (e.g. the module publish schema preflight, plan D7)
+    use this instead of reaching for the private `_engine` global.
+    """
+    global _engine
+    if _engine is None:
+        database_url = os.getenv("DATABASE_URL_DEV", os.getenv("DATABASE_URL"))
+        if database_url:
+            init_db(database_url)
+        else:
+            raise RuntimeError("Database not initialized. Set DATABASE_URL_DEV or DATABASE_URL, or call init_db() first.")
+    return _engine
+
+
 @contextmanager
 def get_db() -> Session:
     """Context manager that yields a SQLAlchemy session."""

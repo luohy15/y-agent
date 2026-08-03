@@ -329,5 +329,51 @@ class ListModulesTest(ModuleTestCase):
         self.assertEqual(len(module_service.list_modules(2)), 1)
 
 
+class InitTablesModuleIsolationTest(unittest.TestCase):
+    """Plan 4.4: init_tables() only ever touches storage.entity.base.Base's
+    own metadata. A module entity declared against its own DeclarativeBase
+    (loaded in the same process, as a warm API container would do) must
+    neither be created by init_tables() nor break it.
+    """
+
+    def setUp(self):
+        self._orig_engine = dbbase._engine
+        self._orig_session_local = dbbase._SessionLocal
+        self._engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        dbbase._engine = self._engine
+        dbbase._SessionLocal = sessionmaker(bind=self._engine, expire_on_commit=False)
+
+    def tearDown(self):
+        dbbase._engine = self._orig_engine
+        dbbase._SessionLocal = self._orig_session_local
+
+    def test_module_owned_table_is_not_created_by_init_tables(self):
+        from sqlalchemy import Column, Integer, inspect
+        from sqlalchemy.orm import DeclarativeBase
+
+        class ScratchModuleBase(DeclarativeBase):
+            pass
+
+        class ScratchWidget(ScratchModuleBase):
+            __tablename__ = "scratch_widget"
+            id = Column(Integer, primary_key=True)
+
+        # A module entity registered on its own DeclarativeBase must never
+        # appear on the host's Base.metadata, even once instantiated in the
+        # same process.
+        self.assertNotIn("scratch_widget", dbbase.Base.metadata.tables)
+
+        dbbase.init_tables()  # must not raise
+
+        table_names = inspect(self._engine).get_table_names()
+        self.assertNotIn("scratch_widget", table_names)
+        self.assertIn("user", table_names)
+        self.assertIn("module", table_names)
+
+
 if __name__ == "__main__":
     unittest.main()

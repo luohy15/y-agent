@@ -23,15 +23,33 @@ def package_name_for(slug: str) -> str:
     return f"ymod_local_{slug.replace('-', '_')}"
 
 
+def validate_local_package_root(slug: str) -> Path:
+    """Require the D11 empty/comments-only root before importing package code."""
+    root = source_dir(slug)
+    if not root.is_dir():
+        raise FileNotFoundError(f"module source not found: {root}")
+    init_py = root / "__init__.py"
+    if not init_py.is_file():
+        raise FileNotFoundError(
+            f"module {slug!r} is missing __init__.py (required for local import)"
+        )
+    init_text = init_py.read_text(encoding="utf-8").strip()
+    if init_text and not all(
+        line.lstrip().startswith("#") or not line.strip() for line in init_text.splitlines()
+    ):
+        raise ValueError(
+            f"__init__.py for {slug} must stay empty; API and CLI halves must load independently"
+        )
+    return root
+
+
 def import_local_module(slug: str, *, package_name: Optional[str] = None) -> ModuleType:
     """Import `$Y_AGENT_HOME/modules/<slug>/` as a top-level package.
 
     Registers `<pkg>.common` from `modules/common/` when that directory exists
     and the slug is not itself `common` (plan D12 CLI-side path injection).
     """
-    root = source_dir(slug)
-    if not root.is_dir():
-        raise FileNotFoundError(f"module source not found: {root}")
+    root = validate_local_package_root(slug)
 
     pkg_name = package_name or package_name_for(slug)
     if pkg_name in sys.modules:
@@ -77,6 +95,19 @@ def import_local_api(slug: str):
     """Import `<pkg>.api` for a local module source. Returns the module."""
     pkg = import_local_module(slug)
     return importlib.import_module(f"{pkg.__name__}.api")
+
+
+def import_local_entities(slug: str):
+    """Import `<pkg>.entities` for a local module source, or None if the
+    module owns no tables (plan 4.2/D11: entities/ is optional; its absence
+    means "this module owns no tables", not an error)."""
+    pkg = import_local_module(slug)
+    try:
+        return importlib.import_module(f"{pkg.__name__}.entities")
+    except ModuleNotFoundError as exc:
+        if exc.name == f"{pkg.__name__}.entities":
+            return None
+        raise
 
 
 def _ensure_common(pkg_name: str, slug: str) -> None:

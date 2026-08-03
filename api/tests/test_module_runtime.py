@@ -233,6 +233,142 @@ class LoaderIsolationTest(unittest.TestCase):
         self.assertNotIn(f"{loaded.package_name}.cli", sys.modules)
 
 
+def _entities_columns_api(marker: str, extra_column: bool) -> dict[str, str]:
+    """A module build that declares a table named `item` against its own
+    DeclarativeBase and exposes its column names over HTTP, so two builds
+    with the *same* table name can be told apart by which one actually
+    answered (plan 4.5)."""
+    extra_line = "    extra = Column(String, nullable=True)\n" if extra_column else ""
+    return {
+        "__init__.py": "# empty\n",
+        "entities/__init__.py": (
+            "from .base import Base\n"
+            "from . import item  # noqa: F401\n"
+            "metadata = Base.metadata\n"
+        ),
+        "entities/base.py": (
+            "from sqlalchemy.orm import DeclarativeBase\n\n\n"
+            "class Base(DeclarativeBase):\n"
+            "    pass\n"
+        ),
+        "entities/item.py": (
+            "from sqlalchemy import Column, Integer, String\n"
+            "from .base import Base\n\n\n"
+            "class Item(Base):\n"
+            "    __tablename__ = 'item'\n"
+            "    id = Column(Integer, primary_key=True)\n"
+            "    name = Column(String)\n"
+            f"{extra_line}"
+        ),
+        "api.py": (
+            "from fastapi import APIRouter\n"
+            "from .entities import metadata\n"
+            f"MARKER = {marker!r}\n"
+            "router = APIRouter()\n"
+            "@router.get('/columns')\n"
+            "async def columns():\n"
+            "    return {'marker': MARKER, "
+            "'columns': sorted(c.name for c in metadata.tables['item'].columns)}\n"
+        ),
+    }
+
+
+class EntitiesMetadataIsolationTest(unittest.TestCase):
+    """Plan 4.5: two builds of one module that each declare a table named
+    `item` against their own DeclarativeBase must coexist in one process —
+    the bug this guards against would otherwise only surface under a warm
+    container's version switch in production."""
+
+    def setUp(self):
+        loader.clear_cache()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.extract_root = Path(self._tmpdir.name)
+        self._extract_patch = patch.object(loader, "EXTRACT_ROOT", self.extract_root)
+        self._extract_patch.start()
+
+    def tearDown(self):
+        self._extract_patch.stop()
+        for key in list(sys.modules):
+            if key.startswith("ymod_"):
+                sys.modules.pop(key, None)
+        loader.clear_cache()
+        self._tmpdir.cleanup()
+
+    def test_two_versions_same_table_name_do_not_collide(self):
+        bytes_a = _zip_module(_entities_columns_api("A", extra_column=False))
+        bytes_b = _zip_module(_entities_columns_api("B", extra_column=True))
+        sha_a = hashlib.sha256(bytes_a).hexdigest()
+        sha_b = hashlib.sha256(bytes_b).hexdigest()
+        self.assertNotEqual(sha_a, sha_b)
+
+        # Loading both must not raise (in particular no InvalidRequestError
+        # from a shared MetaData/DeclarativeBase seeing 'item' twice): each
+        # version owns its own Base, so there is no shared registry to collide on.
+        loaded_a = loader.load_from_bytes(
+            slug="scratch",
+            version=_version(version_id="va", version_no=1, api_sha256=sha_a),
+            api_bytes=bytes_a,
+            expected_sha256=sha_a,
+        )
+        loaded_b = loader.load_from_bytes(
+            slug="scratch",
+            version=_version(version_id="vb", version_no=2, api_sha256=sha_b),
+            api_bytes=bytes_b,
+            expected_sha256=sha_b,
+        )
+
+        client_a = TestClient(loaded_a.app)
+        client_b = TestClient(loaded_b.app)
+        self.assertEqual(
+            client_a.get("/columns").json(), {"marker": "A", "columns": ["id", "name"]}
+        )
+        self.assertEqual(
+            client_b.get("/columns").json(),
+            {"marker": "B", "columns": ["extra", "id", "name"]},
+        )
+
+        # Each sub-app answers from its own build: distinct metadata/table objects.
+        entities_a = sys.modules[f"{loaded_a.package_name}.entities"]
+        entities_b = sys.modules[f"{loaded_b.package_name}.entities"]
+        self.assertIsNot(entities_a.metadata, entities_b.metadata)
+        self.assertIsNot(entities_a.metadata.tables["item"], entities_b.metadata.tables["item"])
+
+    def test_preflight_import_reads_entities_metadata_for_a_scratch_module(self):
+        """import_candidate_for_preflight (D7) is the same import path — used
+        directly here so the publish-time preflight is covered independent of
+        the controller wiring."""
+        api_bytes = _zip_module(_entities_columns_api("solo", extra_column=False))
+        pkg_name, router, metadata = loader.import_candidate_for_preflight("scratch2", api_bytes)
+        self.assertIsNotNone(metadata)
+        self.assertIn("item", metadata.tables)
+        self.assertEqual(
+            sorted(c.name for c in metadata.tables["item"].columns), ["id", "name"]
+        )
+        from fastapi import APIRouter as _APIRouter
+
+        self.assertIsInstance(router, _APIRouter)
+
+    def test_preflight_import_returns_none_metadata_when_no_entities(self):
+        api_bytes = _zip_module(_ping_api("no-entities"))
+        _pkg_name, _router, metadata = loader.import_candidate_for_preflight(
+            "scratch3", api_bytes
+        )
+        self.assertIsNone(metadata)
+
+    def test_failed_preflight_evicts_all_candidate_modules(self):
+        api_bytes = _zip_module({
+            "__init__.py": "# empty\n",
+            "api.py": "from fastapi import APIRouter\nrouter = APIRouter()\n",
+            "entities/__init__.py": "from . import broken\n",
+            "entities/broken.py": "raise RuntimeError('broken entities')\n",
+        })
+        pkg_name = loader.package_name_for("scratch4", hashlib.sha256(api_bytes).hexdigest())
+        with self.assertRaises(ModuleImportError):
+            loader.import_candidate_for_preflight("scratch4", api_bytes)
+        self.assertFalse(any(key == pkg_name or key.startswith(pkg_name + ".") for key in sys.modules))
+
+
+
 class ArchiveSafetyTest(unittest.TestCase):
     """review finding 3: the validating extractor rejects traversal, duplicate
     names, special files, and size/count overflows before writing anything."""
