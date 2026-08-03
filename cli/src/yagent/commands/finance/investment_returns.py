@@ -20,7 +20,7 @@ def investment_returns(user_id: int | None, vm_name: str, time: str, history: bo
     Realized return is the net of the configurable investment-income subtree
     (default Income:Investment); unrealized is current market value minus book
     value; total return combines the two. The live (non-history) summary also
-    lists a Realized trades table, one row per closed-lot sell entry. --history
+    lists realized returns grouped by symbol. --history
     shows the cumulative total-return curve per period.
     """
     result = derived_service.investment_returns(resolve_user_id(user_id), vm_name or "", time, history, granularity, convert or None)

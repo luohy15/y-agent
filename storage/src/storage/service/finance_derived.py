@@ -654,18 +654,17 @@ def _unrealized_from_positions(positions: list[dict]) -> dict:
     }
 
 
-def _realized_trades(rows, assets_root: str, investment_income_root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None, lookup: PriceLookup | None) -> list[dict]:
-    """One row per sell entry: group the already-loaded window rows by entry_id,
-    keep entries that carry both a cost-basis sell posting under assets_root and
-    an Income:Investment* posting, and aggregate quantity/cost/realized per entry.
-    `proceeds` is derived as cost_basis + realized (the ledger's own balancing
-    realization) rather than picked off a cash-leg posting, so it stays correct
-    for entries that also carry fee postings."""
+def _realized_by_symbol(rows, assets_root: str, investment_income_root: str, user_id: int, vm_name: str, convert_to: str | None, as_of: datetime.date | None, lookup: PriceLookup | None) -> list[dict]:
+    """Aggregate realized sell-entry returns by symbol for the loaded window.
+
+    A sell entry must carry both a negative-quantity cost-basis asset posting and
+    an Income:Investment* posting. Multi-symbol entries retain their joined label
+    because their single income posting cannot be allocated reliably."""
     by_entry: dict[str, list] = defaultdict(list)
     for row in rows:
         by_entry[row.entry_id].append(row)
-    trade_rows = []
-    for entry_id, entry_rows in by_entry.items():
+    totals: dict[str, dict] = {}
+    for entry_rows in by_entry.values():
         sell_postings = [
             row for row in entry_rows
             if row.quantity is not None and row.quantity < 0 and row.cost is not None
@@ -683,7 +682,7 @@ def _realized_trades(rows, assets_root: str, investment_income_root: str, user_i
         for row in sell_postings:
             if row.symbol and row.symbol not in symbols:
                 symbols.append(row.symbol)
-        quantity = -sum(row.quantity for row in sell_postings)
+        symbol = ", ".join(symbols)
         cost_by_ccy: dict[str, float] = defaultdict(float)
         for row in sell_postings:
             currency = row.cost_currency or row.amount_currency or row.symbol
@@ -703,26 +702,21 @@ def _realized_trades(rows, assets_root: str, investment_income_root: str, user_i
             cost_basis = round(-sum(cost_by_ccy.values()), 2)
             realized = round(-sum(income_by_ccy.values()), 2)
             currency = next(iter(cost_by_ccy), "") or next(iter(income_by_ccy), "")
-        entry_row = entry_rows[0]
-        trade_rows.append({
-            "date": entry_row.transaction_date,
-            "entry_id": entry_id,
-            "symbol": ", ".join(symbols),
-            "quantity": round(quantity, 4),
-            "proceeds": round(cost_basis + realized, 2),
-            "cost_basis": cost_basis,
+        total = totals.setdefault(symbol, {"symbol": symbol, "realized": 0.0, "cost_basis": 0.0, "currency": currency})
+        total["realized"] += realized
+        total["cost_basis"] += cost_basis
+    result = []
+    for total in totals.values():
+        realized = round(total["realized"], 2)
+        cost_basis = total["cost_basis"]
+        result.append({
+            "symbol": total["symbol"],
             "realized": realized,
             "realized_pct": round(realized / cost_basis, 6) if cost_basis else None,
-            "currency": currency,
-            "payee": entry_row.payee,
-            "narration": entry_row.narration,
+            "currency": total["currency"],
         })
-    # Newest first, then deterministically by entry_id (stable sort: entry_id
-    # ascending first so same-date rows resolve deterministically after the
-    # date-descending pass).
-    trade_rows.sort(key=lambda row: row["entry_id"])
-    trade_rows.sort(key=lambda row: row["date"], reverse=True)
-    return trade_rows
+    result.sort(key=lambda row: row["realized"], reverse=True)
+    return result
 
 
 def investment_returns(user_id: int, vm_name: str, time_filter: str, history: bool, granularity: str, convert_to: str | None) -> DerivedResult:
@@ -747,7 +741,7 @@ def investment_returns(user_id: int, vm_name: str, time_filter: str, history: bo
         interest = _side_flow(rows, "Interest", income_root, user_id, vm_name, convert_to, as_of, lookup)
         positions = positions_service.derive_positions(user_id, base_currency=base_currency)["data"]
         unrealized = _unrealized_from_positions(positions)
-        realized_trades = _realized_trades(rows, assets_root, investment_income_root, user_id, vm_name, convert_to, as_of, lookup)
+        realized_by_symbol = _realized_by_symbol(rows, assets_root, investment_income_root, user_id, vm_name, convert_to, as_of, lookup)
         result = {
             "convert": base_currency,
             "realized": realized,
@@ -758,7 +752,7 @@ def investment_returns(user_id: int, vm_name: str, time_filter: str, history: bo
             "unrealized_pct": unrealized["unrealized_pct"],
             "book_value_base": unrealized["book_value_base"],
             "positions": unrealized["positions"],
-            "realized_trades": realized_trades,
+            "realized_by_symbol": realized_by_symbol,
             "total_return": round(realized + unrealized["unrealized"], 2),
         }
         return DerivedResult(result, _synced_at(user_id, vm_name))
