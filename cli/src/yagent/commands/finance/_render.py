@@ -300,6 +300,22 @@ def render_investment_returns(envelope: dict, history: bool) -> None:
         ("Total return", fmt_money(d.get("total_return"), cur)),
     ]
     click.echo(tabulate(summary, headers=["Metric", "Value"], tablefmt="simple"))
+    trades = d.get("realized_trades") or []
+    if trades:
+        click.echo()
+        click.echo("Realized trades")
+        table = [[
+            t.get("date"),
+            t.get("symbol"),
+            fmt_qty(t.get("quantity")),
+            fmt_money(t.get("proceeds"), t.get("currency")),
+            fmt_money(t.get("cost_basis"), t.get("currency")),
+            fmt_money(t.get("realized"), t.get("currency")),
+            fmt_pct(t.get("realized_pct")),
+            t.get("narration") or "-",
+        ] for t in trades]
+        headers = ["Date", "Symbol", "Quantity", "Proceeds", "Cost Basis", "Realized", "Return %", "Narration"]
+        click.echo(tabulate(table, headers=headers, tablefmt="simple"))
     positions = d.get("positions") or []
     if positions:
         click.echo()

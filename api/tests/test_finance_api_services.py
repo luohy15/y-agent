@@ -365,6 +365,100 @@ class FinanceApiServicesTest(unittest.TestCase):
         self.assertEqual(result.data["positions"][0]["unrealized"], 500.0)
         self.assertEqual(result.data["positions"][0]["book_value_base"], 1000.0)
         self.assertEqual(result.data["total_return"], 620.0)
+        # No Assets-root sell posting in this fixture, so no realized_trades row.
+        self.assertEqual(result.data["realized_trades"], [])
+
+    def test_investment_returns_live_realized_trades_single_sell_gain(self):
+        rows = [
+            self._transaction("e1", 0, "BOXX", "Sell", -25, "BOXX", account="Assets:Broker:BOXX", narration="Sell BOXX", transaction_date="2026-08-03", cost=-2940.13, cost_currency="USD"),
+            self._transaction("e1", 1, "USD", "Sell", -2.39, "USD", account="Income:Investment", narration="Sell BOXX", transaction_date="2026-08-03"),
+        ]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        self.assertEqual(len(result.data["realized_trades"]), 1)
+        trade = result.data["realized_trades"][0]
+        self.assertEqual(trade["date"], "2026-08-03")
+        self.assertEqual(trade["entry_id"], "e1")
+        self.assertEqual(trade["symbol"], "BOXX")
+        self.assertEqual(trade["quantity"], 25.0)
+        self.assertEqual(trade["cost_basis"], 2940.13)
+        self.assertEqual(trade["realized"], 2.39)
+        self.assertAlmostEqual(trade["proceeds"], 2942.52, places=2)
+        self.assertAlmostEqual(trade["realized_pct"], 2.39 / 2940.13, places=6)
+        self.assertEqual(trade["currency"], "USD")
+        self.assertEqual(trade["payee"], "Broker")
+        self.assertEqual(trade["narration"], "Sell BOXX")
+
+    def test_investment_returns_live_realized_trades_single_sell_loss(self):
+        rows = [
+            self._transaction("e1", 0, "XYZ", "Sell", -10, "XYZ", account="Assets:Broker:XYZ", narration="Sell XYZ", transaction_date="2026-06-01", cost=-1000.0, cost_currency="USD"),
+            self._transaction("e1", 1, "USD", "Sell", 50.0, "USD", account="Income:Investment", narration="Sell XYZ", transaction_date="2026-06-01"),
+        ]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        trade = result.data["realized_trades"][0]
+        self.assertEqual(trade["cost_basis"], 1000.0)
+        self.assertEqual(trade["realized"], -50.0)
+        self.assertEqual(trade["proceeds"], 950.0)
+        self.assertAlmostEqual(trade["realized_pct"], -0.05, places=6)
+
+    def test_investment_returns_live_realized_trades_aggregates_multi_lot_entry(self):
+        # A single sell entry with two cost-basis lots for the same symbol must
+        # collapse into one row summing quantity/cost, not two rows.
+        rows = [
+            self._transaction("e1", 0, "QQQ", "Sell", -5, "QQQ", account="Assets:Broker:QQQ", narration="Sell QQQ", transaction_date="2026-07-01", cost=-500.0, cost_currency="USD"),
+            self._transaction("e1", 1, "QQQ", "Sell", -3, "QQQ", account="Assets:Broker:QQQ", narration="Sell QQQ", transaction_date="2026-07-01", cost=-330.0, cost_currency="USD"),
+            self._transaction("e1", 2, "USD", "Sell", -20.0, "USD", account="Income:Investment", narration="Sell QQQ", transaction_date="2026-07-01"),
+        ]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        self.assertEqual(len(result.data["realized_trades"]), 1)
+        trade = result.data["realized_trades"][0]
+        self.assertEqual(trade["quantity"], 8.0)
+        self.assertEqual(trade["cost_basis"], 830.0)
+        self.assertEqual(trade["realized"], 20.0)
+
+    def test_investment_returns_live_realized_trades_excludes_dividend_and_interest(self):
+        # Dividend/interest-only entries under the income root have no Assets-root
+        # sell posting, so they must not appear as realized trades.
+        rows = [
+            self._transaction("e1", 0, "USD", "Dividend", -20, "USD", account="Income:Investment:Dividend", narration="Dividend QQQ", transaction_date="2026-04-01"),
+            self._transaction("e2", 0, "USD", "Interest", -5, "USD", account="Income:Interest", narration="Interest", transaction_date="2026-04-02"),
+        ]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        self.assertEqual(result.data["realized_trades"], [])
+
+    def test_investment_returns_live_realized_trades_empty_window(self):
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=[]), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        self.assertEqual(result.data["realized_trades"], [])
+
+    def test_investment_returns_live_realized_trades_reconcile_to_aggregate_realized(self):
+        # Two sell entries, newest first, and no dividends/interest in the window:
+        # sum(realized_trades.realized) must equal the aggregate realized figure.
+        rows = [
+            self._transaction("e1", 0, "AAA", "Sell", -1, "AAA", account="Assets:Broker:AAA", narration="Sell AAA", transaction_date="2026-01-10", cost=-100.0, cost_currency="USD"),
+            self._transaction("e1", 1, "USD", "Sell", -10.0, "USD", account="Income:Investment", narration="Sell AAA", transaction_date="2026-01-10"),
+            self._transaction("e2", 0, "BBB", "Sell", -2, "BBB", account="Assets:Broker:BBB", narration="Sell BBB", transaction_date="2026-02-10", cost=-200.0, cost_currency="USD"),
+            self._transaction("e2", 1, "USD", "Sell", 15.0, "USD", account="Income:Investment", narration="Sell BBB", transaction_date="2026-02-10"),
+        ]
+
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+            result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
+
+        trades = result.data["realized_trades"]
+        self.assertEqual([t["entry_id"] for t in trades], ["e2", "e1"])  # newest first
+        self.assertAlmostEqual(sum(t["realized"] for t in trades), result.data["realized"], places=2)
 
     def test_investment_returns_over_time_cumulative_curve(self):
         rows = [
