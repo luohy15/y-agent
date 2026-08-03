@@ -462,11 +462,17 @@ Test the observable contract, not the loader's internals.
 
 ## Out of Scope
 
-- **Dynamically loaded CLI commands.** The todo names "CLI/GUI", but importing
-  remote Python into the `y` process is a materially harsher security and
-  packaging problem than a browser ES module. `y ui` is the *management* surface
-  (create, publish, list, versions, rollback, activate); it does not itself
-  become dynamic.
+- **Dynamically loaded CLI commands and backend code.** ~~Importing remote Python
+  into the `y` process is a materially harsher security and packaging problem
+  than a browser ES module.~~ Superseded by
+  [module-system](module-system.md) (todo 3020), which loads module Python in
+  the API and registers module CLI commands from local VM source. That PRD also
+  takes over identity, versioning, publish, rollback, and the CLI surface,
+  folding `y ui` into `y module` and joining a module's API and UI halves into
+  one atomic version. **This PRD remains authoritative for the browser runtime
+  contract**: the loader, hash verification, blob import, externals set,
+  Tailwind handling, error boundaries, the intent channel, and `@y/host`, all of
+  which carry over unchanged.
 - **Adding new shared modules without a deploy.** The externals set is fixed at
   host build time; extending `@y/host` or adding a shared library is a normal
   application release.
