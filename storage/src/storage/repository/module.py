@@ -75,14 +75,3 @@ def set_enabled(user_id: int, module_id: str, enabled: bool) -> Optional[Module]
         entity.enabled = enabled
         session.flush()
         return _entity_to_dto(entity)
-
-
-def delete_module(user_id: int, module_id: str) -> bool:
-    """Hard-delete the module row. Caller deletes its versions separately."""
-    with get_db() as session:
-        entity = session.query(ModuleEntity).filter_by(user_id=user_id, module_id=module_id).first()
-        if not entity:
-            return False
-        session.delete(entity)
-        session.flush()
-        return True

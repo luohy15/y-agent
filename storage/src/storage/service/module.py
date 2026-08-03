@@ -7,12 +7,27 @@ activate promotes any historical version by number, also with no insert.
 Versions are never mutated after insert.
 """
 
+from dataclasses import dataclass, field
 from typing import List, Optional
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
 from storage.repository import module as module_repo
 from storage.repository import module_version as version_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
+
+
+@dataclass
+class DeleteResult:
+    """Outcome of a module delete: version count and both halves' storage keys.
+
+    version_count is the number of deleted version *rows*; storage_keys is the
+    flat list of every UI/API bundle key across those rows (a dual-half version
+    contributes two keys), so the caller can distinguish versions from objects
+    (review finding 5).
+    """
+
+    version_count: int = 0
+    storage_keys: List[str] = field(default_factory=list)
 
 
 class RollbackConflictError(ValueError):
@@ -143,23 +158,25 @@ def set_enabled(user_id: int, module_id: str, enabled: bool) -> Optional[Module]
     return module_repo.set_enabled(user_id, module_id, enabled)
 
 
-def delete_module(user_id: int, module_id: str) -> Optional[List[str]]:
-    """Hard-delete a module and all of its versions.
+def delete_module(user_id: int, module_id: str) -> Optional[DeleteResult]:
+    """Hard-delete a module and all of its versions in one transaction.
 
     BaseEntity has no soft-delete column, so this removes the rows outright.
-    Versions are deleted before the module row because that ordering is the
-    recoverable one if this crashes between the two deletes: the module row
-    survives with active_version_id now pointing at a version row that no
-    longer exists, which resolves to a missing active version (indistinguishable
-    from a disabled module) rather than a broken one, and a retried delete
-    finishes the job. Deleting the module row first would instead strand the
-    version rows, and their bundle bytes, permanently: nothing could look them
-    up by module_id again. Returns the deleted versions' ui_storage_keys so the
-    caller can clean up the underlying bundle bytes, or None if module_id
-    does not name a module owned by user_id.
+    The version rows and the module row are deleted in a single repository
+    transaction that commits once, while collecting both halves' storage keys
+    in memory. Splitting this across two transactions (review finding 5) could
+    commit the version delete, then fail before the module delete, stranding
+    the module row with an active pointer to a missing version and, on a
+    retried delete, permanently losing the keys to every bundle -> their bytes
+    become undiscoverable orphans. A single commit makes that ordering
+    impossible; any post-commit cleanup failure only orphans bytes, whose keys
+    are already gone by design (acceptable).
+
+    Returns a DeleteResult, or None if module_id does not name a module owned
+    by user_id.
     """
-    if not module_repo.get_module(user_id, module_id):
+    row = version_repo.delete_module_with_versions(user_id, module_id)
+    if row is None:
         return None
-    storage_keys = version_repo.delete_versions(user_id, module_id)
-    module_repo.delete_module(user_id, module_id)
-    return storage_keys
+    storage_keys, version_count = row
+    return DeleteResult(version_count=version_count, storage_keys=storage_keys)

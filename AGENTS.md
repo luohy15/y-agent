@@ -383,7 +383,10 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
   `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`,
   `Y_AGENT_MODULE_BUNDLE_DIR` (local module bundle store used when
-  `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`).
+  `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`),
+  `Y_AGENT_MODULE_MAINTAINER_USER_ID` (the public string `user.user_id` of the
+  single account trusted to publish and dispatch backend modules; publish and
+  dispatch 403 for everyone else and fail closed when this is unset).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

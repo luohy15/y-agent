@@ -345,6 +345,16 @@ class ModuleVersionsDescriptionTest(unittest.TestCase):
         self.assertNotIn("None", v1_line)
 
 
+def _scaffold_ui(slug: str, home: Path) -> None:
+    """Create the minimum source tree so publish sees a UI half."""
+    ui = home / "modules" / slug / "ui"
+    ui.mkdir(parents=True, exist_ok=True)
+    (ui / "index.tsx").write_text("export const panel = () => null;\n", encoding="utf-8")
+    meta_path(slug).write_text(
+        json.dumps({"label": slug.title(), "icon": "box"}), encoding="utf-8"
+    )
+
+
 class ModulePublishTest(unittest.TestCase):
     def test_publish_posts_multipart_and_prints_version(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -365,6 +375,10 @@ class ModulePublishTest(unittest.TestCase):
                      return_value=manifest,
                  ), \
                  patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
                      "yagent.commands.module.publish.resolve_or_create",
                      return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
@@ -376,11 +390,7 @@ class ModulePublishTest(unittest.TestCase):
                          "version_id": "ver_3",
                      },
                  ) as pub:
-                # Write meta so label/icon resolve
-                meta_path("demo").parent.mkdir(parents=True)
-                meta_path("demo").write_text(
-                    json.dumps({"label": "Demo", "icon": "box"}), encoding="utf-8"
-                )
+                _scaffold_ui("demo", home)
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
 
             self.assertEqual(result.exit_code, 0, result.output)
@@ -392,6 +402,7 @@ class ModulePublishTest(unittest.TestCase):
             self.assertEqual(kwargs["label"], "Demo")
             self.assertTrue(kwargs["activate"])
             self.assertEqual(kwargs["bundle_bytes"], bundle.read_bytes())
+            self.assertIsNone(kwargs["api_bundle_bytes"])
 
     def test_publish_no_activate_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -412,6 +423,10 @@ class ModulePublishTest(unittest.TestCase):
                      return_value=manifest,
                  ), \
                  patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
                      "yagent.commands.module.publish.resolve_or_create",
                      return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
@@ -419,6 +434,7 @@ class ModulePublishTest(unittest.TestCase):
                      "yagent.commands.module.publish.publish_bundle",
                      return_value={"version_no": 1, "ui_sha256": "a" * 64},
                  ) as pub:
+                _scaffold_ui("demo", home)
                 result = CliRunner().invoke(
                     module_group, ["publish", "demo", "--no-activate"]
                 )
@@ -445,6 +461,10 @@ class ModulePublishTest(unittest.TestCase):
                      return_value=manifest,
                  ), \
                  patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
                      "yagent.commands.module.publish.resolve_or_create",
                      return_value={"module_id": "mod_1", "slug": "demo"},
                  ), \
@@ -452,6 +472,7 @@ class ModulePublishTest(unittest.TestCase):
                      "yagent.commands.module.publish.publish_bundle",
                      return_value={"version_no": 1, "ui_sha256": "a" * 64},
                  ) as pub:
+                _scaffold_ui("demo", home)
                 result = CliRunner().invoke(
                     module_group, ["publish", "demo", "-d", "fix overflow"]
                 )
@@ -466,13 +487,83 @@ class ModulePublishTest(unittest.TestCase):
                      "yagent.commands.module.publish.build_artifact",
                      side_effect=RuntimeError("ERROR: Unexpected \")\""),
                  ), \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn, \
                  patch("yagent.commands.module.publish.resolve_or_create") as resolve_fn, \
                  patch("yagent.commands.module.publish.publish_bundle") as pub_fn:
+                _scaffold_ui("demo", home)
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("Unexpected", result.output + (result.stderr or ""))
             resolve_fn.assert_not_called()
             pub_fn.assert_not_called()
+            api_fn.assert_not_called()
+
+    def test_publish_sends_both_halves_atomically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            ui_bundle = Path(tmp) / "bundle.js"
+            ui_bundle.write_bytes(b"export default 1;")
+            api_bundle = Path(tmp) / "bundle.api.zip"
+            api_bundle.write_bytes(b"PK\x03\x04fakezip")
+            ui_manifest = {
+                "slug": "demo",
+                "sha256": "u" * 64,
+                "source_digest": "s" * 64,
+                "min_host_version": 4,
+                "bytes": ui_bundle.stat().st_size,
+                "bundle": str(ui_bundle),
+            }
+            api_manifest = {
+                "slug": "demo",
+                "sha256": "a" * 64,
+                "bytes": api_bundle.stat().st_size,
+                "bundle": str(api_bundle),
+                "entries": ["__init__.py", "api.py"],
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch(
+                     "yagent.commands.module.publish.build_artifact",
+                     return_value=ui_manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=api_manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={
+                         "version_no": 5,
+                         "ui_sha256": "u" * 64,
+                         "api_sha256": "a" * 64,
+                     },
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                (home / "modules" / "demo" / "api.py").write_text(
+                    "from fastapi import APIRouter\nrouter = APIRouter()\n",
+                    encoding="utf-8",
+                )
+                meta_path("demo").write_text(
+                    json.dumps({
+                        "label": "Demo",
+                        "icon": "box",
+                        "min_backend_version": 1,
+                    }),
+                    encoding="utf-8",
+                )
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("v5", result.output)
+            kwargs = pub.call_args.kwargs
+            self.assertEqual(kwargs["sha256"], "u" * 64)
+            self.assertEqual(kwargs["api_sha256"], "a" * 64)
+            self.assertEqual(kwargs["bundle_bytes"], ui_bundle.read_bytes())
+            self.assertEqual(kwargs["api_bundle_bytes"], api_bundle.read_bytes())
+            self.assertEqual(kwargs["min_backend_version"], 1)
 
 
 class ModulePointerCommandsTest(unittest.TestCase):
@@ -636,3 +727,115 @@ class ComposeDescriptionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApiZipBuildTest(unittest.TestCase):
+    def test_api_zip_is_deterministic_and_vendors_common(self):
+        from yagent.commands.module._build import build_api_bundle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                root = home / "modules" / "consumer"
+                root.mkdir(parents=True)
+                (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
+                (root / "api.py").write_text(
+                    "from fastapi import APIRouter\nfrom .common import x\nrouter = APIRouter()\n",
+                    encoding="utf-8",
+                )
+                (root / "ui").mkdir()
+                (root / "ui" / "index.tsx").write_text("export const panel = 1\n", encoding="utf-8")
+                (root / "tests").mkdir()
+                (root / "tests" / "test_x.py").write_text("assert True\n", encoding="utf-8")
+                (root / "migration").mkdir()
+                (root / "migration" / "001.sql").write_text("SELECT 1;\n", encoding="utf-8")
+
+                common = home / "modules" / "common"
+                common.mkdir(parents=True)
+                (common / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+                (common / "util.py").write_text("y = 2\n", encoding="utf-8")
+
+                first = build_api_bundle("consumer")
+                second = build_api_bundle("consumer")
+                self.assertIsNotNone(first)
+                self.assertEqual(first["sha256"], second["sha256"])
+                self.assertEqual(first["bytes"], second["bytes"])
+                self.assertIn("api.py", first["entries"])
+                self.assertIn("common/__init__.py", first["entries"])
+                self.assertIn("common/util.py", first["entries"])
+                # Excluded trees must not appear.
+                self.assertFalse(any(e.startswith("ui/") for e in first["entries"]))
+                self.assertFalse(any(e.startswith("tests/") for e in first["entries"]))
+                self.assertFalse(any(e.startswith("migration/") for e in first["entries"]))
+
+                # common's own zip must not re-vendor itself.
+                (common / "api.py").write_text(
+                    "from fastapi import APIRouter\nrouter = APIRouter()\n",
+                    encoding="utf-8",
+                )
+                common_manifest = build_api_bundle("common")
+                self.assertIsNotNone(common_manifest)
+                self.assertFalse(
+                    any(e.startswith("common/") for e in common_manifest["entries"])
+                )
+
+    def test_api_zip_absent_when_no_api_py(self):
+        from yagent.commands.module._build import build_api_bundle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                root = home / "modules" / "ui-only"
+                root.mkdir(parents=True)
+                (root / "ui").mkdir()
+                (root / "ui" / "index.tsx").write_text("export const panel = 1\n", encoding="utf-8")
+                self.assertIsNone(build_api_bundle("ui-only"))
+
+
+class LocalCommonInjectionTest(unittest.TestCase):
+    def test_local_cli_imports_common_without_publish(self):
+        import sys
+        from yagent.commands.module._local import import_local_cli, package_name_for
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                common = home / "modules" / "common"
+                common.mkdir(parents=True)
+                (common / "__init__.py").write_text("FLAG = 'from-common'\n", encoding="utf-8")
+
+                root = home / "modules" / "consumer"
+                root.mkdir(parents=True)
+                (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
+                (root / "cli.py").write_text(
+                    "from .common import FLAG\n"
+                    "VALUE = FLAG\n",
+                    encoding="utf-8",
+                )
+                try:
+                    cli_mod = import_local_cli("consumer")
+                    self.assertEqual(cli_mod.VALUE, "from-common")
+                finally:
+                    pkg = package_name_for("consumer")
+                    for key in list(sys.modules):
+                        if key == pkg or key.startswith(pkg + "."):
+                            sys.modules.pop(key, None)
+
+
+class CreateScaffoldsEmptyInitTest(unittest.TestCase):
+    def test_create_writes_empty_init(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module._sdk._ensure_npm_install"), \
+                 patch("yagent.commands.module.create.resolve_module", return_value=None), \
+                 patch(
+                     "yagent.commands.module.create.create_module",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ):
+                result = CliRunner().invoke(module_group, ["create", "demo", "--no-register"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            init_py = home / "modules" / "demo" / "__init__.py"
+            self.assertTrue(init_py.is_file())
+            body = init_py.read_text(encoding="utf-8")
+            self.assertNotIn("import", body)

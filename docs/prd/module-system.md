@@ -342,12 +342,24 @@ Two alternatives were considered and rejected:
   rollback narrower than the entire backend, and a finance one-liner still
   redeploys the whole API.
 
-The security framing is inherited from the dynamic UI artifact system and is the
-same framing, not a weaker one: **the boundary is authorship and integrity, not
-runtime containment.** The publisher is the owner and their own agents, who can
-already ship arbitrary code through the deploy pipeline; this is a new path, not
-a new capability. Controls are ownership scoping, authenticated publish, content
-hash verification before import, and an immutable version audit trail.
+The security framing is inherited from the dynamic UI artifact system but must be
+stated *tightened* for backend code: because a loaded API half executes
+in-process under the shared API database/AWS role, the runtime boundary is
+authorship and integrity, **not** containment. In v1 that is an explicit
+trusted-principal rule, not just ownership scoping: **publish and backend
+dispatch are restricted to a single, explicitly configured trusted maintainer
+account** (resolved by its public `user_id`, never a synthetic "default" user
+created as a bootstrap row). The API is multi-user and invite-gated, so mere
+authentication is deliberately *not* the boundary — metadata ownership (one
+account cannot repoint another's module) does not prevent uploaded Python from
+querying every tenant's rows, reading secrets, or using the Lambda role, so any
+account other than the configured maintainer is refused both at publish and at
+module dispatch (403), and the check fails closed when no maintainer is
+configured. If multi-user backend modules are ever required, in-process
+execution under one DB/AWS identity cannot provide that isolation; it needs a
+larger design (for example separate database roles per module). Remaining
+controls within the trusted principal are content hash verification before
+import and an immutable version audit trail.
 
 Module-owned repositories widen what a loaded bundle can *reach* — a session is a
 session, so a module can query any table in the database, including one holding

@@ -99,6 +99,13 @@ api_router.include_router(health_router)
 api_router.include_router(module_router)
 app.include_router(api_router)
 
+# Module request-path dispatcher (phase 3 / D13). Mounted AFTER the management
+# APIRouter so /api/module/list|publish|… win; non-reserved slugs fall through
+# to the raw ASGI app which loads the active API half lazily.
+from api.module_runtime.dispatcher import module_dispatcher  # noqa: E402
+
+app.mount("/api/module", module_dispatcher)
+
 def main():
     port = int(os.environ.get("API_PORT", 8001))
     uvicorn.run("api.app:app", host="0.0.0.0", port=port, reload=True)

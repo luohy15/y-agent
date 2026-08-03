@@ -1,4 +1,4 @@
-"""`y module publish <slug>` — build on the VM and POST the bundle to the API."""
+"""`y module publish <slug>` — build UI + API halves and POST them atomically."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ import click
 import httpx
 
 from ._api import publish_bundle, resolve_or_create
-from ._build import build_artifact
-from ._paths import meta_path, validate_slug
+from ._build import build_api_bundle, build_artifact
+from ._paths import meta_path, source_path, validate_slug
 from ._sdk import load_contract
 
 
@@ -53,19 +53,43 @@ def module_publish(slug, no_activate, label, icon, desc):
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
     icon = icon if icon is not None else meta.get("icon")
+    min_backend_version = meta.get("min_backend_version")
+    if min_backend_version is not None:
+        try:
+            min_backend_version = int(min_backend_version)
+        except (TypeError, ValueError) as exc:
+            raise click.ClickException(
+                f"module.json min_backend_version must be an int, got {min_backend_version!r}"
+            ) from exc
+
+    has_ui = source_path(slug).is_file()
+    ui_manifest = None
+    api_manifest = None
+
+    if has_ui:
+        try:
+            ui_manifest = build_artifact(slug)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except RuntimeError as exc:
+            # Print compiler diagnostics and exit non-zero without touching the API.
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
 
     try:
-        manifest = build_artifact(slug)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
-    except RuntimeError as exc:
-        # Print compiler diagnostics and exit non-zero without touching the API.
+        api_manifest = build_api_bundle(slug)
+    except Exception as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
 
+    if ui_manifest is None and api_manifest is None:
+        raise click.ClickException(
+            f"module {slug!r} has neither ui/index.tsx nor api.py; nothing to publish"
+        )
+
     contract = load_contract()
     min_host_version = int(
-        manifest.get("min_host_version") or contract.get("version") or 1
+        (ui_manifest or {}).get("min_host_version") or contract.get("version") or 1
     )
 
     try:
@@ -77,20 +101,34 @@ def module_publish(slug, no_activate, label, icon, desc):
             f"{exc.response.status_code} {detail}"
         ) from exc
 
-    bundle_path = Path(manifest["bundle"])
-    bundle_bytes = bundle_path.read_bytes()
+    ui_bytes = None
+    ui_sha = None
+    source_digest = None
+    if ui_manifest is not None:
+        ui_bytes = Path(ui_manifest["bundle"]).read_bytes()
+        ui_sha = ui_manifest["sha256"]
+        source_digest = ui_manifest.get("source_digest")
+
+    api_bytes = None
+    api_sha = None
+    if api_manifest is not None:
+        api_bytes = Path(api_manifest["bundle"]).read_bytes()
+        api_sha = api_manifest["sha256"]
 
     try:
         version = publish_bundle(
             module_id=module["module_id"],
-            bundle_bytes=bundle_bytes,
-            sha256=manifest["sha256"],
+            bundle_bytes=ui_bytes,
+            sha256=ui_sha,
+            api_bundle_bytes=api_bytes,
+            api_sha256=api_sha,
             label=label,
             icon=icon,
             min_host_version=min_host_version,
-            source_digest=manifest["source_digest"],
+            source_digest=source_digest,
             description=description,
             activate=not no_activate,
+            min_backend_version=min_backend_version,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)
@@ -99,10 +137,19 @@ def module_publish(slug, no_activate, label, icon, desc):
         ) from exc
 
     state = "staged" if no_activate else "active"
+    parts = []
+    if version.get("ui_sha256"):
+        parts.append(f"ui={version['ui_sha256'][:12]}…")
+    if version.get("api_sha256"):
+        parts.append(f"api={version['api_sha256'][:12]}…")
+    size_bits = []
+    if ui_manifest is not None:
+        size_bits.append(f"ui {ui_manifest['bytes']}B")
+    if api_manifest is not None:
+        size_bits.append(f"api {api_manifest['bytes']}B")
     click.echo(
         f"Published {slug} v{version['version_no']} ({state}) "
-        f"sha256={version['ui_sha256'][:12]}… "
-        f"({manifest['bytes']} bytes)"
+        f"{' '.join(parts)} ({', '.join(size_bits)})"
     )
 
 

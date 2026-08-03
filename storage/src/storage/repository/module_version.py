@@ -1,6 +1,7 @@
 """Function-based module_version repository. Rows are immutable after insert."""
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from storage.entity.module import ModuleEntity
 from storage.entity.module_version import ModuleVersionEntity
 from storage.dto.module_version import ModuleVersion
 from storage.database.base import get_db
@@ -112,12 +113,30 @@ def get_max_version_no(user_id: int, module_id: str) -> int:
         return max_no or 0
 
 
-def delete_versions(user_id: int, module_id: str) -> List[str]:
-    """Hard-delete every version row for module_id, returning their ui_storage_keys."""
+def delete_module_with_versions(user_id: int, module_id: str) -> Optional[Tuple[List[str], int]]:
+    """Delete every version row AND the module row in one transaction.
+
+    get_db commits on clean exit, so all of this is a single commit: a failure
+    anywhere rolls the whole delete back, which is what keeps the module's
+    bundle lookup keys from being erased before the module deletion is durable
+    (review finding 5). Returns (storage_keys, version_count) where
+    storage_keys is the flat list of every UI + API key across the deleted
+    version rows, or None if module_id does not name a module owned by user_id.
+    """
     with get_db() as session:
+        module = session.query(ModuleEntity).filter_by(user_id=user_id, module_id=module_id).first()
+        if not module:
+            return None
         rows = session.query(ModuleVersionEntity).filter_by(user_id=user_id, module_id=module_id).all()
-        storage_keys = [r.ui_storage_key for r in rows if r.ui_storage_key]
+        storage_keys: List[str] = []
+        for r in rows:
+            if r.ui_storage_key:
+                storage_keys.append(r.ui_storage_key)
+            if r.api_storage_key:
+                storage_keys.append(r.api_storage_key)
+        version_count = len(rows)
         for row in rows:
             session.delete(row)
+        session.delete(module)
         session.flush()
-        return storage_keys
+        return storage_keys, version_count

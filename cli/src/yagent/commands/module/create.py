@@ -44,8 +44,20 @@ def module_create(slug, label, icon, force, no_register):
         )
 
     templates = package_sdk_root() / "templates"
+    root = source_dir(slug)
+    root.mkdir(parents=True, exist_ok=True)
     ui_dir(slug).mkdir(parents=True, exist_ok=True)
     shutil.copy2(templates / "starter.tsx", src)
+
+    # D11: __init__.py must stay empty so the API half never transitively
+    # imports the CLI half (or beancount). Scaffold it empty; do not add
+    # imports here later.
+    init_py = root / "__init__.py"
+    if not init_py.exists() or force:
+        init_py.write_text(
+            "# Module package root. KEEP EMPTY — API and CLI halves must load independently.\n",
+            encoding="utf-8",
+        )
 
     meta_body = {
         "label": label or slug.replace("-", " ").replace("_", " ").title(),

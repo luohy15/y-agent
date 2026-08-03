@@ -6,16 +6,24 @@ touches a real database or S3.
 
 import hashlib
 import io
+import os
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException, UploadFile
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+import storage.database.base as dbbase
+import storage.entity.user  # noqa: F401 - registers UserEntity with Base.metadata
 from api.controller import module as ctrl
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
+from storage.repository.user import get_or_create_user
+from storage.service.module import DeleteResult
 
 
 def _request(user_id=123):
@@ -92,6 +100,31 @@ class ListTest(unittest.IsolatedAsyncioTestCase):
 
 
 class PublishTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # Publish is restricted to the trusted maintainer; bind it to the test user.
+        self._owner_patch = patch.object(ctrl, "default_owner_user_id", return_value=123)
+        self._owner_patch.start()
+
+    def tearDown(self):
+        self._owner_patch.stop()
+
+    async def test_publish_restricted_to_maintainer_forbids_other_accounts(self):
+        """review finding 1: an authenticated non-owner cannot publish a backend half."""
+        content = b"PK\x03\x04api-archive"
+        sha = hashlib.sha256(content).hexdigest()
+        with patch.object(ctrl, "default_owner_user_id", return_value=999), \
+             patch.object(ctrl.module_service, "get_module") as get_fn, \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), api_file=_upload(content), module_id="mod_a1", api_sha256=sha
+                )
+        self.assertEqual(ctx.exception.status_code, 403)
+        get_fn.assert_not_called()
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
     async def test_hash_mismatch_is_rejected(self):
         content = b"export default () => null;"
         bad_hash = "0" * 64
@@ -99,7 +132,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl.module_service, "publish") as pub_fn, \
              patch.object(ctrl, "_write_bundle") as write_fn:
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.publish(_request(), _upload(content), "mod_a1", bad_hash)
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=bad_hash
+                )
         self.assertEqual(ctx.exception.status_code, 400)
         pub_fn.assert_not_called()
         write_fn.assert_not_called()
@@ -111,7 +146,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
              patch.object(ctrl.module_service, "publish", return_value=version), \
              patch.object(ctrl, "_write_bundle"):
-            result = await ctrl.publish(_request(), _upload(content), "mod_a1", sha)
+            result = await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha
+            )
         self.assertEqual(result["version_no"], 3)
 
     async def test_publish_writes_bundle_before_inserting_version(self):
@@ -120,10 +157,10 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         version = _version(version_no=3, ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js")
         calls = []
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
-             patch.object(ctrl, "_write_bundle", side_effect=lambda *a: calls.append("write")), \
+             patch.object(ctrl, "_write_bundle", side_effect=lambda *a, **k: calls.append("write")), \
              patch.object(ctrl.module_service, "publish", side_effect=lambda *a, **k: calls.append("publish") or version):
             result = await ctrl.publish(
-                _request(), _upload(content), "mod_a1", sha,
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
                 label="Finance", icon="chart", min_host_version=1,
                 source_digest="src", activate=True,
             )
@@ -138,7 +175,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl, "_write_bundle", side_effect=RuntimeError("s3 down")), \
              patch.object(ctrl.module_service, "publish") as pub_fn:
             with self.assertRaises(RuntimeError):
-                await ctrl.publish(_request(), _upload(content), "mod_a1", sha)
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha
+                )
         pub_fn.assert_not_called()
 
     async def test_publish_unknown_module_is_404_and_writes_nothing(self):
@@ -148,7 +187,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl, "_write_bundle") as write_fn, \
              patch.object(ctrl.module_service, "publish") as pub_fn:
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.publish(_request(), _upload(content), "nope99", sha)
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="nope99", sha256=sha
+                )
         self.assertEqual(ctx.exception.status_code, 404)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
@@ -160,7 +201,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl, "_write_bundle") as write_fn, \
              patch.object(ctrl.module_service, "publish") as pub_fn:
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.publish(_request(), _upload(content), "mod_a1", sha)
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha
+                )
         self.assertEqual(ctx.exception.status_code, 400)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
@@ -173,7 +216,8 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl, "_write_bundle"), \
              patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
             result = await ctrl.publish(
-                _request(), _upload(content), "mod_a1", sha, description="[2991] fix overflow",
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                description="[2991] fix overflow",
             )
         self.assertEqual(result["description"], "[2991] fix overflow")
         self.assertEqual(pub_fn.call_args.kwargs["description"], "[2991] fix overflow")
@@ -185,7 +229,9 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
              patch.object(ctrl, "_write_bundle"), \
              patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
-            result = await ctrl.publish(_request(), _upload(content), "mod_a1", sha, description=None)
+            result = await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha, description=None
+            )
         self.assertIsNone(result["description"])
         self.assertIsNone(pub_fn.call_args.kwargs["description"])
 
@@ -197,7 +243,173 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
              patch.object(ctrl, "_write_bundle") as write_fn, \
              patch.object(ctrl.module_service, "publish") as pub_fn:
             with self.assertRaises(HTTPException) as ctx:
-                await ctrl.publish(_request(), _upload(content), "mod_a1", sha, description=too_long)
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                    description=too_long,
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+    async def test_publish_both_halves_writes_two_keys_and_one_version_row(self):
+        ui = b"export default 42;"
+        api = b"PK\x03\x04api-bytes"
+        ui_sha = hashlib.sha256(ui).hexdigest()
+        api_sha = hashlib.sha256(api).hexdigest()
+        version = _version(
+            version_no=4,
+            ui_sha256=ui_sha,
+            ui_storage_key=f"module/mod_a1/{ui_sha}.js",
+            api_sha256=api_sha,
+            api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
+        )
+        writes = []
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(
+                 ctrl, "_write_bundle",
+                 side_effect=lambda key, content, **k: writes.append((key, content, k.get("content_type"))),
+             ), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(),
+                file=_upload(ui),
+                module_id="mod_a1",
+                sha256=ui_sha,
+                api_file=_upload(api),
+                api_sha256=api_sha,
+                min_backend_version=1,
+            )
+        self.assertEqual(result["version_no"], 4)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(writes[0][0], f"module/mod_a1/{ui_sha}.js")
+        self.assertEqual(writes[1][0], f"module/mod_a1/{api_sha}.api.zip")
+        self.assertEqual(writes[1][2], "application/zip")
+        kwargs = pub_fn.call_args.kwargs
+        self.assertEqual(kwargs["ui_sha256"], ui_sha)
+        self.assertEqual(kwargs["api_sha256"], api_sha)
+        self.assertEqual(kwargs["min_backend_version"], 1)
+        # Exactly one publish call = one version row spanning both halves.
+        self.assertEqual(pub_fn.call_count, 1)
+
+    async def test_publish_api_only_half_is_allowed(self):
+        api = b"PK\x03\x04api-only"
+        api_sha = hashlib.sha256(api).hexdigest()
+        version = _version(
+            version_no=1,
+            ui_sha256=None,
+            ui_storage_key=None,
+            api_sha256=api_sha,
+            api_storage_key=f"module/mod_a1/{api_sha}.api.zip",
+        )
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(),
+                file=None,
+                module_id="mod_a1",
+                api_file=_upload(api),
+                api_sha256=api_sha,
+            )
+        self.assertEqual(result["api_sha256"], api_sha)
+        self.assertIsNone(result["ui_sha256"])
+        write_fn.assert_called_once()
+        self.assertEqual(pub_fn.call_args.kwargs["api_sha256"], api_sha)
+        self.assertIsNone(pub_fn.call_args.kwargs["ui_sha256"])
+
+    async def test_publish_rejects_oversized_upload(self):
+        """review finding 3: the publish endpoint must not buffer unbounded bytes."""
+        content = b"x" * (ctrl.MAX_UPLOAD_BYTES + 1)
+        sha = hashlib.sha256(content).hexdigest()
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+    async def test_publish_requires_at_least_one_half(self):
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(_request(), file=None, module_id="mod_a1")
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+
+class DefaultOwnerResolverTest(unittest.IsolatedAsyncioTestCase):
+    """Exercises the real default_owner_user_id() resolver end-to-end against
+    an in-memory SQLite DB. The rest of this suite patches the resolver to
+    isolate other publish behaviour; that patching previously hid a
+    regression where the gate resolved to a synthetic "default" bootstrap
+    account instead of the configured maintainer (review finding 1), so this
+    class must never patch `ctrl.default_owner_user_id`.
+    """
+
+    def setUp(self):
+        self._orig_engine = dbbase._engine
+        self._orig_session_local = dbbase._SessionLocal
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        dbbase.Base.metadata.create_all(bind=engine)
+        dbbase._engine = engine
+        dbbase._SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+        self._orig_env = os.environ.pop("Y_AGENT_MODULE_MAINTAINER_USER_ID", None)
+
+    def tearDown(self):
+        dbbase._engine = self._orig_engine
+        dbbase._SessionLocal = self._orig_session_local
+        if self._orig_env is None:
+            os.environ.pop("Y_AGENT_MODULE_MAINTAINER_USER_ID", None)
+        else:
+            os.environ["Y_AGENT_MODULE_MAINTAINER_USER_ID"] = self._orig_env
+
+    async def test_resolves_configured_public_user_id_to_owning_account(self):
+        maintainer = get_or_create_user("maintainer_at_example_dot_com")
+        other = get_or_create_user("someone-else")
+        os.environ["Y_AGENT_MODULE_MAINTAINER_USER_ID"] = maintainer.user_id
+
+        resolved = ctrl.default_owner_user_id()
+
+        self.assertEqual(resolved, maintainer.id)
+        self.assertNotEqual(resolved, other.id)
+
+    async def test_fails_closed_when_env_var_unset(self):
+        self.assertIsNone(ctrl.default_owner_user_id())
+
+    async def test_fails_closed_when_configured_user_id_does_not_resolve(self):
+        os.environ["Y_AGENT_MODULE_MAINTAINER_USER_ID"] = "nobody-with-this-user-id"
+        self.assertIsNone(ctrl.default_owner_user_id())
+
+    async def test_publish_gate_admits_configured_maintainer_not_the_default_row(self):
+        """The regression this closes: get_default_user_id() resolves (and can
+        create) a synthetic 'default' row distinct from whichever account
+        actually owns module rows; the gate must not conflate the two."""
+        maintainer = get_or_create_user("maintainer_at_example_dot_com")
+        default_row = get_or_create_user("default")
+        self.assertNotEqual(maintainer.id, default_row.id)
+        os.environ["Y_AGENT_MODULE_MAINTAINER_USER_ID"] = maintainer.user_id
+
+        with self.assertRaises(HTTPException) as ctx:
+            await ctrl.publish(_request(user_id=default_row.id), module_id="mod_a1")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(_request(user_id=maintainer.id), module_id="mod_a1")
+        # Passes the maintainer gate and fails later, on "at least one half
+        # required" (400) rather than the ownership gate (403).
         self.assertEqual(ctx.exception.status_code, 400)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
@@ -342,29 +554,47 @@ class PointerActionTest(unittest.IsolatedAsyncioTestCase):
 class DeleteTest(unittest.IsolatedAsyncioTestCase):
     async def test_delete_by_slug_deletes_rows_then_bundles_in_order(self):
         calls = []
+        result = DeleteResult(
+            version_count=2,
+            storage_keys=["module/mod_a1/aaa.js", "module/mod_a1/bbb.js"],
+        )
         with patch.object(ctrl.module_service, "get_module_by_slug", return_value=_module()) as by_slug, \
              patch.object(
                  ctrl.module_service, "delete_module",
-                 side_effect=lambda *a, **k: calls.append("delete_rows") or ["module/mod_a1/aaa.js", "module/mod_a1/bbb.js"],
+                 side_effect=lambda *a, **k: calls.append("delete_rows") or result,
              ) as del_fn, \
              patch.object(ctrl, "_delete_bundle", side_effect=lambda key: calls.append(f"delete_bundle:{key}")):
-            result = await ctrl.delete_module(ctrl.DeleteRequest(slug="finance"), _request())
+            resp = await ctrl.delete_module(ctrl.DeleteRequest(slug="finance"), _request())
         by_slug.assert_called_once_with(123, "finance")
         del_fn.assert_called_once_with(123, "mod_a1")
         self.assertEqual(
             calls,
             ["delete_rows", "delete_bundle:module/mod_a1/aaa.js", "delete_bundle:module/mod_a1/bbb.js"],
         )
-        self.assertEqual(result, {"module_id": "mod_a1", "slug": "finance", "deleted_versions": 2})
+        # deleted_versions is the row count; storage_keys is the object-key list.
+        self.assertEqual(resp["deleted_versions"], 2)
+        self.assertEqual(resp["storage_keys"], ["module/mod_a1/aaa.js", "module/mod_a1/bbb.js"])
+        self.assertEqual(resp["module_id"], "mod_a1")
+
+    async def test_delete_reports_version_count_separately_from_object_keys(self):
+        """review finding 5: one dual-half version is 1 version but 2 objects."""
+        result = DeleteResult(version_count=1, storage_keys=["module/mod_a1/aaa.js", "module/mod_a1/aaa.api.zip"])
+        with patch.object(ctrl.module_service, "get_module_by_slug", return_value=_module()), \
+             patch.object(ctrl.module_service, "delete_module", return_value=result) as del_fn, \
+             patch.object(ctrl, "_delete_bundle"):
+            resp = await ctrl.delete_module(ctrl.DeleteRequest(slug="finance"), _request())
+        self.assertEqual(resp["deleted_versions"], 1)
+        self.assertEqual(len(resp["storage_keys"]), 2)
 
     async def test_delete_by_module_id(self):
         with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
-             patch.object(ctrl.module_service, "delete_module", return_value=[]) as del_fn, \
+             patch.object(ctrl.module_service, "delete_module", return_value=DeleteResult()) as del_fn, \
              patch.object(ctrl, "_delete_bundle") as bundle_fn:
             result = await ctrl.delete_module(ctrl.DeleteRequest(module_id="mod_a1"), _request())
         del_fn.assert_called_once_with(123, "mod_a1")
         bundle_fn.assert_not_called()
         self.assertEqual(result["deleted_versions"], 0)
+        self.assertEqual(result["storage_keys"], [])
 
     async def test_delete_requires_module_id_or_slug(self):
         with self.assertRaises(HTTPException) as ctx:

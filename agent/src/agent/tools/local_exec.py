@@ -1,8 +1,10 @@
 import asyncio
 import os
 
+from agent.tools.errors import CommandError
 
-async def local_exec(cmd: list[str], stdin: str | None = None, timeout: float = 30, cwd: str | None = None) -> str:
+
+async def local_exec(cmd: list[str], stdin: str | None = None, timeout: float = 30, cwd: str | None = None, check: bool = False) -> str:
     if cwd:
         cwd = os.path.expanduser(cwd)
     proc = await asyncio.create_subprocess_exec(
@@ -12,8 +14,17 @@ async def local_exec(cmd: list[str], stdin: str | None = None, timeout: float = 
         stderr=asyncio.subprocess.STDOUT,
         cwd=cwd or None,
     )
-    stdout, _ = await asyncio.wait_for(
-        proc.communicate(input=stdin.encode() if stdin else None),
-        timeout=timeout,
-    )
+    try:
+        stdout, _ = await asyncio.wait_for(
+            proc.communicate(input=stdin.encode() if stdin else None),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        if check:
+            raise CommandError(-1, f"local command timed out after {timeout}s: {' '.join(cmd)}") from None
+        raise
+    if check and proc.returncode not in (0, None):
+        raise CommandError(proc.returncode, f"{' '.join(cmd)}")
     return stdout.decode() if stdout else ""

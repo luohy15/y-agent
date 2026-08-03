@@ -1,15 +1,18 @@
-"""module controller (todo 2412 origin, renamed under todo 3020 phase 1).
+"""module controller (todo 2412 origin, renamed under todo 3020 phase 1;
+phase 3 adds dual-half publish for UI + API bundles).
 
 The API owns the bundle write: the CLI builds locally and POSTs bytes, the
 server recomputes sha256 (the client's claimed hash is never trusted) and
-writes the content-addressed object under the module/ prefix. Module code is
-never executed here; label/icon arrive as plain form fields. When
-Y_AGENT_S3_BUCKET is unset (local dev) bundles are written to a local
-directory with the same keys.
+writes the content-addressed object under the module/ prefix. Module Python
+is never *executed* on the management path here; the request-path loader in
+api.module_runtime does that lazily. When Y_AGENT_S3_BUCKET is unset (local
+dev) bundles are written to a local directory with the same keys.
 
-Publish order is verify-ownership -> write bundle -> insert version row:
-the key is content-addressed so an orphaned object is harmless, whereas an
-orphaned active pointer is a broken panel.
+Publish order is verify-ownership -> recompute hashes of both halves ->
+write bundle bytes -> insert one version row spanning both halves. The key
+is content-addressed so an orphaned object is harmless, whereas an orphaned
+active pointer is a broken panel. Schema preflight (phase 4) slots in after
+hash recompute and before the write.
 """
 
 import hashlib
@@ -20,7 +23,7 @@ from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -36,11 +39,44 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
+def default_owner_user_id() -> Optional[int]:
+    """The single explicitly trusted account allowed to manage and execute
+    modules. Auth is multi-user and invite-gated, so module Python (arbitrary
+    code executed in-process under the API's DB/AWS identity) must never be
+    publishable or dispatchable to a merely-authenticated account (review
+    finding 1).
+
+    The trusted principal is configured explicitly via
+    `Y_AGENT_MODULE_MAINTAINER_USER_ID`, holding the account's public string
+    `user_id` (never the internal integer PK, per the ID convention) so the
+    setting is portable across databases. It is deliberately *not*
+    `storage.service.user.get_default_user_id()` — that resolves (and can
+    create) a synthetic "default" bootstrap row, an account distinct from
+    whichever real account actually owns module rows.
+
+    Returns None when unset or when the configured user_id does not resolve
+    to a row. Callers must fail closed on None (deny), never treat it as
+    "any user_id is fine".
+    """
+    from storage.repository.user import get_user_by_user_id
+
+    configured = os.environ.get("Y_AGENT_MODULE_MAINTAINER_USER_ID", "").strip()
+    if not configured:
+        return None
+    user = get_user_by_user_id(configured)
+    return user.id if user else None
+
+
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
+# Upper bound on a single uploaded half, guarding the API process from
+# unbounded buffers (review finding 3). Generous for real bundles; the API
+# zip is also validated member-by-member at load time before extraction.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
 # D13: management endpoints below live on this router (registered before the
-# raw-ASGI module dispatcher mounted at /api/module in a later phase), so a
-# slug matching one of these names would collide with a management route.
+# raw-ASGI module dispatcher mounted at /api/module), so a slug matching one
+# of these names would collide with a management route.
 RESERVED_SLUGS = {
     "create", "list", "versions", "publish", "rollback", "activate",
     "enable", "disable", "delete", "bundle", "schema-sql",
@@ -87,13 +123,13 @@ def _bundle_dir() -> Path:
     )
 
 
-def _write_bundle(storage_key: str, content: bytes) -> None:
+def _write_bundle(storage_key: str, content: bytes, *, content_type: str = "text/javascript") -> None:
     if S3_BUCKET:
         boto3.client("s3").put_object(
             Bucket=S3_BUCKET,
             Key=storage_key,
             Body=content,
-            ContentType="text/javascript",
+            ContentType=content_type,
         )
         return
     base = _bundle_dir().resolve()
@@ -193,12 +229,19 @@ async def list_versions(
     return [v.to_dict() for v in versions]
 
 
+def _is_upload(value) -> bool:
+    """True when value is a real UploadFile (not a File() default sentinel)."""
+    return value is not None and hasattr(value, "read") and callable(value.read)
+
+
 @router.post("/publish")
 async def publish(
     request: Request,
-    file: UploadFile,
+    file: Optional[UploadFile] = File(None),
     module_id: str = Form(...),
-    sha256: str = Form(...),
+    sha256: Optional[str] = Form(None),
+    api_file: Optional[UploadFile] = File(None),
+    api_sha256: Optional[str] = Form(None),
     label: Optional[str] = Form(None),
     icon: Optional[str] = Form(None),
     min_host_version: int = Form(1),
@@ -207,7 +250,20 @@ async def publish(
     description: Optional[str] = Form(None),
     activate: bool = Form(True),
 ):
+    """Publish one version spanning the UI half, the API half, or both.
+
+    At least one half is required. Each supplied half is hash-checked
+    server-side; both land under content-addressed keys; a single
+    module_version row records them together so the active pointer can never
+    point at halves from different publishes (PRD atomicity).
+    """
     user_id = _get_user_id(request)
+    owner_id = default_owner_user_id()
+    if owner_id is None or user_id != owner_id:
+        raise HTTPException(
+            status_code=403,
+            detail="module publishing is restricted to the maintainer account",
+        )
     # Ownership check must precede the bundle write: storage_key is built from
     # the client-supplied module_id.
     module = module_service.get_module(user_id, module_id)
@@ -221,17 +277,86 @@ async def publish(
         raise HTTPException(status_code=400, detail="slug is reserved")
     if isinstance(description, str) and len(description) > 200:
         raise HTTPException(status_code=400, detail="description must be at most 200 characters")
-    content = await file.read()
-    actual_sha256 = hashlib.sha256(content).hexdigest()
-    if actual_sha256 != sha256.strip().lower():
-        raise HTTPException(status_code=400, detail="sha256 mismatch")
-    storage_key = f"module/{module_id}/{actual_sha256}.js"
-    _write_bundle(storage_key, content)
+
+    # File(None) defaults are not None when the endpoint is invoked directly
+    # (unit tests); only treat values that actually look like UploadFile.
+    ui_upload = file if _is_upload(file) else None
+    api_upload = api_file if _is_upload(api_file) else None
+
+    ui_content: Optional[bytes] = None
+    ui_actual: Optional[str] = None
+    ui_storage_key: Optional[str] = None
+    if ui_upload is not None:
+        ui_content = await ui_upload.read()
+        if len(ui_content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"UI bundle exceeds the {MAX_UPLOAD_BYTES} byte upload limit",
+            )
+        if not ui_content:
+            # Empty upload is treated as "no UI half" only when the client also
+            # omitted sha256; a claimed hash for empty bytes is still checked.
+            if sha256:
+                ui_actual = hashlib.sha256(ui_content).hexdigest()
+                if ui_actual != sha256.strip().lower():
+                    raise HTTPException(status_code=400, detail="sha256 mismatch")
+            else:
+                ui_content = None
+        else:
+            if not sha256:
+                raise HTTPException(status_code=400, detail="sha256 is required when file is provided")
+            ui_actual = hashlib.sha256(ui_content).hexdigest()
+            if ui_actual != sha256.strip().lower():
+                raise HTTPException(status_code=400, detail="sha256 mismatch")
+            ui_storage_key = f"module/{module_id}/{ui_actual}.js"
+
+    api_content: Optional[bytes] = None
+    api_actual: Optional[str] = None
+    api_storage_key: Optional[str] = None
+    if api_upload is not None:
+        api_content = await api_upload.read()
+        if len(api_content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"API bundle exceeds the {MAX_UPLOAD_BYTES} byte upload limit",
+            )
+        if not api_content:
+            if api_sha256:
+                api_actual = hashlib.sha256(api_content).hexdigest()
+                if api_actual != api_sha256.strip().lower():
+                    raise HTTPException(status_code=400, detail="api_sha256 mismatch")
+            else:
+                api_content = None
+        else:
+            if not api_sha256:
+                raise HTTPException(
+                    status_code=400, detail="api_sha256 is required when api_file is provided"
+                )
+            api_actual = hashlib.sha256(api_content).hexdigest()
+            if api_actual != api_sha256.strip().lower():
+                raise HTTPException(status_code=400, detail="api_sha256 mismatch")
+            api_storage_key = f"module/{module_id}/{api_actual}.api.zip"
+
+    if ui_content is None and api_content is None:
+        raise HTTPException(
+            status_code=400,
+            detail="at least one of file (UI) or api_file (API) is required",
+        )
+
+    # Write both halves before inserting the version row so a mid-write crash
+    # leaves only orphan content-addressed objects (harmless).
+    if ui_content is not None and ui_storage_key is not None:
+        _write_bundle(ui_storage_key, ui_content, content_type="text/javascript")
+    if api_content is not None and api_storage_key is not None:
+        _write_bundle(api_storage_key, api_content, content_type="application/zip")
+
     version = module_service.publish(
         user_id,
         module_id,
-        ui_sha256=actual_sha256,
-        ui_storage_key=storage_key,
+        ui_sha256=ui_actual,
+        ui_storage_key=ui_storage_key,
+        api_sha256=api_actual,
+        api_storage_key=api_storage_key,
         label=label,
         icon=icon,
         min_host_version=min_host_version,
@@ -284,26 +409,28 @@ async def set_enabled(req: EnableRequest, request: Request):
 
 @router.post("/delete")
 async def delete_module(req: DeleteRequest, request: Request):
-    """Hard-delete a module and all of its versions.
+    """Hard-delete a module and all of its versions, then clean up bundle bytes.
 
-    DB rows go first (storage.service.module.delete_module deletes
-    version rows, then the module row) so a failure partway through bundle
-    cleanup never leaves a row pointing at bytes that are already gone.
-    Orphaned bundle bytes after a successful row delete are acceptable and
-    are cleaned up best-effort below.
+    storage.service.module.delete_module removes the module and every version
+    row in ONE database transaction (so their lookup keys can never be erased
+    by a failure between two transactions, review finding 5), returning both
+    halves' storage keys and the version count. Bundle cleanup runs after the
+    commit and is best-effort: orphaned bytes after a successful row delete are
+    acceptable and disappearing is not recoverable for their keys.
     """
     user_id = _get_user_id(request)
     module = _resolve_module(user_id, req.module_id, req.slug)
-    storage_keys = module_service.delete_module(user_id, module.module_id)
-    if storage_keys is None:
+    result = module_service.delete_module(user_id, module.module_id)
+    if result is None:
         # Defence in depth; the resolve above already covers this.
         raise HTTPException(status_code=404, detail="Module not found")
-    for key in storage_keys:
+    for key in result.storage_keys:
         _delete_bundle(key)
     return {
         "module_id": module.module_id,
         "slug": module.slug,
-        "deleted_versions": len(storage_keys),
+        "deleted_versions": result.version_count,
+        "storage_keys": result.storage_keys,
     }
 
 

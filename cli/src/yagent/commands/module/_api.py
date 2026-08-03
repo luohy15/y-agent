@@ -42,25 +42,39 @@ def resolve_or_create(slug: str) -> dict:
 def publish_bundle(
     *,
     module_id: str,
-    bundle_bytes: bytes,
-    sha256: str,
+    bundle_bytes: Optional[bytes] = None,
+    sha256: Optional[str] = None,
+    api_bundle_bytes: Optional[bytes] = None,
+    api_sha256: Optional[str] = None,
     label: Optional[str],
     icon: Optional[str],
-    min_host_version: int,
-    source_digest: str,
-    activate: bool,
+    min_host_version: int = 1,
+    source_digest: Optional[str] = None,
+    activate: bool = True,
     min_backend_version: Optional[int] = None,
     description: Optional[str] = None,
 ) -> dict:
-    files = {
-        "file": ("bundle.js", bundle_bytes, "text/javascript"),
-    }
+    """POST one or both halves in a single publish request.
+
+    UI-only modules send `file` + `sha256`. Backend modules also send
+    `api_file` + `api_sha256`. At least one half is required; the API enforces
+    that and writes a single module_version row spanning both.
+    """
+    files: dict[str, Any] = {}
+    if bundle_bytes is not None:
+        files["file"] = ("bundle.js", bundle_bytes, "text/javascript")
+    if api_bundle_bytes is not None:
+        files["api_file"] = ("bundle.api.zip", api_bundle_bytes, "application/zip")
+
     data: dict[str, Any] = {
         "module_id": module_id,
-        "sha256": sha256,
         "min_host_version": str(min_host_version),
         "activate": "true" if activate else "false",
     }
+    if sha256 is not None:
+        data["sha256"] = sha256
+    if api_sha256 is not None:
+        data["api_sha256"] = api_sha256
     if label is not None:
         data["label"] = label
     if icon is not None:
@@ -71,7 +85,7 @@ def publish_bundle(
         data["min_backend_version"] = str(min_backend_version)
     if description is not None:
         data["description"] = description
-    return api_request("POST", "/api/module/publish", files=files, data=data).json()
+    return api_request("POST", "/api/module/publish", files=files or None, data=data).json()
 
 
 def rollback(module_id: str) -> dict:

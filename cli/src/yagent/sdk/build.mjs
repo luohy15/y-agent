@@ -65,6 +65,10 @@ try {
     platform: "browser",
     write: false,
     logLevel: "silent",
+    // Pin the working directory so path comments in the bundle (and thus the
+    // content hash) do not depend on the caller's cwd. The Python CLI also
+    // runs this script with cwd=sdk dir; absWorkingDir is belt-and-suspenders.
+    absWorkingDir: here,
     alias: {
       react: shim("react.cjs"),
       "react-dom": shim("react-dom.cjs"),

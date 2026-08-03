@@ -55,6 +55,47 @@ class PublishTest(ModuleTestCase):
         self.assertEqual(v2.version_no, 2)
         self.assertEqual(module_service.get_module(1, module.module_id).active_version_id, v2.version_id)
 
+    def test_publish_one_row_carries_both_halves(self):
+        """PRD atomicity: one publish = one version row spanning UI + API halves."""
+        module = module_service.create_module(1, "finance")
+        v1 = module_service.publish(
+            1,
+            module.module_id,
+            ui_sha256="uihash",
+            ui_storage_key="module/finance/uihash.js",
+            api_sha256="apihash",
+            api_storage_key="module/finance/apihash.api.zip",
+            min_backend_version=1,
+        )
+        self.assertEqual(v1.version_no, 1)
+        self.assertEqual(v1.ui_sha256, "uihash")
+        self.assertEqual(v1.api_sha256, "apihash")
+        self.assertEqual(v1.min_backend_version, 1)
+
+        # A second publish replaces the active pointer; the previous row keeps
+        # both of its original halves (no cross-publish mixing possible).
+        v2 = module_service.publish(
+            1,
+            module.module_id,
+            ui_sha256="ui2",
+            ui_storage_key="module/finance/ui2.js",
+            api_sha256="api2",
+            api_storage_key="module/finance/api2.api.zip",
+        )
+        v1_after = version_repo.get_version_by_no(1, module.module_id, 1)
+        self.assertEqual(v1_after.ui_sha256, "uihash")
+        self.assertEqual(v1_after.api_sha256, "apihash")
+        self.assertEqual(v2.ui_sha256, "ui2")
+        self.assertEqual(v2.api_sha256, "api2")
+        self.assertEqual(module_service.get_module(1, module.module_id).active_version_id, v2.version_id)
+
+        # Rollback restores both halves of v1 together.
+        rolled = module_service.rollback(1, module.module_id)
+        self.assertEqual(rolled.active_version_id, v1.version_id)
+        active = module_service.get_version(1, rolled.active_version_id)
+        self.assertEqual(active.ui_sha256, "uihash")
+        self.assertEqual(active.api_sha256, "apihash")
+
     def test_publish_no_activate_stages_without_moving_pointer(self):
         module = module_service.create_module(1, "finance")
         v1 = module_service.publish(1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js")
@@ -202,11 +243,21 @@ class EnabledTest(ModuleTestCase):
 class DeleteTest(ModuleTestCase):
     def test_delete_removes_module_and_all_versions_and_returns_storage_keys(self):
         module = module_service.create_module(1, "finance")
-        module_service.publish(1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js")
+        module_service.publish(
+            1, module.module_id,
+            ui_sha256="aaa", ui_storage_key="module/finance/aaa.js",
+            api_sha256="aaaapi", api_storage_key="module/finance/aaa.api.zip",
+        )
         module_service.publish(1, module.module_id, ui_sha256="bbb", ui_storage_key="module/finance/bbb.js")
 
-        storage_keys = module_service.delete_module(1, module.module_id)
-        self.assertEqual(sorted(storage_keys), ["module/finance/aaa.js", "module/finance/bbb.js"])
+        result = module_service.delete_module(1, module.module_id)
+        self.assertEqual(
+            sorted(result.storage_keys),
+            ["module/finance/aaa.api.zip", "module/finance/aaa.js", "module/finance/bbb.js"],
+        )
+        # 2 version rows across which 3 objects are stored.
+        self.assertEqual(result.version_count, 2)
+        self.assertEqual(len(result.storage_keys), 3)
 
         self.assertIsNone(module_service.get_module(1, module.module_id))
         self.assertEqual(module_service.list_versions(1, module.module_id), [])
@@ -223,8 +274,23 @@ class DeleteTest(ModuleTestCase):
         self.assertIsNotNone(module_service.get_module(2, theirs.module_id))
         self.assertEqual(len(module_service.list_versions(2, theirs.module_id)), 1)
 
-        storage_keys = module_service.delete_module(1, mine.module_id)
-        self.assertEqual(storage_keys, [])
+        result = module_service.delete_module(1, mine.module_id)
+        self.assertEqual(result.version_count, 0)
+        self.assertEqual(result.storage_keys, [])
+
+    def test_delete_is_single_commit_both_rows_gone_together(self):
+        """review finding 5: version + module rows must be gone in one transaction."""
+        module = module_service.create_module(1, "finance")
+        module_service.publish(
+            1, module.module_id,
+            ui_sha256="aaa", ui_storage_key="module/finance/aaa.js",
+            api_sha256="api", api_storage_key="module/finance/api.api.zip",
+        )
+        result = module_service.delete_module(1, module.module_id)
+        self.assertIsNotNone(result)
+        # Both the module row and all version rows are deleted together.
+        self.assertIsNone(module_service.get_module(1, module.module_id))
+        self.assertEqual(module_service.list_versions(1, module.module_id), [])
 
     def test_create_after_delete_reuses_the_freed_slug(self):
         """Plan B5: hard delete must free UniqueConstraint(user_id, slug) so
