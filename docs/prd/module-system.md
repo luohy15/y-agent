@@ -40,12 +40,29 @@ already running locally. And because the deploy is all-or-nothing, there is no
 per-domain version history, no rollback narrower than the whole backend, and no
 answer to "what changed in finance last week" other than reading the git log.
 
+The data layer is where this bites hardest, and it is worth being precise about
+why. Schema changes are *already* out of band: migrations are hand-written SQL in
+a gitignored directory, applied with psql, never gated on a deploy. What is gated
+on a deploy is the ORM model of that schema, and the repository holding the
+queries. So adding one column to a finance table costs a psql run the user
+controls, plus a full backend redeploy for the two files that describe the column
+they just added. A domain's data model is the part of it most likely to change
+alongside its logic, and it was the part furthest from the fast loop.
+
 ## Solution
 
 A **module** is a user-owned, versioned unit that contains everything for one
-domain: its API routes, its CLI commands, its business logic, and its UI. It
-lives in one directory on the user's VM, publishes as data, and loads at runtime
-without deploying the application.
+domain: its data model, its API routes, its CLI commands, its business logic, and
+its UI. It lives in one directory on the user's VM, publishes as data, and loads
+at runtime without deploying the application.
+
+"Everything" is meant literally, down to the database. A module owns its ORM
+entities, its repositories, its knowledge of its own schema, and the migration
+SQL that shapes it. The host contributes a database connection and transaction
+management, and nothing else about data. A domain's tables, the models over
+them, and the queries against them live in one directory with one owner, instead
+of being split across a repo that deploys slowly and a module that publishes
+fast.
 
 The authoring loop is a directory and a command. Module source lives at
 `$Y_AGENT_HOME/modules/<slug>/`. The CLI picks up the module's commands directly
@@ -61,9 +78,9 @@ catch-all route, `/api/module/{slug}/{path:path}`; a request to it resolves the
 module's active version, fetches the bundle, verifies its sha256, imports it,
 and forwards the request into a per-version sub-application built from an
 ordinary FastAPI `APIRouter` that the module supplies. The module reads
-PostgreSQL directly through host repositories, exactly as the built-in
-controller does today, so nothing about the data path changes: no SSH hop, no
-proxy, no latency regression.
+PostgreSQL directly, through its own repositories over a host-provided session,
+so nothing about the data path changes: no SSH hop, no proxy, no latency
+regression.
 
 Backend and frontend advance and roll back **together**. One `module_version`
 row records both bundles, so publish skew, shipping a UI that expects a field
@@ -106,140 +123,208 @@ only a UI part. One concept, one command, one version line.
     source I tested, so that the fast loop and the deployed artifact cannot
     diverge.
 
+### Module-owned data
+
+11. As a module author, I want my module to define its own ORM entities, so that a
+    domain's tables are described where the domain lives rather than in a package
+    that deploys on a different clock.
+12. As a module author, I want my module to own its repositories and write its own
+    queries, so that a new query shape is a module edit rather than a host change
+    and a deploy.
+13. As a module author, I want my module's entities registered in their own
+    metadata rather than the host's, so that two versions of one module can be
+    resident in the same process without colliding.
+14. As a module author, I want the host to give me a database session with
+    transaction handling, so that I get connection pooling and commit/rollback
+    semantics without owning connection management.
+15. As a module author, I want my migration SQL to live in my module directory, so
+    that the DDL, the models over it, and the queries against it are one unit with
+    one history.
+16. As a user, I want migrations applied only by me, by hand, so that publishing
+    code can never reshape my database as a side effect.
+17. As a user, I want `y module schema-sql <slug>` to print DDL derived from the
+    module's models, so that writing the migration for a new table is mechanical
+    rather than transcription.
+18. As a user, I want a publish to be refused when the module's models reference
+    tables or columns the database does not have, so that forgetting to run the
+    migration fails at publish rather than on a user's request.
+19. As a user, I want a module's tables to be unaffected by host database
+    initialization, so that host deploys never create, alter, or reason about
+    module schema.
+
 ### API routes
 
-11. As a module author, I want to declare routes with an ordinary FastAPI
+20. As a module author, I want to declare routes with an ordinary FastAPI
     `APIRouter`, so that authoring a module handler is the same work as writing a
     built-in controller.
-12. As a module author, I want `Query` validation, path parameters, and
+21. As a module author, I want `Query` validation, path parameters, and
     `HTTPException` to work normally, so that migrating an existing controller is
     close to a file move.
-13. As a module author, I want the authenticated user resolved by the host before
+22. As a module author, I want the authenticated user resolved by the host before
     my handler runs, so that I never handle tokens.
-14. As a user, I want module routes reachable at a predictable path derived from
+23. As a user, I want module routes reachable at a predictable path derived from
     the slug, so that the UI knows where to call without extra configuration.
-15. As a user, I want module code loaded only when one of its routes is actually
+24. As a user, I want module code loaded only when one of its routes is actually
     requested, so that a module I never call costs nothing.
-16. As a user, I want a loaded version cached for the life of the container, so
+25. As a user, I want a loaded version cached for the life of the container, so
     that repeated requests do not refetch and re-import code.
-17. As a user, I want a version switch to take effect without restarting
+26. As a user, I want a version switch to take effect without restarting
     anything, so that publishing is the only step.
 
 ### CLI commands
 
-18. As a user, I want a module's commands to appear under `y <slug>`, so that a
+27. As a user, I want a module's commands to appear under `y <slug>`, so that a
     module-owned command is invoked exactly like a built-in one.
-19. As a user, I want module commands discovered from the modules directory
+28. As a user, I want module commands discovered from the modules directory
     automatically, so that adding a module does not mean editing the CLI's
     command registry.
-20. As a user, I want a module's code imported only when one of its commands is
+29. As a user, I want a module's code imported only when one of its commands is
     actually invoked, so that module discovery does not slow down every `y`
     invocation on the agent hot path.
-21. As a user, I want a module whose CLI fails to import to break only its own
+30. As a user, I want a module whose CLI fails to import to break only its own
     command group, so that one bad module does not make `y` unusable.
-22. As a user, I want the CLI to read local source rather than the published
+31. As a user, I want the CLI to read local source rather than the published
     bundle, so that I can test a change before promoting it.
+
+### Background jobs
+
+32. As a user, I want a module's scheduled work to be one of its own CLI commands,
+    so that a background job is written, run, and debugged exactly like anything
+    else in the module.
+33. As a user, I want a routine that runs a command directly instead of firing an
+    agent session, so that a deterministic data sync costs no model call and
+    produces no conversation.
+34. As a user, I want a scheduled module command to run on my VM against local
+    source, so that changing what a job does needs no publish.
+35. As a user, I want modules to have no worker-side code, so that module Python
+    runs in exactly one runtime and I never debug a bundle loaded inside a
+    background Lambda.
 
 ### The host surface
 
-23. As a module author, I want to import host repositories, the DB session, and
-    shared services, so that a module composes existing data access instead of
-    reimplementing it.
-24. As a module author, I want the host surface versioned with a stated stability
+36. As a module author, I want a small, explicit set of host capabilities —
+    session and transaction management, the resolved authenticated user, VM
+    command execution — so that the surface I depend on is one I can hold in my
+    head.
+37. As a module author, I want the host surface versioned with a stated stability
     obligation, so that a published module keeps working after the host
     redeploys.
-25. As a user, I want a module built against a newer host surface than the running
+38. As a user, I want a module built against a newer host surface than the running
     API to refuse to load with a clear message, so that version skew surfaces as
     an explicit error rather than a confusing runtime failure.
-26. As a module author, I want the browser-side contract to stay exactly as it is
+39. As a module author, I want the browser-side contract to stay exactly as it is
     today, so that migrating an existing artifact into a module changes its
     address, not its code.
 
+### Cross-module boundaries
+
+40. As a module author, I want to reference host kernel tables such as the owning
+    user, so that module rows belong to a user the same way host rows do.
+41. As a user, I want no module to read another module's tables, so that a module
+    can change its own schema without breaking code it cannot see.
+42. As a user, I want a table needed by more than one module to live in a `common`
+    module, so that shared data still has exactly one owner and stays as
+    hot-loadable as everything else.
+43. As a module author, I want `common`'s code copied into my bundle at publish
+    time, so that my version stays self-contained bytes and a rollback restores
+    the shared code I was built against.
+44. As a user, I want one module to reach another only through its published HTTP
+    routes or CLI, so that the contract between domains is the interface rather
+    than the storage layout.
+
 ### Atomic versioning and rollback
 
-27. As a user, I want one version to span a module's API and UI, so that "the
+45. As a user, I want one version to span a module's API and UI, so that "the
     version of finance" is a single unambiguous thing.
-28. As a user, I want backend and frontend to activate together, so that a UI can
+46. As a user, I want backend and frontend to activate together, so that a UI can
     never go live expecting a response field the API does not serve yet.
-29. As a user, I want every publish to create an immutable version, so that
+47. As a user, I want every publish to create an immutable version, so that
     history is a real record and not overwritten state.
-30. As a user, I want the active version to be a single pointer, so that what is
+48. As a user, I want the active version to be a single pointer, so that what is
     live is unambiguous.
-31. As a user, I want `y module rollback <slug>` to restore the previous version
+49. As a user, I want `y module rollback <slug>` to restore the previous version
     of both halves, so that recovery is one command and cannot leave a mismatched
     pair.
-32. As a user, I want rollback to require no rebuild, so that it still works when
+50. As a user, I want rollback to require no rebuild, so that it still works when
     the source is mid-edit or the build is broken.
-33. As a user, I want to activate any historical version by number, so that I can
+51. As a user, I want to activate any historical version by number, so that I can
     move to a known-good build, not only the immediately previous one.
-34. As a user, I want `y module list` to show my modules, their parts, and their
+52. As a user, I want rollback to restore code without touching my database, so
+    that recovery is never a data-loss decision.
+53. As a user, I want `y module list` to show my modules, their parts, and their
     active version, so that I can see what is installed at a glance.
-35. As a user, I want `y module versions <slug>` to show history with the active
+54. As a user, I want `y module versions <slug>` to show history with the active
     version marked and each version's description, so that I can correlate a
     version with the change that produced it.
-36. As a user, I want to disable a module without deleting it, so that I can turn
+55. As a user, I want to disable a module without deleting it, so that I can turn
     a domain off while keeping its history.
-37. As a user, I want `y module delete <slug>` to remove the module and its
-    versions while leaving my authoring source alone, so that deleting deployed
-    state never destroys my working files.
+56. As a user, I want `y module delete <slug>` to remove the module and its
+    versions while leaving my authoring source and my tables alone, so that
+    deleting deployed state never destroys data or working files.
 
 ### Safety and failure isolation
 
-38. As a user, I want a module that fails to load to return an error only on its
+57. As a user, I want a module that fails to load to return an error only on its
     own routes, so that a bad publish never takes down unrelated endpoints.
-39. As a user, I want fetch failure, hash mismatch, import error, and host-version
+58. As a user, I want fetch failure, hash mismatch, import error, and host-version
     incompatibility to produce distinct messages, so that I can tell a storage
     problem from a code problem.
-40. As a user, I want the API to verify a bundle's content hash before importing
+59. As a user, I want the API to verify a bundle's content hash before importing
     it, so that tampered or corrupted bytes never execute.
-41. As a user, I want a module handler that raises to produce an ordinary error
+60. As a user, I want a module handler that raises to produce an ordinary error
     response confined to that request, so that one bad endpoint does not affect
     the rest of the module.
-42. As a user, I want only my authenticated session to be able to publish, so that
+61. As a user, I want only my authenticated session to be able to publish, so that
     the publish path is not an open code-execution endpoint.
-43. As a user, I want module routes to require authentication like every other
+62. As a user, I want module routes to require authentication like every other
     non-public route, so that publishing a module cannot widen the API's public
     surface.
-44. As a user, I want a module load failure never to crash a cold start, so that
+63. As a user, I want a module load failure never to crash a cold start, so that
     an unrelated request is never punished for a broken module.
 
 ### Unifying `y ui` into `y module`
 
-45. As a user, I want one command for publishable units, so that I never have to
+64. As a user, I want one command for publishable units, so that I never have to
     ask whether something is a "UI artifact" or a "module".
-46. As a user, I want existing UI-only artifacts to keep working as UI-only
+65. As a user, I want existing UI-only artifacts to keep working as UI-only
     modules, so that the unification is a rename rather than a rewrite.
-47. As a user, I want the browser loader, hash verification, error boundaries, and
+66. As a user, I want the browser loader, hash verification, error boundaries, and
     `@y/host` contract to carry over untouched, so that the unification does not
     put five shipped panels at risk.
-48. As a user, I want existing artifact sources relocated into module directories,
+67. As a user, I want existing artifact sources relocated into module directories,
     so that "everything for a domain in one place" is true rather than aspirational.
-49. As a user, I want the rename to be a hard cut with no `y ui` alias, so that
+68. As a user, I want the rename to be a hard cut with no `y ui` alias, so that
     there is one name for one concept.
 
 ### Finance as the reference module
 
-50. As a user, I want finance's derived logic, API routes, CLI commands, and UI to
-    live in one module, so that the concept is proven on the domain that motivated
-    it.
-51. As a user, I want a change like todo 3018's realized-trade list to reach the
+69. As a user, I want finance's tables, entities, repositories, derived logic, API
+    routes, CLI commands, and UI to live in one module, so that the concept is
+    proven end to end on the domain that motivated it.
+70. As a user, I want a change like todo 3018's realized-trade list to reach the
     web UI without a backend deploy, so that the problem that started this is
     actually solved.
-52. As a user, I want finance to behave exactly as before after migration, so that
+71. As a user, I want a new finance column to cost one hand-run migration and one
+    publish, so that extending the data model is no longer a deploy.
+72. As a user, I want finance to behave exactly as before after migration, so that
     the change is invisible in daily use.
-53. As a user, I want the built-in finance controller, CLI group, and derived
-    services deleted rather than kept as a fallback, so that there is one
-    implementation and no ambiguity about which one is live.
-54. As a user, I want the scheduled finance sync to keep working unchanged, so
-    that migrating the read path does not disturb the write path.
+73. As a user, I want the built-in finance controller, CLI group, services,
+    repositories, and entities deleted rather than kept as a fallback, so that
+    there is one implementation and no ambiguity about which one is live.
+74. As a user, I want finance Refresh to move with the finance module while
+    host-owned auth, session management, and VM execution remain stable, so that
+    the domain boundary is complete without pulling infrastructure into
+    publishable code.
+75. As a user, I want the dead worker finance sync deleted rather than migrated, so
+    that the reference module carries no code that was already unreachable.
 
 ## Implementation Decisions
 
 ### Execution model: in-process dynamic import in the API
 
 Module Python is fetched, verified, and imported **inside the API process**. It
-reads PostgreSQL directly through host repositories, the same way the built-in
-controller does today.
+reads PostgreSQL directly, through its own repositories over a host-provided
+session, on the same connection pool the built-in controllers use today.
 
 Two alternatives were considered and rejected:
 
@@ -263,6 +348,17 @@ runtime containment.** The publisher is the owner and their own agents, who can
 already ship arbitrary code through the deploy pipeline; this is a new path, not
 a new capability. Controls are ownership scoping, authenticated publish, content
 hash verification before import, and an immutable version audit trail.
+
+Module-owned repositories widen what a loaded bundle can *reach* — a session is a
+session, so a module can query any table in the database, including one holding
+credentials, and could issue DDL if the role permits it. This is worth stating
+plainly, and it changes nothing about the threat model: code running in-process
+under the composing-repositories design could already reach the same data by
+other means, and the API's database role is not per-module. The mitigations are
+the ones above, plus keeping the cross-module rules a review obligation. If
+modules ever accept code from other authors, this is the paragraph that must be
+revisited first, and the answer would be separate database roles per module
+rather than tighter Python.
 
 ### Route surface: per-version sub-app behind one catch-all
 
@@ -304,32 +400,175 @@ populated exactly as it is today. **Modules cannot serve unauthenticated
 routes**: the public-route allowlist is host-owned, and publishing a module must
 never be able to widen the API's public surface.
 
-### The host surface: what a module may import
+### The host surface: a kernel, not a data layer
+
+The host keeps only what is genuinely shared infrastructure. Everything that
+describes or interprets a domain belongs to the module, **including its data
+model**.
 
 | Layer | Owner | Rationale |
 |---|---|---|
 | Derived / business logic | **Module** | The code that changes weekly. The point of the feature. |
 | API route handlers | **Module** | Follows the logic it wraps. |
 | CLI commands and renderers | **Module** | Same. |
-| ORM entities, tables, migrations | **Host** | Migrations are already manual SQL run by the maintainer; coupling a hot path to a slow one defeats the purpose. |
-| Repositories, DB session, auth, user resolution | **Host** | The stable imported surface. |
+| ORM entities and table definitions | **Module** | A table's shape is domain knowledge. Splitting the model from the queries over it puts one table's definition on two clocks. |
+| Repositories and queries | **Module** | A new query shape must not require a host change and a deploy; that ceiling was the main cost of the earlier boundary. |
+| Migration SQL | **Module** | Lives beside the models it changes, applied by hand by the owner. |
+| Database connection, session, transaction management | **Host** | Pooling and commit/rollback semantics are infrastructure, and one engine per process is not negotiable. |
+| Auth and resolved authenticated user | **Host** | Publishing a module must never be able to widen or weaken authentication. |
+| VM command execution | **Host** | Credentials, SSH, and EC2 lifecycle are infrastructure. |
 | Python dependencies | **Host** | A module may import only what the API already ships. Adding a dependency is a normal deploy. Direct mirror of the UI externals contract. |
-| Worker tasks, routines, scheduled jobs | **Host** | Different runtime and lifecycle; out of scope for v1. |
+| Worker tasks and Lambda runtimes | **Host** | Modules have no worker part at all; see *Background jobs*. |
+| Tables shared by more than one module | **`common` module** | Shared data still has one owner, and stays hot-loadable rather than frozen into the deploy cycle. |
 
-**Repositories stay host-side, so a module cannot write its own SQL**; it
-composes existing repository calls. This keeps modules from silently depending
-on column layout. The accepted ceiling: a genuinely new query shape needs a repo
-change, and therefore a deploy. In practice the derived services already load
-window rows and compute in Python, so this is not expected to bite; if it does,
-the escape hatch is exposing a read-only session to modules later.
+The kernel a module imports is therefore small and stable: a database session
+with transaction handling, the resolved user, and
+`run_vm_command(user_id, vm_name, argv, timeout=...)`. Modules do not receive
+`Tool`, VM credentials, Paramiko objects, worker internals, or raw engine
+handles.
+
+**A module writing its own SQL is now the design, not a leak.** The earlier
+boundary kept repositories host-side to stop modules depending on column layout;
+that reasoning inverts once the module owns the columns. A module depending on
+its own schema is not coupling, it is ownership. What remains forbidden is
+depending on *someone else's* schema, which the cross-module rules below make
+explicit.
 
 **Write endpoints are allowed.** There is no read-only restriction; the trust
-model is identical to UI artifacts.
+model is identical to UI artifacts. Finance proves this with its refresh route:
+the module owns the route, its orchestration, and the writes it performs.
+
+**Module entities declare their own `DeclarativeBase`.** This is forced rather
+than stylistic. Bundles are imported under version-unique package names so two
+versions of one module can be resident in one warm container, and a shared
+`MetaData` would raise `Table 'finance_holding' is already defined` at the moment
+of a version switch. Separate metadata also removes module tables from the host's
+`init_tables()` import list, which is the point: host database initialization,
+including the daily `init_db` schedule, neither creates nor reasons about module
+schema.
 
 The Python host surface carries **its own contract version**, independent of the
 `@y/host` browser contract, because the two evolve for unrelated reasons. A
 module records a backend contract floor at publish time; a module requiring a
 newer host than the running API refuses to load with an explicit message.
+
+### Migrations: owner-applied, never automatic
+
+Module migration SQL lives in the module directory and is applied **by the owner,
+by hand**, exactly as host migrations are today. There is no migration runner, no
+DDL at publish time, and no DDL at activation time. Loading a bundle never
+touches schema.
+
+This is a deliberate refusal of the obvious convenience. An automatic runner
+would mean an HTTP request or a pointer move could alter the database, which
+turns a code rollback into a data event and makes the blast radius of a bad
+publish unbounded. Hand-applied SQL keeps the destructive operation attached to a
+human decision, and it is not the slow part of the loop anyway: schema changes
+were never gated on a deploy, only the ORM models were.
+
+`y module schema-sql <slug>` generates `CREATE TABLE` DDL from the module's own
+metadata as an authoring aid. It **prints**; it never executes. Bootstrapping a
+module on a fresh database is that output, reviewed, piped to psql by the owner.
+
+### Code/schema skew: publish-time preflight, no runtime gate
+
+Ownership puts a module's two halves on different clocks — code moves by pointer
+in seconds, schema moves when the owner runs psql — so drift is a real failure
+mode with three directions:
+
+| Drift | Severity | Handling |
+|---|---|---|
+| Code published that needs schema not yet applied | Common; fails at request time with a raw SQL error after the pointer already moved | **Prevented**: publish-time preflight |
+| Code rolled back to a version predating a column | Benign; an unused column is invisible | None needed |
+| Destructive DDL applied (drop / rename / narrow) | Breaks every rollback-reachable older bundle at once | **Discipline**: expand/contract |
+
+`y module publish <slug>` walks the module's own metadata and checks every table
+and column against live `information_schema`, refusing the publish when the
+models reference schema the database does not have. This needs no revision table
+and no stamping step to forget, because the database is already the authoritative
+record of what has been applied, and it folds into the existing rule that a failed
+publish leaves the active version untouched.
+
+There is deliberately **no runtime schema check at bundle load**. It would buy
+only a nicer message for a case the preflight already prevents, at the cost of an
+`information_schema` query on every cold load, and failure isolation already
+bounds the blast radius to the module's own routes.
+
+Destructive changes cannot be caught at publish time by construction, so they are
+a stated discipline: **migrations are expand-only while any older version is still
+rollback-reachable**. Removing a column is a two-step contract — publish code that
+stops using it, then drop it — which is the standard expand/migrate/contract
+pattern and costs nothing extra when the SQL is being written by hand regardless.
+
+**Rollback restores code, never data.** `y module rollback` moves a pointer; it
+does not run down-migrations, and `y module delete` leaves the module's tables in
+place. Recovery is never a data-loss decision.
+
+### Cross-module data access
+
+One table has exactly one owner, and only its owner reads it directly.
+
+| Reference | Verdict |
+|---|---|
+| Module table → host kernel table (`finance_holding.user_id → user.id`, FK with `ON DELETE CASCADE`) | **Allowed.** Kernel schema changes only through a host deploy, so a module can depend on it as it depends on the Python host contract. |
+| Module A code → module B's tables | **Forbidden.** B reshapes its schema at any publish with no coordination; the read would break silently, at a distance, with no version pin. |
+| Module A table → FK to module B's table | **Forbidden.** Same, plus it couples two independently applied migration timelines and creates create/drop ordering nobody owns. |
+| Host code → module tables | **Forbidden.** The host must not know any module's schema, or the ownership claim is fiction. |
+
+The escape hatch for genuinely shared data is a **`common` module** rather than
+promotion into the host: a table read by more than one module is by definition
+not private, so it moves to `common`, which owns it like any other module owns
+its own tables. Shared data therefore stays hot-loadable instead of being frozen
+into the deploy cycle, and the one-owner-per-table rule survives intact.
+
+`common` owns **tables**, not cross-schema queries. Letting `common` hold a query
+that joins two modules' private tables would not remove the coupling, only
+relocate it: `common` would become the schema-dependent reader that the fourth
+row forbids for the host, breakable by either module's next migration with no
+signal at publish time.
+
+Consumers get `common` by **build-time vendoring**: `y module publish finance`
+copies `modules/common/` into finance's bundle. A module version stays
+self-contained bytes, so the single-pointer atomicity the versioning design rests
+on is preserved — rolling back finance restores the `common` code it was built and
+tested against. A runtime dependency edge with declared version floors and loader
+resolution was rejected: it means rolling back `common` can break `finance` while
+rolling back `finance` does not restore `common`, and that is a dependency graph
+with currently zero demand. The cost of vendoring is that `common`'s DDL has a
+single timeline shared with older vendored copies, so its migrations are
+expand-only under the same discipline as any other module's.
+
+Anything a module needs from another domain's *behavior*, as opposed to its
+storage, it gets through that module's published HTTP routes or CLI.
+
+### Background jobs
+
+**A module has no worker part.** Its scheduled work is one of its own CLI
+commands, and the host contributes only a trigger.
+
+The `routine` table is already a generic per-user cron scheduler with a pre-fire
+guard, ticked by the admin Lambda. Today its only action is chat dispatch, which
+fires an agent session; that remains available and is how a judgment-shaped
+routine should run. For deterministic work it gains a second action type: **run
+an argv on the owner's VM** via the same `run_vm_command` capability the host
+already exposes to modules. A module's scheduled sync is then `y finance sync`
+plus a routine row — no model call, no conversation, no bundle loading anywhere.
+
+Running module code inside the worker Lambda was rejected. It would put module
+Python in a second runtime with its own image, dependency set, contract version,
+failure isolation, and Lambda lease/handoff semantics, in exchange for nothing
+that VM execution does not already provide.
+
+Two consequences are stated rather than left to be discovered:
+
+- **Scheduled jobs run local source, so they are unversioned**, the same asymmetry
+  already accepted for the CLI half. A rollback restores API and UI; it does not
+  change what a scheduled job runs.
+- **A module's schedule is host data, not part of its version.** The `routine` row
+  is created by hand and survives publish, rollback, and delete.
+
+Jobs inherit the EC2 instance's wake latency and availability. That is correct for
+daily syncs and wrong for anything latency-critical; nothing in scope is.
 
 ### Loading mechanics
 
@@ -397,7 +636,15 @@ is stated rather than hidden: the CLI is the *development* surface and the
 published version is the *deployed* surface. A rollback restores the API and UI;
 it does not touch what the CLI runs, because the CLI runs whatever is currently
 on disk. The corollary is the intended workflow, iterate against the CLI, then
-publish the source you tested.
+publish the source you tested. Scheduled jobs inherit this asymmetry, since a job
+is a CLI command.
+
+**Schema is not versioned either, and for a stronger reason.** The version
+pointer governs code only. Migrations are applied by hand and never reversed by
+the system, so a version is a claim about what code was running, not about what
+the database looked like. The publish-time preflight is what keeps the two
+consistent in the forward direction, and the expand-only discipline is what keeps
+older versions loadable in the backward one.
 
 ### CLI dynamic command registration
 
@@ -469,19 +716,40 @@ not rewritten.
 
 ### The finance seam
 
-Every importer of the finance code was traced. The seam is not "everything named
-`finance_*`":
+Every importer of the finance code was traced, and the result is what makes
+finance a clean reference case: **nothing outside finance touches finance data.**
+The five `finance_*` entities are imported only by their own repositories, and
+those repositories only by finance services. There is no `relationship()` anywhere
+in the entity package, so the tables are joined to the rest of the schema by
+nothing but an integer `user_id` column. The whole vertical slice can move without
+cutting a single ORM edge.
 
 | Code | Owner | Why |
 |---|---|---|
 | Derived / positions / price-series / fundamentals / realtime-quote services | **Module** | Read and derive side. Nothing outside finance imports them. |
-| Finance controller, `y finance` command group including the `beancount` subgroup | **Module** | The worker shells `y finance beancount ...` over SSH onto the VM, where module source lives, so this keeps working unchanged. |
-| Thin CRUD services for holdings, prices, transactions, and finance config | **Host** | The scheduled worker sync writes through them, and the worker is host-side. |
-| Entities, repositories, DTOs | **Host** | Per the host surface split. |
+| Finance controller, including `POST /refresh`, and `y finance` command group including the `beancount` subgroup | **Module** | Domain routes and orchestration move together. Both shell `y finance beancount ...` on the VM, where canonical module source lives. |
+| `finance_holding` / `finance_price` / `finance_transaction` / `finance_fundamentals` / `finance_realtime_quote` entities and their tables | **Module** | Full data ownership. Their only outward reference is `user_id → user.id`, an allowed kernel FK. |
+| Finance repositories, DTOs, and thin CRUD writer services | **Module** | They exist to serve finance and are imported by nothing else. Keeping them host-side would leave the model split across two clocks. |
+| Finance migration SQL | **Module** | Written and applied by hand by the owner, from the module directory. |
+| Session and transaction management | **Host** | The kernel a module composes. |
+| VM command execution capability | **Host** | The module selects finance commands; the host resolves VM config and performs SSH/EC2 execution. |
+| `worker/steps/sync_finance.py` | **Deleted** | It has no caller and no EventBridge schedule; it is dead code. If the sync is wanted back it returns as `y finance sync` plus a routine row. |
 
-The module is the **read/derive half**; the host keeps the **write/sync half**.
-The line is principled rather than convenient: the sync path is scheduled
-infrastructure, the derive path is what changes weekly.
+The boundary is **domain versus infrastructure**, not reads versus writes and no
+longer logic versus data. Finance owns its tables, the models over them, the
+queries against them, all finance HTTP behavior including Refresh and its
+four-command best-effort sequence, and its CLI. The host keeps auth, session and
+transaction management, VM command execution, and dependencies. The module never
+owns credentials, SSH mechanics, connection pooling, or scheduling.
+
+This supersedes the part of decision 3020-D2 that had the host retaining finance
+writer services for a worker path. That path does not exist: the worker step is
+unreferenced, and preserving host-side writers would mean host code holding
+knowledge of module-owned schema, which the cross-module rules forbid.
+
+`$Y_AGENT_HOME/modules` is the single source of module source. It is a plain
+canonical directory, not a symlink into the y-agent checkout, and no duplicate
+module source or tests are retained in the host repo.
 
 **The built-ins are deleted outright.** No dual-run, no in-bundle fallback: the
 same bet already taken when the built-in Finance, Bots, Calendar, and Todo
@@ -507,30 +775,62 @@ Test the observable contract, not the loader's internals.
 - **Failure isolation** is tested by asserting the blast radius, not the message:
   a module that fails to load returns its distinct error on its own routes while
   unrelated endpoints answer normally, and each failure kind is distinguishable.
-- **Version-unique import naming**: two versions of one module load in the same
-  process without collision. This is the subtle bug that would otherwise appear
-  only under warm-container version switches in production.
+- **Version-unique import naming and metadata isolation**: two versions of one
+  module, each declaring the same tables against its own `DeclarativeBase`, load
+  in the same process without collision. This is the subtle bug that would
+  otherwise appear only under warm-container version switches in production, and
+  it is the reason module entities may not share the host's `Base`.
 - **Backend contract gating**: a module declaring a floor above the running host
   refuses to load and reports why.
+- **Schema preflight is tested in both directions**: a publish is refused when a
+  model references a table or column the database lacks, and succeeds once the
+  migration has been applied. The negative case is the one that matters, since it
+  is the whole reason the check exists.
+- **Preflight failure leaves the active version untouched** — same assertion shape
+  as a failed build, and worth its own test because it is what makes a rejected
+  publish safe rather than merely annoying.
+- **Host database initialization ignores module tables**: running `init_tables()`
+  creates no module-owned table and errors on none. This asserts the metadata
+  separation from the host's side.
 - **Lazy CLI registration**: invoking an unrelated command does not import module
   code, and a module whose CLI raises on import leaves other groups working. The
   first is a performance guarantee on the agent hot path and deserves an assertion
   rather than trust.
 - **Finance migration is verified by behavioral equivalence**: the module's
   endpoints return the same figures for the same inputs as the built-in
-  controller did. The existing finance service tests are the prior art and move
-  with the code they cover.
-- Not worth testing: esbuild's correctness, the exact bytes of a build, or
-  FastAPI's own routing.
+  controller did. The existing finance service and repository tests are the prior
+  art and move into the module with the code they cover, including the ones that
+  now exercise module-owned entities.
+- Not worth testing: esbuild's correctness, the exact bytes of a build, SQLAlchemy's
+  own DDL generation, or FastAPI's own routing.
+
+The cross-module access rules are **not mechanically enforced** and so are not
+tested. Nothing stops a module from importing another's package or querying its
+table; the rule is upheld in authoring and review, the same way the host's
+"controllers do not call repositories directly" convention is. Making it
+enforceable would require either separate database roles per module or an import
+hook, both of which cost more than the single-user failure mode justifies.
 
 ## Out of Scope
 
-- **Worker tasks, routines, and scheduled jobs as module parts.** A module is
-  API + CLI + UI. The worker is a different runtime with a different lifecycle,
-  and the finance reference case does not need it.
-- **Module-owned tables and migrations.** Schema stays in the repo, applied as
-  manual SQL. Finance needs no new tables.
-- **Module-owned raw SQL.** Repositories are host-side; modules compose them.
+- **Module code running in the worker Lambda.** A module is data + API + CLI + UI.
+  Scheduled work is a module CLI command triggered by a host routine, so module
+  Python runs in exactly one runtime.
+- **An automatic migration runner, and DDL at publish or activation time.**
+  Migrations are applied by the owner, by hand. `y module schema-sql` prints DDL
+  and never executes it.
+- **Down-migrations and data rollback.** The version pointer governs code only;
+  recovery never destroys data.
+- **A runtime schema check at bundle load.** The publish-time preflight covers the
+  drift direction that actually occurs.
+- **Schedules declared in the module manifest and reconciled by publish.** Routine
+  rows are created by hand; revisit when a second module wants one.
+- **A runtime module dependency graph.** `common` is vendored at build time; there
+  are no declared inter-module version floors and no loader-side resolution.
+- **Cross-module table access, and `common` as a holder of cross-schema queries.**
+  A table read by more than one module moves into `common` and is owned there.
+- **Mechanical enforcement of the cross-module rules.** No per-module database
+  role, no import hook; the boundary is upheld by authoring and review.
 - **Adding Python dependencies without a deploy.** The importable set is fixed by
   the deployed API image.
 - **Publishing the CLI half.** The CLI always runs local source; it is not
@@ -554,4 +854,5 @@ Test the observable contract, not the loader's internals.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3020 | Requirements converged and PRD written: in-process module loading in the API behind a per-version sub-app, lazy local-source CLI registration, atomic API+UI versioning, `y ui` folded into `y module`, finance as the reference migration | - | - | - | - | planned |
+| 3020 | Requirements converged and implementation planned: in-process module loading, one canonical `$Y_AGENT_HOME/modules` source, atomic API+UI versioning, `y ui` folded into `y module`, and finance including Refresh as the reference migration | - | `pages/plan-3020-module-system.md` | `pages/decision-3020-module-system-boundaries.md` | - | superseded by the module-owned data model below |
+| 3020 | Boundary reopened and widened to a complete module-owned domain model: modules own entities, repositories, schema knowledge, and hand-applied migrations; the host contributes connection, session, and transaction management only; `common` owns shared tables and is vendored at build time; background jobs are module CLI commands fired by a host routine; publish-time schema preflight guards code/schema skew | - | `pages/plan-3020-module-system.md` (needs revision) | `pages/decision-3020-module-system-boundaries.md` | - | requirements settled |
