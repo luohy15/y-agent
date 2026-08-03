@@ -7,6 +7,8 @@ from yagent.time_util import utc_to_local
 
 
 def _format_target(r: dict) -> str:
+    if r.get("action") == "vm_command":
+        return f"vm={r.get('vm_name') or 'default'}"
     if r.get("target_topic"):
         return f"topic={r['target_topic']}"
     if r.get("target_skill"):

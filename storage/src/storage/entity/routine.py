@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, JSON, text
+from sqlalchemy.dialects.postgresql import JSONB
 from .base import Base, BaseEntity
 
 
@@ -16,12 +17,18 @@ class RoutineEntity(Base, BaseEntity):
     # schedule (cron expression, evaluated in Y_AGENT_TIMEZONE)
     schedule = Column(String, nullable=False)
 
-    # action — structured chat dispatch only (v1)
+    # action — 'chat' (default, dispatches routine.message) or 'vm_command'
+    # (runs routine.command argv on routine.vm_name via the host contract)
+    action = Column(String, nullable=False, server_default=text("'chat'"))
     target_topic = Column(String, nullable=True)
     target_skill = Column(String, nullable=True)
     message = Column(Text, nullable=False)
     work_dir = Column(String, nullable=True)
     backend = Column(String, nullable=True)
+
+    # vm_command payload — argv list (never a shell string; see run_vm_command)
+    command = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    vm_name = Column(String, nullable=True)
 
     # pre-fire guard — dotted path to a (user_id: int) -> bool callable
     guard = Column(String, nullable=True)

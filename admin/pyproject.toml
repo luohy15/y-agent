@@ -9,6 +9,7 @@ description = "Admin and migration scripts for y-agent"
 requires-python = ">=3.11"
 dependencies = [
     "y-agent-storage",
+    "y-agent-agent",
     "sqlalchemy>=2.0.0",
 ]
 
@@ -17,3 +18,4 @@ packages = ["."]
 
 [tool.uv.sources]
 y-agent-storage = { workspace = true }
+y-agent-agent = { workspace = true }

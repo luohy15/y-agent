@@ -11,21 +11,28 @@ def routine_get(routine_id):
     resp = api_request("GET", "/api/routine/detail", params={"routine_id": routine_id})
     r = resp.json()
 
+    action = r.get('action', 'chat')
+
     click.echo(f"ID:        {r['routine_id']}")
     click.echo(f"Name:      {r['name']}")
     click.echo(f"Schedule:  {r['schedule']}")
+    click.echo(f"Action:    {action}")
     click.echo(f"Enabled:   {'yes' if r.get('enabled') else 'no'}")
-    if r.get('target_topic'):
-        click.echo(f"Topic:     {r['target_topic']}")
-    if r.get('target_skill'):
-        click.echo(f"Skill:     {r['target_skill']}")
-    if r.get('work_dir'):
-        click.echo(f"Work Dir:  {r['work_dir']}")
-    if r.get('backend'):
-        click.echo(f"Backend:   {r['backend']}")
+    if action == 'vm_command':
+        click.echo(f"Command:   {' '.join(r.get('command') or [])}")
+        click.echo(f"VM Name:   {r.get('vm_name') or '(default)'}")
+    else:
+        if r.get('target_topic'):
+            click.echo(f"Topic:     {r['target_topic']}")
+        if r.get('target_skill'):
+            click.echo(f"Skill:     {r['target_skill']}")
+        if r.get('work_dir'):
+            click.echo(f"Work Dir:  {r['work_dir']}")
+        if r.get('backend'):
+            click.echo(f"Backend:   {r['backend']}")
+        click.echo(f"Message:   {r['message']}")
     if r.get('guard'):
         click.echo(f"Guard:     {r['guard']}")
-    click.echo(f"Message:   {r['message']}")
     if r.get('description'):
         click.echo(f"Desc:      {r['description']}")
     if r.get('last_run_at'):

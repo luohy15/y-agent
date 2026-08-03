@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -15,7 +15,7 @@ def _get_user_id(request: Request) -> int:
 class CreateRoutineRequest(BaseModel):
     name: str
     schedule: str
-    message: str
+    message: Optional[str] = None
     description: Optional[str] = None
     target_topic: Optional[str] = None
     target_skill: Optional[str] = None
@@ -23,6 +23,9 @@ class CreateRoutineRequest(BaseModel):
     backend: Optional[str] = None
     guard: Optional[str] = None
     enabled: bool = True
+    action: str = "chat"
+    command: Optional[List[str]] = None
+    vm_name: Optional[str] = None
 
 
 class UpdateRoutineRequest(BaseModel):
@@ -36,6 +39,9 @@ class UpdateRoutineRequest(BaseModel):
     work_dir: Optional[str] = None
     backend: Optional[str] = None
     guard: Optional[str] = None
+    action: Optional[str] = None
+    command: Optional[List[str]] = None
+    vm_name: Optional[str] = None
 
 
 class RoutineIdRequest(BaseModel):
@@ -93,6 +99,9 @@ async def create_routine(req: CreateRoutineRequest, request: Request):
             backend=req.backend,
             guard=req.guard,
             enabled=req.enabled,
+            action=req.action,
+            command=req.command,
+            vm_name=req.vm_name,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

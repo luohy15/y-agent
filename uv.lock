@@ -2760,12 +2760,14 @@ version = "0.4.0"
 source = { editable = "admin" }
 dependencies = [
     { name = "sqlalchemy" },
+    { name = "y-agent-agent" },
     { name = "y-agent-storage" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.0" },
+    { name = "y-agent-agent", editable = "agent" },
     { name = "y-agent-storage", editable = "storage" },
 ]
 

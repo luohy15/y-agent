@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -7,7 +7,7 @@ class Routine:
     routine_id: str
     name: str
     schedule: str
-    message: str
+    message: str = ""
     description: Optional[str] = None
     target_topic: Optional[str] = None
     target_skill: Optional[str] = None
@@ -15,6 +15,9 @@ class Routine:
     backend: Optional[str] = None
     guard: Optional[str] = None
     enabled: bool = True
+    action: str = "chat"
+    command: Optional[List[str]] = None
+    vm_name: Optional[str] = None
     last_run_at: Optional[str] = None
     last_run_status: Optional[str] = None
     last_chat_id: Optional[str] = None
@@ -29,7 +32,7 @@ class Routine:
             routine_id=data['routine_id'],
             name=data['name'],
             schedule=data['schedule'],
-            message=data['message'],
+            message=data.get('message', ''),
             description=data.get('description'),
             target_topic=data.get('target_topic'),
             target_skill=data.get('target_skill'),
@@ -37,6 +40,9 @@ class Routine:
             backend=data.get('backend'),
             guard=data.get('guard'),
             enabled=data.get('enabled', True),
+            action=data.get('action', 'chat'),
+            command=data.get('command'),
+            vm_name=data.get('vm_name'),
             last_run_at=data.get('last_run_at'),
             last_run_status=data.get('last_run_status'),
             last_chat_id=data.get('last_chat_id'),
@@ -53,6 +59,7 @@ class Routine:
             'schedule': self.schedule,
             'message': self.message,
             'enabled': self.enabled,
+            'action': self.action,
         }
         if self.description is not None:
             result['description'] = self.description
@@ -66,6 +73,10 @@ class Routine:
             result['backend'] = self.backend
         if self.guard is not None:
             result['guard'] = self.guard
+        if self.command is not None:
+            result['command'] = self.command
+        if self.vm_name is not None:
+            result['vm_name'] = self.vm_name
         if self.last_run_at is not None:
             result['last_run_at'] = self.last_run_at
         if self.last_run_status is not None:

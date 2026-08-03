@@ -375,6 +375,7 @@ Resources:
           Y_AGENT_TIMEZONE: Asia/Shanghai
       Layers:
         - !Ref StorageLayer
+        - !Ref AgentLayer
       Events:
         InitDbSchedule:
           Type: Schedule

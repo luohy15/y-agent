@@ -8,6 +8,7 @@ Only PR 3 (`y routine run`) and PR 4 (admin Lambda `tick_routines`) call
 `fire_routine`; PR 1 implements it end-to-end so those PRs can wire up cleanly.
 """
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -17,6 +18,34 @@ from loguru import logger
 from storage.dto.routine import Routine
 from storage.repository import routine as routine_repo
 from storage.util import generate_id, generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
+
+VALID_ACTIONS = ("chat", "vm_command")
+
+# Headroom for one command plus a cold EC2 wake inside the admin Lambda's 300s
+# ceiling (A8); see pages/decision-3020-module-system-vm-command-timeout.md.
+VM_COMMAND_TIMEOUT = 180
+
+# last_run_status is a free-form column read by `y routine get`/`list`; keep a
+# failure message readable instead of dumping a full traceback into it.
+MAX_STATUS_LEN = 300
+
+
+def _validate_routine_payload(action: str, message: Optional[str], command: Optional[List[str]]) -> None:
+    """Validate the action/message/command combination before it is stored.
+
+    'chat' requires a non-empty message; 'vm_command' requires a non-empty
+    argv list of strings (never a shell string — see run_vm_command).
+    """
+    if action not in VALID_ACTIONS:
+        raise ValueError(f"Invalid action {action!r}; expected one of {VALID_ACTIONS}")
+    if action == "chat":
+        if not message:
+            raise ValueError("message is required for action='chat'")
+    else:
+        if not command:
+            raise ValueError("command is required for action='vm_command'")
+        if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
+            raise ValueError("command must be a list of argv strings for action='vm_command'")
 
 
 def _get_configured_tz():
@@ -54,7 +83,7 @@ def add_routine(
     user_id: int,
     name: str,
     schedule: str,
-    message: str,
+    message: Optional[str] = None,
     description: Optional[str] = None,
     target_topic: Optional[str] = None,
     target_skill: Optional[str] = None,
@@ -62,12 +91,16 @@ def add_routine(
     backend: Optional[str] = None,
     guard: Optional[str] = None,
     enabled: bool = True,
+    action: str = "chat",
+    command: Optional[List[str]] = None,
+    vm_name: Optional[str] = None,
 ) -> Routine:
+    _validate_routine_payload(action, message, command)
     routine = Routine(
         routine_id=generate_id(),
         name=name,
         schedule=schedule,
-        message=message,
+        message=message or "",
         description=description,
         target_topic=target_topic,
         target_skill=target_skill,
@@ -75,6 +108,9 @@ def add_routine(
         backend=backend,
         guard=guard,
         enabled=enabled,
+        action=action,
+        command=command,
+        vm_name=vm_name,
     )
     return routine_repo.save_routine(user_id, routine)
 
@@ -88,6 +124,7 @@ def update_routine(user_id: int, routine_id: str, **fields) -> Optional[Routine]
     for key, value in fields.items():
         if hasattr(routine, key):
             setattr(routine, key, value)
+    _validate_routine_payload(routine.action, routine.message, routine.command)
     return routine_repo.save_routine(user_id, routine)
 
 
@@ -206,20 +243,77 @@ def evaluate_guard(user_id: int, guard: str) -> bool:
     return bool(func(user_id))
 
 
-def fire_routine(user_id: int, routine_id: str) -> str:
-    """Fire a routine: build a chat, dispatch to worker, stamp routine state.
+def _run_coro_sync(coro):
+    """Run `coro` to completion from sync code.
 
-    Returns the new chat_id. Raises on schedule / dispatch errors so the admin
-    Lambda's `tick_routines` can capture the message in `last_run_status` and
-    notify Telegram.
+    fire_routine is called both from the admin Lambda's plain-sync tick loop
+    (no event loop running) and from the FastAPI `/routine/run` endpoint
+    (an `async def` handler with a loop already running on this thread), and
+    `asyncio.run()` raises if a loop is already running. When one is, run the
+    coroutine to completion on its own loop in a throwaway thread instead.
     """
-    from storage.dto.chat import Chat, Message
-    from storage.repository.chat import _save_chat_sync
-    from storage.service import chat as chat_service
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+async def _run_vm_command_for_routine(user_id: int, vm_name: Optional[str], command: List[str], timeout: float) -> str:
+    from agent.module_host import request_owner, run_vm_command
+
+    with request_owner(user_id):
+        return await run_vm_command(user_id, vm_name, command, timeout=timeout)
+
+
+def _fire_vm_command_routine(user_id: int, routine: Routine) -> str:
+    """Run routine.command on the routine owner's VM via the host contract.
+
+    Creates no chat row (last_chat_id is left untouched). A non-zero exit or
+    timeout is a normal outcome for a command run here — it is stamped into
+    last_run_status rather than raised past the caller, unlike a 'chat'
+    dispatch failure.
+    """
+    try:
+        _run_coro_sync(
+            _run_vm_command_for_routine(user_id, routine.vm_name, routine.command, VM_COMMAND_TIMEOUT)
+        )
+        status = "ok"
+    except Exception as e:
+        first_line = str(e).splitlines()[0] if str(e) else e.__class__.__name__
+        status = f"error: {first_line}"[:MAX_STATUS_LEN]
+        logger.warning(
+            "[fire_routine] vm_command routine={} failed: {}", routine.routine_id, e
+        )
+
+    routine.last_run_at = get_utc_iso8601_timestamp()
+    routine.last_run_status = status
+    routine_repo.save_routine(user_id, routine)
+    return ""
+
+
+def fire_routine(user_id: int, routine_id: str) -> str:
+    """Fire a routine: dispatch its action, stamp routine state.
+
+    For action='chat' (default), builds a chat, dispatches to the worker, and
+    returns the new chat_id; raises on schedule / dispatch errors so the admin
+    Lambda's `tick_routines` can capture the message in `last_run_status` and
+    notify Telegram. For action='vm_command', runs the stored argv on the
+    owner's VM, creates no chat row, and returns "" (see _fire_vm_command_routine).
+    """
     routine = routine_repo.get_routine(user_id, routine_id)
     if not routine:
         raise ValueError(f"Routine {routine_id} not found")
+
+    if routine.action == "vm_command":
+        return _fire_vm_command_routine(user_id, routine)
+
+    from storage.dto.chat import Chat, Message
+    from storage.repository.chat import _save_chat_sync
+    from storage.service import chat as chat_service
 
     chat_id = generate_id()
     msg_content = f"[routine:{routine.name}]\n{routine.message}"
