@@ -1,12 +1,28 @@
 import datetime as _dt
 import os
 import re
+from pathlib import Path
 
 import click
 
+from storage.global_config import load_global_config
 from yagent.api_client import api_request
 
-BASE_DIR = "/Users/roy/luohy15"
+DEFAULT_AGENT_HOME = Path("/Users/roy/luohy15")
+
+
+def agent_home():
+    """Return the configured root for local content paths."""
+    load_global_config()
+    return Path(os.environ.get("Y_AGENT_HOME", DEFAULT_AGENT_HOME)).expanduser().resolve()
+
+
+def resolve_content_path(filepath):
+    """Resolve a local content path relative to the configured agent home."""
+    path = Path(filepath).expanduser()
+    if not path.is_absolute():
+        path = agent_home() / path
+    return path.resolve()
 
 
 def _json_safe(value):
@@ -38,18 +54,18 @@ def _parse_front_matter(filepath):
 
 
 def _compute_content_key(filepath):
-    """Compute content_key as relative path from ~/luohy15/."""
-    abs_path = os.path.abspath(filepath)
-    return os.path.relpath(abs_path, BASE_DIR)
+    """Compute content_key relative to the configured agent home."""
+    return os.path.relpath(resolve_content_path(filepath), agent_home())
 
 
 def import_single(filepath):
     """Import a single file as a note. Returns (content_key, note_id)."""
-    if not os.path.isfile(filepath):
-        click.echo(f"File not found: {filepath}", err=True)
+    resolved_path = resolve_content_path(filepath)
+    if not resolved_path.is_file():
+        click.echo(f"File not found: {resolved_path}", err=True)
         return None, None
-    content_key = _compute_content_key(filepath)
-    front_matter = _parse_front_matter(filepath)
+    content_key = _compute_content_key(resolved_path)
+    front_matter = _parse_front_matter(resolved_path)
     payload = {"content_key": content_key}
     if front_matter:
         payload["front_matter"] = front_matter
@@ -61,7 +77,7 @@ def import_single(filepath):
 @click.command("import")
 @click.argument("paths", nargs=-1, required=True)
 def note_import(paths):
-    """Import one or more markdown files as notes."""
+    """Import markdown files as notes. Relative paths use $Y_AGENT_HOME."""
     for filepath in paths:
         content_key, note_id = import_single(filepath)
         if note_id:

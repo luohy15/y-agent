@@ -1,9 +1,7 @@
-import os
-
 import click
 
 from yagent.api_client import api_request
-from yagent.commands.note.import_note import import_single as import_note_single
+from yagent.commands.note.import_note import import_single as import_note_single, resolve_content_path
 from yagent.commands.entity.import_entity import import_single as import_entity_single
 from yagent.commands.link._resolve import looks_like_url, normalize_url, resolve_url_ref
 
@@ -25,16 +23,17 @@ def _resolve_activity_id(id_value):
         click.echo(f"Created link: {url} -> {data.get('link_id', '?')}")
         return data.get('activity_id')
     if '/' in id_value or id_value.endswith('.md'):
-        if not os.path.isfile(id_value):
-            click.echo(f"File not found: {id_value}", err=True)
+        resolved_path = resolve_content_path(id_value)
+        if not resolved_path.is_file():
+            click.echo(f"File not found: {resolved_path}", err=True)
             raise SystemExit(1)
-        title = os.path.basename(id_value).removesuffix('.md')
-        with open(id_value, 'r') as f:
+        title = resolved_path.stem
+        with resolved_path.open() as f:
             content = f.read()
-        resp = api_request("POST", "/api/link/from-page", json={"path": id_value, "title": title, "content": content})
+        resp = api_request("POST", "/api/link/from-page", json={"path": str(resolved_path), "title": title, "content": content})
         data = resp.json()
         activity_id = data.get('activity_id')
-        click.echo(f"Imported: {id_value} -> {data.get('link_id', '?')}")
+        click.echo(f"Imported: {resolved_path} -> {data.get('link_id', '?')}")
         return activity_id
     return id_value
 
@@ -71,14 +70,19 @@ def assoc_group():
 @click.argument("ids", nargs=-1, required=True)
 @click.option("--todo", "-t", required=True, help="Todo ID to associate with")
 def assoc_note(ids, todo):
-    """Associate notes with a todo. Each ID can be a note_id or a local file path."""
+    """Associate notes with a todo. Local paths are relative to $Y_AGENT_HOME."""
+    failures = []
     for id_value in ids:
         try:
             note_id = _resolve_note_id(id_value)
             api_request("POST", "/api/note-todo", json={"note_id": note_id, "todo_id": todo})
             click.echo(f"Linked note {note_id} to todo {todo}")
         except (SystemExit, Exception) as e:
+            failures.append(id_value)
             click.echo(f"  ! {id_value}: {e}", err=True)
+
+    if failures:
+        raise click.ClickException(f"Failed to associate {len(failures)} note(s)")
 
 
 @assoc_group.command("entity")
@@ -116,7 +120,7 @@ def assoc_entity(ids, note_id, rss_feed_id, activity_id):
 @click.argument("ids", nargs=-1, required=True)
 @click.option("--todo", "-t", required=True, help="Todo ID to associate with")
 def assoc_link(ids, todo):
-    """Associate links with a todo. Each ID can be an activity_id or a local file path."""
+    """Associate links with a todo. Local paths are relative to $Y_AGENT_HOME."""
     activity_ids = []
     for id_value in ids:
         try:

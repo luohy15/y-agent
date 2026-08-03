@@ -3,7 +3,11 @@ import os
 import click
 
 from yagent.api_client import api_request
-from yagent.commands.note.import_note import import_single as import_note_single, _parse_front_matter
+from yagent.commands.note.import_note import (
+    import_single as import_note_single,
+    _parse_front_matter,
+    resolve_content_path,
+)
 
 
 def _derive_name(front_matter, filepath):
@@ -21,16 +25,17 @@ def _derive_type(front_matter):
 def import_single(filepath):
     """Import a markdown file as a note + entity, and link them.
     Returns (entity_id, note_id)."""
-    if not os.path.isfile(filepath):
-        click.echo(f"File not found: {filepath}", err=True)
+    resolved_path = resolve_content_path(filepath)
+    if not resolved_path.is_file():
+        click.echo(f"File not found: {resolved_path}", err=True)
         return None, None
 
-    content_key, note_id = import_note_single(filepath)
+    content_key, note_id = import_note_single(resolved_path)
     if not note_id:
         return None, None
 
-    front_matter = _parse_front_matter(filepath)
-    name = _derive_name(front_matter, filepath)
+    front_matter = _parse_front_matter(resolved_path)
+    name = _derive_name(front_matter, resolved_path)
     type_ = _derive_type(front_matter)
     if not type_:
         type_ = "person"
@@ -50,7 +55,7 @@ def import_single(filepath):
 @click.command("import")
 @click.argument("paths", nargs=-1, required=True)
 def entity_import(paths):
-    """Import one or more markdown files as entities (creates note + entity + link)."""
+    """Import markdown files as entities. Relative paths use $Y_AGENT_HOME."""
     for filepath in paths:
         entity_id, note_id = import_single(filepath)
         if entity_id:
