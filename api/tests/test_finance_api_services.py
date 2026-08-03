@@ -374,7 +374,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             self._transaction("e1", 1, "USD", "Sell", -2.39, "USD", account="Income:Investment", narration="Sell BOXX", transaction_date="2026-08-03"),
         ]
 
-        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None), patch.object(price_service, "list_for_pairs", return_value=[]):
             result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
 
         self.assertEqual(len(result.data["realized_trades"]), 1)
@@ -397,7 +397,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             self._transaction("e1", 1, "USD", "Sell", 50.0, "USD", account="Income:Investment", narration="Sell XYZ", transaction_date="2026-06-01"),
         ]
 
-        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None), patch.object(price_service, "list_for_pairs", return_value=[]):
             result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
 
         trade = result.data["realized_trades"][0]
@@ -415,7 +415,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             self._transaction("e1", 2, "USD", "Sell", -20.0, "USD", account="Income:Investment", narration="Sell QQQ", transaction_date="2026-07-01"),
         ]
 
-        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None), patch.object(price_service, "list_for_pairs", return_value=[]):
             result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
 
         self.assertEqual(len(result.data["realized_trades"]), 1)
@@ -453,7 +453,7 @@ class FinanceApiServicesTest(unittest.TestCase):
             self._transaction("e2", 1, "USD", "Sell", 15.0, "USD", account="Income:Investment", narration="Sell BBB", transaction_date="2026-02-10"),
         ]
 
-        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None):
+        with self._finance_config(), patch.object(derived_service, "_today", return_value=datetime.date(2026, 8, 3)), patch.object(transaction_service, "list_between", return_value=rows), patch.object(transaction_service, "latest_synced_at", return_value="sync"), patch.object(holding_service, "list_for", return_value=[]), patch.object(positions_service, "_overlay_realtime_quotes", return_value=None), patch.object(price_service, "list_for_pairs", return_value=[]):
             result = derived_service.investment_returns(123, "", "ytd", False, "monthly", "USD")
 
         trades = result.data["realized_trades"]
