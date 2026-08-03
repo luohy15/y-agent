@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.23] - 2026-08-02
+
+### Added
 - **Dynamic UI artifacts (2412)**: user-owned versioned React panels that live outside the app bundle. `y ui` CLI (`create`/`publish`/`list`/`versions`/`activate`/`rollback`/`enable`/`click`) builds `.tsx` sources with esbuild, stores immutable versions, and activates/rolls back by pointer; the web host loads published modules at runtime via integrity-checked dynamic import, mounts them in the ActivityBar next to built-ins, and exposes a shared `@y/host` contract (React, SWR, auth fetch, theme, badges, list states) so artifacts share the host instance instead of rebundling it.
 - **English correction subsystem (2871)**: new `english_correction` entity/repository/service/controller plus `y english` CLI (`add`/`list`/`get`/`dismiss`/`pending`/`mark-scanned`) and a web `EnglishList`/`EnglishView` panel with inline word-diff rendering, for hourly offline grammar-correction scans of the user's own chat prose.
 - **Tags panel (2838)**: read-only Tags activity-bar panel over the `entity_tag` store, with a slash-hierarchy vocabulary tree, search, prefix roll-up counts, and click-to-navigate drill-down across all ten carrier types.
