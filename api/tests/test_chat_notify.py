@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 
 from api.controller import chat as chat_controller
+from storage.dto.bot import BotConfig
 from storage.dto.chat import Chat
 from storage.service.chat import HANDOFF_REMINDER_MARKER
 
@@ -46,6 +47,21 @@ def _existing_chat(*, id, topic=None, work_dir=None, running=False, messages=Non
         context_window=context_window,
         input_tokens=input_tokens,
     )
+
+
+class GetBotOptionsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_only_picker_fields_for_authenticated_user(self):
+        configs = [
+            BotConfig(name="default", backend="claude_code", model="default-model", api_key="secret"),
+            BotConfig(name="strong", api_type="claude_code", model="strong-model", description="private"),
+        ]
+        with patch.object(chat_controller.bot_service, "list_configs", return_value=configs) as list_configs:
+            result = await chat_controller.get_bot_options(_request(456))
+        list_configs.assert_called_once_with(456)
+        self.assertEqual(result, [
+            {"name": "default", "backend": "claude_code", "model": "default-model"},
+            {"name": "strong", "backend": "claude_code", "model": "strong-model"},
+        ])
 
 
 class PostChatNotifyTest(unittest.IsolatedAsyncioTestCase):

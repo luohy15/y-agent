@@ -175,6 +175,7 @@ export default function App() {
   const [vmDropdownOpen, setVmDropdownOpen] = useState(false);
   const vmDropdownRef = useRef<HTMLDivElement>(null);
   const [botList, setBotList] = useState<BotConfigItem[]>([]);
+  const [botListError, setBotListError] = useState<string | null>(null);
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const botDropdownRef = useRef<HTMLDivElement>(null);
@@ -407,17 +408,24 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [botDropdownOpen]);
   const refreshBotList = useCallback(() => {
-    if (!auth.isLoggedIn) { setBotList([]); return; }
-    authFetch(`${API}/api/bot/list`)
-      .then(r => r.json())
+    if (!auth.isLoggedIn) { setBotList([]); setBotListError(null); return; }
+    authFetch(`${API}/api/chat/bot-options`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Failed to load bot options (${r.status})`);
+        return r.json();
+      })
       .then(data => {
         const bots = data || [];
         setBotList(bots);
+        setBotListError(null);
         if (selectedBot && !bots.some((b: BotConfigItem) => b.name === selectedBot)) {
           setSelectedBot(null);
         }
       })
-      .catch(() => setBotList([]));
+      .catch((error: unknown) => {
+        setBotList([]);
+        setBotListError(error instanceof Error ? error.message : "Failed to load bot options");
+      });
   }, [auth.isLoggedIn, selectedBot]);
   useEffect(() => {
     if (!auth.isLoggedIn) { setVmList([]); setBotList([]); return; }
@@ -804,6 +812,7 @@ export default function App() {
                 </div>
               )}
             </div>
+            {botListError && <span className="text-sol-red" title={botListError}>bot options unavailable</span>}
             {botList.length > 1 && (
               <div className="relative shrink-0" ref={botDropdownRef}>
                 <button

@@ -661,7 +661,7 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/usage/model-daily") return MODEL_DAILY_FIXTURE;
   if (pathname === "/api/usage/daily-totals") return DAILY_TOTALS_FIXTURE;
   if (pathname === "/api/usage/limits") return new URLSearchParams(window.location.search).get("limits") === "unavailable" ? USAGE_LIMITS_UNAVAILABLE_FIXTURE : USAGE_LIMITS_FIXTURE;
-  if (pathname === "/api/bot/list") return []; // usage view ignores the config table
+  if (pathname === "/api/chat/bot-options") return []; // usage view ignores the config table
 
   return undefined;
 }

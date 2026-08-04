@@ -7,6 +7,7 @@ from loguru import logger
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from storage.service import bot_config as bot_service
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -159,6 +160,18 @@ def _message_dict(role: str, content: str, images: Optional[List[str]] = None, r
     if reasoning_effort is not None:
         data["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
     return data
+
+
+@router.get("/bot-options")
+async def get_bot_options(request: Request):
+    return [
+        {
+            "name": config.name,
+            "backend": config.backend or config.api_type,
+            "model": config.model,
+        }
+        for config in bot_service.list_configs(_get_user_id(request))
+    ]
 
 
 @router.get("/list")
