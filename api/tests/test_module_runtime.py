@@ -161,7 +161,9 @@ class LoaderIsolationTest(unittest.TestCase):
         # Nothing extracted under /tmp/ymod for the bogus hash.
         self.assertFalse((self.extract_root / ("0" * 64)).exists())
 
-    def test_backend_version_gate(self):
+    def test_backend_version_gate_rejects_a_newer_floor(self):
+        """A module whose min_backend_version exceeds the host contract is
+        rejected clearly, before any extraction/import (todo 3028 v2)."""
         api_bytes = _zip_module(_ping_api("X"))
         sha = hashlib.sha256(api_bytes).hexdigest()
         with self.assertRaises(ModuleBackendVersionError) as ctx:
@@ -172,6 +174,79 @@ class LoaderIsolationTest(unittest.TestCase):
                 expected_sha256=sha,
             )
         self.assertEqual(ctx.exception.kind, "backend_version")
+        self.assertIn("requires backend contract", str(ctx.exception))
+        self.assertEqual(loader.cache_size(), 0)
+
+    def test_backend_version_gate_boundary_tracks_the_host_contract(self):
+        """The gate is `min_backend_version > host` → reject. Binding to the
+        real BACKEND_CONTRACT_VERSION proves a module at exactly the host's
+        floor loads (asserted by cache size), and one requiring one more is
+        clearly rejected."""
+        from agent.module_host import BACKEND_CONTRACT_VERSION
+
+        api_bytes = _zip_module(_ping_api("X"))
+        sha = hashlib.sha256(api_bytes).hexdigest()
+
+        # A module pinned to exactly the host's contract loads and caches.
+        loaded = loader.load_from_bytes(
+            slug="scratch",
+            version=_version(api_sha256=sha, min_backend_version=BACKEND_CONTRACT_VERSION),
+            api_bytes=api_bytes,
+            expected_sha256=sha,
+        )
+        self.assertEqual(loader.cache_size(), 1)
+        self.assertEqual(loaded.version.min_backend_version, BACKEND_CONTRACT_VERSION)
+
+        # One requiring one more than the host is clearly rejected.
+        with self.assertRaises(ModuleBackendVersionError) as ctx:
+            loader.load_from_bytes(
+                slug="scratch",
+                version=_version(
+                    api_sha256=sha, min_backend_version=BACKEND_CONTRACT_VERSION + 1
+                ),
+                api_bytes=api_bytes,
+                expected_sha256=sha,
+            )
+        self.assertEqual(ctx.exception.kind, "backend_version")
+
+    def test_backend_version_gate_older_host_rejects_a_v2_module(self):
+        """An older (v1) host rejects a v2 module clearly, and still accepts a
+        finance-style v1 module. This is the literal 'older host, newer
+        module' case the plan asks tests to prove, not just the (host, host+1)
+        comparison."""
+        api_bytes = _zip_module(_ping_api("X"))
+        sha = hashlib.sha256(api_bytes).hexdigest()
+
+        # Simulate the previous host release: contract version 1.
+        with patch.object(loader, "BACKEND_CONTRACT_VERSION", 1):
+            # min_backend_version=2 (a bot contract-v2 bundle) is rejected.
+            with self.assertRaises(ModuleBackendVersionError) as ctx:
+                loader.load_from_bytes(
+                    slug="scratch",
+                    version=_version(api_sha256=sha, min_backend_version=2),
+                    api_bytes=api_bytes,
+                    expected_sha256=sha,
+                )
+            self.assertEqual(ctx.exception.kind, "backend_version")
+            self.assertIn("requires backend contract >= 2, host has 1", str(ctx.exception))
+
+            # finance keeps declaring min_backend_version=1 and still loads.
+            loader.load_from_bytes(
+                slug="scratch",
+                version=_version(api_sha256=sha, min_backend_version=1),
+                api_bytes=api_bytes,
+                expected_sha256=sha,
+            )
+            self.assertGreaterEqual(loader.cache_size(), 1)
+
+            # ... and by the current (v2) host likewise.
+        loader.load_from_bytes(
+            slug="scratch",
+            version=_version(api_sha256=sha, min_backend_version=1),
+            api_bytes=api_bytes,
+            expected_sha256=sha,
+        )
+        self.assertGreaterEqual(loader.cache_size(), 1)
 
     def test_import_error_on_missing_router(self):
         api_bytes = _zip_module({

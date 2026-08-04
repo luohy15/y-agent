@@ -23,8 +23,8 @@ from agent.tools.errors import CommandError
 
 
 class ContractSurfaceTest(unittest.TestCase):
-    def test_backend_contract_version_is_one(self):
-        self.assertEqual(BACKEND_CONTRACT_VERSION, 1)
+    def test_backend_contract_version_is_two(self):
+        self.assertEqual(BACKEND_CONTRACT_VERSION, 2)
 
     def test_importing_module_host_does_not_import_paramiko(self):
         # Drop paramiko if a previous test imported it, then re-import the contract.
@@ -209,6 +209,80 @@ class RunVmCommandTest(unittest.IsolatedAsyncioTestCase):
              ):
             with self.assertRaises(RuntimeError):
                 await run_vm_command(1, None, ["y", "todo", "list"])
+
+
+class BotConfigCapabilityTest(unittest.TestCase):
+    """v2 capability (plan-3028): a narrow bot-config store over host-owned
+    BotConfig values. Request-bound like run_vm_command, so a module cannot
+    read or overwrite another user's bot configuration."""
+
+    def test_every_operation_requires_a_bound_request_owner(self):
+        for call in (
+            lambda: mh.bot_config_list(1),
+            lambda: mh.bot_config_get(1, "default"),
+            lambda: mh.bot_config_upsert(1, SimpleNamespace(name="x")),
+            lambda: mh.bot_config_delete(1, "x"),
+            lambda: mh.bot_config_set_enabled(1, "x", True),
+            lambda: mh.bot_config_rename(1, "a", "b"),
+        ):
+            with self.subTest(call=call):
+                with self.assertRaises(mh.ModuleHostAuthError):
+                    call()
+
+    def test_refuses_a_user_id_differing_from_the_bound_owner(self):
+        with request_owner(5):
+            with self.assertRaises(mh.ModuleHostAuthError):
+                mh.bot_config_list(7)
+            with self.assertRaises(mh.ModuleHostAuthError):
+                mh.bot_config_delete(7, "x")
+
+    def test_list_delegates_to_the_host_service(self):
+        expected = [SimpleNamespace(name="a"), SimpleNamespace(name="b")]
+        with request_owner(3), \
+             patch("storage.service.bot_config.list_configs", return_value=expected) as svc:
+            self.assertEqual(mh.bot_config_list(3), expected)
+        svc.assert_called_once_with(3)
+
+    def test_get_delegates_to_the_host_service(self):
+        expected = SimpleNamespace(name="default")
+        with request_owner(3), \
+             patch("storage.service.bot_config.get_config", return_value=expected) as svc:
+            self.assertEqual(mh.bot_config_get(3, "default"), expected)
+        svc.assert_called_once_with(3, "default")
+
+    def test_get_defaults_to_default_name(self):
+        with request_owner(3), \
+             patch("storage.service.bot_config.get_config", return_value=None) as svc:
+            self.assertIsNone(mh.bot_config_get(3))
+        svc.assert_called_once_with(3, "default")
+
+    def test_upsert_delegates_the_botconfig_value_to_the_host_service(self):
+        cfg = SimpleNamespace(name="c")
+        with request_owner(3), \
+             patch("storage.service.bot_config.add_config", return_value=cfg) as svc:
+            self.assertIs(mh.bot_config_upsert(3, cfg), cfg)
+        svc.assert_called_once_with(3, cfg)
+
+    def test_delete_delegates_to_the_host_service(self):
+        with request_owner(3), \
+             patch("storage.service.bot_config.delete_config", return_value=False) as svc:
+            self.assertFalse(mh.bot_config_delete(3, "x"))
+        svc.assert_called_once_with(3, "x")
+
+    def test_set_enabled_delegates_to_the_host_service(self):
+        with request_owner(3), \
+             patch("storage.service.bot_config.set_enabled", return_value=True) as svc:
+            self.assertTrue(mh.bot_config_set_enabled(3, "x", False))
+        svc.assert_called_once_with(3, "x", False)
+
+    def test_rename_goes_through_the_host_service_for_chat_cascade(self):
+        # The whole point of routing rename through module_host is that the
+        # host bot_config service preserves the chat.bot_name cascade that a
+        # bare repository update would skip.
+        with request_owner(3), \
+             patch("storage.service.bot_config.rename_config", return_value=True) as svc:
+            self.assertTrue(mh.bot_config_rename(3, "old", "new"))
+        svc.assert_called_once_with(3, "old", "new")
 
 
 if __name__ == "__main__":

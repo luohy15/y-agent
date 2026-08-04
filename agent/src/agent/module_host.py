@@ -14,6 +14,18 @@ The v1 surface a module may import from here:
                                   host kernel table (D4), read by host tooling
                                   via is_external_table() / owned_tables()
 
+The v2 surface (BACKEND_CONTRACT_VERSION = 2) adds a narrow bot-config store:
+  - bot_config_list / bot_config_get / bot_config_upsert / bot_config_delete /
+    bot_config_set_enabled / bot_config_rename
+These operate on host-owned BotConfig values only: no repositories, no raw
+sessions, no entities, and no generic host-table access. bot_config_rename goes
+through the host service so its `chat.bot_name` cascade is preserved. Every call
+is bound to the authenticated request owner, like run_vm_command, so a module
+cannot read or overwrite another user's bot configuration (which includes API
+keys). The capability is API-request-scoped only: the module CLI half has
+`cli_user_id()` but no bound request owner, so it must manage config over the
+HTTP API (`/api/module/bot/*`) rather than call these in-process.
+
 is_external_table() / owned_tables() are host tooling (publish preflight,
 `y module schema-sql`), so the marker is interpreted in exactly one place; a
 module only ever needs the constant.
@@ -36,19 +48,25 @@ stays cheap on the `y` hot path.
 Contract version: cli_user_id and the external-table protocol are part of v1,
 not a v2 bump, because v1 has never shipped — no host carrying
 BACKEND_CONTRACT_VERSION has been deployed and no backend module version has
-been published against it. Every later addition to the surface above bumps the
-version and, for modules that need it, `min_backend_version`.
+been published against it. The bot-config capability is a genuine surface
+addition (todo 3028), so it bumps BACKEND_CONTRACT_VERSION from 1 to 2;
+modules that use it declare `min_backend_version: 2` and an older host rejects
+their bundle. Every later addition to the surface above bumps the version
+and, for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator, Optional
+from typing import TYPE_CHECKING, Iterator, Optional
 
 from sqlalchemy.orm import Session
 
-BACKEND_CONTRACT_VERSION = 1
+if TYPE_CHECKING:
+    from storage.dto.bot import BotConfig
+
+BACKEND_CONTRACT_VERSION = 2
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -187,3 +205,79 @@ async def run_vm_command(
     return await ssh_exec(
         vm_config, cmd, None, dir=vm_config.work_dir or None, timeout=timeout, check=True
     )
+
+
+# ---------------------------------------------------------------------------
+# v2 bot-config capability
+#
+# A narrow, request-bound store over host-owned BotConfig values (plan-3028).
+# The bot module is a hybrid control-plane module: bot_config stays a host
+# kernel table (the worker dispatch hot path reads it), so the module manages
+# it through this capability instead of importing the host service or
+# repository directly. No repositories, raw sessions, entities, or generic
+# host-table access are exposed.
+# ---------------------------------------------------------------------------
+
+
+def _require_bot_config_owner(user_id: int) -> None:
+    """Refuse a bot-config operation acting for anyone but the request owner.
+
+    Mirrors run_vm_command's review-finding-2 guard: a module must not read or
+    overwrite another user's bot configuration (which carries API keys). Only
+    the authenticated owner bound by the dispatcher may be passed.
+    """
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"bot-config operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); bot config is request-bound"
+        )
+
+
+def _bot_service(user_id: int):
+    """Guard the caller belongs to the request owner, then return the host
+    bot-config service. Import is after the guard (like run_vm_command), so a
+    rejected call never pays the import."""
+    _require_bot_config_owner(user_id)
+    from storage.service import bot_config as bot_service
+
+    return bot_service
+
+
+def bot_config_list(user_id: int) -> list[BotConfig]:
+    """All bot-config values owned by `user_id`, as plain BotConfig values."""
+    return _bot_service(user_id).list_configs(user_id)
+
+
+def bot_config_get(user_id: int, name: str = "default") -> Optional[BotConfig]:
+    """A single bot-config value by name, or None when the owner has none by that name."""
+    return _bot_service(user_id).get_config(user_id, name)
+
+
+def bot_config_upsert(user_id: int, config: BotConfig) -> BotConfig:
+    """Insert or fully replace a bot-config value (keyed by `config.name`).
+
+    The caller composes the full BotConfig it wants persisted; the host
+    persists it and returns the same value (matching the host service's
+    add_config contract).
+    """
+    return _bot_service(user_id).add_config(user_id, config)
+
+
+def bot_config_delete(user_id: int, name: str) -> bool:
+    """Delete a bot-config value (except "default"); returns False when it did not exist."""
+    return _bot_service(user_id).delete_config(user_id, name)
+
+
+def bot_config_set_enabled(user_id: int, name: str, enabled: bool) -> bool:
+    """Enable or disable a bot-config value; returns False when it did not exist."""
+    return _bot_service(user_id).set_enabled(user_id, name, enabled)
+
+
+def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:
+    """Rename a bot-config value, preserving the host's `chat.bot_name` cascade.
+
+    Must go through the host service (not a bare repository update) so
+    bot_config.ref_bot_name pointers and host-owned chat.bot_name stay in sync.
+    """
+    return _bot_service(user_id).rename_config(user_id, old_name, new_name)
