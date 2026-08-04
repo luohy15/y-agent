@@ -109,18 +109,21 @@ entity + controller + service + CLI slices, and most have a web panel.
   `y module schema-sql <slug>` prints DDL only; migrations are never run by publish,
   activation, or loading, and must remain expand-only while an older version is
   rollback-reachable. A module may reference kernel tables but not another module's
-  tables. Shared tables belong to reserved `common`, vendored into consuming API bundles
-  at publish time. `y module rollback <slug>` or `y module activate <slug> <version>`
-  changes code only. `y module delete <slug>` removes deployed metadata and bundle bytes
-  but leaves source and tables intact. Phases 1–6 of this system are present in the tree
-  but currently local, unpushed, and undeployed; with the maintainer env unset every
-  publish fails closed. Finance is the planned reference full-stack module: phase 7 is
-  approved/prepared in worktree `…-3020-p7` and
-  `pages/rollout-3020-finance-module-cutover.md`, but uncommitted and not cut over.
-  Production still runs finance as UI-only version 18 on `/api/finance/*` with the
-  built-in `y finance` group. A module has no worker half: deterministic scheduled work
-  is a `routine` `vm_command` action that executes argv on the owner's VM, while
-  judgment-shaped work remains chat dispatch.
+  tables. Shared tables belong to conventional `common`, vendored into consuming API
+  bundles at publish time. `y module rollback <slug>` or
+  `y module activate <slug> <version>` changes code only. `y module delete <slug>`
+  removes deployed metadata and bundle bytes but leaves source and tables intact.
+  The system is live: finance is the reference full-stack module (`modules/finance`),
+  active at version 20 with version 19 as the immediate full-stack rollback twin
+  (same API/UI hashes). Built-in finance controller, CLI, and storage are deleted;
+  routes live at `/api/module/finance/*` and `y finance` resolves from local module
+  source. Known limitation / follow-up: finance Refresh is still synchronous and
+  exceeds the ~30s Cloudflare edge timeout (four VM commands; server-side work still
+  completes, browser sees 504). Legacy `vm_config.finance_config` remains
+  intentionally as a physical column for a later expand/contract; it is not dropped.
+  A module has no worker half: deterministic scheduled work is a `routine`
+  `vm_command` action that executes argv on the owner's VM, while judgment-shaped
+  work remains chat dispatch.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -129,13 +132,13 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` handle worktree lifecycle; PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
-- **Finance / Email / Calendar** — DB-backed finance views under `y finance`
-  mirror `/api/finance/*` (balance sheet, income statement, holdings,
+- **Finance / Email / Calendar** — finance is a full-stack module under
+  `$Y_AGENT_HOME/modules/finance`: DB-backed views via `y finance` (local module
+  CLI) and `/api/module/finance/*` (balance sheet, income statement, holdings,
   transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
-  producer / low-level local view layer. The full-stack finance module cutover
-  (local `modules/finance` source + `/api/module/finance/*`) is prepared but not
-  executed; see `pages/rollout-3020-finance-module-cutover.md`. Multi-account Gmail
-  sync: per-account IMAP app passwords live in the `email_account` table
+  producer / low-level local view layer. Active finance version is 20, with 19 as
+  the full-stack rollback twin; built-in host finance code is gone. Multi-account
+  Gmail sync: per-account IMAP app passwords live in the `email_account` table
   (`y email account add/list/rm`), `y email sync-gmail` fans out over all registered
   accounts, and `email.account` tags each row with its source address (filterable via
   `?account=` / `--account` / the EmailList dropdown). Full-stack calendar
@@ -184,7 +187,10 @@ exceptions noted):
   coordination, no service)
 - **English learning**: `english_correction`
 - **Dev / trace**: `dev_worktree`, `trace_share`
-- **Configuration**: `bot_config`, `vm_config`
+- **Modules**: `module`, `module_version` (identity + immutable API/UI version rows)
+- **Configuration**: `bot_config`, `vm_config` (legacy physical column
+  `vm_config.finance_config` is intentionally retained for a later contract; finance
+  config rows live in the module-owned `finance_config` table)
 - **Email**: `email`, `email_account`
 - **Base / DTO**: `base.py`, `dto.py` (Message, BotConfig, VmConfig structures)
 
@@ -199,8 +205,12 @@ Grouped by feature area:
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
   `note_todo_relation.py`, `entity.py`, `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
-  `finance.py`, `english_correction.py`; module-owned routes (after cutover/deploy)
-  are dispatched under `/api/module/<slug>/*`
+  `english_correction.py`
+- **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
+  disable / delete / bundle); module-owned domain routes are dispatched under
+  `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
+  domain). Finance lives only there (`/api/module/finance/*`); there is no built-in
+  `finance.py` controller.
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
   `bot_config.py`, `dev_worktree.py`, `tg_topic.py`
 
@@ -209,6 +219,8 @@ Grouped by feature area:
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
 - `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
+- `module_host.py` — backend host contract for modules (`session`, `run_vm_command`,
+  `cli_user_id`, external-table protocol)
 - `ssh_pool.py`, `ec2_wake.py` — SSH connection reuse, EC2 wake-on-demand
 - `poll_loop.py` — steer / interrupt polling
 - `tool_base.py`, `tools/` — tool descriptors (bash, file_{read,write,edit}, local_exec,
@@ -247,8 +259,10 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
-  `reminder`, `rss`, `link`, `email`, `dev`, `finance`, `image`, `bot`, `trace`,
-  `file`, `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`
+  `reminder`, `rss`, `link`, `email`, `dev`, `image`, `bot`, `trace`,
+  `file`, `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
+  Domain CLI groups such as `y finance` are not built-in: they resolve lazily from
+  `$Y_AGENT_HOME/modules/<slug>/cli.py`
 - `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
   `y module create`: `contract.json` (single source of truth for the externals list and
   the `@y/host` contract version, also imported by `web/src/host/contract.ts`),
@@ -317,9 +331,10 @@ y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
-# DB-backed finance views (friendly tables by default; --json emits the raw
-# envelope, same shape as GET /api/finance/*). Full-stack module cutover is prepared
-# but not executed (pages/rollout-3020-finance-module-cutover.md).
+# Finance module CLI (lazy from $Y_AGENT_HOME/modules/finance; --json emits the
+# raw envelope, same shape as GET /api/module/finance/*). Active finance v20 with
+# v19 full-stack rollback; Refresh's known 30s Cloudflare edge timeout is a
+# follow-up (server work still completes).
 y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
 y finance investment-returns [--user-id <id>] [--vm-name <name>] [--time ytd] [--history] [--granularity monthly] [--convert USD] [--json]
@@ -376,7 +391,7 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
   `Y_AGENT_MODULE_MAINTAINER_USER_ID` (the public string `user.user_id` of the
   single account trusted to publish modules and dispatch backend modules; every
   publish and backend dispatch 403 for everyone else and fail closed when this is
-  unset; currently unset in this environment).
+  unset; required in any environment that publishes or dispatches backend modules).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

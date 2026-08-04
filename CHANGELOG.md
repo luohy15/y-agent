@@ -13,25 +13,36 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **Hot-loadable module system (3020)**: modules now use the canonical
+- **Hot-loadable module system (3020)**: modules use the canonical
   `$Y_AGENT_HOME/modules/<slug>/` source layout and a single `y module` lifecycle
-  (`create` / `schema-sql` / `publish` / `versions` / `activate` / `rollback` /
+  (`create` / `list` / `schema-sql` / `publish` / `versions` / `activate` / `rollback` /
   `enable` / `disable` / `delete`). A publish creates one immutable API+UI version with
   hash verification and schema preflight; migrations remain maintainer-applied SQL, and
   rollback or deletion never changes tables or authoring source. Every publish and
-  backend dispatch are gated to `Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed when
+  backend dispatch is gated to `Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed when
   unset), local CLI groups resolve lazily, and `routine vm_command` runs deterministic
-  module commands on the owner's VM. `common` is reserved for shared tables and is
-  vendored into consumer bundles. Phases 1–6 are in the tree but currently local,
-  unpushed, and undeployed. Finance is the planned reference full-stack module: phase 7
-  is approved/prepared but uncommitted and not cut over, so production remains finance
-  v18 UI-only on `/api/finance/*` with the built-in `y finance` group.
+  module commands on the owner's VM. `common` is the conventional shared module for
+  shared tables and is vendored into consumer bundles. The system is live and deployed.
 
 ### Changed
+- **Finance full-stack module cutover (3020)**: finance is now the reference live
+  full-stack module. Production serves finance **v20** (with **v19** as the immediate
+  full-stack rollback twin, identical API/UI hashes) at `/api/module/finance/*`;
+  `y finance` resolves from `$Y_AGENT_HOME/modules/finance`. Built-in finance API
+  controller, storage entities/services/repos, CLI group, and dead worker step are
+  deleted. Known limitation / follow-up: finance Refresh is still a synchronous
+  four-command VM orchestration and exceeds the ~30s Cloudflare edge timeout (browser
+  sees 504 while server-side writes still complete). Legacy `vm_config.finance_config`
+  remains intentionally as a physical column for a later expand/contract and is not
+  dropped.
 
 ### Fixed
 
 ### Removed
+- **Built-in finance stack (3020 cutover)**: host `api/controller/finance.py`,
+  `cli/commands/finance` + `cli/commands/beancount`, storage finance entities /
+  repositories / services / DTOs, and the unreferenced `worker/steps/sync_finance.py`
+  are deleted after the full-stack module path was verified live.
 
 ## [0.5.23] - 2026-08-02
 

@@ -76,12 +76,12 @@ publishes API and UI atomically without a full application deploy; `y module rol
 repoints code without altering data. `y module schema-sql <slug>` prints DDL but never
 executes it. Every publish and backend dispatch require the explicitly configured trusted
 maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`) and fail closed when it is unset.
-Phases 1–6 of the module system are in the tree but currently local, unpushed, and
-undeployed; the maintainer env is unset here, so publish is fail-closed today. Finance
-is the planned reference full-stack migration: phase 7 is approved/prepared but
-uncommitted and not cut over (`pages/rollout-3020-finance-module-cutover.md`). Production
-still serves finance as UI-only version 18 on `/api/finance/*` with the built-in
-`y finance` group.
+The system is live. Finance is the reference full-stack module: active version 20 with
+version 19 as the immediate full-stack rollback twin, routes at `/api/module/finance/*`,
+and `y finance` resolved from local module source. Built-in finance host code is gone.
+Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge
+timeout (server-side work still completes). Legacy `vm_config.finance_config` remains
+intentionally for a later contract and is not dropped.
 
 ## Blog Post
 

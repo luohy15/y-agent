@@ -79,8 +79,8 @@ y dev wt add /path/to/repo my-feature
 y dev commit my-feature -m "wip"
 y dev wt rm my-feature
 
-# Finance — built-in CLI views mirroring /api/finance/* (full-stack module cutover
-# is prepared but not executed; see pages/rollout-3020-finance-module-cutover.md)
+# Finance — module CLI (lazy from $Y_AGENT_HOME/modules/finance), mirrors
+# /api/module/finance/*. Active finance v20 with v19 full-stack rollback.
 y finance balance-sheet --convert USD
 y finance income-statement --time month --convert USD
 y finance holdings --base-currency USD
@@ -112,9 +112,13 @@ y module rollback scratch             # code only; source, schedules, and tables
 
 Only the configured `Y_AGENT_MODULE_MAINTAINER_USER_ID` can publish a module or
 dispatch a backend module. The gate applies to every publish (including UI-only) and is
-deliberately fail-closed when unset. Phases 1–6 of the module system are in the tree
-but currently local, unpushed, and undeployed; with the maintainer env unset here, every
-publish 403s. `common` is a reserved shared module: it owns shared tables and is
+deliberately fail-closed when unset. The module system is live: finance is the
+reference full-stack module at active version 20 (version 19 is the full-stack
+rollback twin), served at `/api/module/finance/*` with `y finance` from local source.
+Built-in finance host code is deleted. Known limitation: finance Refresh is still
+synchronous and hits the ~30s Cloudflare edge timeout while server-side work continues
+to completion. Legacy `vm_config.finance_config` remains intentionally for a later
+contract. `common` is the conventional shared module: it owns shared tables and is
 vendored into consumer bundles at publish time.
 
 ## All command groups
@@ -135,7 +139,7 @@ vendored into consumer bundles at publish time.
 | `link` | Link archive: `fetch`, `get`, `list`, `sync-chrome`, `tldr`, `import-page` |
 | `rss` | Feeds: `add`, `list`, `update`, `import-opml`, remove / restore |
 | `email` | Gmail: `sync-gmail`, `list`, `get`, multi-account `account add/list/rm` |
-| `finance` | Built-in finance CLI views mirroring `/api/finance/*`; `beancount` is the ledger producer. Full-stack module cutover is prepared but not executed |
+| `finance` | Full-stack finance module CLI (lazy from `modules/finance`), mirroring `/api/module/finance/*`; `beancount` is the ledger producer. Active v20 with v19 full-stack rollback |
 | `image` | `generate` (Gemini/OpenAI), `splice`, `tinify` (TinyPNG) |
 | `pdf` | `parse` a PDF into Markdown |
 | `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |

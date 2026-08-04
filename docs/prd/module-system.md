@@ -3,7 +3,7 @@ title: Module System
 type: prd
 project: y-agent
 feature: module-system
-status: draft
+status: active
 ---
 
 # Module System
@@ -897,5 +897,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3020 | Requirements converged and implementation planned: in-process module loading, one canonical `$Y_AGENT_HOME/modules` source, atomic API+UI versioning, `y ui` folded into `y module`, and finance including Refresh as the reference migration | - | `pages/plan-3020-module-system.md` | `pages/decision-3020-module-system-boundaries.md` | - | superseded by the module-owned data model below |
-| 3020 | Boundary reopened and widened to a complete module-owned domain model: modules own entities, repositories, schema knowledge, and hand-applied migrations; the host contributes connection, session, and transaction management only; `common` owns shared tables and is vendored at build time; background jobs are module CLI commands fired by a host routine; publish-time schema preflight guards code/schema skew | - | `pages/plan-3020-module-system.md` (needs revision) | `pages/decision-3020-module-system-boundaries.md` | - | requirements settled |
+| 3020 | Hot-loadable module system live; finance is the reference full-stack module (v20 active, v19 full-stack rollback twin). In-process loading, canonical `$Y_AGENT_HOME/modules` source, atomic API+UI versioning, `y ui` folded into `y module`, module-owned data + hand-applied migrations + publish preflight, trusted-maintainer backend gate, lazy CLI, `routine vm_command`. Built-in finance controller/CLI/storage deleted; routes at `/api/module/finance/*`. Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge timeout (server work completes). Legacy `vm_config.finance_config` intentionally retained for a later contract. PRD: `code/y-agent/docs/prd/module-system.md`. Rollout: `pages/rollout-3020-finance-module-cutover.md` (executed on main `f50f14e`). | - | `pages/plan-3020-module-system.md` | `pages/decision-3020-module-system-boundaries.md`, `pages/decision-3020-module-system-vm-command-timeout.md` | `pages/review-3020-module-system-phase-1.md`, `pages/review-3020-module-system-phase-2.md`, `pages/review-3020-module-system-phase-3.md`, `pages/review-3020-module-owned-data-phase-4.md`, `pages/review-3020-module-system-phase-5.md`, `pages/review-3020-module-system-phase-6.md`, `pages/review-3020-module-system-phase-7.md`, `pages/review-3020-module-system-phase-7-rereview.md`, `pages/review-3020-module-system-phase-7-final.md`, `pages/review-3020-module-system-phase-8.md`, `pages/review-3020-p0-maintainer-config.md` | shipped |
