@@ -11,18 +11,12 @@ from .helpers import convert_balance, filter_by_date, sum_tree
 def _load_fire_config():
     home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
     fire_path = os.path.join(home, "finance", "fire_target.json")
-    position_path = os.path.join(home, "finance", "position.json")
     config_path = os.path.expanduser("~/.y-agent/config.toml")
 
     fire_cfg = {}
     if os.path.exists(fire_path):
         with open(fire_path) as f:
             fire_cfg = json.load(f)
-
-    position_cfg = {}
-    if os.path.exists(position_path):
-        with open(position_path) as f:
-            position_cfg = json.load(f)
 
     toml_cfg = {}
     if os.path.exists(config_path):
@@ -36,13 +30,6 @@ def _load_fire_config():
         try:
             monthly_expense = float(toml_cfg["FINANCE_MONTHLY_EXPENSE"])
             source = "config"
-        except (TypeError, ValueError):
-            pass
-
-    if monthly_expense is None and position_cfg.get("monthly_expense") is not None:
-        try:
-            monthly_expense = float(position_cfg["monthly_expense"])
-            source = "position"
         except (TypeError, ValueError):
             pass
 

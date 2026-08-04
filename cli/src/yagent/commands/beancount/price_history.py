@@ -6,7 +6,6 @@ import re
 
 import click
 
-from .helpers import save_and_echo
 
 
 @click.command("price-history")
@@ -32,7 +31,7 @@ def price_history(ctx):
         _walk(stock_acc)
 
     if not held_symbols:
-        save_and_echo("price-history", {})
+        click.echo(json.dumps({}))
         return
 
     # Parse price files
@@ -63,4 +62,4 @@ def price_history(ctx):
     for symbol in result:
         result[symbol].sort(key=lambda x: x["date"])
 
-    save_and_echo("price-history", result)
+    click.echo(json.dumps(result))

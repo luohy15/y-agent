@@ -70,37 +70,6 @@ def holdings(ctx):
         for row in cursor_totals
     ]
 
-    import csv
     import json
-    import os
-
-    # Save as CSV
-    home = os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent"))
-    output_path = os.path.join(home, "finance", "holdings.csv")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    def _fmt(val):
-        if isinstance(val, dict) and "number" in val and "currency" in val:
-            return f"{val['number']:.2f} {val['currency']}"
-        if val is None:
-            return ""
-        if isinstance(val, float):
-            return f"{val:.2f}"
-        return str(val)
-
-    with open(output_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        if rows:
-            headers = list(rows[0].keys())
-            writer.writerow(headers)
-            for row in rows:
-                writer.writerow([_fmt(row[h]) for h in headers])
-            writer.writerow([])
-            writer.writerow(["--- Totals ---"])
-        if totals:
-            headers = list(totals[0].keys())
-            writer.writerow(headers)
-            for row in totals:
-                writer.writerow([_fmt(row[h]) for h in headers])
 
     click.echo(json.dumps({"rows": rows, "totals": totals}))
