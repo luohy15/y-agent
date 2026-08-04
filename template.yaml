@@ -28,6 +28,13 @@ Parameters:
     Description: Google OAuth Client ID
     Default: ""
 
+  ModuleMaintainerUserId:
+    Type: String
+    Description: Public string user_id (never the integer PK) of the single account
+      trusted to publish modules and dispatch backend modules; every publish and
+      backend dispatch fail closed (403) when this is unset
+    Default: 4e3938bd4da22878a12f094f18ffa543_luohycs_at_gmail_dot_com
+
   SubnetIds:
     Type: CommaDelimitedList
     Description: Comma-delimited list of subnet IDs for Lambda VPC configuration
@@ -261,6 +268,7 @@ Resources:
           SQS_QUEUE_URL: !Ref JobQueue
           JWT_SECRET_KEY: !Ref JwtSecretKey
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
