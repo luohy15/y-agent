@@ -15,8 +15,12 @@ export type MountableModule = Module & {
   active_version: NonNullable<Module["active_version"]>;
 };
 
-export function mountableUiArtifacts(artifacts: Module[]): MountableModule[] {
-  return artifacts.filter(
+export function modulesFromPayload(payload: unknown): Module[] {
+  return Array.isArray(payload) ? payload : [];
+}
+
+export function mountableUiArtifacts(artifacts: unknown): MountableModule[] {
+  return modulesFromPayload(artifacts).filter(
     (artifact): artifact is MountableModule =>
       artifact.enabled && !!artifact.active_version?.ui_sha256,
   );

@@ -33,8 +33,8 @@ import {
   artifactSlugFromPanel,
   artifactTabKey,
   isPersistableTab,
+  modulesFromPayload,
   mountableUiArtifacts,
-  type Module,
 } from "./host/artifacts";
 import { registerHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
@@ -64,10 +64,11 @@ export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
   const auth = useAuth();
   const {
-    data: uiArtifacts = [],
+    data: uiArtifactsResponse,
     isLoading: uiArtifactsLoading,
     mutate: mutateUiArtifacts,
-  } = useSWR<Module[]>(auth.isLoggedIn ? `${API}/api/module/list?enabled_only=true` : null, jsonFetcher);
+  } = useSWR<unknown>(auth.isLoggedIn ? `${API}/api/module/list?enabled_only=true` : null, jsonFetcher);
+  const uiArtifacts = useMemo(() => modulesFromPayload(uiArtifactsResponse), [uiArtifactsResponse]);
   const mountedUiArtifacts = useMemo(() => mountableUiArtifacts(uiArtifacts), [uiArtifacts]);
   const uiArtifactBySlug = useMemo(
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),

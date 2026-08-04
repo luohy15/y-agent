@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { isPersistableTab } from "./artifacts";
+import { isPersistableTab, modulesFromPayload, mountableUiArtifacts } from "./artifacts";
+
+describe("module payload handling", () => {
+  it("returns no modules or mountable artifacts for a non-array API payload", () => {
+    const payload = { detail: "Service Unavailable" };
+    expect(modulesFromPayload(payload)).toEqual([]);
+    expect(mountableUiArtifacts(payload)).toEqual([]);
+  });
+
+  it("keeps enabled modules with an active UI bundle", () => {
+    const module = {
+      module_id: "mod_1",
+      slug: "todo",
+      active_version_id: "ver_1",
+      enabled: true,
+      active_version: { ui_sha256: "abc" },
+    };
+    expect(mountableUiArtifacts([module])).toEqual([module]);
+  });
+});
 
 describe("isPersistableTab", () => {
   it("persists ui: artifact tabs", () => {
