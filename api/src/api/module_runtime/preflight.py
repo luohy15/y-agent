@@ -15,6 +15,8 @@ from sqlalchemy import MetaData
 from sqlalchemy.engine import Engine
 from sqlalchemy.inspection import inspect as sa_inspect
 
+from agent.module_host import owned_tables
+
 
 class SchemaPreflightError(Exception):
     """A module's declared entities reference schema the database lacks.
@@ -35,7 +37,9 @@ def check_metadata_against_database(slug: str, metadata: MetaData, engine: Engin
     missing_tables: list[str] = []
     missing_columns: dict[str, set[str]] = {}
 
-    for table in metadata.sorted_tables:
+    # Reference stubs for host kernel tables (D4) are declared only so the
+    # module's foreign keys resolve; the module does not own their schema.
+    for table in owned_tables(metadata):
         table_name = ".".join(part for part in (table.schema, table.name) if part)
         if not insp.has_table(table.name, schema=table.schema):
             missing_tables.append(table_name)

@@ -439,6 +439,26 @@ with transaction handling, the resolved user, and
 `Tool`, VM credentials, Paramiko objects, worker internals, or raw engine
 handles.
 
+**The resolved user has two halves, and both are host-resolved.** The API half
+reads `request.state.user_id`, set by the host's auth middleware. The CLI half
+has no request, so the kernel also exposes `cli_user_id()`, which resolves the
+same identity the rest of `y` uses. Without it a module's CLI would have to
+import a host service to know who it is acting for, which the rules below
+forbid; with it, "who am I acting for" has exactly one host-owned answer on
+both sides.
+
+**A module marks the kernel tables it references but does not own.** D4 allows
+`user_id -> user.id`, and SQLAlchemy cannot resolve that foreign key unless the
+`user` table is present in the module's own `MetaData` — `sorted_tables` and
+`CreateTable` both raise without it. So the module declares a reference stub and
+tags it with the kernel's `EXTERNAL_TABLE_INFO_KEY` marker. Host tooling that
+walks module metadata (publish preflight, `y module schema-sql`) filters those
+stubs out through one host-owned helper: a module never has its kernel-table
+stub preflighted as if it owned it, and `schema-sql` never emits DDL that would
+recreate a host table. The marker is the smallest explicit representation of the
+difference between *referencing* a table and *owning* one; without it, ownership
+would have to be inferred from a hardcoded list of host table names.
+
 **A module writing its own SQL is now the design, not a leak.** The earlier
 boundary kept repositories host-side to stop modules depending on column layout;
 that reasoning inverts once the module owns the columns. A module depending on
@@ -463,6 +483,17 @@ The Python host surface carries **its own contract version**, independent of the
 `@y/host` browser contract, because the two evolve for unrelated reasons. A
 module records a backend contract floor at publish time; a module requiring a
 newer host than the running API refuses to load with an explicit message.
+
+Backend contract **v1** is therefore: `session()`, `run_vm_command()`,
+`cli_user_id()`, and `EXTERNAL_TABLE_INFO_KEY`, plus the named pure-function
+allowlist (`storage.service.time_range`, `storage.util` timestamp helpers). The
+last two arrived with the finance migration rather than the first sketch of the
+surface, and are v1 rather than a v2 bump only because v1 has never shipped: no
+host carrying `BACKEND_CONTRACT_VERSION` has been deployed and no backend module
+version has been published against it, so no published module can observe the
+difference. Once the surface ships, that argument expires — any later addition
+is a version bump, and a module that needs it raises its
+`min_backend_version`.
 
 ### Migrations: owner-applied, never automatic
 

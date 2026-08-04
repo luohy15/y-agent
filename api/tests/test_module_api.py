@@ -546,6 +546,22 @@ class SchemaQualifiedPreflightTest(unittest.TestCase):
         inspector.has_table.assert_called_once_with("Widget", schema="Analytics")
         inspector.get_columns.assert_called_once_with("Widget", schema="Analytics")
 
+    def test_external_reference_tables_are_not_preflighted(self):
+        """A module's stub for a host kernel table is skipped: it does not own it."""
+        from sqlalchemy import Column, Integer, MetaData, Table
+
+        from agent.module_host import EXTERNAL_TABLE_INFO_KEY
+
+        metadata = MetaData()
+        Table("user", metadata, Column("id", Integer), info={EXTERNAL_TABLE_INFO_KEY: True})
+        Table("mod_thing", metadata, Column("id", Integer))
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspector.get_columns.return_value = [{"name": "id"}]
+        with patch("api.module_runtime.preflight.sa_inspect", return_value=inspector):
+            check_metadata_against_database("scratch", metadata, MagicMock())
+        inspector.has_table.assert_called_once_with("mod_thing", schema=None)
+
     def test_reports_multiple_schema_qualified_tables_and_columns(self):
         from sqlalchemy import Column, Integer, MetaData, Table
 

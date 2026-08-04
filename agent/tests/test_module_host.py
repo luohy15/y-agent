@@ -37,6 +37,60 @@ class ContractSurfaceTest(unittest.TestCase):
         self.assertNotIn("paramiko", sys.modules)
 
 
+class ExternalTableRefTest(unittest.TestCase):
+    """A module declares host kernel tables its FKs point at, but does not own them."""
+
+    def _metadata(self):
+        from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
+
+        metadata = MetaData()
+        Table(
+            "user",
+            metadata,
+            Column("id", Integer, primary_key=True),
+            info={mh.EXTERNAL_TABLE_INFO_KEY: True},
+        )
+        Table(
+            "mod_thing",
+            metadata,
+            Column("id", Integer, primary_key=True),
+            Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE")),
+        )
+        return metadata
+
+    def test_owned_tables_excludes_the_external_stub(self):
+        metadata = self._metadata()
+        self.assertEqual([t.name for t in mh.owned_tables(metadata)], ["mod_thing"])
+        self.assertTrue(mh.is_external_table(metadata.tables["user"]))
+        self.assertFalse(mh.is_external_table(metadata.tables["mod_thing"]))
+
+    def test_stub_is_what_makes_the_foreign_key_resolvable(self):
+        # Without the stub, sorted_tables raises NoReferencedTableError, which
+        # is why the convention exists at all.
+        from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
+        from sqlalchemy.exc import NoReferencedTableError
+
+        metadata = self._metadata()
+        self.assertEqual(len(metadata.sorted_tables), 2)
+
+        orphan = MetaData()
+        Table(
+            "mod_thing",
+            orphan,
+            Column("id", Integer, primary_key=True),
+            Column("user_id", Integer, ForeignKey("user.id")),
+        )
+        with self.assertRaises(NoReferencedTableError):
+            orphan.sorted_tables
+
+
+class CliUserIdTest(unittest.TestCase):
+    def test_delegates_to_the_host_user_service(self):
+        with patch("storage.service.user.get_cli_user_id", return_value=7) as resolver:
+            self.assertEqual(mh.cli_user_id(), 7)
+        resolver.assert_called_once_with()
+
+
 class SessionTest(unittest.TestCase):
     def test_session_is_thin_reexport_of_get_db(self):
         sentinel = object()

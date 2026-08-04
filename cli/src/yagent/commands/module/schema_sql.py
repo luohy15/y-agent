@@ -45,9 +45,13 @@ def module_schema_sql(slug):
     if metadata is None:
         raise click.ClickException(f"{slug}.entities does not export `metadata`")
 
+    from agent.module_host import owned_tables
+
     dialect = postgresql.dialect()
     statements = []
-    for table in metadata.sorted_tables:
+    # Reference stubs for host kernel tables (D4) are skipped: they exist in the
+    # metadata only so the module's foreign keys resolve.
+    for table in owned_tables(metadata):
         statements.append(str(CreateTable(table).compile(dialect=dialect)).strip() + ";")
         for index in table.indexes:
             statements.append(str(CreateIndex(index).compile(dialect=dialect)).strip() + ";")

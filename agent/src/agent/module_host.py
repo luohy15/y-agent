@@ -4,6 +4,20 @@ One physical source for the backend half of the module system. Modules may
 import from this module and from the pure-function allowlist below. Nothing
 else from host packages is contract.
 
+The v1 surface a module may import from here:
+  - BACKEND_CONTRACT_VERSION      the host's own contract version (see below)
+  - session()                     DB session with get_db() transaction semantics
+  - run_vm_command()              argv on the authenticated owner's VM
+  - cli_user_id()                 acting user for the CLI half (`y <slug> …`),
+                                  the counterpart of `request.state.user_id`
+  - EXTERNAL_TABLE_INFO_KEY       Table.info marker for a referenced-but-not-owned
+                                  host kernel table (D4), read by host tooling
+                                  via is_external_table() / owned_tables()
+
+is_external_table() / owned_tables() are host tooling (publish preflight,
+`y module schema-sql`), so the marker is interpreted in exactly one place; a
+module only ever needs the constant.
+
 Allowlist (pure functions, no DB, no entity, no repository):
   - storage.service.time_range  (parse_time_range, TIME_RANGE_ALIASES)
   - storage.util timestamp helpers
@@ -18,6 +32,12 @@ Explicit non-list (modules must not reach for these):
 
 Paramiko/boto3 imports stay inside run_vm_command so importing this module
 stays cheap on the `y` hot path.
+
+Contract version: cli_user_id and the external-table protocol are part of v1,
+not a v2 bump, because v1 has never shipped — no host carrying
+BACKEND_CONTRACT_VERSION has been deployed and no backend module version has
+been published against it. Every later addition to the surface above bumps the
+version and, for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -29,6 +49,37 @@ from typing import Iterator, Optional
 from sqlalchemy.orm import Session
 
 BACKEND_CONTRACT_VERSION = 1
+
+# Table.info key marking a table a module *references* but does not own — the
+# host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
+# A module must declare such a table in its own MetaData or SQLAlchemy cannot
+# resolve the ForeignKey (sorted_tables / CreateTable both raise), but the host
+# tooling that reads `<pkg>.entities.metadata` (publish preflight,
+# `y module schema-sql`) skips it: the module neither owns its schema nor may
+# create it.
+EXTERNAL_TABLE_INFO_KEY = "module_external"
+
+
+def is_external_table(table) -> bool:
+    """True when `table` is a reference stub for a table the module does not own."""
+    return bool((table.info or {}).get(EXTERNAL_TABLE_INFO_KEY))
+
+
+def owned_tables(metadata):
+    """The tables a module actually owns, in dependency order."""
+    return [table for table in metadata.sorted_tables if not is_external_table(table)]
+
+
+def cli_user_id() -> int:
+    """The resolved acting user for the CLI half of a module (`y <slug> …`).
+
+    The API half reads `request.state.user_id`; the CLI half has no request, so
+    the host resolves the same identity from `Y_USER_ID` / the default account.
+    Kept here so module CLI code never imports a host service directly.
+    """
+    from storage.service.user import get_cli_user_id
+
+    return get_cli_user_id()
 
 
 class ModuleHostError(Exception):
@@ -77,7 +128,11 @@ def request_owner(user_id: int) -> Iterator[None]:
 
 @contextmanager
 def session() -> Iterator[Session]:
-    """Yield a host DB session with the same commit-on-clean-exit contract as get_db()."""
+    """Yield a host DB session with the same commit-on-clean-exit contract as get_db().
+
+    Nested use inside an already-open session is *not* a savepoint: each call
+    opens its own session and commits on clean exit, exactly like get_db().
+    """
     from storage.database.base import get_db
 
     with get_db() as db:

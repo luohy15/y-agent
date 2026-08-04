@@ -988,6 +988,33 @@ class SchemaSqlTest(unittest.TestCase):
             self.assertIn("CREATE TABLE scratch_widget", result.output)
             self.assertIn("name", result.output)
 
+    def test_external_reference_table_is_not_rendered(self):
+        """A stub for a host kernel table resolves the FK but is never DDL'd."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._scaffold(
+                home,
+                "scratch-ext",
+                "from agent.module_host import EXTERNAL_TABLE_INFO_KEY\n"
+                "from sqlalchemy import Column, ForeignKey, Integer, Table\n"
+                "from .base import Base\n\n\n"
+                "Table('user', Base.metadata, Column('id', Integer, primary_key=True),\n"
+                "      info={EXTERNAL_TABLE_INFO_KEY: True})\n\n\n"
+                "class Widget(Base):\n"
+                "    __tablename__ = 'scratch_widget'\n"
+                "    id = Column(Integer, primary_key=True)\n"
+                "    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'))\n",
+            )
+            try:
+                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                    result = CliRunner().invoke(module_group, ["schema-sql", "scratch-ext"])
+            finally:
+                self._cleanup_sys_modules("scratch-ext")
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("CREATE TABLE scratch_widget", result.output)
+            self.assertIn('REFERENCES "user" (id) ON DELETE CASCADE', result.output)
+            self.assertNotIn('CREATE TABLE "user"', result.output)
+
     def test_schema_sql_rejects_nonempty_root_before_cli_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
