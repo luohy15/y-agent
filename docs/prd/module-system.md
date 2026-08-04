@@ -423,7 +423,7 @@ model**.
 | Derived / business logic | **Module** | The code that changes weekly. The point of the feature. |
 | API route handlers | **Module** | Follows the logic it wraps. |
 | CLI commands and renderers | **Module** | Same. |
-| ORM entities and table definitions | **Module** | A table's shape is domain knowledge. Splitting the model from the queries over it puts one table's definition on two clocks. |
+| ORM entities and table definitions | **Module** | A table's shape is domain knowledge. Splitting the model from the queries over it puts one table's definition on two clocks. Narrow exception: `bot_config` / `bot_route_state` stay host tables because worker runtime code reads them; see *Bot as the second full-stack module*. |
 | Repositories and queries | **Module** | A new query shape must not require a host change and a deploy; that ceiling was the main cost of the earlier boundary. |
 | Migration SQL | **Module** | Lives beside the models it changes, applied by hand by the owner. |
 | Database connection, session, transaction management | **Host** | Pooling and commit/rollback semantics are infrastructure, and one engine per process is not negotiable. |
@@ -484,16 +484,31 @@ The Python host surface carries **its own contract version**, independent of the
 module records a backend contract floor at publish time; a module requiring a
 newer host than the running API refuses to load with an explicit message.
 
-Backend contract **v1** is therefore: `session()`, `run_vm_command()`,
-`cli_user_id()`, and `EXTERNAL_TABLE_INFO_KEY`, plus the named pure-function
-allowlist (`storage.service.time_range`, `storage.util` timestamp helpers). The
-last two arrived with the finance migration rather than the first sketch of the
-surface, and are v1 rather than a v2 bump only because v1 has never shipped: no
-host carrying `BACKEND_CONTRACT_VERSION` has been deployed and no backend module
-version has been published against it, so no published module can observe the
-difference. Once the surface ships, that argument expires — any later addition
-is a version bump, and a module that needs it raises its
-`min_backend_version`.
+Backend contract **v1** was: `session()`, `run_vm_command()`, `cli_user_id()`,
+and `EXTERNAL_TABLE_INFO_KEY`, plus the named pure-function allowlist
+(`storage.service.time_range`, `storage.util` timestamp helpers). The last two
+arrived with the finance migration rather than the first sketch of the surface,
+and shipped as v1 rather than a v2 bump only because v1 had never shipped at the
+time finance was written: no host carrying `BACKEND_CONTRACT_VERSION` had been
+deployed and no backend module version had been published against it, so no
+published module could observe the difference.
+
+That argument is now retired. Todo 3028 (bot module consolidation) is the surface's
+first genuine addition: a narrow bot-config store —
+`bot_config_list` / `bot_config_get` / `bot_config_upsert` / `bot_config_delete` /
+`bot_config_set_enabled` / `bot_config_rename` — operating on host-owned
+`BotConfig` values only (no repositories, no raw sessions, no entities, no
+generic host-table access), request-owner-scoped exactly like
+`run_vm_command()`. That addition bumped `BACKEND_CONTRACT_VERSION` from 1 to 2;
+the bot module declares `min_backend_version: 2` while finance continues to
+declare 1 because it never needed the new surface. **v1 has shipped and been
+superseded**, so the versioning rule going forward is the plain one stated
+above: every later addition to the host surface is a version bump, and a module
+that needs it raises its `min_backend_version`; a host below a module's declared
+floor refuses to load that module's bundle with an explicit message
+(`agent/src/agent/module_host.py` carries the authoritative capability list per
+version; `agent/tests/test_module_host.py` and `api/tests/test_module_runtime.py`
+pin the floor-rejection behavior).
 
 ### Migrations: owner-applied, never automatic
 
@@ -798,6 +813,46 @@ module source or tests are retained in the host repo.
 same bet already taken when the built-in Finance, Bots, Calendar, and Todo
 surfaces were removed after their artifact migrations.
 
+### Bot as the second full-stack module: a host-kernel-table exception
+
+Todo 3028 moved the bot domain (`$Y_AGENT_HOME/modules/bot`, active v12 with v11
+as the full-stack rollback twin) into the module system as the second full-stack
+migration after finance, and its data-layer audit did not reach finance's answer.
+Finance was clean precisely because nothing outside finance touched finance
+data; `bot_config` is not: `agent/src/agent/config.py` resolves it on the
+worker's dispatch hot path, `worker/src/worker/runner.py` consumes that
+resolution to launch the selected backend, `storage/service/model_usage_daily.py`
+enumerates it for usage sync, `inline.py` / `link.py` resolve their own bots
+through it, and `cli/commands/init.py` bootstraps it. Modules have no worker
+half (see *Background jobs*) and host code must not read module-owned tables, so
+a finance-style move of `bot_config` into the module would have broken worker
+dispatch or required loading module code inside the worker, both out of scope.
+
+The migration therefore split the domain instead of moving it whole:
+
+| Code | Owner | Why |
+|---|---|---|
+| Bot management API (`/api/module/bot/*`), `y bot` CLI, module UI, pricing display | **Module** | The user-facing management surface that changes independently of runtime dispatch. |
+| `bot_config` / `bot_route_state` tables, their entity/repository/service, `agent/config.py` resolution, worker consumption, usage-sync enumeration, `inline.py` / `link.py` resolution, `y init` bootstrap | **Host (kernel exception)** | Runtime state read on the worker dispatch path; modules have no worker half. |
+| Bot-config CRUD (list/get/upsert/delete/enable/disable/rename) as a versioned capability | **Host surface, module-invoked** | The new v2 backend-contract addition (see *The host surface: a kernel, not a data layer*) — the module manages the table through a narrow function surface, never a repository or session import. |
+| `GET /api/chat/bot-options` | **Host, unchanged, all users** | Read-only `name`/`backend`/`model` list used by the chat bot picker. This is routing selection, not bot management, so it stayed a host route open to every authenticated user and does not move with the rest of the domain. It survives module rollback and disable by construction, since it never touches `module_runtime`. |
+
+This is a deliberate, narrow exception to the "ORM entities and table
+definitions: **Module**" rule in *The host surface: a kernel, not a data layer*
+above, not a reopening of it: `bot_config` and `bot_route_state` stay host
+tables with one persistence implementation, and the module reaches them only
+through the versioned `bot_config_*` capability functions, never through a
+repository or session it owns. The precedent this sets for future full-stack
+migrations is narrow by design — a domain may become a control-plane module
+over host-owned runtime state via a small, versioned `module_host` capability,
+when (and only when) host runtime code outside the API process genuinely
+depends on that state on a hot path. It is not a general escape hatch for
+avoiding the module-owns-its-tables rule; see decision
+`pages/decision-3028-bot-module-auth.md` for the accompanying authorization
+call (bot management is maintainer-only, matching every other backend module,
+because widening backend-module dispatch to non-maintainers was explicitly
+out of scope for this migration).
+
 ## Testing Decisions
 
 Test the observable contract, not the loader's internals.
@@ -887,7 +942,9 @@ hook, both of which cost more than the single-user failure mode justifies.
   not silently change what is live.
 - **Migrating domains other than finance.** Existing UI-only artifacts are
   renamed into modules but keep only a UI part; giving them backends is separate
-  work.
+  work. (As of todo 3028, bot is that separate work done: see *Bot as the second
+  full-stack module* above. Other UI-only artifacts remain UI-only until their
+  own migration.)
 - **Changing the browser runtime contract.** The loader, hash verification, error
   boundaries, externals set, and `@y/host` surface carry over untouched and remain
   owned by the dynamic UI artifacts PRD.

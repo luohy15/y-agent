@@ -123,7 +123,27 @@ entity + controller + service + CLI slices, and most have a web panel.
   intentionally as a physical column for a later expand/contract; it is not dropped.
   A module has no worker half: deterministic scheduled work is a `routine`
   `vm_command` action that executes argv on the owner's VM, while judgment-shaped
-  work remains chat dispatch.
+  work remains chat dispatch. `bot` (`modules/bot`) is the second full-stack
+  module, active at version 12 with version 11 as the full-stack rollback twin;
+  v10 and earlier are unsafe rollback targets post-cutover because their UI still
+  calls the deleted built-in `/api/bot/*` routes. Bot management is a **narrow,
+  deliberate exception** to "the module owns its tables": the module owns bot
+  **management** (`/api/module/bot/*`, `y bot` CLI, the Bots UI panel, pricing
+  display; maintainer-only per `pages/decision-3028-bot-module-auth.md`), while
+  `bot_config` and `bot_route_state` — table, entity, repository, service,
+  `agent/config.py` resolution, worker consumption, usage-credential
+  enumeration, inline/link bot resolution, and `y init` bootstrap — stay host
+  kernel state, because the worker reads them on the dispatch hot path and
+  modules have no worker half. The module reaches that state only through the
+  versioned `bot_config_*` functions on the `agent.module_host` contract (now
+  **v2**, up from v1; bot declares `min_backend_version: 2`, finance still
+  declares 1), never a repository or session import.
+  `GET /api/chat/bot-options` (host, `chat.py`) intentionally survives the cut:
+  it is read-only, returns only `name`/`backend`/`model`, and stays open to
+  every authenticated user because picking a bot in chat is routing selection,
+  not management — it is not a leftover of the deleted management surface, and
+  deleting it would break the chat picker for non-maintainers and on any module
+  rollback/disable.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -188,9 +208,12 @@ exceptions noted):
 - **English learning**: `english_correction`
 - **Dev / trace**: `dev_worktree`, `trace_share`
 - **Modules**: `module`, `module_version` (identity + immutable API/UI version rows)
-- **Configuration**: `bot_config`, `vm_config` (legacy physical column
-  `vm_config.finance_config` is intentionally retained for a later contract; finance
-  config rows live in the module-owned `finance_config` table)
+- **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (legacy physical
+  column `vm_config.finance_config` is intentionally retained for a later contract;
+  finance config rows live in the module-owned `finance_config` table). `bot_config`
+  and `bot_route_state` are runtime kernel tables read by the worker dispatch path;
+  they stay host-owned even though bot *management* is module-owned — see the
+  `bot` entry under Hot-loadable modules above.
 - **Email**: `email`, `email_account`
 - **Base / DTO**: `base.py`, `dto.py` (Message, BotConfig, VmConfig structures)
 
@@ -209,10 +232,13 @@ Grouped by feature area:
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
-  domain). Finance lives only there (`/api/module/finance/*`); there is no built-in
-  `finance.py` controller.
+  domain). Finance and bot management live only there (`/api/module/finance/*`,
+  `/api/module/bot/*`); there is no built-in `finance.py` or `bot_config.py`
+  controller. `chat.py` retains one host bot route,
+  `GET /api/chat/bot-options` (read-only `name`/`backend`/`model`, all
+  authenticated users) — routing selection, not management, so it did not move.
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
-  `bot_config.py`, `dev_worktree.py`, `tg_topic.py`
+  `dev_worktree.py`, `tg_topic.py`
 
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
@@ -220,7 +246,8 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
 - `module_host.py` — backend host contract for modules (`session`, `run_vm_command`,
-  `cli_user_id`, external-table protocol)
+  `cli_user_id`, external-table protocol; v2 adds a narrow request-scoped
+  `bot_config_*` capability used by the bot module, `BACKEND_CONTRACT_VERSION = 2`)
 - `ssh_pool.py`, `ec2_wake.py` — SSH connection reuse, EC2 wake-on-demand
 - `poll_loop.py` — steer / interrupt polling
 - `tool_base.py`, `tools/` — tool descriptors (bash, file_{read,write,edit}, local_exec,
@@ -259,10 +286,10 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` command group
 - `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
-  `reminder`, `rss`, `link`, `email`, `dev`, `image`, `bot`, `trace`,
+  `reminder`, `rss`, `link`, `email`, `dev`, `image`, `trace`,
   `file`, `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
-  Domain CLI groups such as `y finance` are not built-in: they resolve lazily from
-  `$Y_AGENT_HOME/modules/<slug>/cli.py`
+  Domain CLI groups such as `y finance` and `y bot` are not built-in: they resolve
+  lazily from `$Y_AGENT_HOME/modules/<slug>/cli.py`
 - `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
   `y module create`: `contract.json` (single source of truth for the externals list and
   the `@y/host` contract version, also imported by `web/src/host/contract.ts`),

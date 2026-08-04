@@ -189,7 +189,8 @@ Settled contract:
 - Redesigning the New bot create form, or changing its fields/layout.
 - Changing bot-config API request/response shapes, validation rules, or
   server-side save/delete semantics.
-- Expanding `/api/bot/list` with detail-only fields to avoid client gating.
+- Expanding `/api/module/bot/list` (moved from `/api/bot/list` under todo 3028)
+  with detail-only fields to avoid client gating.
 - Bot dispatch / tier routing policy (see bot-routing).
 - Bot usage analytics and subscription limit windows (see bot-usage).
 - Opportunistic cleanup of orphan presentation attributes left after the inline
