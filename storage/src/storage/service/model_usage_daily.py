@@ -144,6 +144,34 @@ def _fetch_crs_key(origin: str, api_key: str) -> list[dict]:
     return resp.json().get("data") or []
 
 
+def _crs_key_basis(origin: str, api_key: str) -> str:
+    """Whether a relay key rides a flat-fee subscription (`notional` list-price
+    cost) or pay-per-token billing (`real`). The relay exposes each key's name
+    at GET {origin}/openai/key-info; the y-agent subscription key is literally
+    named `subscription`, so its list-price cost figure is notional, never
+    dollars charged. Failures and any non-subscription name default to `real`
+    (conservative: never downgrade a spend figure to notional on uncertainty)."""
+    try:
+        resp = httpx.get(
+            f"{origin}/openai/key-info",
+            headers={"x-api-key": api_key, "User-Agent": _BROWSER_UA},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        name = (resp.json() or {}).get("name") or ""
+    except Exception as e:
+        logger.warning("_crs_key_basis: key-info failed for {}; assuming real: {}", origin, e)
+        return "real"
+    return "notional" if name.strip().lower() == "subscription" else "real"
+
+
+def _aggregate_basis(bases: set[str]) -> str:
+    """Roll a per-model set of contributing key bases into one label: `notional`
+    only when every contributing key is subscription-backed, else `real` (a
+    single pay-per-token key makes the sum a real spend figure)."""
+    return "notional" if bases == {"notional"} else "real"
+
+
 def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
     """Pull today's per-model usage across all distinct CRS keys, SUM per model, and
     upsert as global source='crs' scope='aggregate' rows (one row per model)."""
@@ -153,7 +181,9 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
 
     # model -> summed totals across every distinct key (the global per-model aggregate).
     agg: dict[str, dict] = {}
+    agg_basis: dict[str, set] = {}
     for origin, api_key in targets:
+        basis = _crs_key_basis(origin, api_key)
         try:
             items = _fetch_crs_key(origin, api_key)
         except Exception as e:
@@ -162,6 +192,7 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
         for item in items:
             model = item.get("model") or "*"
             costs = item.get("costs") or {}
+            agg_basis.setdefault(model, set()).add(basis)
             row = agg.setdefault(model, {
                 "input_tokens": 0, "output_tokens": 0, "cache_create_tokens": 0,
                 "cache_read_tokens": 0, "all_tokens": 0, "requests": 0, "cost": 0.0,
@@ -183,7 +214,7 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
         "scope": "aggregate",
         "scope_id": "",
         "scope_name": "",
-        "cost_basis": "real",
+        "cost_basis": _aggregate_basis(agg_basis[model]),
         **totals,
     } for model, totals in agg.items()]
 
@@ -268,13 +299,19 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
     CRS daily-bucket TTL) is recoverable; older history has expired in Redis.
 
     Idempotent: every row reuses the existing unique key, so a re-run leaves the
-    row count and values unchanged."""
+    row count unchanged and refreshes counters in place. Because historical admin
+    stats lack per-key attribution, backfill omits cost_basis: new rows default to
+    `real`, while existing go-forward labels remain unchanged."""
     synced_at = synced_at or get_utc_iso8601_timestamp()
     username, password = _crs_admin_creds()
     origin = _crs_origin(user_id)
     token = crs_admin_login(origin, username, password)
 
     result: dict = {"source": "crs", "status": "ok", "origin": origin, "daily_rows": 0, "days": []}
+
+    # The admin endpoint has no per-key attribution, so backfill omits the basis.
+    # New rows use the database's `real` default; conflicts preserve the existing
+    # label rather than fabricating attribution or erasing go-forward knowledge.
 
     # dated daily window [today-days, yesterday] (caps at yesterday so the
     # go-forward sync keeps ownership of the in-progress day).
@@ -298,7 +335,6 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
                 "scope": "aggregate",
                 "scope_id": "",
                 "scope_name": "",
-                "cost_basis": "real",
                 "input_tokens": int(item.get("inputTokens") or 0),
                 "output_tokens": int(item.get("outputTokens") or 0),
                 "cache_create_tokens": int(item.get("cacheCreateTokens") or 0),

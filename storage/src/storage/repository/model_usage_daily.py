@@ -63,23 +63,25 @@ def upsert_daily(user_id: int, rows: list[dict], synced_at: str) -> int:
     with get_db() as session:
         for row in rows:
             stmt = insert(ModelUsageDailyEntity).values(**_values(user_id, row, synced_at))
+            update_values = {
+                "provider": stmt.excluded.provider,
+                "scope": stmt.excluded.scope,
+                "scope_name": stmt.excluded.scope_name,
+                "input_tokens": stmt.excluded.input_tokens,
+                "output_tokens": stmt.excluded.output_tokens,
+                "cache_create_tokens": stmt.excluded.cache_create_tokens,
+                "cache_read_tokens": stmt.excluded.cache_read_tokens,
+                "all_tokens": stmt.excluded.all_tokens,
+                "requests": stmt.excluded.requests,
+                "cost": stmt.excluded.cost,
+                "synced_at": stmt.excluded.synced_at,
+                "updated_at": stmt.excluded.updated_at,
+            }
+            if "cost_basis" in row:
+                update_values["cost_basis"] = stmt.excluded.cost_basis
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_model_usage_daily",
-                set_={
-                    "provider": stmt.excluded.provider,
-                    "scope": stmt.excluded.scope,
-                    "scope_name": stmt.excluded.scope_name,
-                    "input_tokens": stmt.excluded.input_tokens,
-                    "output_tokens": stmt.excluded.output_tokens,
-                    "cache_create_tokens": stmt.excluded.cache_create_tokens,
-                    "cache_read_tokens": stmt.excluded.cache_read_tokens,
-                    "all_tokens": stmt.excluded.all_tokens,
-                    "requests": stmt.excluded.requests,
-                    "cost": stmt.excluded.cost,
-                    "cost_basis": stmt.excluded.cost_basis,
-                    "synced_at": stmt.excluded.synced_at,
-                    "updated_at": stmt.excluded.updated_at,
-                },
+                set_=update_values,
             )
             session.execute(stmt)
         session.flush()

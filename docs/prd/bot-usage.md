@@ -358,9 +358,22 @@ expired-login card tells the user to run.
   attribution later, with the current pipeline writing only the global
   aggregate sentinel (`scope='aggregate'`, empty `scope_id`).
 - **Metrics per row.** Input, output, cache-create, cache-read, and total
-  tokens; request count; USD cost with a `cost_basis` marker (always `real`:
-  the relay's stored real cost on the go-forward path, its recomputed cost on
-  the backfill path; both are official pricing).
+  tokens; request count; USD cost with a `cost_basis` marker. The relay always
+  computes cost from official list API pricing, so the dollar figure is only
+  *actual spend* for a pay-per-token key (`real`) and is **notional** for a
+  subscription-backed key that charges a flat fee (`notional`): CRS marks such
+  a figure up with list price even though no dollars were charged. Detection is
+  per key at sync time: the relay's `GET {origin}/openai/key-info` names the
+  subscription key `subscription`, and any key so named is `notional`; any
+  other name, and any detection failure, defaults to `real` (never downgrade a
+  spend figure to notional on uncertainty). On the go-forward per-key sync, a
+  per-model row is `notional` only when *every* contributing key is
+  subscription-backed, otherwise `real`. Historical backfill uses the relay's
+  global admin stats, which do not attribute models to keys, so newly inserted
+  rows default conservatively to `real`. When a row already exists, backfill
+  refreshes its counters and cost without overwriting its go-forward
+  `cost_basis`; it neither claims unsupported attribution nor erases known
+  attribution.
 - **Layering.** Standard entity, repository, service slice; the CLI and worker
   call only the service; migration SQL is hand-run by the maintainer per the
   repo convention.
@@ -410,9 +423,14 @@ expired-login card tells the user to run.
   relay's admin session with credentials supplied via environment or local
   config at invocation time, fetches per-model per-day stats for each day in
   `[today - N, yesterday]` (N defaulting to the relay's ~32-day daily-bucket
-  retention), writes rows in exactly the go-forward shape, and discards the
-  session. Credentials and tokens never reach the database, logs, or the
-  deployed Lambda.
+  retention), writes rows at the same daily aggregate grain as go-forward sync,
+  and discards the session. The admin endpoint has no per-key breakdown, so the
+  backfill does not supply `cost_basis`: a newly inserted row defaults
+  conservatively to `real`, while an existing row keeps the label previously
+  established by go-forward sync. Backfill therefore refreshes counters and cost
+  without inferring historical per-model attribution from the current key
+  topology or downgrading known attribution. Credentials and tokens never reach
+  the database, logs, or the deployed Lambda.
 - **Yesterday cap.** The backfill never writes today, so the recurring sync
   owns the in-progress day and the two paths cannot fight.
 - **Lifetime anchor rejected.** A design for storing the relay's all-time
@@ -727,6 +745,28 @@ expired-login card tells the user to run.
   total; metric-first column order; sticky header and sticky Total row over an
   internal scroll area sized to about five data rows; progressive column
   reveal driven by container (panel) width, not viewport width.
+- **Cache-hit share is a first-class column.** The one number that makes
+  bridged-model caching diagnosable (`cache_read / all_tokens`, already on
+  every row) is rendered as a per-model percentage alongside the tokens/cost
+  columns. Because cache hit is already a percentage, sorting by it excludes
+  the separate share-of-active-column `%` calculation used by the other numeric
+  metrics; the `%` column then falls back to each model's share of total tokens,
+  exactly as it does when sorting by Model. A bridged model like `gpt-5.6-sol`
+  reads ~2% while a native `claude-opus-5` reads ~94%, so the gap is visible
+  without manual arithmetic. The percentage is derived client-side from the two
+  ingested counters; nothing new is stored.
+- **Notional cost is not presented as spend.** A row whose `cost_basis` is
+  `notional` (a subscription-backed key charged a flat fee, see Storage) shows
+  its dollar figure as notional list-price, for example with a marker, italics,
+  or a "notional" badge, rather than as a dollar amount implying money was
+  charged. A multi-day model row is labelled `notional` only when every daily
+  row in the selected window is `notional`. Because historical backfill defaults
+  new rows to `real` and go-forward sync writes only the current day, windows
+  containing pre-feature history remain unlabelled until they contain only
+  post-feature notional days; historical figures such as the original $316/mo
+  and $149 observations remain conservatively presented as spend. This turns
+  future all-notional windows from a spend anomaly into the efficiency fact they
+  actually are without retroactively asserting attribution the source lacks.
 - **Heatmap.** GitHub contribution semantics: week columns left to right,
   Monday to Sunday top to bottom, month labels on the column containing each
   month's first day, Mon/Wed/Fri gutter labels, five-bucket sequential
@@ -870,6 +910,7 @@ expired-login card tells the user to run.
 | 2982 | Daily-tokens heatmap rebucketed from share-of-window-max to absolute per-metric thresholds (100M tokens / `$`100 cost / 1000 requests, five steps to a `5x` ceiling), with values above the ceiling leaving the discrete scale on a linear ramp interpolated to the window max. Six visual states: the todo-2980 empty gray plus five steps plus the ramp. The color model changed with it: alpha-over-card `rgba` steps were replaced by opaque greens sampled off one gradient per theme *mode* (`lum(base03)` picks light `#7bd992`→`#126329` or dark `#126329`→`#7bd992`), because alpha steps flip direction with the theme as a compositing side effect and cannot continue past `alpha=1`, which would have reversed the scale on one mode. `#9be9a8` (GitHub's) was rejected for landing within 0.005 luminance of the 2980 empty gray on light. Ramp position floors its denominator at `max(windowMax - ceiling, ceiling)` so a lone 505M day does not paint full depth. Absolute thresholds mean a quiet window no longer self-normalizes and renders uniformly pale — confirmed intended | `pages/design-2982.html` | - | this PRD | `pages/review-2982-heatmap-absolute-buckets.md` | shipped (`bot` artifact v9, `f617a3d5c617…`; v7 shipped the ramp painting black — `mix()` returns an `rgb()` string that `hexToRgb()` could not parse — fixed forward by making the ramp one expression on the same gradient rather than a precomputed endpoint two color representations had to agree on) |
 | 2988 | Removed the small explanatory captions beside dashboard titles across Subscription limits, the daily heatmap, the over-time chart, and the history table | - | - | - | - | shipped (`bot` artifact v8, `1ba893108ee3…`) |
 | 3001 | Grok card went `parse_failed` when xAI's `?format=credits` view stopped carrying `creditUsagePercent` (2026-08-03). Fixed by making the xAI reader plain-view-first: derive `used_percent` from `config.used.val` / `config.monthlyLimit.val` on `GET /v1/billing`, falling back to the legacy `creditUsagePercent` shape on `?format=credits` only if the plain view yields no window. No API/web/DB change — same `billing_period` window kind, same envelope contract, same `bot` artifact. Whether `creditUsagePercent` is gone for good or merely zero-omitted, and end-to-end confirmation via `y usage limits --json` on the VM, are unverified from this sandboxed impl session (no VM/SSH access); pending a run from an environment with VM access | - | `pages/plan-3001-grok-usage-parse.md` | this PRD | - | implemented, pending VM verification |
+| 3025 | Distinguished subscription-backed notional token cost from real spend for go-forward daily usage and surfaced window-level cache-hit percentage; historical backfill preserves known basis but remains conservatively `real` where relay stats cannot attribute models to keys | - | `pages/plan-3025-bridged-model-prompt-caching.md` | this PRD | `pages/review-3025-track-b-notional-cost-r3.md`, `pages/review-3025-usage-panel-cleanup.md` | reviewed, pending deployment |
 
 ## Out of Scope
 

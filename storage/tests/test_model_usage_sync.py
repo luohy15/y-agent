@@ -59,6 +59,7 @@ class SyncCrsTest(unittest.TestCase):
         ]})
         with (
             patch.object(usage_service.bot_config_service, "list_configs", return_value=bots),
+            patch.object(usage_service, "_crs_key_basis", return_value="real"),
             patch.object(usage_service, "_fetch_crs_key", side_effect=fetch) as fetch_mock,
             patch.object(usage_service, "upsert_daily", return_value=1) as upsert,
         ):
@@ -90,6 +91,7 @@ class SyncCrsTest(unittest.TestCase):
 
         with (
             patch.object(usage_service.bot_config_service, "list_configs", return_value=bots),
+            patch.object(usage_service, "_crs_key_basis", return_value="real"),
             patch.object(usage_service, "_fetch_crs_key", side_effect=fetch),
             patch.object(usage_service, "upsert_daily", side_effect=fake_upsert),
         ):
@@ -117,6 +119,7 @@ class SyncCrsTest(unittest.TestCase):
 
         with (
             patch.object(usage_service.bot_config_service, "list_configs", return_value=bots),
+            patch.object(usage_service, "_crs_key_basis", return_value="real"),
             patch.object(usage_service, "_fetch_crs_key", side_effect=fetch),
             patch.object(usage_service, "upsert_daily") as upsert,
         ):
@@ -130,6 +133,115 @@ class SyncCrsTest(unittest.TestCase):
         with patch.object(usage_service.bot_config_service, "list_configs", return_value=[]):
             result = usage_service.sync_crs(1)
         self.assertEqual(result["status"], "skip")
+
+    @staticmethod
+    def _fetch_returning(by_target):
+        def fetch(origin, api_key):
+            return by_target[(origin, api_key)]
+        return fetch
+
+
+class CostBasisTest(unittest.TestCase):
+    """Track B (todo 3025): subscription-backed cost is notional, not real spend."""
+
+    def test_subscription_key_maps_to_notional(self):
+        with patch.object(usage_service.httpx, "get") as get:
+            get.return_value.raise_for_status.return_value = None
+            get.return_value.json.return_value = {"name": "subscription"}
+            self.assertEqual(usage_service._crs_key_basis("https://cc1.yovy.app", "cr_sub"), "notional")
+
+    def test_non_subscription_name_maps_to_real(self):
+        with patch.object(usage_service.httpx, "get") as get:
+            get.return_value.raise_for_status.return_value = None
+            get.return_value.json.return_value = {"name": "paygo"}
+            self.assertEqual(usage_service._crs_key_basis("https://cc1.yovy.app", "cr_paygo"), "real")
+
+    def test_key_info_failure_defaults_to_real(self):
+        with patch.object(usage_service.httpx, "get", side_effect=Exception("boom")):
+            self.assertEqual(usage_service._crs_key_basis("https://cc1.yovy.app", "cr_sub"), "real")
+
+    def test_aggregate_basis_notional_only_when_all_keys_subscription(self):
+        self.assertEqual(usage_service._aggregate_basis({"notional"}), "notional")
+        self.assertEqual(usage_service._aggregate_basis({"real"}), "real")
+        self.assertEqual(usage_service._aggregate_basis({"notional", "real"}), "real")
+        self.assertEqual(usage_service._aggregate_basis(set()), "real")
+
+    def test_sync_marks_subscription_key_rows_notional(self):
+        bots = [_bot("codex", "cr_sub")]
+        fetch = self._fetch_returning({("https://cc1.yovy.app", "cr_sub"): [
+            {"model": "gpt-5.6-sol", "inputTokens": 10, "outputTokens": 5, "allTokens": 15, "requests": 1, "costs": {"real": 0.1}},
+        ]})
+        captured = {}
+
+        def fake_upsert(user_id, rows, synced_at=None):
+            captured["rows"] = rows
+            return len(rows)
+
+        with (
+            patch.object(usage_service.bot_config_service, "list_configs", return_value=bots),
+            patch.object(usage_service, "_crs_key_basis", return_value="notional"),
+            patch.object(usage_service, "_fetch_crs_key", side_effect=fetch),
+            patch.object(usage_service, "upsert_daily", side_effect=fake_upsert),
+        ):
+            result = usage_service.sync_crs(1, synced_at="2026-07-08T00:00:00Z")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(captured["rows"][0]["cost_basis"], "notional")
+
+    def test_sync_mixed_basis_across_keys_rolls_to_real(self):
+        bots = [
+            _bot("a", "cr_sub", base_url="https://cc1.yovy.app/api"),
+            _bot("b", "cr_paygo", base_url="https://cc2.yovy.app/api"),
+        ]
+        fetch = self._fetch_returning({
+            ("https://cc1.yovy.app", "cr_sub"): [{"model": "gpt-5.6-sol", "inputTokens": 1, "outputTokens": 1, "allTokens": 2, "requests": 1, "costs": {"real": 0.1}}],
+            ("https://cc2.yovy.app", "cr_paygo"): [{"model": "gpt-5.6-sol", "inputTokens": 1, "outputTokens": 1, "allTokens": 2, "requests": 1, "costs": {"real": 0.1}}],
+        })
+        captured = {}
+
+        def fake_upsert(user_id, rows, synced_at=None):
+            captured["rows"] = rows
+            return len(rows)
+
+        with (
+            patch.object(usage_service.bot_config_service, "list_configs", return_value=bots),
+            patch.object(usage_service, "_crs_key_basis", side_effect=lambda o, k: "notional" if k == "cr_sub" else "real"),
+            patch.object(usage_service, "_fetch_crs_key", side_effect=fetch),
+            patch.object(usage_service, "upsert_daily", side_effect=fake_upsert),
+        ):
+            usage_service.sync_crs(1, synced_at="2026-07-08T00:00:00Z")
+
+        self.assertEqual(captured["rows"][0]["cost_basis"], "real")
+
+    def test_backfill_omits_basis_without_per_key_model_attribution(self):
+        captured = {}
+
+        def fake_upsert(user_id, rows, synced_at=None):
+            captured["rows"] = rows
+            return len(rows)
+
+        with (
+            patch.object(usage_service, "_crs_admin_creds", return_value=("admin", "secret")),
+            patch.object(usage_service, "_crs_origin", return_value="https://cc1.yovy.app"),
+            patch.object(usage_service, "crs_admin_login", return_value="token"),
+            patch.object(usage_service, "_local_today", return_value="2026-07-08"),
+            patch.object(usage_service, "crs_admin_get", return_value={"data": [{
+                "model": "gpt-5.6-sol",
+                "inputTokens": 10,
+                "outputTokens": 5,
+                "allTokens": 15,
+                "requests": 1,
+                "costs": {"total": 0.1},
+            }]}),
+            patch.object(usage_service, "_crs_key_basis") as key_basis,
+            patch.object(usage_service, "upsert_daily", side_effect=fake_upsert),
+        ):
+            result = usage_service.backfill_crs(1, days=1, synced_at="2026-07-08T00:00:00Z")
+
+        self.assertEqual(result["daily_rows"], 1)
+        self.assertEqual(captured["rows"][0]["usage_date"], "2026-07-07")
+        self.assertNotIn("cost_basis", captured["rows"][0])
+        key_basis.assert_not_called()
 
     @staticmethod
     def _fetch_returning(by_target):
@@ -214,7 +326,12 @@ class UpsertOnConflictSetCoversAllMutableColumnsTest(unittest.TestCase):
             stmt = insert_mock.return_value.values.return_value
             repo.upsert_daily(
                 1,
-                [{"source": "crs", "usage_date": "2026-07-08", "model": "claude-opus-4-8"}],
+                [{
+                    "source": "crs",
+                    "usage_date": "2026-07-08",
+                    "model": "claude-opus-4-8",
+                    "cost_basis": "notional",
+                }],
                 synced_at="2026-07-08T00:00:00Z",
             )
 
@@ -222,6 +339,20 @@ class UpsertOnConflictSetCoversAllMutableColumnsTest(unittest.TestCase):
         self.assertEqual(kwargs["constraint"], "uq_model_usage_daily")
         actual_set_keys = set(kwargs["set_"].keys())
         self.assertEqual(actual_set_keys, expected_settable | always_set_columns)
+
+    def test_missing_cost_basis_preserves_existing_label_on_conflict(self):
+        with patch.object(repo, "insert") as insert_mock, patch.object(repo, "get_db"):
+            stmt = insert_mock.return_value.values.return_value
+            repo.upsert_daily(
+                1,
+                [{"source": "crs", "usage_date": "2026-07-08", "model": "gpt-5.6-sol"}],
+                synced_at="2026-07-08T00:00:00Z",
+            )
+
+        inserted_values = insert_mock.return_value.values.call_args.kwargs
+        self.assertEqual(inserted_values["cost_basis"], "real")
+        _, kwargs = stmt.on_conflict_do_update.call_args
+        self.assertNotIn("cost_basis", kwargs["set_"])
 
 
 if __name__ == "__main__":

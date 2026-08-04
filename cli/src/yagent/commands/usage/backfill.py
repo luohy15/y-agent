@@ -15,8 +15,9 @@ def backfill(source: str, days: int, user_id: int | None, as_json: bool):
     """One-shot historical backfill into model_usage_daily via the CRS admin routes.
 
     Writes per-day scope='aggregate' rows for [today-days, yesterday] (the recoverable
-    ~32-day dated window; older CRS history has expired). Same row shape as the
-    go-forward daily sync, idempotent (upsert in place). Needs admin creds
+    ~32-day dated window; older CRS history has expired). Idempotently refreshes
+    counters in place without overwriting existing go-forward cost-basis labels;
+    newly inserted rows default to real. Needs admin creds
     (CRS_ADMIN_USERNAME/CRS_ADMIN_PASSWORD env or a [crs] config block).
     """
     target_user_id = user_id or get_cli_user_id()

@@ -32,7 +32,7 @@ class ModelUsageDailyEntity(Base, BaseEntity):
     requests = Column(BigInteger, nullable=False, default=0)
     # --- cost ---
     cost = Column(Float, nullable=False, default=0.0)       # USD
-    cost_basis = Column(String, nullable=False, default="real")  # 'real' | 'rated'
+    cost_basis = Column(String, nullable=False, default="real")  # 'real' | 'rated' | 'notional'
     synced_at = Column(String, nullable=False)
 
     __table_args__ = (
