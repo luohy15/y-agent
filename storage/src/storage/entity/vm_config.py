@@ -1,5 +1,4 @@
-from sqlalchemy import JSON, Column, Integer, String, ForeignKey, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint
 from .base import Base, BaseEntity
 
 
@@ -15,7 +14,10 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_instance_id = Column(String, nullable=False, default="")
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
-    finance_config = Column(JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict)
+    # NOTE: the live table still has a `finance_config` jsonb column (NOT NULL
+    # DEFAULT '{}'). It is finance domain data that moved to the module-owned
+    # `finance_config` table (todo 3020, D8); the expand/contract DROP is the
+    # commented last step of modules/finance/migration/001_finance_config.sql.
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

@@ -11,7 +11,6 @@ class VmConfig:
     ec2_instance_id: str = ""
     ec2_region: str = ""
     last_up: Optional[int] = None  # unix timestamp
-    finance_config: Optional[Dict] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VmConfig':

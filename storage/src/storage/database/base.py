@@ -84,11 +84,6 @@ def init_tables():
     import storage.entity.user_preference  # noqa: F401
     import storage.entity.english_correction  # noqa: F401
     import storage.entity.user_cookies  # noqa: F401
-    import storage.entity.finance_transaction  # noqa: F401
-    import storage.entity.finance_fundamentals  # noqa: F401
-    import storage.entity.finance_holding  # noqa: F401
-    import storage.entity.finance_price  # noqa: F401
-    import storage.entity.finance_realtime_quote  # noqa: F401
     import storage.entity.model_usage_daily  # noqa: F401
     import storage.entity.module  # noqa: F401
     import storage.entity.module_version  # noqa: F401

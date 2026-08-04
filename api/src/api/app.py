@@ -24,7 +24,6 @@ from api.controller.calendar_event import router as calendar_router
 from api.controller.vm_config import router as vm_config_router
 from api.controller.link import router as link_router
 from api.controller.email import router as email_router
-from api.controller.finance import router as finance_router
 from api.controller.terminal import router as terminal_router
 from api.controller.bot_config import router as bot_config_router
 from api.controller.model_usage import router as model_usage_router
@@ -71,7 +70,6 @@ api_router.include_router(calendar_router)
 api_router.include_router(vm_config_router)
 api_router.include_router(link_router)
 api_router.include_router(email_router)
-api_router.include_router(finance_router)
 api_router.include_router(terminal_router)
 api_router.include_router(bot_config_router)
 api_router.include_router(model_usage_router)
