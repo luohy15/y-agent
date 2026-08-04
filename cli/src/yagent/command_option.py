@@ -11,7 +11,6 @@ from yagent.commands.todo.click import todo_group
 from yagent.commands.calendar.click import calendar_group
 from yagent.commands.link.click import link_group
 from yagent.commands.email.click import email_group
-from yagent.commands.finance.click import finance_group
 from yagent.commands.image.click import image_group
 from yagent.commands.pdf.click import pdf_group
 from yagent.commands.dev.click import dev_group
@@ -49,7 +48,6 @@ cli.add_command(todo_group)
 cli.add_command(calendar_group)
 cli.add_command(link_group)
 cli.add_command(email_group)
-cli.add_command(finance_group)
 cli.add_command(image_group)
 cli.add_command(pdf_group)
 cli.add_command(dev_group)

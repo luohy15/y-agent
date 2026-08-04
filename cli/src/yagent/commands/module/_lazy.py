@@ -159,8 +159,9 @@ class LazyModuleGroup(click.Group):
         return sorted(names)
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> Optional[click.Command]:
-        # Built-ins always win. A module named `todo` / `module` / `finance`
-        # (while finance is still built-in) cannot shadow the host command.
+        # Built-ins always win: a module cannot shadow `todo` / `module` / any
+        # other host command. `finance` resolves here because the built-in
+        # group was removed when the module took it over (todo 3020 phase 7).
         builtin = super().get_command(ctx, cmd_name)
         if builtin is not None:
             return builtin
