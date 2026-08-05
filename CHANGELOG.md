@@ -13,6 +13,12 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Bot management module and backend contract v2 (3028, 3031)**: bot management now
+  runs through the versioned `bot` module at `/api/module/bot/*`, with the local `y bot`
+  CLI resolving from its canonical module source. The module uses narrowly scoped,
+  request-bound `bot_config_*` host-contract functions instead of importing host
+  repositories, while the worker hot path and runtime bot configuration remain kernel
+  owned. Production bot **v12** has v11 as its full-stack rollback twin.
 - **Hot-loadable module system (3020)**: modules use the canonical
   `$Y_AGENT_HOME/modules/<slug>/` source layout and a single `y module` lifecycle
   (`create` / `list` / `schema-sql` / `publish` / `versions` / `activate` / `rollback` /
@@ -37,8 +43,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   dropped.
 
 ### Fixed
+- **Module artifact discovery**: normalize the module-list payload at the web host
+  boundary, so published module panels render correctly when the API returns its
+  envelope rather than a bare list.
 
 ### Removed
+- **Built-in bot management surface (3028)**: deleted host `/api/bot/*` management
+  routes, the built-in `y bot` command implementation, pricing service, and associated
+  tests. `GET /api/chat/bot-options` remains host-owned, read-only routing selection
+  for every authenticated user, so chat bot picking continues to work independently of
+  module availability or maintainer-only management access.
 - **Built-in finance stack (3020 cutover)**: host `api/controller/finance.py`,
   `cli/commands/finance` + `cli/commands/beancount`, storage finance entities /
   repositories / services / DTOs, and the unreferenced `worker/steps/sync_finance.py`
