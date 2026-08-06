@@ -108,10 +108,17 @@ and adds the inverse `y file download`. After 2833, the public contract is the
 
 ## Implementation Decisions
 
-- **Command group**: Click group `file` registered on the root `y` CLI, with
-  subcommands `upload` and `download`. Public surface after 2833:
-  `y file upload`, `y file download`. Remove the flat top-level `y upload`
-  once the group is in place (no long-lived dual surface).
+- **Command group**: Click group `file`, subcommands `upload` and `download`.
+  Public surface after 2833: `y file upload`, `y file download`. Remove the
+  flat top-level `y upload` once the group is in place (no long-lived dual
+  surface). **Superseded by todo 3068** (see Delivery Records): the group is
+  no longer registered on the root `y` CLI. It moved to
+  `$Y_AGENT_HOME/modules/file/cli.py` as part of the file hot-loadable module
+  and now resolves lazily like `y finance` / `y bot`, with no change to
+  command options, output, host resolution, rsync argv, or dry-run semantics.
+  This PRD stays authoritative for the transfer *contract* (flags, resolution
+  order, safety knobs); `code/y-agent/docs/prd/module-system.md` owns where
+  the code physically lives.
 - **Transport**: shell out to system `rsync` with `-e ssh` (or `ssh -p <port>`
   when the resolved target is non-22). Do not reimplement transfer in paramiko
   for this client path.
@@ -188,5 +195,6 @@ and adds the inverse `y file download`. After 2833, the public contract is the
 |------|---------|--------|------|-----------|--------|--------|
 | 2826 | Ship Mac→EC2 `y upload` (rsync/SSH, API host resolve, tilde-safe mkdir, generic SOURCE paths) | - | `pages/plan-2826-y-upload.md` | - | `pages/review-2826-y-upload.md` | shipped |
 | 2833 | Regroup under `y file`; add EC2→Mac `y file download` mirroring upload | - | - | - | `pages/review-2833-cli-file-transfer.md` | shipped |
+| 3068 | `y file` relocated from the built-in CLI into `modules/file/cli.py` as part of consolidating the whole file domain into a hot-loadable module (see `code/y-agent/docs/prd/module-system.md` Delivery Records). Behavior-level parity verified command-by-command against the deleted built-in group: same options, output, host resolution, rsync argv, and dry-run semantics. No change to this PRD's transfer contract. | - | `pages/plan-3068-file-module.md` | - | `pages/review-3068-file-cli.md` | shipped |
 
 Related private context (not requirement text): `pages/mac-cleanup-backup-plan.md`.

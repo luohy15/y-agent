@@ -577,6 +577,16 @@ established one for a control-plane module over host-owned runtime state — a
 short list of named, owner-bound functions, added as a version bump, never a
 generic table accessor.
 
+Todo 3068 added the first extension to an *existing* capability rather than a
+new one: `run_vm_command` gained explicit `work_dir` and stdin parameters
+(the underlying local/SSH execution already supported both; the file module
+is the first caller that needs them as part of the contract rather than a
+host-internal default), plus a new narrow lookup, `note_list_at_path`, so the
+file module's rename endpoint can enforce the note `content_key` guard
+without importing the note service. That bumped `BACKEND_CONTRACT_VERSION`
+from 3 to **4**, and the file module declares `min_backend_version: 4`. See
+*File: a control-plane module over VM infrastructure* below.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module
@@ -1083,6 +1093,91 @@ loading, unauthenticated module routes, moving the `chat` table, and Telegram /
 `pages/plan-3042-renderer.md` are the plan of record, and
 `pages/decision-3042-chat-module-scope.md` records the scope call.
 
+### File: a control-plane module over VM infrastructure
+
+File is the **fourth full-stack module** (`$Y_AGENT_HOME/modules/file`, active
+v4, v3 the byte-identical rollback twin from before the built-in cut; v1/v2 is
+the pre-cut twin pair, still a viable second rollback rung — unlike bot's and
+chat's post-cutover twins, v1/v2 never called a route the cut deleted, so it
+does not go unsafe. Rolling back that far loses three features restored on
+top of it (M5): Import Note, the History link, and the sandboxed-preview
+keyboard bridge). It is architecturally distinct from finance, bot, and chat:
+file has no database tables at all. What it owns is the authenticated **file
+control plane** over infrastructure the host still runs.
+
+The audit ruled out a finance-style full move for exactly that reason: files
+are VM infrastructure — credentials, SSH, EC2 lifecycle, local-vs-remote
+execution — not module-owned data. What can move is everything that describes
+*how the file domain looks and behaves*, following the same split bot and chat
+already established.
+
+| Code | Owner | Why |
+|---|---|---|
+| `/api/module/file/*` (list/read/prd/skills/search/touch/delete/rename/move/upload/write/raw/export-pdf — all 13 routes from the deleted built-in controller) | **Module** | Domain HTTP behavior; changes with the file UX. |
+| `y file upload` / `download` (`modules/file/cli.py`) | **Module** | Not a hybrid group like `y chat`: file transfer is not the mechanism used to recover the agent system, so it moves whole. |
+| Files `panel` (ported `FileTree` behavior, mounts in either sidebar via `usePanelLocation()`) | **Module** | The user-facing browsing surface. |
+| `detail` workspace (`ui:file`: file tabs, search, CodeMirror editing, Markdown/HTML/image/PDF preview, save/download/export, tab persistence) | **Module** | Owns every ordinary-file view previously in host `FileViewer`. |
+| VM credentials, SSH/EC2 execution (`agent/vm_command.py`) | **Host** | Infrastructure, same rule as every other module. |
+| Request-owner enforcement on VM execution | **Host** | Unchanged from the pre-module `_exec`; every module capability stays request-owner-bound. |
+| The note `content_key` rename guard | **Host, module-invoked** | The module calls the narrow `note_list_at_path` capability; it does not own note metadata or import the note service. |
+| Generic special/public tab shell in `FileViewer.tsx` (`PublicFileViewer`, and every non-file special tab: trace/link/entity/email/dev/diff/artifact/module-detail) | **Host** | Not file-domain logic; `FileViewer` hosts eight other domains and cannot couple them to one module's version. |
+| File selection intent/command seam (`file.open` / `file.close` / `file.search` host commands, per-location VM/work-directory context) | **Host publishes, module consumes** | Same shape as the chat shell's `runHostCommand` channel. |
+
+**Backend contract v4** extends `run_vm_command` with explicit `work_dir` and
+stdin (the existing local/SSH execution path already supported both; this
+makes them a first-class module capability) and adds `note_list_at_path`, the
+narrow lookup the rename guard needs. File declares `min_backend_version: 4`.
+File bytes cross the string contract as base64 through stdin, same as the
+pre-existing remote implementation; this is a real (if small) cost on large
+`/raw` reads, accepted because the alternative — a second, wider execution
+primitive — would widen what every module can do, not just what file needs.
+
+**Browser contract v6 → v7**, the second growth of the host render-leaf set
+after todo 3042. `pages/decision-3068-codemirror-bundle-measurement.md`
+measured CodeMirror bundled directly into the module at ~957 KB unminified
+(core + one language) — already over the 250 KB module ceiling even minified
+and bare (~267 KB) — so the detail workspace imports the host's `CodeEditor`
+as a versioned `@y/host` leaf instead of vendoring the editor. The shipped
+module bundle (panel + detail combined) measured ~93 KB, well inside ceiling.
+
+**Two-deploy cutover, same shape as every prior full-stack migration — with
+one operational lesson worth keeping.** Host deploy A added backend v4,
+browser v7, the file host commands/intents, and the execution-helper
+extraction while the old built-ins kept serving; two identical file versions
+(v1/v2) were published against it and the rollback drill was run there,
+`y module rollback file` → v1 then `y module activate file 2` → v2. But
+deploy A's web half reported success (CloudFront invalidation completed)
+without the new bundle actually going live: `__Y_HOST__.version` stayed at
+**6** in production until deploy B, so v1/v2 rendered as the loader's
+version-mismatch card the whole time, masked only by the built-in Files
+panel still being present and serving users. Browser contract v7 only
+became live at deploy B. Host deploy B then cut the built-in controller, CLI
+group, `FileTree`/`FileSearchDialog`, and the ordinary-file branches of
+`FileViewer`, retargeted host/chat image fetches plus NoteList calls to
+`/api/module/file/*`, and republished the M5 feature-restoration pair v3/v4
+(same hash, published back to back) — no separate rollback drill was run on
+v3/v4 itself. The transferable lesson: a green deploy report is not proof a
+new bundle is being served; verify the live `__Y_HOST__.version` after a
+browser-contract bump before treating a dependent module publish as safe.
+
+**One cross-trace hazard surfaced and was handled outside this migration's
+scope, not inside it.** Published chat versions up to v10 called the
+deleted `/api/file/raw` for image bytes; chat's own source was retargeted
+(`modules/chat/ui/message-bubble.tsx`) but publishing chat v11 was left to
+the chat trace rather than published unilaterally from a dirty chat
+worktree. `modules/note` (todo 3071, unpublished at the time of this cut)
+asserts the built-in `/api/file/*` paths in its own tests and will need its
+own retarget before its first publish.
+
+The `/file/move` endpoint carries forward its pre-existing gap: it has no
+note-pointer rename guard (todo 2888 follow-up), unchanged by this
+migration — the module is a faithful port, not an opportunity to fix
+unrelated behavior.
+
+`pages/plan-3068-file-module.md` is the plan of record;
+`pages/decision-3068-codemirror-bundle-measurement.md` records the bundle
+measurement; the review notes are listed in Delivery Records below.
+
 ## Testing Decisions
 
 Test the observable contract, not the loader's internals.
@@ -1197,3 +1292,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3048 | Module management GUI shipped as `module`, a **UI-only** module (v1 active, `ui=7728f7ea…`), not built-in web code: `panel` lists every deployed module (including disabled and never-published rows, so it requests `/api/module/list` without `enabled_only`) and `detail` renders read-only newest-first version history. Reads the host's existing `GET /api/module/list` and `GET /api/module/versions` from the browser through `@y/host` (`API` / `jsonFetcher`), so there is no API half, no `module_host` capability, no new endpoint, and no `web/src` change; slug `module` is safe because the reserved management routes resolve before `/api/module/<slug>/*` dispatch. `dispatch: maintainer` (matches `/versions` owner scoping), `min_backend_version: null`, `surfaces: panel,detail`. Selection crosses panel→detail via module-local namespaced localStorage plus a same-document event, then `openArtifactDetail("module")`. Self-listing is ordinary metadata, not recursive loading. Read-only by design: publish/activate/rollback/enable/disable/delete stay in `y module`. **First-publish caveat:** `y module rollback module` is a no-op at v1 (no version below the active one); recovery until v2 is `y module disable module` / `y module delete module` plus the host `ArtifactMount` failure card. Module source in the home repo at `5c79acc`. No y-agent deploy, no DB migration. Open follow-up (Roy's call): the modules workspace has no JS test toolchain, so the plan's component-test verify steps for M2-M4 were unrunnable and one rendering bug (F1) reached review. | - | `pages/plan-3048-module-management-gui.md` | - | `pages/review-3048-module-management-gui.md` | shipped |
 | 3051 | Module versions now store their todo/trace structurally in nullable `module_version.trace_id`; publish sends `Y_TRACE_ID` separately and keeps descriptions plain, while `y module versions` preserves the familiar `[trace]` audit display from the new column. The hand-applied additive migration backfilled and stripped 20 historical numeric prefixes with 0 bracket-prefixed descriptions remaining. The UI-only `module` module v2 (`ui=55a19a63e511…`) adds a clickable trace badge to version history through the existing contract-v4 `todo.openTrace` host command, with no host-contract or `web/src` change. Host shipped on main `a702517`; module source commit `3036fc3`. | - | `pages/plan-3051-module-version-trace.md` | - | `pages/review-3051-module-version-trace.md`, `pages/review-3051-module-ui-trace.md` | shipped; UI verification pending |
 | 3061 | Regression fix for the todo 3042 cut: logged-out `/t/:shareId` and `/s/:shareId` rendered every intermediate assistant narration and every tool call as top-level content, because commit `9625478` swapped the deleted `MessageList` (which compacted each turn via `filterLevel0`) for `HostMessageView`, which mapped every parsed message straight to a bubble. Fixed host-side only, in the shared degraded renderer: per-turn display selection shows the user message, one native collapsed `<details>` process summary, and the final assistant, with intermediate content re-using `HostBubble` inside the disclosure so tool output, edit diffs, artifacts, and images stay reachable. All three consumers (`/t`, `/s`, `ChatFallbackView`) get the compact default from one place; `modules/chat`, `ui_public`, and anonymous dispatch are untouched, and the renderer stays under its 300-line ceiling (247). Round-1 review caught a blocker where the process slice ended at the final assistant and dropped trailing tool activity (breaking the live streaming cursor); the fix collects every round message except the selected assistant, preserving order on both sides. Verified live logged-out with Playwright on `https://yovy.app` per Roy's explicit authorization. Shipped on main `9e2c375`. No DB migration, no module publish. | - | `pages/plan-3061-public-share-rendering.md` | - | `pages/review-3061-public-share-rendering.md` | shipped |
+| 3068 | File consolidated into the module system as the **fourth full-stack module** and the first with no database tables: a control-plane module over host **VM infrastructure** rather than module-owned data (`modules/file` active v4, v3 the byte-identical rollback twin; v1/v2 is the pre-cut twin pair, still a viable second rollback rung — it never called a route the cut deleted, but rolling back that far loses the three M5 features, Import Note / History link / preview keyboard bridge). Ships all 13 authenticated file routes at `/api/module/file/*`, the whole `y file upload`/`download` CLI (not a hybrid group — file transfer isn't the dispatch-recovery mechanism `y chat` is), the Files `panel` (location-independent via v6 `usePanelLocation()`), and a `detail` workspace (`ui:file`) owning every ordinary-file view. **Backend contract v3 → v4**: `run_vm_command` gains `work_dir`/stdin, plus a narrow `note_list_at_path` for the rename guard. **Browser contract v6 → v7**: the host's `CodeEditor` (CodeMirror) is exported as a versioned `@y/host` leaf after `pages/decision-3068-codemirror-bundle-measurement.md` measured direct bundling at ~957 KB against the 250 KB module ceiling; shipped module bundle (panel+detail) is ~93 KB. `agent/vm_command.py` extracts the VM execution primitive out of the deleted `api.controller.file`, so host `note.py`/`git.py`/`link.py` import it directly instead of from a controller. Host retains VM credentials/execution, request-owner enforcement, the note rename guard, and the generic special/public tab shell in `FileViewer.tsx` (`PublicFileViewer` plus every non-file special tab). Two-deploy cutover per the established pattern: deploy A (additive, main `2a5dba7`/`5a1719b`) then deploy B (built-in cut, main `787e8a0`). Deploy A's web half reported success but did not actually go live — `__Y_HOST__.version` stayed at 6 in production until deploy B, so v1/v2 rendered the loader's version-mismatch card the whole window, masked by the built-in Files panel still serving; browser contract v7 only became live at deploy B. The v2 → v1 → v2 rollback drill was run during that window; no separate drill was run on the v3/v4 pair published at the cut. Full boundary and follow-ups in *File: a control-plane module over VM infrastructure* above. **Known live regression, not fixed by this todo:** published chat v2–v10 (v10 active) call the now-deleted `/api/file/raw` for image bytes; chat's own source is retargeted but publishing chat v11 (+ an identical v12 twin) was deliberately left to the chat trace / Roy's call rather than published unilaterally from a dirty `modules/chat` worktree carrying unreviewed concurrent-trace WIP. `modules/note` (todo 3071, unpublished at cutover) asserts the deleted built-in `/api/file/*` paths in its own tests and needs its own retarget before its first publish — cross-trace item, not a 3068 defect. `/file/move` still has no note-pointer rename guard (todo 2888 follow-up, pre-existing and unchanged). | - | `pages/plan-3068-file-module.md` | `pages/decision-3068-codemirror-bundle-measurement.md` | `pages/review-3068-file-host-capabilities.md`, `pages/review-3068-codeeditor-host-export.md`, `pages/review-3068-file-browser-seam.md`, `pages/review-3068-file-module-api.md`, `pages/review-3068-file-cli.md`, `pages/review-3068-file-panel.md`, `pages/review-3068-file-detail-workspace.md`, `pages/review-3068-file-builtin-cut.md` | shipped; chat v11 image-fetch fix pending a separate decision |

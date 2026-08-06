@@ -89,6 +89,10 @@ and `y finance` resolved from local module source. Built-in finance host code is
 Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge
 timeout (server-side work still completes). Legacy `vm_config.finance_config` remains
 intentionally for a later contract and is not dropped.
+The file browser is a fourth full-stack module with no database tables of its own: it
+owns the authenticated file API, the `y file upload/download` CLI, and the Files panel
+and editor workspace, while the host keeps VM credentials, SSH/EC2 execution, and the
+note rename-safety guard.
 
 ## Blog Post
 
