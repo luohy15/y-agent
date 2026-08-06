@@ -69,7 +69,7 @@ class SdkPackageDataTest(unittest.TestCase):
         self.assertTrue((root / "shims" / "y-host.cjs").is_file())
         self.assertTrue((root / "templates" / "starter.tsx").is_file())
         contract = load_contract()
-        self.assertEqual(contract["version"], 5)
+        self.assertEqual(contract["version"], 6)
         self.assertIn("react", contract["externals"])
         self.assertIn("@y/host", contract["externals"])
         self.assertIn("lightweight-charts", contract["externals"])

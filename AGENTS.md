@@ -103,7 +103,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   hashes and schema preflight, creates one immutable `module_version`, and atomically
   moves its active pointer. The API dispatches `/api/module/<slug>/*` through a lazy,
   hash-verified per-version sub-application; the web loader preserves the established
-  `@y/host` browser contract (now **v5**), integrity check, and error boundary, and
+  `@y/host` browser contract (now **v6**), integrity check, and error boundary, and
   mounts up to three host slots: the required `panel`, the optional `detail`, and the
   optional `shell` (the persistent centre column; at most one claimant, lowest slug
   wins). `module_version.ui_surfaces` is the immutable per-version record of which

@@ -944,6 +944,16 @@ tab. Chat's live conversation is neither. It is the persistent centre column, an
 a `detail` tab is unmounted when closed, which would tear down a live SSE
 session mid-turn.
 
+**Panel location is a v6 host capability.** A module may mount the same `panel`
+export in either sidebar, including simultaneous mounts, without receiving props.
+`@y/host` therefore exports `usePanelLocation(): "left" | "right"`. The host's
+`ArtifactMount` provides the location through React context only for
+`surface="panel"`; it defaults to `"left"` when the host caller does not specify
+a location. `detail` and `shell` mounts do not provide a panel location and the
+hook consequently retains its `"left"` default there. This additive browser
+contract v6 capability describes placement only. It does not prescribe any
+module behavior.
+
 **`shell` is the third slot**: an optional export, claimed through `ui_surfaces`,
 occupied by **at most one module at a time** (the lowest slug among enabled
 claimants, which is a tie-break rather than a feature). The host resolves the
