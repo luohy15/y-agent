@@ -1,10 +1,13 @@
 """Todo service."""
 
+import ast
 from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
+
+_CHANGED_NOTE_PREFIX = "changed: "
 
 
 def list_todos(
@@ -86,13 +89,42 @@ def create_todo(
     return saved
 
 
+def _changed_progress_value(note: str) -> Optional[str]:
+    """Extract the new `progress` value from an `update_todo` history note.
+
+    `update_todo` writes notes as `"changed: field1=<repr>, field2=<repr>, ..."`, which is
+    valid Python keyword-argument syntax by construction, so it round-trips through ast
+    parsing exactly. Returns None if the note isn't in that format, has no `progress` key,
+    or fails to parse (e.g. a `created` / `pinned` action note uses a different format).
+    """
+    if not note.startswith(_CHANGED_NOTE_PREFIX):
+        return None
+    body = note[len(_CHANGED_NOTE_PREFIX):]
+    try:
+        call = ast.parse(f"f({body})", mode="eval").body
+        changed = {kw.arg: ast.literal_eval(kw.value) for kw in call.keywords if kw.arg}
+    except (SyntaxError, ValueError, TypeError):
+        return None
+    value = changed.get("progress")
+    return value if isinstance(value, str) else None
+
+
 def get_latest_marker(todo: Todo, marker: str) -> Optional[str]:
-    """Return the most recent history entry whose note contains `marker`, formatted as
-    "<timestamp> <note>", or None. Used to surface a single compact status line (e.g. the
-    dev coordinator's `[dev-claim]` lock marker) without exposing full history via the CLI.
+    """Return the most recent history entry whose new progress value starts with `marker`,
+    formatted as "<timestamp> <note>", or None. Used to surface a single compact status
+    line (e.g. the dev coordinator's `[dev-claim]` lock marker) without exposing full
+    history via the CLI.
+
+    Matches only entries where `marker` is the actual prefix of the progress text that was
+    written, not an incidental mention elsewhere in a note's prose (e.g. a progress update
+    that happens to reference "[dev-claim]" mid-sentence must not be mistaken for a real
+    marker entry).
     """
     for entry in reversed(todo.history or []):
-        if entry.note and marker in entry.note:
+        if not entry.note:
+            continue
+        progress_value = _changed_progress_value(entry.note)
+        if progress_value is not None and progress_value.startswith(marker):
             return f"{entry.timestamp} {entry.note}"
     return None
 
