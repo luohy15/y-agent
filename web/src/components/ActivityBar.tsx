@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type RefCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type RefCallback } from "react";
 import { isPreview } from "../hooks/useAuth";
 import { useUserPreference, type SyncStatus } from "../hooks/useUserPreference";
-import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type Module } from "../host/artifacts";
+import type { Module } from "../host/artifacts";
+import { buildModulePanelItems, type PanelItem } from "./panelCatalog";
 import UserMenu from "./UserMenu";
 
 export type BuiltInSidebarPanel =
@@ -33,13 +34,7 @@ interface ActivityBarProps {
   artifactsLoaded?: boolean;
 }
 
-export interface PanelItem {
-  key: SidebarPanel;
-  label: string;
-  icon: ReactNode;
-}
-
-export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
+export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
   { key: "notes", label: "Notes", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
@@ -97,34 +92,8 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   )},
 ];
 
-function artifactIcon(icon?: string | null): ReactNode {
-  if (icon === "chart") {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 5-7" /></svg>;
-  }
-  if (icon === "calendar") {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>;
-  }
-  if (icon === "list") {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></svg>;
-  }
-  if (icon === "bot") {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="7" width="14" height="10" rx="2" /><path d="M12 7V3" /><circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" /><path d="M9 17v2" /><path d="M15 17v2" /></svg>;
-  }
-  if (icon === "todo") {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>;
-  }
-  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21 8-9-5-9 5 9 5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></svg>;
-}
-
-export function buildActivityPanelItems(artifacts: Module[]): PanelItem[] {
-  return [
-    ...BUILT_IN_PANEL_ITEMS,
-    ...mountableUiArtifacts(artifacts).map((artifact) => ({
-      key: artifactPanelKey(artifact.slug),
-      label: artifactLabel(artifact),
-      icon: artifactIcon(artifact.active_version.icon),
-    })),
-  ];
+export function buildActivityPanelItems(artifacts: Module[]): PanelItem<SidebarPanel>[] {
+  return [...BUILT_IN_PANEL_ITEMS, ...buildModulePanelItems(artifacts)];
 }
 
 const STORAGE_KEY = "activityBarOrder";

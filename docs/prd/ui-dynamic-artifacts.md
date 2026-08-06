@@ -60,8 +60,8 @@ syntax highlighting. `y ui publish <slug>` builds that source with esbuild,
 uploads the built ES module, records an immutable version row, and activates it.
 The next page load shows the new UI. Nothing is deployed.
 
-At runtime the web app appends the current user's published artifacts to the
-built-in panel list. Selecting one fetches the built bundle through the API,
+At runtime the web app appends the current user's published modules to each
+narrow host sidebar catalog. Selecting one fetches the built bundle through the API,
 verifies its content hash, and imports it as a real ES module whose default
 export is a React component mounted directly in the host's component tree. It
 is not a boxed iframe and not an interpreted JSON document: it is a first-class
@@ -106,13 +106,13 @@ Finance is the reference case and the first migration target.
 
 ### Rendering and integration
 
-11. As a user, I want my published artifacts to appear in the sidebar alongside
-    built-in panels, so that a personal tool is reachable the same way as
-    everything else.
-12. As a user, I want each artifact to supply its own label and icon, so that it
-    is identifiable in the sidebar without being visually second-class.
-13. As a user, I want selecting an artifact panel to mount its component in the
-    main content area, so that it gets the same space as a built-in panel.
+11. As a user, I want my published modules to appear in narrow host sidebars
+    alongside built-in panels, so that a personal tool is reachable the same way
+    as everything else.
+12. As a user, I want each module to supply its own label and icon, so that it
+    is identifiable in a sidebar without being visually second-class.
+13. As a user, I want selecting a module panel to mount its component in the
+    chosen narrow sidebar, so that it gets the same space as a built-in panel.
 14. As a user, I want artifacts to render with the host's theme tokens, so that
     they look native and follow light/dark switches.
 15. ~~As a user, I want an artifact reachable at its own route, so that I can
@@ -469,8 +469,8 @@ Test the observable contract, not the loader's internals.
   renders the error card with a rollback affordance while sibling panels keep
   rendering. The existing error boundary component tests are the prior art to
   extend.
-- **Panel composition**: the sidebar lists built-ins plus the current user's
-  enabled artifacts, and a disabled artifact does not appear.
+- **Panel composition**: each narrow host sidebar lists its built-ins plus the
+  current user's enabled modules, and a disabled module does not appear.
 - **Finance migration** is verified by behavioral equivalence: the migrated panel
   renders the same figures from the same endpoints as the built-in version.
 - Prior art for component-level tests already exists in the web package
@@ -522,4 +522,4 @@ Test the observable contract, not the loader's internals.
 | 2991 | Per-version `description` on `ui_artifact_version`: `y ui publish -d/--desc`, auto-tagged `[<Y_TRACE_ID>] ` by the CLI, write-once (no annotate endpoint, no contract bump) | - | `pages/plan-2991-ui-version-description.md` | - | `pages/review-2991-ui-version-description.md` | shipped |
 | 3006 | Contract v4 adds `swr/infinite`, `optimisticListMutate`, and the artifact-invoked `runHostCommand` channel. The `todo` artifact replaces the built-in Todo list, viewer, and context menu with modal detail surfaces and no in-bundle fallback. `TraceView` remains built-in because it also renders the unauthenticated public trace-share projection, a boundary for every future artifact candidate shared on that route. | - | `pages/plan-3006-todo-dynamic-ui.md` | - | `pages/review-3006-todo-dynamic-ui-s1.md`, `pages/review-3006-todo-dynamic-ui-s2.md` | implemented |
 | 3042 | Contract v4 → v5 for the chat migration: third UI surface `shell` (the persistent centre column, at most one claimant, claimed via `module_version.ui_surfaces`, host precedence logged-out → module-list-loading → module → `ChatFallbackView`); `react-markdown` + `remark-gfm` added as externals (0 main-chunk bytes, since the host's own `HostMessageView` still imports them); `@y/host` exports the host-owned render leaves (`ArtifactView`, `PatchDiff`, `ImageLightbox`, `exportElementToPng` + the pure export/parsing helpers) so a module can own message rendering without bundling megabytes. Requirements and the seam rule live in `docs/prd/module-system.md`. | - | `pages/plan-3042-renderer.md`, `pages/plan-3042-chatview.md` | `pages/decision-3042-chat-shell-host-seam.md`, `pages/decision-3042-public-dispatch-scope.md` | `pages/review-3042-shell-v1-pb1.md`, `pages/review-3042-host-contract-v5.md`, `pages/review-3042-chat-fallback-v4.md`, `pages/review-3042-host-seam-v5a.md` | shipped |
-| 3046 | Right sidebar becomes an activity-bar-style, full-height panel switcher (chat / note / link / file / diff) that also mounts module `panel` surfaces through the existing module list, `artifact:<slug>` keys, loader, and `ArtifactMount` path; the split bottom-right Context area is removed. Confirms `panel` is a location-independent narrow-column contract rather than a left-sidebar-only surface. No new module surface, no second loader, no design phase. | - | `pages/plan-3046-right-sidebar.md` | - | - | planned; implementation blocked on todo 3042's V6/P5 host cut |
+| 3046 | Right sidebar is an activity-bar-style, full-height panel switcher (chat / note / link / file / diff) that mounts module `panel` surfaces through the existing module list, `artifact:<slug>` keys, loader, and `ArtifactMount` path; the split bottom-right Context area is removed. Confirms `panel` is a location-independent narrow-column contract rather than a left-sidebar-only surface. No new module surface, no second loader, no design phase. | - | `pages/plan-3046-right-sidebar.md` | - | - | implemented; ready for review |
