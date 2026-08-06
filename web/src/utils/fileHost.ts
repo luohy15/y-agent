@@ -45,13 +45,18 @@ export type FileAction = FileOpenAction | FileSearchAction;
  * the two `<FileTree>` call sites in App.tsx); a future panel mount picks its
  * own half via `usePanelLocation()`. `action` is the most recent open/search
  * request, or `null` before the first one; a future detail surface reacts to
- * `action.nonce` changes. Every publish below reads and re-sends the other
- * half unchanged, so a context update never drops an unconsumed action and
- * an action never drops the last-known context. */
+ * `action.nonce` changes. Top-level `nonce` is the shell refresh signal
+ * (review-3068-file-panel.md finding 1 / modules/note convention): the host
+ * republishes with a fresh value when the right activity rail wants a list
+ * refresh, mirroring `refreshKey` on the built-in FileTree. Every publish
+ * below reads and re-sends the halves it isn't updating, so a context update
+ * never drops an unconsumed action, an action never drops the last-known
+ * context, and a refresh never clobbers either. */
 export interface FileArtifactIntent {
   left: FileLocationContext;
   right: FileLocationContext;
   action: FileAction | null;
+  nonce?: number;
 }
 
 const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
@@ -64,12 +69,14 @@ const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
 let lastLeft: FileLocationContext = EMPTY_LOCATION;
 let lastRight: FileLocationContext = EMPTY_LOCATION;
 let lastAction: FileAction | null = null;
+let lastNonce = 0;
 
 function publish(): void {
   setArtifactIntent("file", {
     left: lastLeft,
     right: lastRight,
     action: lastAction,
+    nonce: lastNonce,
   } satisfies FileArtifactIntent);
 }
 
@@ -104,6 +111,15 @@ export function publishFileOpenAction(path: string, vmName: string | null, workD
 
 export function publishFileSearchAction(vmName: string | null, workDir: string | null): void {
   lastAction = { kind: "search", vmName, workDir, nonce: Date.now() };
+  publish();
+}
+
+/** Host -> file artifact list-refresh signal. Bumps the top-level `nonce`
+ * (same field name the note panel reads) without touching left/right/action,
+ * so the right activity rail refresh button keeps working after the C1 cut
+ * replaces built-in FileTree's `refreshKey` prop. */
+export function publishFileRefresh(): void {
+  lastNonce = Date.now();
   publish();
 }
 

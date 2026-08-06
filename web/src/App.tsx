@@ -32,6 +32,7 @@ import {
   fileOpenPayload,
   fileSearchPayload,
   publishFileOpenAction,
+  publishFileRefresh,
   publishFileSearchAction,
   usePublishFileContext,
 } from "./utils/fileHost";
@@ -804,6 +805,9 @@ export default function App() {
 
   const refreshRightPanel = useCallback(() => {
     setRightPanelRefreshKey((k) => k + 1);
+    // H4: module Files panel reads top-level intent.nonce (note convention);
+    // keep the built-in refreshKey path for pre-C1 FileTree / NoteList / Git.
+    publishFileRefresh();
     setRightPanelSpinning(true);
     setTimeout(() => setRightPanelSpinning(false), 600);
   }, []);

@@ -7,6 +7,7 @@ import {
   fileSearchPayload,
   publishFileContext,
   publishFileOpenAction,
+  publishFileRefresh,
   publishFileSearchAction,
   usePublishFileContext,
 } from "./fileHost";
@@ -37,9 +38,12 @@ function ContextProbe({
 }
 
 /** Grab the retained `"file"` intent value from the most recent `setArtifactIntent` call. */
-function lastPublished(): { left: unknown; right: unknown; action: unknown } {
+function lastPublished(): { left: unknown; right: unknown; action: unknown; nonce?: unknown } {
   const calls = setArtifactIntentMock.mock.calls;
-  const [slug, value] = calls[calls.length - 1] as [string, { left: unknown; right: unknown; action: unknown }];
+  const [slug, value] = calls[calls.length - 1] as [
+    string,
+    { left: unknown; right: unknown; action: unknown; nonce?: unknown },
+  ];
   expect(slug).toBe("file");
   return value;
 }
@@ -210,5 +214,38 @@ describe("retained file intent: context and action coexist (review-3068-file-bro
     expect(setArtifactIntentMock).not.toHaveBeenCalled();
 
     root.unmount();
+  });
+
+  // H4 (review-3068-file-panel.md finding 1): shell refresh bumps a top-level
+  // `nonce` (note panel convention) without clobbering left/right/action.
+  it("publishFileRefresh bumps top-level nonce and leaves left/right/action untouched", () => {
+    publishFileContext(null, "/vm/default", "prod", "/vm/prod");
+    publishFileOpenAction("notes/a.md", "prod", "/vm/prod");
+    setArtifactIntentMock.mockClear();
+
+    publishFileRefresh();
+
+    const published = lastPublished();
+    expect(typeof published.nonce).toBe("number");
+    expect(published.nonce).toBeGreaterThan(0);
+    expect(published.left).toEqual({ vmName: null, workDir: "/vm/default" });
+    expect(published.right).toEqual({ vmName: "prod", workDir: "/vm/prod" });
+    expect(published.action).toEqual(
+      expect.objectContaining({ kind: "open", path: "notes/a.md", vmName: "prod", workDir: "/vm/prod" }),
+    );
+  });
+
+  it("context and action publishes re-send the last refresh nonce unchanged", () => {
+    publishFileRefresh();
+    const firstNonce = lastPublished().nonce;
+    expect(typeof firstNonce).toBe("number");
+    setArtifactIntentMock.mockClear();
+
+    publishFileContext(null, "/a", "prod", "/b");
+    expect(lastPublished().nonce).toBe(firstNonce);
+    setArtifactIntentMock.mockClear();
+
+    publishFileSearchAction("prod", "/b");
+    expect(lastPublished().nonce).toBe(firstNonce);
   });
 });
