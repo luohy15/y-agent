@@ -35,6 +35,7 @@ import {
   publishFileSearchAction,
   usePublishFileContext,
 } from "./utils/fileHost";
+import { usePublishNoteIntent } from "./utils/noteHost";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
@@ -463,6 +464,12 @@ export default function App() {
   // R7 (plan-3046-right-sidebar.md): also carries the host trace filter, so
   // the right chat panel can consume it once it opts in via usePanelLocation.
   usePublishSelectedChatIntent(selectedChatId, selectedBot, chatListTraceId);
+  // Plan H2 (pages/plan-3071-note-module.md decision 7): publish the note
+  // trace-scope intent for modules/note (no visible change). Left and right
+  // both mirror the built-in NoteList's current vmName/workDir props
+  // (selectedVM, defaultWorkDir) — the same call sites the future panel's
+  // two `usePanelLocation()` modes replace.
+  usePublishNoteIntent(chatListTraceId, selectedVM, defaultWorkDir ?? null, selectedVM, defaultWorkDir ?? null);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
