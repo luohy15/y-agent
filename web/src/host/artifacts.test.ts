@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { hasSurface, isPersistableTab, modulesFromPayload, mountableUiArtifacts, shellClaimant } from "./artifacts";
+import {
+  hasSurface,
+  isPersistableTab,
+  modulesFromPayload,
+  mountableUiArtifacts,
+  resolveShellSlot,
+  shellClaimant,
+} from "./artifacts";
 import type { MountableModule } from "./artifacts";
 
 describe("module payload handling", () => {
@@ -59,6 +66,36 @@ describe("shellClaimant", () => {
     const a = mountable("aaa-shell", "panel,shell");
     expect(shellClaimant([b, a])).toBe(a);
   });
+});
+
+// V4 shell-slot precedence (plan-3042-chatview.md + review F2 cold-boot guard).
+// Full 2×2×2 boolean input space so logged-out+claimant cannot slip through.
+describe("resolveShellSlot", () => {
+  const cases: Array<{
+    isLoggedIn: boolean;
+    uiArtifactsLoading: boolean;
+    hasShellClaimant: boolean;
+    expected: "loading" | "module" | "host";
+  }> = [
+    // logged out: always host, regardless of loading/claimant
+    { isLoggedIn: false, uiArtifactsLoading: false, hasShellClaimant: false, expected: "host" },
+    { isLoggedIn: false, uiArtifactsLoading: false, hasShellClaimant: true, expected: "host" },
+    { isLoggedIn: false, uiArtifactsLoading: true, hasShellClaimant: false, expected: "host" },
+    { isLoggedIn: false, uiArtifactsLoading: true, hasShellClaimant: true, expected: "host" },
+    // logged in + loading: wait (even with a stale claimant present)
+    { isLoggedIn: true, uiArtifactsLoading: true, hasShellClaimant: false, expected: "loading" },
+    { isLoggedIn: true, uiArtifactsLoading: true, hasShellClaimant: true, expected: "loading" },
+    // logged in + loaded: claimant → module, else host
+    { isLoggedIn: true, uiArtifactsLoading: false, hasShellClaimant: true, expected: "module" },
+    { isLoggedIn: true, uiArtifactsLoading: false, hasShellClaimant: false, expected: "host" },
+  ];
+
+  it.each(cases)(
+    "isLoggedIn=$isLoggedIn loading=$uiArtifactsLoading claimant=$hasShellClaimant → $expected",
+    ({ isLoggedIn, uiArtifactsLoading, hasShellClaimant, expected }) => {
+      expect(resolveShellSlot({ isLoggedIn, uiArtifactsLoading, hasShellClaimant })).toBe(expected);
+    },
+  );
 });
 
 describe("isPersistableTab", () => {

@@ -66,6 +66,36 @@ describe("ArtifactMount", () => {
     container.remove();
   });
 
+  // V4 (todo 3042): a failed shell claimant must still leave a usable chat
+  // surface (ChatFallbackView) under the FailureCard, not an empty column.
+  it("renders optional fallback content beneath the FailureCard on load error", async () => {
+    loadArtifactMock.mockRejectedValue(
+      new ArtifactLoadError("integrity", "Bundle failed integrity check (sha256 mismatch)."),
+    );
+    const { container, root } = renderClient();
+
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, {
+          slug: "chat",
+          artifactId: "art1",
+          version: ref({ version_no: 2 }),
+          surface: "shell" as const,
+          fallback: React.createElement("div", null, "fallback chat surface"),
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain('"chat" (v2)');
+    expect(container.textContent).toContain("Integrity check failed");
+    expect(container.textContent).toContain("Roll back to previous version");
+    expect(container.textContent).toContain("fallback chat surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("renders a distinct version-skew card for a host-version-incompatible artifact", async () => {
     loadArtifactMock.mockRejectedValue(new ArtifactLoadError("version-skew", "Requires a newer host."));
     const { container, root } = renderClient();

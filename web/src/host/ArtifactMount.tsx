@@ -193,6 +193,10 @@ interface ArtifactMountProps {
   // the host can offer the "open full view" affordance only when there is a
   // distinct view to open. Fires once per successful load.
   onDetailAvailable?: (hasDetail: boolean) => void;
+  // Optional host content under a FailureCard (V4 shell-slot: when a shell
+  // claimant's bundle fails, keep ChatFallbackView readable/sendable beneath
+  // the rollback card instead of an empty center column).
+  fallback?: ReactNode;
 }
 
 export default function ArtifactMount({
@@ -203,6 +207,7 @@ export default function ArtifactMount({
   surface = "panel",
   onRolledBack,
   onDetailAvailable,
+  fallback,
 }: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
 
@@ -264,6 +269,23 @@ export default function ArtifactMount({
   }
 
   if (state.status === "error") {
+    if (fallback) {
+      return (
+        <div className="h-full flex flex-col min-h-0">
+          <div className="shrink-0 border-b border-sol-base02">
+            <FailureCard
+              slug={slug}
+              version={version}
+              artifactId={artifactId}
+              kind={state.kind}
+              message={state.message}
+              onRolledBack={onRolledBack}
+            />
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">{fallback}</div>
+        </div>
+      );
+    }
     return (
       <FailureCard
         slug={slug}

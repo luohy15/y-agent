@@ -68,3 +68,24 @@ export function shellClaimant(artifacts: MountableModule[]): MountableModule | n
   if (claimants.length === 0) return null;
   return claimants.reduce((lowest, a) => (a.slug < lowest.slug ? a : lowest));
 }
+
+// Shell-slot precedence (plan-3042-chatview.md V4 + review F2):
+//   0. logged-out → host always (GoogleSignInButton stays host-owned; never
+//      mount a shell module or wait on the module list, even if a claimant is
+//      somehow present from cache/preload)
+//   1. logged-in + cold/loading module list → wait (do not mount host ChatView
+//      with a real chatId and open a wasted SSE before the module replaces it)
+//   2. enabled shell claimant → mount the module
+//   3. otherwise → host branch (bundled ChatView until V6; ChatFallbackView after)
+export type ShellSlotKind = "loading" | "module" | "host";
+
+export function resolveShellSlot(opts: {
+  isLoggedIn: boolean;
+  uiArtifactsLoading: boolean;
+  hasShellClaimant: boolean;
+}): ShellSlotKind {
+  if (!opts.isLoggedIn) return "host";
+  if (opts.uiArtifactsLoading) return "loading";
+  if (opts.hasShellClaimant) return "module";
+  return "host";
+}

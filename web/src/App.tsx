@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { useAuth } from "./hooks/useAuth";
 import { API, authFetch, jsonFetcher } from "./api";
 import ChatView from "./components/ChatView";
+import ChatFallbackView from "./components/ChatFallbackView";
 import ChatList from "./components/ChatList";
 import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
@@ -42,6 +43,7 @@ import {
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
+  resolveShellSlot,
   shellClaimant,
 } from "./host/artifacts";
 import { registerHostCommand } from "./host/commands";
@@ -86,6 +88,13 @@ export default function App() {
   // the `shell` surface. Mounted once below, keyed only on its version_id, so
   // rollback/republish is the only thing that ever remounts it.
   const shellArtifact = useMemo(() => shellClaimant(mountedUiArtifacts), [mountedUiArtifacts]);
+  // V4 shell-slot precedence (review F2): wait on cold module list, then module
+  // claimant, else host ChatView. Logged-out never waits (SWR key is null).
+  const shellSlot = resolveShellSlot({
+    isLoggedIn: auth.isLoggedIn,
+    uiArtifactsLoading,
+    hasShellClaimant: !!shellArtifact,
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
   const [activityBarOpen, setActivityBarOpen] = useState(false); // mobile activity bar drawer
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
@@ -1130,12 +1139,20 @@ export default function App() {
                   <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
-              {/* Chat (kept mounted, toggled via CSS) */}
+              {/* Chat (kept mounted, toggled via CSS). V4 shell-slot precedence:
+                  loading (F2 cold-boot guard) → shell module → host ChatView
+                  (until V6) / ChatFallbackView under a failed shell bundle. */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
-                {shellArtifact ? (
+                {shellSlot === "loading" ? (
+                  <div className="flex-1 flex items-center justify-center text-sol-base01 text-xs font-mono">
+                    Loading chat surface…
+                  </div>
+                ) : shellSlot === "module" && shellArtifact ? (
                   // D1a: a module claiming `shell` replaces the host ChatView
                   // in this slot. Keyed only on version_id, so republishing an
                   // unrelated module or a slug reordering never remounts it.
+                  // On bundle failure, keep ChatFallbackView under FailureCard
+                  // so the conversation stays readable + sendable (D1f).
                   <ArtifactMount
                     key={shellArtifact.active_version.version_id}
                     slug={shellArtifact.slug}
@@ -1143,6 +1160,14 @@ export default function App() {
                     version={shellArtifact.active_version}
                     surface="shell"
                     onRolledBack={() => { void mutateUiArtifacts(); }}
+                    fallback={
+                      <ChatFallbackView
+                        chatId={selectedChatId}
+                        vmName={selectedVM}
+                        botName={selectedBot}
+                        onChatCreated={handleChatCreated}
+                      />
+                    }
                   />
                 ) : (
                   <>
