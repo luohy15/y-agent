@@ -30,7 +30,16 @@ and stdin support, and adds a narrow note-path lookup for file rename guards:
   - run_vm_command(..., work_dir=..., stdin=...)
   - note_list_at_path
 
-Every v2/v3/v4 capability is bound to the authenticated request owner, like
+The v5 surface adds request-bound note browsing and authoring over host-owned
+note / note_todo_relation state (todo 3071):
+  - note_list / note_get / note_create / note_import / note_update / note_delete
+  - note_list_by_todo
+  - note_relation_create / note_relation_delete
+  - note_relations_by_todo / note_relations_by_note
+Functions that accept a content_key enforce the home-escape invariant so a
+module cannot store a `../`-escaping key regardless of published bytes.
+
+Every v2/v3/v4/v5 capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
 but no bound request owner, so it must use the module HTTP API instead.
@@ -61,24 +70,27 @@ been published against it. The bot-config capability is a genuine surface
 addition (todo 3028), so it bumps BACKEND_CONTRACT_VERSION from 1 to 2. The chat
 control-plane capability (todo 3042) bumps it from 2 to 3. The file control-plane
 capability (todo 3068) extends VM execution with work_dir and stdin and adds
-note_list_at_path, bumping it from 3 to 4. Modules declare the minimum version
-they use and an older host rejects their bundle. Every later addition to the
-surface above bumps the version and, for modules that need it,
-`min_backend_version`.
+note_list_at_path, bumping it from 3 to 4. The note control-plane capability
+(todo 3071) adds the eleven owner-bound note_* functions and bumps it from 4
+to 5. Modules declare the minimum version they use and an older host rejects
+their bundle. Every later addition to the surface above bumps the version and,
+for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
 
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 4
+BACKEND_CONTRACT_VERSION = 5
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -455,3 +467,217 @@ async def chat_create_share(
     if generated_password is not None:
         result["password"] = generated_password
     return result
+
+
+# ---------------------------------------------------------------------------
+# v5 note control-plane capability
+#
+# Request-bound browsing and authoring over host-owned note /
+# note_todo_relation state (plan-3071). Share routes, S3 snapshots, and the
+# content-path authority stay host-only; modules receive plain dictionaries
+# and never repositories, sessions, or entities. content_key writes enforce
+# the home-escape invariant here so a module cannot store an escaping key.
+# ---------------------------------------------------------------------------
+
+
+class ModuleHostValidationError(ModuleHostError):
+    """A module capability rejected caller input that violates a host invariant."""
+
+
+def _require_note_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"note operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); note access is request-bound"
+        )
+
+
+def _agent_home() -> Path:
+    return Path(os.environ.get("Y_AGENT_HOME", str(Path.home()))).resolve()
+
+
+def _validate_content_key(content_key: str) -> None:
+    """Reject a content_key that escapes Y_AGENT_HOME (todo 3041 / plan-3071 D2)."""
+    home = _agent_home()
+    path = (home / content_key).resolve()
+    if home != path and home not in path.parents:
+        raise ModuleHostValidationError("Invalid content key")
+
+
+def _note_to_dict(note) -> dict[str, Any]:
+    return note.to_dict()
+
+
+def note_list(
+    user_id: int,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    include_deleted: bool = False,
+    tag: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """List notes owned by the authenticated request owner as plain dictionaries."""
+    _require_note_owner(user_id)
+    from storage.service import note as note_service
+
+    notes = note_service.list_notes(
+        user_id,
+        limit=limit,
+        offset=offset,
+        include_deleted=include_deleted,
+        tag=tag,
+        on=on,
+        from_=from_,
+        to=to,
+        created_on=created_on,
+        created_from=created_from,
+        created_to=created_to,
+        updated_on=updated_on,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
+    return [_note_to_dict(note) for note in notes]
+
+
+def note_get(
+    user_id: int,
+    note_id: str,
+    *,
+    include_deleted: bool = False,
+) -> Optional[dict[str, Any]]:
+    """Get one owner-scoped note, or None when it is absent."""
+    _require_note_owner(user_id)
+    from storage.service import note as note_service
+
+    note = note_service.get_note(user_id, note_id, include_deleted=include_deleted)
+    if note is None:
+        return None
+    return _note_to_dict(note)
+
+
+def note_create(
+    user_id: int,
+    content_key: str,
+    *,
+    front_matter: Optional[Dict] = None,
+) -> dict[str, Any]:
+    """Create an owner-scoped note; rejects a home-escaping content_key."""
+    _require_note_owner(user_id)
+    _validate_content_key(content_key)
+    from storage.service import note as note_service
+
+    return _note_to_dict(note_service.create_note(user_id, content_key, front_matter=front_matter))
+
+
+def note_import(
+    user_id: int,
+    content_key: str,
+    *,
+    front_matter: Optional[Dict] = None,
+) -> dict[str, Any]:
+    """Import or refresh an owner-scoped note by content_key."""
+    _require_note_owner(user_id)
+    _validate_content_key(content_key)
+    from storage.service import note as note_service
+
+    return _note_to_dict(note_service.import_note(user_id, content_key, front_matter=front_matter))
+
+
+def note_update(
+    user_id: int,
+    note_id: str,
+    *,
+    content_key: Optional[str] = None,
+    front_matter: Optional[Dict] = None,
+) -> Optional[dict[str, Any]]:
+    """Update an owner-scoped note; rejects a home-escaping content_key when provided."""
+    _require_note_owner(user_id)
+    if content_key is not None:
+        _validate_content_key(content_key)
+    from storage.service import note as note_service
+
+    note = note_service.update_note(
+        user_id, note_id, content_key=content_key, front_matter=front_matter
+    )
+    if note is None:
+        return None
+    return _note_to_dict(note)
+
+
+def note_delete(
+    user_id: int,
+    note_id: str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Soft-delete an owner-scoped note; returns the host service's structured result.
+
+    Callers map `{ok: False, ...}` to HTTP 409 themselves. The capability never
+    raises for a guarded delete: the relation counts are the module's response body.
+    """
+    _require_note_owner(user_id)
+    from storage.service import note as note_service
+
+    return note_service.delete_note(user_id, note_id, force=force)
+
+
+def note_list_by_todo(
+    user_id: int,
+    todo_id: str,
+    *,
+    include_deleted: bool = False,
+) -> list[dict[str, Any]]:
+    """List owner-scoped notes linked to a todo as plain dictionaries."""
+    _require_note_owner(user_id)
+    from storage.service import note as note_service
+    from storage.service import note_todo_relation as relation_service
+
+    note_ids = relation_service.list_by_todo(user_id, todo_id)
+    if not note_ids:
+        return []
+    notes = note_service.get_notes_by_ids(
+        user_id, note_ids, include_deleted=include_deleted
+    )
+    return [_note_to_dict(note) for note in notes]
+
+
+def note_relation_create(user_id: int, note_id: str, todo_id: str) -> bool:
+    """Create an owner-scoped note↔todo relation; returns True when newly created."""
+    _require_note_owner(user_id)
+    from storage.service import note_todo_relation as relation_service
+
+    return relation_service.create_relation(user_id, note_id, todo_id)
+
+
+def note_relation_delete(user_id: int, note_id: str, todo_id: str) -> bool:
+    """Delete an owner-scoped note↔todo relation; returns True when a row was removed."""
+    _require_note_owner(user_id)
+    from storage.service import note_todo_relation as relation_service
+
+    return relation_service.delete_relation(user_id, note_id, todo_id)
+
+
+def note_relations_by_todo(user_id: int, todo_id: str) -> list[str]:
+    """Return the owner-scoped note_ids linked to a todo."""
+    _require_note_owner(user_id)
+    from storage.service import note_todo_relation as relation_service
+
+    return list(relation_service.list_by_todo(user_id, todo_id))
+
+
+def note_relations_by_note(user_id: int, note_id: str) -> list[str]:
+    """Return the owner-scoped todo_ids linked to a note."""
+    _require_note_owner(user_id)
+    from storage.service import note_todo_relation as relation_service
+
+    return list(relation_service.list_by_note(user_id, note_id))

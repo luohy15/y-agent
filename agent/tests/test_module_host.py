@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -23,8 +24,8 @@ from agent.tools.errors import CommandError
 
 
 class ContractSurfaceTest(unittest.TestCase):
-    def test_backend_contract_version_is_four(self):
-        self.assertEqual(BACKEND_CONTRACT_VERSION, 4)
+    def test_backend_contract_version_is_five(self):
+        self.assertEqual(BACKEND_CONTRACT_VERSION, 5)
 
     def test_importing_module_host_does_not_import_paramiko(self):
         # Drop paramiko if a previous test imported it, then re-import the contract.
@@ -332,6 +333,156 @@ class NotePathCapabilityTest(unittest.TestCase):
             result = mh.note_list_at_path(3, "pages/a.md")
         svc.assert_called_once_with(3, "pages/a.md")
         self.assertEqual(result, [{"content_key": "pages/a.md"}, {"content_key": "pages/b.md"}])
+
+
+class NoteCapabilityTest(unittest.TestCase):
+    """v5 capability (plan-3071): owner-bound note browsing/authoring plus
+    note↔todo relations. content_key home-escape is a capability-side invariant.
+    """
+
+    def _note(self, note_id="note-1", content_key="pages/ok.md", **extra):
+        payload = {"note_id": note_id, "content_key": content_key, **extra}
+        return SimpleNamespace(to_dict=lambda: dict(payload), **payload)
+
+    def test_every_operation_requires_a_bound_request_owner(self):
+        for call in (
+            lambda: mh.note_list(1),
+            lambda: mh.note_get(1, "note-1"),
+            lambda: mh.note_create(1, "pages/ok.md"),
+            lambda: mh.note_import(1, "pages/ok.md"),
+            lambda: mh.note_update(1, "note-1", content_key="pages/ok.md"),
+            lambda: mh.note_delete(1, "note-1"),
+            lambda: mh.note_list_by_todo(1, "todo-1"),
+            lambda: mh.note_relation_create(1, "note-1", "todo-1"),
+            lambda: mh.note_relation_delete(1, "note-1", "todo-1"),
+            lambda: mh.note_relations_by_todo(1, "todo-1"),
+            lambda: mh.note_relations_by_note(1, "note-1"),
+        ):
+            with self.subTest(call=call):
+                with self.assertRaises(mh.ModuleHostAuthError):
+                    call()
+
+    def test_refuses_a_user_id_differing_from_bound_owner(self):
+        with request_owner(5):
+            for call in (
+                lambda: mh.note_list(7),
+                lambda: mh.note_get(7, "note-1"),
+                lambda: mh.note_create(7, "pages/ok.md"),
+                lambda: mh.note_import(7, "pages/ok.md"),
+                lambda: mh.note_update(7, "note-1"),
+                lambda: mh.note_delete(7, "note-1"),
+                lambda: mh.note_list_by_todo(7, "todo-1"),
+                lambda: mh.note_relation_create(7, "note-1", "todo-1"),
+                lambda: mh.note_relation_delete(7, "note-1", "todo-1"),
+                lambda: mh.note_relations_by_todo(7, "todo-1"),
+                lambda: mh.note_relations_by_note(7, "note-1"),
+            ):
+                with self.subTest(call=call):
+                    with self.assertRaises(mh.ModuleHostAuthError):
+                        call()
+
+    def test_create_import_and_update_reject_home_escaping_content_key(self):
+        home = Path("/tmp/agent-home")
+        with request_owner(3), \
+             patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}, clear=False), \
+             patch("storage.service.note.create_note") as create_note, \
+             patch("storage.service.note.import_note") as import_note, \
+             patch("storage.service.note.update_note") as update_note:
+            with self.assertRaises(mh.ModuleHostValidationError):
+                mh.note_create(3, "../outside.md")
+            with self.assertRaises(mh.ModuleHostValidationError):
+                mh.note_import(3, "../outside.md")
+            with self.assertRaises(mh.ModuleHostValidationError):
+                mh.note_update(3, "note-1", content_key="../outside.md")
+        create_note.assert_not_called()
+        import_note.assert_not_called()
+        update_note.assert_not_called()
+
+    def test_create_import_and_update_accept_in_home_content_key(self):
+        note = self._note()
+        home = Path("/tmp/agent-home")
+        with request_owner(3), \
+             patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}, clear=False), \
+             patch("storage.service.note.create_note", return_value=note) as create_note, \
+             patch("storage.service.note.import_note", return_value=note) as import_note, \
+             patch("storage.service.note.update_note", return_value=note) as update_note:
+            created = mh.note_create(3, "pages/ok.md", front_matter={"t": 1})
+            imported = mh.note_import(3, "pages/ok.md")
+            updated = mh.note_update(3, "note-1", content_key="pages/ok.md")
+        self.assertEqual(created["note_id"], "note-1")
+        self.assertEqual(imported["content_key"], "pages/ok.md")
+        self.assertEqual(updated["note_id"], "note-1")
+        create_note.assert_called_once_with(3, "pages/ok.md", front_matter={"t": 1})
+        import_note.assert_called_once_with(3, "pages/ok.md", front_matter=None)
+        update_note.assert_called_once_with(
+            3, "note-1", content_key="pages/ok.md", front_matter=None
+        )
+
+    def test_list_and_get_return_plain_owner_scoped_dicts(self):
+        note = self._note(front_matter={"tags": ["a"]})
+        with request_owner(3), \
+             patch("storage.service.note.list_notes", return_value=[note]) as list_svc, \
+             patch("storage.service.note.get_note", side_effect=[note, None]) as get_svc:
+            listed = mh.note_list(3, limit=10, tag="a")
+            found = mh.note_get(3, "note-1")
+            missing = mh.note_get(3, "missing")
+        list_svc.assert_called_once()
+        self.assertEqual(list_svc.call_args.args[0], 3)
+        self.assertEqual(list_svc.call_args.kwargs["limit"], 10)
+        self.assertEqual(list_svc.call_args.kwargs["tag"], "a")
+        self.assertEqual(listed[0]["note_id"], "note-1")
+        self.assertNotIn("user_id", listed[0])
+        self.assertEqual(found["content_key"], "pages/ok.md")
+        self.assertIsNone(missing)
+        self.assertEqual(get_svc.call_args_list[0].args, (3, "note-1"))
+
+    def test_delete_passes_through_guarded_conflict_result(self):
+        conflict = {
+            "ok": False,
+            "reason": "note is linked to one or more todos; rerun with force=true to unlink and delete",
+            "todo_relations": 2,
+            "entity_relations": 0,
+        }
+        with request_owner(3), \
+             patch("storage.service.note.delete_note", return_value=conflict) as svc:
+            result = mh.note_delete(3, "note-1")
+        svc.assert_called_once_with(3, "note-1", force=False)
+        self.assertEqual(result, conflict)
+
+    def test_delete_can_force_through_host_service(self):
+        ok = {"ok": True, "deleted": True}
+        with request_owner(3), \
+             patch("storage.service.note.delete_note", return_value=ok) as svc:
+            result = mh.note_delete(3, "note-1", force=True)
+        svc.assert_called_once_with(3, "note-1", force=True)
+        self.assertEqual(result, ok)
+
+    def test_list_by_todo_returns_linked_notes_or_empty(self):
+        note = self._note()
+        with request_owner(3), \
+             patch("storage.service.note_todo_relation.list_by_todo", side_effect=[["note-1"], []]) as rel, \
+             patch("storage.service.note.get_notes_by_ids", return_value=[note]) as get_ids:
+            linked = mh.note_list_by_todo(3, "todo-1")
+            empty = mh.note_list_by_todo(3, "todo-empty")
+        self.assertEqual(linked[0]["note_id"], "note-1")
+        self.assertEqual(empty, [])
+        get_ids.assert_called_once_with(3, ["note-1"], include_deleted=False)
+        self.assertEqual(rel.call_args_list[0].args, (3, "todo-1"))
+
+    def test_relation_ops_delegate_to_the_host_service(self):
+        with request_owner(3), \
+             patch("storage.service.note_todo_relation.create_relation", return_value=True) as create, \
+             patch("storage.service.note_todo_relation.delete_relation", return_value=False) as delete, \
+             patch("storage.service.note_todo_relation.list_by_todo", return_value=["n1"]) as by_todo, \
+             patch("storage.service.note_todo_relation.list_by_note", return_value=["t1"]) as by_note:
+            self.assertTrue(mh.note_relation_create(3, "n1", "t1"))
+            self.assertFalse(mh.note_relation_delete(3, "n1", "t1"))
+            self.assertEqual(mh.note_relations_by_todo(3, "t1"), ["n1"])
+            self.assertEqual(mh.note_relations_by_note(3, "n1"), ["t1"])
+        create.assert_called_once_with(3, "n1", "t1")
+        delete.assert_called_once_with(3, "n1", "t1")
+        by_todo.assert_called_once_with(3, "t1")
+        by_note.assert_called_once_with(3, "n1")
 
 
 class BotConfigCapabilityTest(unittest.TestCase):

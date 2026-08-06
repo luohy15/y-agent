@@ -209,21 +209,23 @@ class LoaderIsolationTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.kind, "backend_version")
 
-    def test_current_v4_host_rejects_v5_and_loads_bot_v2_and_finance_v1(self):
+    def test_current_v5_host_rejects_v6_and_loads_chat_bot_finance_floors(self):
+        """Host contract v5 (todo 3071) still loads finance(1)/bot(2)/chat(3)
+        and rejects a floor above the host with an explicit message."""
         api_bytes = _zip_module(_ping_api("X"))
         sha = hashlib.sha256(api_bytes).hexdigest()
 
         with self.assertRaises(ModuleBackendVersionError) as ctx:
             loader.load_from_bytes(
-                slug="chat",
-                version=_version(api_sha256=sha, min_backend_version=5),
+                slug="note",
+                version=_version(api_sha256=sha, min_backend_version=6),
                 api_bytes=api_bytes,
                 expected_sha256=sha,
             )
         self.assertEqual(ctx.exception.kind, "backend_version")
-        self.assertIn("requires backend contract >= 5, host has 4", str(ctx.exception))
+        self.assertIn("requires backend contract >= 6, host has 5", str(ctx.exception))
 
-        for slug, minimum in (("bot", 2), ("finance", 1)):
+        for slug, minimum in (("finance", 1), ("bot", 2), ("chat", 3)):
             with self.subTest(slug=slug):
                 loaded = loader.load_from_bytes(
                     slug=slug,
