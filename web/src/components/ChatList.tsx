@@ -66,14 +66,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${botParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
+    return `${API}/api/module/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${botParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
 
   // Separate fetch for pinned manager chat (always visible)
   const { data: pinnedManagerData, mutate: mutatePinnedManager } = useSWR<Chat[]>(
-    isLoggedIn ? `${API}/api/chat/list?offset=0&limit=1&topic=manager` : null,
+    isLoggedIn ? `${API}/api/module/chat/list?offset=0&limit=1&topic=manager` : null,
     fetcher,
   );
   const pinnedManager = pinnedManagerData?.[0] ?? null;

@@ -1,60 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { API, getToken } from "../api";
-import MessageList, { type Message, extractContent } from "./MessageList";
-import { filterTrailingEmptyAssistantMessages, mergeToolArguments } from "./chatMessageParser";
-
-function parseMessages(rawMessages: any[]): Message[] {
-  // Build tool_call_id → {name, args} map from assistant messages
-  const toolCallInfo: Record<string, { name: string; args: Record<string, unknown> }> = {};
-  for (const msg of rawMessages) {
-    if (msg.role === "assistant" && msg.tool_calls) {
-      for (const tc of msg.tool_calls) {
-        const func = tc.function || {};
-        let toolArgs: Record<string, unknown> = {};
-        try { toolArgs = JSON.parse(func.arguments || "{}"); } catch {}
-        toolCallInfo[tc.id] = { name: func.name, args: toolArgs };
-      }
-    }
-  }
-
-  const result: Message[] = [];
-  for (const msg of rawMessages) {
-    const role = msg.role || "assistant";
-    const content = extractContent(msg.content);
-
-    if (role === "user") {
-      result.push({ role: "user", content, timestamp: msg.timestamp });
-    } else if (role === "assistant" && msg.tool_calls) {
-      if (content.trim()) {
-        result.push({ role: "assistant", content, timestamp: msg.timestamp });
-      }
-      // Skip tool_pending — tool_result will show the command
-    } else if (role === "tool") {
-      const info = toolCallInfo[msg.tool_call_id];
-      const toolName = info?.name || msg.tool;
-      const toolArgs = mergeToolArguments(info?.args, msg.arguments);
-      const denied = typeof content === "string" && content.startsWith("ERROR: User denied");
-      result.push({ role: denied ? "tool_denied" : "tool_result", content, toolName, arguments: toolArgs, timestamp: msg.timestamp });
-    } else {
-      result.push({ role: "assistant", content, timestamp: msg.timestamp });
-    }
-  }
-  return filterTrailingEmptyAssistantMessages(result);
-}
+import HostMessageView, { parseChatMessages, type HostMessage } from "./HostMessageView";
 
 export default function ShareView() {
   const { shareId } = useParams<{ shareId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<HostMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [passwordRequired, setPasswordRequired] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [showProgress, setShowProgress] = useState(() => localStorage.getItem("showProgress") === "true");
   const [shareLabel, setShareLabel] = useState("share");
   const isLoggedIn = !!getToken();
 
@@ -79,7 +38,7 @@ export default function ShareView() {
       throw new Error("Shared chat not found");
     }
     const data = await r.json();
-    setMessages(parseMessages(data.messages || []));
+    setMessages(parseChatMessages(data.messages || []));
     setPasswordRequired(false);
     setPasswordError(null);
     return { ok: true };
@@ -158,14 +117,8 @@ export default function ShareView() {
           <span className="text-xs text-sol-base01">Shared conversation</span>
         </div>
       </div>
-      <MessageList messages={messages} centered showProgress={showProgress} />
+      <HostMessageView messages={messages} centered />
       <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-1 flex items-center justify-center gap-2 text-xs select-none">
-        <button
-          onClick={() => { const next = !showProgress; setShowProgress(next); localStorage.setItem("showProgress", String(next)); }}
-          className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${showProgress ? "bg-sol-cyan text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}
-        >
-          {showProgress ? "progress ●" : "progress ○"}
-        </button>
         <button
           onClick={() => { navigator.clipboard.writeText(window.location.href); setShareLabel("copied!"); setTimeout(() => setShareLabel("share"), 1500); }}
           className={`font-mono cursor-pointer px-2 py-0.5 rounded text-[0.7rem] font-semibold ${shareLabel === "copied!" ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01"}`}

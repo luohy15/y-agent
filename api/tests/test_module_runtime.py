@@ -650,31 +650,29 @@ class DispatcherTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertIn("configured maintainer", resp.json()["detail"])
 
-    def test_scope_is_rechecked_after_load_if_active_version_moves(self):
-        authenticated = _version(dispatch_scope="authenticated")
-        maintainer = _version(version_id="ver_new", dispatch_scope="maintainer")
-        dispatcher = ModuleDispatcher(
-            resolve_fn=lambda owner_id, slug: authenticated,
-            load_fn=lambda owner_id, slug: SimpleNamespace(
-                version=maintainer, app=self.loaded.app
-            ),
-        )
-        app = FastAPI()
-
-        from starlette.middleware.base import BaseHTTPMiddleware
-
-        class FakeAuth(BaseHTTPMiddleware):
-            async def dispatch(self, request, call_next):
-                request.state.user_id = 42
-                return await call_next(request)
-
-        app.add_middleware(FakeAuth)
-        app.mount("/api/module", dispatcher)
-        with patch(
-            "api.module_runtime.dispatcher.default_owner_user_id", return_value=99
+    def test_dispatch_loads_the_version_resolved_for_this_request(self):
+        resolved = _version(dispatch_scope="authenticated")
+        with (
+            patch.object(loader, "resolve_active_version", return_value=resolved) as resolve,
+            patch.object(loader, "load_module_version", return_value=self.loaded) as load,
         ):
+            dispatcher = ModuleDispatcher()
+            app = FastAPI()
+
+            from starlette.middleware.base import BaseHTTPMiddleware
+
+            class FakeAuth(BaseHTTPMiddleware):
+                async def dispatch(self, request, call_next):
+                    request.state.user_id = 42
+                    return await call_next(request)
+
+            app.add_middleware(FakeAuth)
+            app.mount("/api/module", dispatcher)
             resp = TestClient(app).get("/api/module/scratch-mod/ping")
-        self.assertEqual(resp.status_code, 403)
+
+        self.assertEqual(resp.status_code, 200)
+        resolve.assert_called_once_with(42, "scratch-mod")
+        load.assert_called_once_with("scratch-mod", resolved)
 
     def test_root_path_is_mount_prefix_plus_slug_not_duplicated(self):
         """review finding 6: root_path is /api/module/<slug>, not a duplicated prefix."""

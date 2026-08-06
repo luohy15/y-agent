@@ -73,10 +73,10 @@ export function shellClaimant(artifacts: MountableModule[]): MountableModule | n
 //   0. logged-out → host always (GoogleSignInButton stays host-owned; never
 //      mount a shell module or wait on the module list, even if a claimant is
 //      somehow present from cache/preload)
-//   1. logged-in + cold/loading module list → wait (do not mount host ChatView
+//   1. logged-in + cold/loading module list → wait (do not mount the fallback
 //      with a real chatId and open a wasted SSE before the module replaces it)
 //   2. enabled shell claimant → mount the module
-//   3. otherwise → host branch (bundled ChatView until V6; ChatFallbackView after)
+//   3. otherwise → ChatFallbackView
 export type ShellSlotKind = "loading" | "module" | "host";
 
 export function resolveShellSlot(opts: {

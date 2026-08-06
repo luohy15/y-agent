@@ -8,7 +8,6 @@ import TraceView from "./TraceView";
 import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
-import ChatView from "./ChatView";
 import ChatSnapshotView from "./ChatSnapshotView";
 import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
@@ -86,16 +85,6 @@ export default function ScreenshotShowcase() {
               flex-column parent of known height to fill the fixed panel frame. */}
           <div className="flex flex-col h-full w-full">
             <ChatSnapshotView chatId="showcase-chat" messages={CHAT_MESSAGES_FIXTURE} />
-          </div>
-        </PanelFrame>
-
-        <PanelFrame name="chat-running" title="chat · ChatView (running, Stop button)" width={560} height={680}>
-          <div className="flex flex-col h-full w-full">
-            <ChatView
-              mode="live"
-              isLoggedIn={false}
-              chatId="showcase-chat-running"
-            />
           </div>
         </PanelFrame>
 

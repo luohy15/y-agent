@@ -174,63 +174,6 @@ async def get_bot_options(request: Request):
     ]
 
 
-@router.get("/list")
-async def get_chats(
-    request: Request,
-    query: Optional[str] = Query(None),
-    trace_id: Optional[str] = Query(None),
-    topic: Optional[str] = Query(None),
-    skill: Optional[str] = Query(None),
-    tier: Optional[str] = Query(None),
-    bot_name: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    routine_id: Optional[str] = Query(None),
-    routine_name: Optional[str] = Query(None),
-    routine_only: Optional[bool] = Query(None),
-    tag: Optional[str] = Query(None),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    on: Optional[str] = Query(None),
-    from_: Optional[str] = Query(None, alias="from"),
-    to: Optional[str] = Query(None),
-    created_on: Optional[str] = Query(None),
-    created_from: Optional[str] = Query(None),
-    created_to: Optional[str] = Query(None),
-    updated_on: Optional[str] = Query(None),
-    updated_from: Optional[str] = Query(None),
-    updated_to: Optional[str] = Query(None),
-):
-    user_id = _get_user_id(request)
-    chats = await chat_service.list_chats(
-        user_id, query=query, limit=limit, offset=offset,
-        trace_id=trace_id, topic=topic, skill=skill, tier=tier, bot_name=bot_name, status=status,
-        routine_id=routine_id, routine_name=routine_name, routine_only=routine_only,
-        tag=tag,
-        on=on, from_=from_, to=to,
-        created_on=created_on, created_from=created_from, created_to=created_to,
-        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
-    )
-    return [
-        {
-            "chat_id": c.chat_id,
-            "title": c.title,
-            "created_at": c.created_at,
-            "updated_at": c.updated_at,
-            "topic": c.topic,
-            "skill": c.skill,
-            "trace_id": c.trace_id,
-            "routine_id": c.routine_id,
-            "routine_name": c.routine_name,
-            "backend": c.backend,
-            "bot_name": c.bot_name,
-            "tier": c.tier,
-            "status": c.status,
-            "unread": c.unread,
-        }
-        for c in chats
-    ]
-
-
 @router.post("")
 async def post_create_chat(req: CreateChatRequest, request: Request):
     chat_id = req.chat_id or generate_id()
@@ -400,33 +343,6 @@ async def post_mark_trace_read_all(req: TraceReadAllRequest, request: Request):
     return {"ok": True, "count": count}
 
 
-class ShareChatRequest(BaseModel):
-    chat_id: str
-    message_id: Optional[str] = None
-    password: Optional[str] = None
-    generate_password: bool = False
-
-
-@router.post("/share")
-async def post_share_chat(req: ShareChatRequest, request: Request):
-    from storage import share_password as sp
-    user_id = _get_user_id(request)
-
-    generated_password: Optional[str] = None
-    password_hash: Optional[str] = None
-    if req.generate_password and not (req.password and req.password.strip()):
-        generated_password = sp.generate_password()
-        password_hash = sp.hash_password(generated_password)
-    elif req.password and req.password.strip():
-        password_hash = sp.hash_password(req.password)
-
-    share_id = await chat_service.create_share(user_id, req.chat_id, req.message_id, password_hash=password_hash)
-    resp = {"share_id": share_id}
-    if generated_password is not None:
-        resp["password"] = generated_password
-    return resp
-
-
 @router.get("/share")
 async def get_share_chat(share_id: str = Query(...), password: Optional[str] = Query(None)):
     from storage.service.user import get_default_user_id
@@ -455,20 +371,6 @@ async def get_share_chat(share_id: str = Query(...), password: Optional[str] = Q
         "create_time": chat.create_time,
         "origin_chat_id": chat.origin_chat_id,
         "origin_message_id": chat.origin_message_id,
-    }
-
-
-@router.get("/content")
-async def get_chat_content(chat_id: str = Query(...), request: Request = None):
-    user_id = _get_user_id(request)
-    chat = await chat_service.get_chat(user_id, chat_id)
-    if chat is None:
-        raise HTTPException(status_code=404, detail="chat not found")
-    return {
-        "chat_id": chat.id,
-        "messages": [m.to_dict() for m in chat.messages],
-        "create_time": chat.create_time,
-        "update_time": chat.update_time,
     }
 
 

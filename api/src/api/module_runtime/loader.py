@@ -174,10 +174,8 @@ def resolve_active_version(user_id: int, slug: str) -> ModuleVersion:
     return version
 
 
-def load_active_module(user_id: int, slug: str) -> LoadedModule:
-    """Resolve the owner's active version for slug and load its API half."""
-    version = resolve_active_version(user_id, slug)
-
+def load_module_version(slug: str, version: ModuleVersion) -> LoadedModule:
+    """Load an already-resolved immutable API version."""
     cached = _cache.get(version.api_sha256)
     if cached is not None:
         if cached.version.version_id == version.version_id:
@@ -202,6 +200,11 @@ def load_active_module(user_id: int, slug: str) -> LoadedModule:
         api_bytes=api_bytes,
         expected_sha256=version.api_sha256,
     )
+
+
+def load_active_module(user_id: int, slug: str) -> LoadedModule:
+    """Resolve the owner's active version for slug and load its API half."""
+    return load_module_version(slug, resolve_active_version(user_id, slug))
 
 
 def _extract_zip(api_bytes: bytes, root: Path, slug: str) -> None:

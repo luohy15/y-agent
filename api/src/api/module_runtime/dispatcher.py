@@ -62,8 +62,13 @@ class ModuleDispatcher:
     """ASGI app: parse slug, load active module, forward remaining path."""
 
     def __init__(self, load_fn: Callable = None, resolve_fn: Callable = None):
-        # Injectable for tests (defaults to the real loader).
-        self._load = load_fn or loader.load_active_module
+        # Injectable for tests. The production loader consumes the version this
+        # dispatcher already resolved, avoiding a second active-pointer query.
+        self._load = (
+            (lambda user_id, slug, _version: load_fn(user_id, slug))
+            if load_fn
+            else (lambda _user_id, slug, version: loader.load_module_version(slug, version))
+        )
         self._resolve = resolve_fn or loader.resolve_active_version
 
     async def __call__(self, scope, receive, send):
@@ -136,20 +141,9 @@ class ModuleDispatcher:
             return
 
         try:
-            loaded = self._load(owner_id, slug)
+            loaded = self._load(owner_id, slug, version)
         except ModuleRuntimeError as err:
             await _send_json(send, _status_for(err), err.detail())
-            return
-
-        # The active pointer can move between resolve and load. Re-check the
-        # loaded immutable version so a rollback to maintainer scope cannot race
-        # an authenticated request through on the earlier version's scope.
-        if user_id != owner_id and loaded.version.dispatch_scope != "authenticated":
-            await _send_json(
-                send,
-                403,
-                {"detail": "backend module dispatch is restricted to the maintainer account"},
-            )
             return
 
         # Forward the same scope (preserving state / request.state) with the

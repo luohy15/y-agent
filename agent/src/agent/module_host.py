@@ -411,13 +411,7 @@ async def chat_create_share(
     from storage import share_password as sp
     from storage.service import chat as chat_service
 
-    generated_password: Optional[str] = None
-    password_hash: Optional[str] = None
-    if generate_password and not (password and password.strip()):
-        generated_password = sp.generate_password()
-        password_hash = sp.hash_password(generated_password)
-    elif password and password.strip():
-        password_hash = sp.hash_password(password)
+    generated_password, password_hash = sp.resolve_password(password, generate_password)
 
     share_id = await chat_service.create_share(
         user_id, chat_id, message_id, password_hash=password_hash

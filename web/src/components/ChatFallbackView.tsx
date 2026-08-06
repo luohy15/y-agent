@@ -1,16 +1,15 @@
 // Degraded host chat surface (plan-3042-chatview.md D1f / V4). Read + send only:
-// snapshot + live SSE over host `/api/chat/messages`, MessageList, and a plain
-// send box posting `/api/chat/message`. No steer / export / TOC / share / artifacts
-// chrome — that stays in the module shell. Used when a shell claimant's bundle
-// fails to load (V4) and, from V6, as the no-module shell-slot branch.
+// snapshot + live SSE over host `/api/chat/messages`, HostMessageView, and a
+// plain send box posting `/api/chat/message`. No steer / export / TOC / share
+// chrome. Used when the module shell is disabled or fails to load.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API, authFetch, getToken } from "../api";
-import MessageList, { type Message } from "./MessageList";
-import {
+import HostMessageView, {
   filterTrailingEmptyAssistantMessages,
   parseChatMessages,
   parseRawChatMessage,
-} from "./chatMessageParser";
+  type HostMessage,
+} from "./HostMessageView";
 
 interface ChatFallbackViewProps {
   chatId: string | null;
@@ -25,7 +24,7 @@ export default function ChatFallbackView({
   botName,
   onChatCreated,
 }: ChatFallbackViewProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<HostMessage[]>([]);
   const [completed, setCompleted] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -34,11 +33,11 @@ export default function ChatFallbackView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const displayMessages = filterTrailingEmptyAssistantMessages(messages);
 
-  const addMessage = useCallback((msg: Message) => {
+  const addMessage = useCallback((msg: HostMessage) => {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
-  const updateToolMessage = useCallback((toolCallId: string, updates: Partial<Message>) => {
+  const updateToolMessage = useCallback((toolCallId: string, updates: Partial<HostMessage>) => {
     setMessages((prev) =>
       prev.map((m) => (m.toolCallId === toolCallId ? { ...m, ...updates } : m)),
     );
@@ -184,10 +183,9 @@ export default function ChatFallbackView({
       </div>
       {chatId ? (
         <div className="flex-1 flex min-h-0 relative">
-          <MessageList
+          <HostMessageView
             messages={displayMessages}
             running={!completed}
-            showProgress={false}
             scrollContainerRef={scrollRef}
           />
         </div>

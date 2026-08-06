@@ -1,5 +1,3 @@
-import type { Message } from "../components/MessageList";
-
 // Pure helpers for the "export selected messages as image" feature. Kept separate
 // from the DOM capture util so they can be unit-tested without a browser.
 
@@ -13,9 +11,9 @@ export function toggleSelection(selected: Set<number>, index: number): Set<numbe
 
 // Map selected display-list indices back to Message objects, in document order.
 // Out-of-range indices are dropped so a stale selection can't crash the export.
-export function selectMessagesByIndices(messages: Message[], selectedIndices: Iterable<number>): Message[] {
+export function selectMessagesByIndices<T extends { role: string; content: string }>(messages: T[], selectedIndices: Iterable<number>): T[] {
   const sorted = Array.from(new Set(selectedIndices)).sort((a, b) => a - b);
-  const out: Message[] = [];
+  const out: T[] = [];
   for (const i of sorted) {
     if (i >= 0 && i < messages.length) out.push(messages[i]);
   }

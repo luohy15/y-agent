@@ -9,7 +9,7 @@ personal-scope project.
 import secrets
 import time
 from collections import deque
-from typing import Deque, Dict, Tuple
+from typing import Deque, Dict, Optional, Tuple
 
 _RATE_LIMIT_WINDOW_SEC = 60.0
 _RATE_LIMIT_MAX_FAILURES = 10
@@ -23,6 +23,17 @@ def generate_password() -> str:
 def hash_password(plaintext: str) -> str:
     import bcrypt
     return bcrypt.hashpw(plaintext.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def resolve_password(password: Optional[str], generate: bool) -> Tuple[Optional[str], Optional[str]]:
+    """Return a generated plaintext password (if any) and its persisted hash."""
+    normalized = password.strip() if password else ""
+    if generate and not normalized:
+        generated = generate_password()
+        return generated, hash_password(generated)
+    if normalized:
+        return None, hash_password(normalized)
+    return None, None
 
 
 def verify_password(plaintext: str, hashed: str) -> bool:

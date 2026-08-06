@@ -32,13 +32,13 @@ import { normalizeLinks } from "../components/citationLinks";
 import { buildExportFilename, pickImageDelivery, toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
 import { deliverPng, exportElementToPng } from "../utils/exportImage";
 import {
+  extractContent,
   filterTrailingEmptyAssistantMessages,
   mergeToolArguments,
   mergeToolResult,
   parseChatMessages,
   parseRawChatMessage,
-} from "../components/chatMessageParser";
-import { extractContent } from "../components/MessageList";
+} from "../components/HostMessageView";
 
 export const hostSdk = {
   HOST_CONTRACT_VERSION,
@@ -104,8 +104,8 @@ export const hostSdk = {
   buildExportFilename,
   pickImageDelivery,
 
-  // chatMessageParser.ts / MessageList.tsx (contract v5, R2) — default
-  // parsing set a module may use as-is or replace.
+  // HostMessageView.tsx (contract v5, R2) — default parsing set a module
+  // may use as-is or replace.
   parseRawChatMessage,
   parseChatMessages,
   mergeToolResult,

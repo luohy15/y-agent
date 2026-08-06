@@ -6,7 +6,6 @@ import UserMenu from "./UserMenu";
 
 export type BuiltInSidebarPanel =
   | "notes"
-  | "chats"
   | "links"
   | "rss"
   | "entity"
@@ -44,11 +43,6 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem[] = [
   { key: "notes", label: "Notes", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
-    </svg>
-  )},
-  { key: "chats", label: "Chats", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
     </svg>
   )},
   { key: "tags", label: "Tags", icon: (
@@ -145,6 +139,7 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   "finance.bean": "artifact:finance",
   "emails.md": "email",
   "dev.md": "dev",
+  chats: "artifact:chat",
 };
 
 function mergeWithDefaults(parsed: unknown, defaults: SidebarPanel[]): SidebarPanel[] {
@@ -253,7 +248,10 @@ function loadOrder(defaults: SidebarPanel[]): SidebarPanel[] {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.every(x => typeof x === "string")) {
-          return mergeWithDefaults(parsed, defaults);
+          const migrated = parsed.map((key) => APP_TO_PANEL[key] ?? key);
+          const merged = mergeWithDefaults(migrated, defaults);
+          if (migrated.some((key, index) => key !== parsed[index])) saveOrder(merged);
+          return merged;
         }
       } catch { /* ignore */ }
       const migrated = migrateUnifiedV1(raw, defaults);
@@ -334,9 +332,11 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     reconciledRef.current = true;
     if (pref.serverValue && Array.isArray(pref.serverValue)) {
       if (userTouchedRef.current) return;
-      const merged = mergeWithDefaults(pref.serverValue, defaultOrder);
+      const migrated = pref.serverValue.map((key) => APP_TO_PANEL[key] ?? key);
+      const merged = mergeWithDefaults(migrated, defaultOrder);
       setOrder(merged);
       saveOrder(merged);
+      if (migrated.some((key, index) => key !== pref.serverValue?.[index])) pref.setValue(merged);
     } else {
       // Server has no value — bootstrap with local order if it differs from default
       const isDefault =

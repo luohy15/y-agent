@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toggleSelection, selectMessagesByIndices, buildExportFilename, pickImageDelivery } from "./messageExport";
-import type { Message } from "../components/MessageList";
+interface Message { role: string; content: string }
 
 describe("toggleSelection", () => {
   it("adds an index that is not present", () => {

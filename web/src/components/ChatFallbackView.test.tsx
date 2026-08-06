@@ -13,11 +13,8 @@ vi.mock("../api", () => ({
   getToken: getTokenMock,
 }));
 
-// Keep MessageList chrome out of the unit under test, but re-export
-// extractContent so chatMessageParser (which imports it from MessageList)
-// still parses snapshot frames.
-vi.mock("./MessageList", async () => {
-  const actual = await vi.importActual<typeof import("./MessageList")>("./MessageList");
+vi.mock("./HostMessageView", async () => {
+  const actual = await vi.importActual<typeof import("./HostMessageView")>("./HostMessageView");
   return {
     ...actual,
     default: ({ messages }: { messages: Array<{ content?: string }> }) =>
