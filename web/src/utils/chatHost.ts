@@ -30,16 +30,19 @@ export function setChatTraceFilter(
   setChatListTraceId(traceId);
 }
 
-/** Host -> chat artifact focus intent published whenever selectedChatId changes. */
-export function publishSelectedChatIntent(chatId: string | null): void {
-  setArtifactIntent("chat", { kind: "selected", chatId, nonce: Date.now() });
+/** Host -> chat artifact focus intent published whenever selectedChatId or
+ * botName changes (D-C, pages/decision-3042-chat-shell-host-seam.md: vmName
+ * and defaultWorkDir already have working shell-side fallbacks, botName did
+ * not have any path until this widening). */
+export function publishSelectedChatIntent(chatId: string | null, botName: string | null = null): void {
+  setArtifactIntent("chat", { kind: "selected", chatId, botName, nonce: Date.now() });
 }
 
-/** Publish the selected-chat intent on every selectedChatId change (including null). */
-export function usePublishSelectedChatIntent(selectedChatId: string | null): void {
+/** Publish the selected-chat intent on every selectedChatId/botName change (including null). */
+export function usePublishSelectedChatIntent(selectedChatId: string | null, botName: string | null = null): void {
   useEffect(() => {
-    publishSelectedChatIntent(selectedChatId);
-  }, [selectedChatId]);
+    publishSelectedChatIntent(selectedChatId, botName);
+  }, [selectedChatId, botName]);
 }
 
 /** Parse `{ chatId }` from a host-command payload; undefined means malformed. */

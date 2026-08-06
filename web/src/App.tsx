@@ -416,7 +416,9 @@ export default function App() {
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
   // Plan P2: publish selected-chat intent for modules/chat (no visible change).
-  usePublishSelectedChatIntent(selectedChatId);
+  // D-C: also carries botName, since selectedBot is intentionally not persisted
+  // to localStorage the way selectedVM is (no other fallback for the module).
+  usePublishSelectedChatIntent(selectedChatId, selectedBot);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
@@ -628,6 +630,62 @@ export default function App() {
   const handleChatCreated = useCallback((chatId: string) => {
     setSelectedChatId(chatId);
   }, []);
+
+  // D-B (pages/decision-3042-chat-shell-host-seam.md): the six D1b host
+  // commands modules/chat v2 emits (chat/ui/host-commands.ts) that had no
+  // registerHostCommand wiring yet — `chat.open` / `chat.refreshList` /
+  // `chat.setTraceFilter` are already registered above. Each mirrors the
+  // equivalent built-in ChatView prop/callback so the module shell drives the
+  // same host state. Kept in its own effect (below handlePreviewFile /
+  // handleOpenArtifact / handleChatCreated) since those are declared after the
+  // control-plane effect above.
+  useEffect(() => {
+    const unregisterChatCreated = registerHostCommand("chat.created", (payload) => {
+      const chatId = chatIdFromPayload(payload);
+      if (!chatId) return;
+      handleChatCreated(chatId);
+    });
+    const unregisterChatCleared = registerHostCommand("chat.cleared", () => {
+      setSelectedChatId(null);
+      setChatTopic(null);
+      setChatSkill(null);
+      setChatBackend(null);
+      setChatBotName(null);
+      setChatTraceId(null);
+    });
+    const unregisterWorkDirChanged = registerHostCommand("chat.workDirChanged", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { workDir } = payload as { workDir?: unknown };
+      if (workDir !== null && typeof workDir !== "string") return;
+      setChatWorkDir(workDir);
+    });
+    const unregisterOpenFile = registerHostCommand("chat.openFile", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { path, line } = payload as { path?: unknown; line?: unknown };
+      if (typeof path !== "string") return;
+      handlePreviewFile(path, typeof line === "number" ? line : undefined);
+    });
+    const unregisterOpenArtifact = registerHostCommand("chat.openArtifact", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { type, spec } = payload as { type?: unknown; spec?: unknown };
+      if (typeof type !== "string" || typeof spec !== "string") return;
+      handleOpenArtifact(type as ArtifactType, spec);
+    });
+    const unregisterOpenTrace = registerHostCommand("chat.openTrace", (payload) => {
+      const traceId = traceIdFromPayload(payload);
+      if (!traceId) return;
+      requestSelectTraceId(traceId);
+      handleOpenFile("trace.md");
+    });
+    return () => {
+      unregisterChatCreated();
+      unregisterChatCleared();
+      unregisterWorkDirChanged();
+      unregisterOpenFile();
+      unregisterOpenArtifact();
+      unregisterOpenTrace();
+    };
+  }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile, requestSelectTraceId]);
 
   const handleSelectChat = useCallback((id: string | null) => {
     openChat(id, {

@@ -21,8 +21,8 @@ function renderClient() {
   return { container, root };
 }
 
-function IntentProbe({ chatId }: { chatId: string | null }) {
-  usePublishSelectedChatIntent(chatId);
+function IntentProbe({ chatId, botName }: { chatId: string | null; botName?: string | null }) {
+  usePublishSelectedChatIntent(chatId, botName);
   return null;
 }
 
@@ -119,7 +119,15 @@ describe("selected-chat artifact intent", () => {
     expect(setArtifactIntentMock).toHaveBeenCalledTimes(1);
     expect(setArtifactIntentMock).toHaveBeenCalledWith(
       "chat",
-      expect.objectContaining({ kind: "selected", chatId: "chat-xyz", nonce: expect.any(Number) }),
+      expect.objectContaining({ kind: "selected", chatId: "chat-xyz", botName: null, nonce: expect.any(Number) }),
+    );
+  });
+
+  it("publishSelectedChatIntent carries botName when given (D-C)", () => {
+    publishSelectedChatIntent("chat-xyz", "gpt-5");
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ kind: "selected", chatId: "chat-xyz", botName: "gpt-5" }),
     );
   });
 
