@@ -9,7 +9,6 @@ import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
 import ChatSnapshotView from "./ChatSnapshotView";
-import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import UserMenu from "./UserMenu";
 
@@ -88,19 +87,15 @@ export default function ScreenshotShowcase() {
           </div>
         </PanelFrame>
 
-        <PanelFrame name="file-viewer" title="files · FileViewer" width={760} height={680}>
+        <PanelFrame name="file-viewer" title="files · FileViewer (special tabs)" width={760} height={680}>
           <FileViewer
-            openFiles={["pages/plan-2827-theming.md"]}
-            activeFile="pages/plan-2827-theming.md"
+            openFiles={["trace.md"]}
+            activeFile="trace.md"
             onSelectFile={noop}
             onCloseFile={noop}
             onReorderFiles={noop}
             isLoggedIn={false}
           />
-        </PanelFrame>
-
-        <PanelFrame name="file-tree" title="files · FileTree" width={420} height={360}>
-          <FileTree isLoggedIn onDeleteFile={noop} workDir="/workspace/project" />
         </PanelFrame>
       </div>
     </div>

@@ -9,7 +9,7 @@ const LEGACY_STORAGE_KEY = "y-agent-swr-cache-v1";
 
 // Large/streaming payloads that should never be persisted (checked by
 // substring so new paths under these prefixes are covered automatically).
-const DENYLIST_SUBSTRINGS = ["/api/chat/messages", "/api/file/", "/api/trace/chats"];
+const DENYLIST_SUBSTRINGS = ["/api/chat/messages", "/api/file/", "/api/module/file/", "/api/trace/chats"];
 
 // Durable guard against the denylist drifting again: skip any entry whose
 // serialized form exceeds this, regardless of path. Comfortably above a

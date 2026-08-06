@@ -5,6 +5,8 @@ import { registerHostCommand, runHostCommand } from "../host/commands";
 import {
   fileOpenPayload,
   fileSearchPayload,
+  isHostWorkspaceTab,
+  isOrdinaryFilePath,
   publishFileContext,
   publishFileOpenAction,
   publishFileRefresh,
@@ -58,6 +60,20 @@ describe("fileOpenPayload / fileSearchPayload", () => {
     });
   });
 
+  it("fileOpenPayload forwards an optional finite line", () => {
+    expect(fileOpenPayload({ path: "notes/a.md", line: 42 })).toEqual({
+      path: "notes/a.md",
+      vmName: null,
+      workDir: null,
+      line: 42,
+    });
+    expect(fileOpenPayload({ path: "notes/a.md", line: "42" as unknown as number })).toEqual({
+      path: "notes/a.md",
+      vmName: null,
+      workDir: null,
+    });
+  });
+
   it("fileOpenPayload rejects a missing or non-string path", () => {
     expect(fileOpenPayload(undefined)).toBeUndefined();
     expect(fileOpenPayload({})).toBeUndefined();
@@ -70,6 +86,19 @@ describe("fileOpenPayload / fileSearchPayload", () => {
       vmName: "prod",
       workDir: "/home/roy",
     });
+  });
+});
+
+describe("host vs ordinary file path classification (C1)", () => {
+  it("keeps special/ui/diff/artifact tabs on the host and ordinary paths off it", () => {
+    expect(isHostWorkspaceTab("trace.md")).toBe(true);
+    expect(isHostWorkspaceTab("ui:file")).toBe(true);
+    expect(isHostWorkspaceTab("diff:src/a.ts")).toBe(true);
+    expect(isHostWorkspaceTab("artifact:abc.mermaid")).toBe(true);
+    expect(isHostWorkspaceTab("email.md")).toBe(true);
+    expect(isHostWorkspaceTab("pages/plan.md")).toBe(false);
+    expect(isOrdinaryFilePath("pages/plan.md")).toBe(true);
+    expect(isOrdinaryFilePath("ui:file")).toBe(false);
   });
 });
 
@@ -86,16 +115,16 @@ describe("runHostCommand file.open / file.close / file.search", () => {
         const parsed = fileOpenPayload(payload);
         if (!parsed) return;
         handleOpenFile("ui:file");
-        publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir);
+        publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir, parsed.line);
       }),
     );
     setArtifactIntentMock.mockClear();
 
-    runHostCommand("file.open", { path: "notes/a.md", vmName: "prod", workDir: "/home/roy" });
+    runHostCommand("file.open", { path: "notes/a.md", vmName: "prod", workDir: "/home/roy", line: 12 });
 
     expect(handleOpenFile).toHaveBeenCalledWith("ui:file");
     expect(lastPublished().action).toEqual(
-      expect.objectContaining({ kind: "open", path: "notes/a.md", vmName: "prod", workDir: "/home/roy" }),
+      expect.objectContaining({ kind: "open", path: "notes/a.md", vmName: "prod", workDir: "/home/roy", line: 12 }),
     );
   });
 
@@ -169,10 +198,10 @@ describe("retained file intent: context and action coexist (review-3068-file-bro
     publishFileContext(null, "/vm/default", "prod", "/vm/prod");
     setArtifactIntentMock.mockClear();
 
-    publishFileOpenAction("notes/b.md", null, null);
+    publishFileOpenAction("notes/b.md", null, null, 7);
 
     const published = lastPublished();
-    expect(published.action).toEqual(expect.objectContaining({ kind: "open", path: "notes/b.md" }));
+    expect(published.action).toEqual(expect.objectContaining({ kind: "open", path: "notes/b.md", line: 7 }));
     // The context published moments earlier is still there: an action must
     // not clobber the last-known per-location context.
     expect(published.left).toEqual({ vmName: null, workDir: "/vm/default" });

@@ -129,7 +129,7 @@ function MessageImages({ images }: { images?: string[] }) {
         if (/^https?:\/\//.test(path)) entries.push([path, path]);
         else if (path.startsWith("s3://luohy15/")) entries.push([path, `https://cdn.luohy15.com/${path.slice(13)}`]);
         else if (getToken()) {
-          const response = await authFetch(`${API}/api/file/raw?path=${encodeURIComponent(path)}`);
+          const response = await authFetch(`${API}/api/module/file/raw?path=${encodeURIComponent(path)}`);
           if (response.ok) { const url = URL.createObjectURL(await response.blob()); blobs.push(url); entries.push([path, url]); }
         }
       }

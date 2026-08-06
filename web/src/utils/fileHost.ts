@@ -1,10 +1,7 @@
-// Host-side file control-plane gestures for the future modules/file UI (plan
-// sub-task H2, pages/plan-3068-file-module.md decision 6: "File selection
-// crosses the existing intent/command seam"). Pure helpers so App.tsx can
-// wire host commands / retained context without bloating the shell, and so
-// verify unit tests can exercise payload parsing without mounting App. No
-// module consumes this yet (M3/M4 build the panel/detail); this is the seam
-// only.
+// Host-side file control-plane gestures for modules/file (plan sub-task H2/C1,
+// pages/plan-3068-file-module.md decision 6). Pure helpers so App.tsx can wire
+// host commands / retained context without bloating the shell, and so unit
+// tests can exercise payload parsing without mounting App.
 import { useEffect } from "react";
 import { setArtifactIntent } from "../host/intents";
 
@@ -15,10 +12,11 @@ export interface FileLocationContext {
 
 /** Module -> host `file.open` request: open the `ui:file` tab and hand the
  * detail surface the requested path plus the VM/work-directory context of
- * the panel that sent it. */
+ * the panel that sent it. Optional `line` is end-to-end line focus (C1). */
 export interface FileOpenAction {
   kind: "open";
   path: string;
+  line?: number;
   vmName: string | null;
   workDir: string | null;
   nonce: number;
@@ -41,17 +39,13 @@ export type FileAction = FileOpenAction | FileSearchAction;
  * write and an `open`/`search` action write must not clobber each other,
  * since `useArtifactIntent` keeps only the latest value per slug). `left`
  * and `right` are always both present — right mirrors `selectedVM` +
- * `effectiveWorkDir`, left mirrors the default VM + `currentVmWorkDir` (see
- * the two `<FileTree>` call sites in App.tsx); a future panel mount picks its
- * own half via `usePanelLocation()`. `action` is the most recent open/search
- * request, or `null` before the first one; a future detail surface reacts to
- * `action.nonce` changes. Top-level `nonce` is the shell refresh signal
- * (review-3068-file-panel.md finding 1 / modules/note convention): the host
- * republishes with a fresh value when the right activity rail wants a list
- * refresh, mirroring `refreshKey` on the built-in FileTree. Every publish
- * below reads and re-sends the halves it isn't updating, so a context update
- * never drops an unconsumed action, an action never drops the last-known
- * context, and a refresh never clobbers either. */
+ * `effectiveWorkDir`, left mirrors the default VM + `currentVmWorkDir`.
+ * A panel mount picks its own half via `usePanelLocation()`. `action` is the
+ * most recent open/search request, or `null` before the first one; the detail
+ * surface reacts to `action.nonce` changes. Top-level `nonce` is the shell
+ * refresh signal (modules/note convention): the host republishes with a fresh
+ * value when the right activity rail wants a list refresh. Every publish
+ * below reads and re-sends the halves it isn't updating. */
 export interface FileArtifactIntent {
   left: FileLocationContext;
   right: FileLocationContext;
@@ -62,10 +56,7 @@ export interface FileArtifactIntent {
 const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
 
 // Module-scoped mirror of the single published value, so each publish call
-// can merge in the half it isn't updating. This is the "one retained state
-// shape that always carries both" fix (review finding 1) rather than two
-// independent retained slots, since the M3 panel and M4 detail are expected
-// to read the same slug together via `usePanelLocation()`.
+// can merge in the half it isn't updating.
 let lastLeft: FileLocationContext = EMPTY_LOCATION;
 let lastRight: FileLocationContext = EMPTY_LOCATION;
 let lastAction: FileAction | null = null;
@@ -104,8 +95,20 @@ export function usePublishFileContext(
   }, [leftVmName, leftWorkDir, rightVmName, rightWorkDir]);
 }
 
-export function publishFileOpenAction(path: string, vmName: string | null, workDir: string | null): void {
-  lastAction = { kind: "open", path, vmName, workDir, nonce: Date.now() };
+export function publishFileOpenAction(
+  path: string,
+  vmName: string | null,
+  workDir: string | null,
+  line?: number,
+): void {
+  lastAction = {
+    kind: "open",
+    path,
+    vmName,
+    workDir,
+    nonce: Date.now(),
+    ...(typeof line === "number" && Number.isFinite(line) ? { line } : {}),
+  };
   publish();
 }
 
@@ -115,26 +118,31 @@ export function publishFileSearchAction(vmName: string | null, workDir: string |
 }
 
 /** Host -> file artifact list-refresh signal. Bumps the top-level `nonce`
- * (same field name the note panel reads) without touching left/right/action,
- * so the right activity rail refresh button keeps working after the C1 cut
- * replaces built-in FileTree's `refreshKey` prop. */
+ * without touching left/right/action, so the right activity rail refresh
+ * button keeps working after the C1 cut. */
 export function publishFileRefresh(): void {
   lastNonce = Date.now();
   publish();
 }
 
-/** Parse `{ path, vmName?, workDir? }` from a `file.open` host-command
+/** Parse `{ path, vmName?, workDir?, line? }` from a `file.open` host-command
  * payload; `undefined` means malformed (missing/non-string `path`). */
 export function fileOpenPayload(
   payload: unknown,
-): { path: string; vmName: string | null; workDir: string | null } | undefined {
+): { path: string; vmName: string | null; workDir: string | null; line?: number } | undefined {
   if (!payload || typeof payload !== "object") return undefined;
-  const { path, vmName, workDir } = payload as { path?: unknown; vmName?: unknown; workDir?: unknown };
+  const { path, vmName, workDir, line } = payload as {
+    path?: unknown;
+    vmName?: unknown;
+    workDir?: unknown;
+    line?: unknown;
+  };
   if (typeof path !== "string") return undefined;
   return {
     path,
     vmName: typeof vmName === "string" ? vmName : null,
     workDir: typeof workDir === "string" ? workDir : null,
+    ...(typeof line === "number" && Number.isFinite(line) ? { line } : {}),
   };
 }
 
@@ -147,4 +155,26 @@ export function fileSearchPayload(payload: unknown): { vmName: string | null; wo
     vmName: typeof vmName === "string" ? vmName : null,
     workDir: typeof workDir === "string" ? workDir : null,
   };
+}
+
+/** Host workspace tabs after C1: special views + module detail tabs. Ordinary
+ * file paths belong to modules/file (mirrored from modules/file/ui/detailState
+ * `isOrdinaryFileTab` inverted). */
+export function isHostWorkspaceTab(path: string): boolean {
+  if (!path) return false;
+  if (path.startsWith("ui:") || path.startsWith("artifact:") || path.startsWith("diff:")) return true;
+  const name = path.replace(/^\.\//, "");
+  return (
+    name === "trace.md"
+    || name === "link.md"
+    || name === "links.md"
+    || name === "entity.md"
+    || name === "english.md"
+    || name === "email.md"
+    || name.endsWith("dev.md")
+  );
+}
+
+export function isOrdinaryFilePath(path: string): boolean {
+  return !!path && !isHostWorkspaceTab(path.replace(/^\.\//, ""));
 }

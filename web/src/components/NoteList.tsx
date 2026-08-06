@@ -154,12 +154,12 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
   const prdParams = new URLSearchParams();
   if (vmName) prdParams.set("vm_name", vmName);
 
-  const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/file/list?${journalsParams.toString()}` : null;
-  const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/file/list?${pagesParams.toString()}` : null;
-  const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/file/read?${blogParams.toString()}` : null;
-  const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/file/list?${financeParams.toString()}` : null;
-  const skillsKey = isLoggedIn && tab === "skills" ? `${API}/api/file/skills?${skillsParams.toString()}` : null;
-  const prdKey = isLoggedIn && tab === "prd" ? `${API}/api/file/prd?${prdParams.toString()}` : null;
+  const journalsKey = isLoggedIn && tab === "journals" ? `${API}/api/module/file/list?${journalsParams.toString()}` : null;
+  const pagesKey = isLoggedIn && tab === "pages" ? `${API}/api/module/file/list?${pagesParams.toString()}` : null;
+  const blogKey = isLoggedIn && tab === "blog" ? `${API}/api/module/file/read?${blogParams.toString()}` : null;
+  const financeKey = isLoggedIn && tab === "finance" ? `${API}/api/module/file/list?${financeParams.toString()}` : null;
+  const skillsKey = isLoggedIn && tab === "skills" ? `${API}/api/module/file/skills?${skillsParams.toString()}` : null;
+  const prdKey = isLoggedIn && tab === "prd" ? `${API}/api/module/file/prd?${prdParams.toString()}` : null;
 
   // NOTE: gate the loading UI on `isLoading` only (true solely on first load /
   // empty-cache tab switch), never on `isValidating`. SWR keeps stale data during
@@ -508,7 +508,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                 const params = new URLSearchParams();
                 if (vmName) params.set("vm_name", vmName);
                 try {
-                  await authFetch(`${API}/api/file/touch?${params}`, {
+                  await authFetch(`${API}/api/module/file/touch?${params}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ path }),
@@ -651,7 +651,7 @@ export default function NoteList({ isLoggedIn, vmName, workDir, onOpenFile, todo
                     onOpenFile(workDir ? `${workDir}/${path}` : path);
                     const params = new URLSearchParams();
                     if (vmName) params.set("vm_name", vmName);
-                    authFetch(`${API}/api/file/touch?${params}`, {
+                    authFetch(`${API}/api/module/file/touch?${params}`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ path }),

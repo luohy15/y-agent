@@ -622,7 +622,7 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
   if (pathname === "/api/tag/list") return TAG_VOCAB_FIXTURE;
   if (pathname === "/api/tag") return TAG_RESULTS_FIXTURE;
-  if (pathname === "/api/file/list") {
+  if (pathname === "/api/module/file/list" || pathname === "/api/file/list") {
     return {
       path: search.get("path") || "/workspace/project",
       entries: [
@@ -631,7 +631,7 @@ function matchFixture(rawUrl: string): unknown | undefined {
       ],
     };
   }
-  if (pathname === "/api/file/read") {
+  if (pathname === "/api/module/file/read" || pathname === "/api/file/read") {
     return {
       content: [
         "---",

@@ -34,10 +34,10 @@ export function buildModulePanelItems(artifacts: Module[]): PanelItem<`artifact:
   }));
 }
 
-// Round-2 gap closure (plan-3046-right-sidebar.md R1): the right drawer no
-// longer appends every mountable module, only the resolved chat module —
-// arbitrary module panels remain left-activity-bar only. Returns [] while
-// chat is not yet mountable (cold-loading, disabled, unpublished), which
+// Round-2 gap closure (plan-3046-right-sidebar.md R1) + C1 (plan-3068): the
+// right drawer only resolves chat and file modules dynamically — arbitrary
+// module panels remain left-activity-bar only. Returns [] while the target
+// module is not yet mountable (cold-loading, disabled, unpublished), which
 // resolveRightPanel's cold-retention / removed-module-fallback logic already
 // handles the same way it does for any other catalog item.
 export function buildChatPanelItem(artifacts: Module[]): PanelItem<"artifact:chat">[] {
@@ -46,9 +46,16 @@ export function buildChatPanelItem(artifacts: Module[]): PanelItem<"artifact:cha
   return [{ key: "artifact:chat", label: artifactLabel(chat), icon: artifactIcon(chat.active_version.icon) }];
 }
 
+export function buildFilePanelItem(artifacts: Module[]): PanelItem<"artifact:file">[] {
+  const file = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "file");
+  if (!file) return [];
+  return [{ key: "artifact:file", label: artifactLabel(file), icon: artifactIcon(file.active_version.icon) }];
+}
+
 export function restoreRightPanel(saved: string | null): string {
   if (saved === "git") return "diff";
   if (saved === "chats") return "artifact:chat";
+  if (saved === "files") return "artifact:file";
   if (saved === "links") return "notes";
   return saved || "notes";
 }

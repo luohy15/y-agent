@@ -79,9 +79,9 @@ describe("markdown export helpers", () => {
       blob: async () => pdfBlob,
     } as Response);
 
-    const blob = await requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf");
+    const blob = await requestPdfExport(fetchImpl, "/api/module/file/export-pdf", "<html></html>", "note.pdf");
 
-    expect(fetchImpl).toHaveBeenCalledWith("/api/file/export-pdf", {
+    expect(fetchImpl).toHaveBeenCalledWith("/api/module/file/export-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ html: "<html></html>", filename: "note.pdf" }),
@@ -95,7 +95,7 @@ describe("markdown export helpers", () => {
       new Response(JSON.stringify({ detail: "PDF renderer (WeasyPrint) is not installed on the render host" }), { status: 503 })
     );
 
-    await expect(requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
+    await expect(requestPdfExport(fetchImpl, "/api/module/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
       "PDF renderer (WeasyPrint) is not installed on the render host"
     );
   });
@@ -103,7 +103,7 @@ describe("markdown export helpers", () => {
   it("falls back to a generic status message when the failure body isn't JSON", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("gateway error", { status: 502 }));
 
-    await expect(requestPdfExport(fetchImpl, "/api/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
+    await expect(requestPdfExport(fetchImpl, "/api/module/file/export-pdf", "<html></html>", "note.pdf")).rejects.toThrow(
       "PDF export failed (502)"
     );
   });

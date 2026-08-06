@@ -4,7 +4,6 @@ from storage.global_config import load_global_config
 from yagent.commands.init import init
 from yagent.commands.login import login
 from yagent.commands.logout import logout
-from yagent.commands.file.click import file_group
 from yagent.commands.chat.click import chat_group
 from yagent.commands.todo.click import todo_group
 from yagent.commands.calendar.click import calendar_group
@@ -40,7 +39,6 @@ def cli():
 cli.add_command(init)
 cli.add_command(login)
 cli.add_command(logout)
-cli.add_command(file_group)
 cli.add_command(chat_group)
 cli.add_command(todo_group)
 cli.add_command(calendar_group)

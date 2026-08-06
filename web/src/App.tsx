@@ -5,12 +5,10 @@ import { useAuth } from "./hooks/useAuth";
 import { API, authFetch, jsonFetcher } from "./api";
 import ChatFallbackView from "./components/ChatFallbackView";
 import GoogleSignInButton from "./components/GoogleSignInButton";
-import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
-import { buildChatPanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
-import FileSearchDialog from "./components/FileSearchDialog";
+import { buildChatPanelItem, buildFilePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
@@ -31,6 +29,8 @@ import {
 import {
   fileOpenPayload,
   fileSearchPayload,
+  isHostWorkspaceTab,
+  isOrdinaryFilePath,
   publishFileOpenAction,
   publishFileRefresh,
   publishFileSearchAction,
@@ -75,19 +75,17 @@ interface BotConfigItem {
 // tab state would otherwise fetch a nonexistent file.
 const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md"]);
 
-// Round-2 gap closure (plan-3046-right-sidebar.md R1): exactly four right
-// categories. Chat is resolved dynamically (buildChatPanelItem); the other
-// three are fixed built-ins. Links is not one of them — the left activity
-// bar's built-in Links panel remains the only Links surface.
-type RightBuiltInPanel = "notes" | "files" | "diff";
+// Round-2 gap closure (plan-3046-right-sidebar.md R1) + C1 (plan-3068): exactly
+// four right categories. Chat and Files are resolved dynamically
+// (buildChatPanelItem / buildFilePanelItem); Notes and Diff remain fixed
+// built-ins. Links is not one of them — the left activity bar's built-in
+// Links panel remains the only Links surface. Order: Chat, Notes, Files, Diff.
+type RightBuiltInPanel = "notes" | "diff";
 type RightPanel = RightBuiltInPanel | `artifact:${string}`;
 type ArtifactTab = { type: ArtifactType; spec: string };
 
-const RIGHT_BUILT_IN_PANEL_ITEMS: PanelItem<RightBuiltInPanel>[] = [
-  { key: "notes", label: "Notes", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> },
-  { key: "files", label: "Files", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg> },
-  { key: "diff", label: "Diff", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg> },
-];
+const RIGHT_NOTES_ITEM: PanelItem<RightBuiltInPanel> = { key: "notes", label: "Notes", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> };
+const RIGHT_DIFF_ITEM: PanelItem<RightBuiltInPanel> = { key: "diff", label: "Diff", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg> };
 
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
@@ -104,7 +102,12 @@ export default function App() {
     [mountedUiArtifacts],
   );
   const rightPanelItems = useMemo<PanelItem<RightPanel>[]>(
-    () => [...buildChatPanelItem(uiArtifacts), ...RIGHT_BUILT_IN_PANEL_ITEMS],
+    () => [
+      ...buildChatPanelItem(uiArtifacts),
+      RIGHT_NOTES_ITEM,
+      ...buildFilePanelItem(uiArtifacts),
+      RIGHT_DIFF_ITEM,
+    ],
     [uiArtifacts],
   );
   // D1a (plan-3042-chatview.md V1): the lowest-slug enabled module claiming
@@ -129,29 +132,34 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const [openFiles, setOpenFiles] = useState<string[]>(() => {
-    try { return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[]).filter(isPersistableTab).filter((p) => !RETIRED_TABS.has(p)); } catch { return []; }
+    try {
+      return (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[])
+        .filter(isPersistableTab)
+        .filter((p) => !RETIRED_TABS.has(p))
+        .filter(isHostWorkspaceTab);
+    } catch { return []; }
   });
   const [activeFile, setActiveFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("activeFile") || null;
-    return saved && (!isPersistableTab(saved) || RETIRED_TABS.has(saved)) ? null : saved;
+    return saved && isPersistableTab(saved) && !RETIRED_TABS.has(saved) && isHostWorkspaceTab(saved) ? saved : null;
   });
   const [previewFile, setPreviewFile] = useState<string | null>(() => {
     const saved = localStorage.getItem("previewFile") || null;
-    return saved && (!isPersistableTab(saved) || RETIRED_TABS.has(saved)) ? null : saved;
+    return saved && isPersistableTab(saved) && !RETIRED_TABS.has(saved) && isHostWorkspaceTab(saved) ? saved : null;
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
   // Which mounted artifacts actually define a detail surface. Only known once
   // the module has loaded, so the "open full view" affordance appears with the
   // panel rather than being promised up front for a panel-only artifact.
   const [uiArtifactHasDetail, setUiArtifactHasDetail] = useState<Record<string, boolean>>({});
-  const [pendingLines, setPendingLines] = useState<Record<string, number | undefined>>({});
   const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
-  const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
-    const saved = localStorage.getItem("sidebarPanel") as SidebarPanel;
+    const raw = localStorage.getItem("sidebarPanel");
+    // C1: migrate the retired fixed Files entry onto the module panel key.
+    const saved = (raw === "files" ? "artifact:file" : raw) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -226,9 +234,8 @@ export default function App() {
   useEffect(() => { if (selectedThreadId) localStorage.setItem("selectedThreadId", selectedThreadId); else localStorage.removeItem("selectedThreadId"); }, [selectedThreadId]);
   useEffect(() => { if (selectedThreadAccount) localStorage.setItem("selectedThreadAccount", selectedThreadAccount); else localStorage.removeItem("selectedThreadAccount"); }, [selectedThreadAccount]);
 
-  const handleOpenFile = useCallback((path: string, line?: number) => {
+  const openHostWorkspaceTab = useCallback((path: string) => {
     const p = path.replace(/^\.\//, "");
-    if (line) setPendingLines((lines) => ({ ...lines, [p]: line }));
     setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
     setActiveFile(p);
     // Pin preview if this file is the current preview (opened via non-preview action)
@@ -236,6 +243,25 @@ export default function App() {
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, []);
+
+  const openOrdinaryFile = useCallback((path: string, line?: number) => {
+    const p = path.replace(/^\.\//, "");
+    openHostWorkspaceTab(artifactTabKey("file"));
+    publishFileOpenAction(p, selectedVM, effectiveWorkDir ?? null, line);
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+      setChatListOpen(false);
+    }
+  }, [openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+
+  const handleOpenFile = useCallback((path: string, line?: number) => {
+    const p = path.replace(/^\.\//, "");
+    if (isOrdinaryFilePath(p)) {
+      openOrdinaryFile(p, line);
+      return;
+    }
+    openHostWorkspaceTab(p);
+  }, [openHostWorkspaceTab, openOrdinaryFile]);
 
   // Contract v3 (plan sub-task S0, pages/plan-2979-calendar-dynamic-ui.md
   // Part D): give any artifact's `openArtifactDetail(slug)` call the same
@@ -299,7 +325,11 @@ export default function App() {
 
   const handlePreviewFile = useCallback((path: string, line?: number) => {
     const p = path.replace(/^\.\//, "");
-    if (line) setPendingLines((lines) => ({ ...lines, [p]: line }));
+    if (isOrdinaryFilePath(p)) {
+      // Module detail owns preview-tab semantics after C1.
+      openOrdinaryFile(p, line);
+      return;
+    }
     const files = openFilesRef.current;
     const currentPreview = previewFileRef.current;
     const isAlreadyOpen = files.includes(p);
@@ -335,16 +365,7 @@ export default function App() {
     setActiveFile(p);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
-
-  const handleConsumeLine = useCallback((path: string) => {
-    setPendingLines((lines) => {
-      if (!(path in lines)) return lines;
-      const next = { ...lines };
-      delete next[path];
-      return next;
-    });
-  }, []);
+  }, [openOrdinaryFile]);
 
   const handlePinFile = useCallback((path: string) => {
     setPreviewFile((current) => current === path ? null : current);
@@ -387,67 +408,35 @@ export default function App() {
     }
   }, []);
 
-  // A renamed path may be the exact path of an open tab, or (for a directory
-  // rename) a prefix of one. Both sides are normalized with the same `./`
-  // strip FileTree paths carry, so a match doesn't depend on that prefix
-  // being present on either side.
-  const handleRenamedFile = useCallback((oldPath: string, newPath: string) => {
-    const normOld = oldPath.replace(/^\.\//, "");
-    const normNew = newPath.replace(/^\.\//, "");
-    const remap = (path: string) => {
-      const norm = path.replace(/^\.\//, "");
-      if (norm === normOld) return normNew;
-      if (norm.startsWith(normOld + "/")) return normNew + norm.slice(normOld.length);
-      return path;
-    };
-    setOpenFiles((files) => files.map(remap));
-    setActiveFile((cur) => (cur === null ? cur : remap(cur)));
-    setPreviewFile((cur) => (cur === null ? cur : remap(cur)));
-    setPendingLines((prev) => {
-      let changed = false;
-      const next: Record<string, number | undefined> = {};
-      for (const [path, line] of Object.entries(prev)) {
-        const remapped = remap(path);
-        if (remapped !== path) changed = true;
-        next[remapped] = line;
-      }
-      return changed ? next : prev;
-    });
-  }, []);
-
   const handleCloseAllFiles = useCallback(() => {
     setOpenFiles([]);
     setActiveFile(null);
     setPreviewFile(null);
   }, []);
 
-  // Plan H2 (pages/plan-3068-file-module.md decision 6): seam only, no
-  // module consumes this yet. Publish the retained per-location VM/work-
-  // directory context the future Files panel needs — left mirrors the
-  // built-in left `<FileTree>` (default VM, `currentVmWorkDir`), right
-  // mirrors the built-in right `<FileTree>` (`selectedVM`, `effectiveWorkDir`).
+  // C1: publish retained per-location VM/work-directory context for the
+  // Files module panel — left uses default VM + currentVmWorkDir, right uses
+  // selectedVM + effectiveWorkDir.
   usePublishFileContext(null, currentVmWorkDir ?? null, selectedVM, effectiveWorkDir ?? null);
 
-  // Plan H2: module -> host file control-plane commands. `file.open` opens
-  // the `ui:file` tab and hands the detail surface the requested path (mirrors
-  // `chat.openFile` -> `handlePreviewFile`, but files live inside `ui:file`
-  // once the module ships); `file.close` closes it, since decision 6 keeps
-  // the module owning its own internal tabs, not host per-file state;
-  // `file.search` opens `ui:file` and asks the detail surface to show its own
-  // search dialog instead of the host's `FileSearchDialog`.
+  // Plan H2/C1: module -> host file control-plane commands. `file.open` opens
+  // the `ui:file` tab and hands the detail surface the requested path + optional
+  // line; `file.close` closes it (module owns internal tabs); `file.search`
+  // opens `ui:file` and asks the detail surface to show its own search dialog.
   useEffect(() => {
     const unregisterFileOpen = registerHostCommand("file.open", (payload) => {
       const parsed = fileOpenPayload(payload);
       if (!parsed) return;
-      handleOpenFile(artifactTabKey("file"));
-      publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir);
+      openHostWorkspaceTab(artifactTabKey("file"));
+      publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir, parsed.line);
+      if (window.innerWidth < 768) setChatListOpen(false);
     });
     const unregisterFileClose = registerHostCommand("file.close", () => {
       handleCloseFile(artifactTabKey("file"));
     });
     const unregisterFileSearch = registerHostCommand("file.search", (payload) => {
       const { vmName, workDir } = fileSearchPayload(payload);
-      handleOpenFile(artifactTabKey("file"));
+      openHostWorkspaceTab(artifactTabKey("file"));
       publishFileSearchAction(vmName, workDir);
     });
     return () => {
@@ -455,7 +444,7 @@ export default function App() {
       unregisterFileClose();
       unregisterFileSearch();
     };
-  }, [handleOpenFile, handleCloseFile]);
+  }, [openHostWorkspaceTab, handleCloseFile]);
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
@@ -585,7 +574,8 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "p") {
         e.preventDefault();
-        setFileSearchOpen(true);
+        openHostWorkspaceTab(artifactTabKey("file"));
+        publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "w") {
         const el = document.activeElement;
@@ -608,7 +598,7 @@ export default function App() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("message", onPreviewKeydown);
     };
-  }, [handleCloseFile]);
+  }, [handleCloseFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
 
   useEffect(() => {
     localStorage.setItem("sidebarWidth", String(sidebarWidth));
@@ -805,8 +795,8 @@ export default function App() {
 
   const refreshRightPanel = useCallback(() => {
     setRightPanelRefreshKey((k) => k + 1);
-    // H4: module Files panel reads top-level intent.nonce (note convention);
-    // keep the built-in refreshKey path for pre-C1 FileTree / NoteList / Git.
+    // Module Files panel reads top-level intent.nonce (note convention);
+    // NoteList / Git still use refreshKey.
     publishFileRefresh();
     setRightPanelSpinning(true);
     setTimeout(() => setRightPanelSpinning(false), 600);
@@ -844,9 +834,6 @@ export default function App() {
     if (rightPanel === "notes") {
       return <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); closeMobile(); }} todoId={chatListTraceId} hideFilters refreshKey={rightPanelRefreshKey} />;
     }
-    if (rightPanel === "files") {
-      return <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); closeMobile(); }} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={rightPanelRefreshKey} />;
-    }
     return <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); closeMobile(); }} refreshKey={rightPanelRefreshKey} />;
   };
 
@@ -866,7 +853,10 @@ export default function App() {
             </svg>
           </button>
           <button
-            onClick={() => setFileSearchOpen(true)}
+            onClick={() => {
+              openHostWorkspaceTab(artifactTabKey("file"));
+              publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
+            }}
             className="h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 text-sol-base01 hover:text-sol-base1"
             title="Search files (Ctrl+P)"
           >
@@ -1131,8 +1121,6 @@ export default function App() {
                     handleOpenFile("english.md");
                   }}
                 />
-              ) : sidebarPanel === "files" ? (
-                <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={handleOpenFile} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={null} workDir={currentVmWorkDir} />
               ) : null;
             return (
               <div className="flex flex-col h-full min-h-0">
@@ -1204,7 +1192,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} pendingLines={pendingLines} onConsumeLine={handleConsumeLine} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live
@@ -1325,7 +1313,6 @@ export default function App() {
           </div>
         </div>
       </div>
-      <FileSearchDialog open={fileSearchOpen} onClose={() => setFileSearchOpen(false)} onSelectFile={handleOpenFile} vmName={selectedVM} workDir={effectiveWorkDir} openFiles={openFiles} onCloseAll={handleCloseAllFiles} />
       <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={commandActions} />
       <LinkActionDialog
         open={!!pendingLinkUrl}

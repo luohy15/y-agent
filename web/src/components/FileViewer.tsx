@@ -9,14 +9,13 @@ import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
 import EnglishView from "./EnglishView";
-import CodeEditor from "./CodeEditor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import { parseFrontMatter } from "../utils/markdown";
-import { availableFormats, buildHtmlDocument, exportFilename, extractMarkdownHeadings, renderMarkdownBody, requestPdfExport, type MarkdownExportFormat } from "../utils/markdownExport";
+import { extractMarkdownHeadings } from "../utils/markdownExport";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
 
@@ -55,8 +54,6 @@ interface FileViewerProps {
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   onPreviewFile?: (path: string, line?: number) => void;
-  pendingLines?: Record<string, number | undefined>;
-  onConsumeLine?: (path: string) => void;
   onTraceTodoDirtyChange?: (dirty: boolean) => void;
   // Public trace projection: render note tabs keyed by note `share_id`, with content
   // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
@@ -70,21 +67,6 @@ interface FileViewerProps {
 // Reserved share-tab key for the trace.md special-view in the public FileViewer.
 const PUBLIC_TRACE_TAB = "trace.md";
 
-const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico"]);
-const PDF_EXTS = new Set(["pdf"]);
-const HTML_EXTS = new Set(["html", "htm"]);
-
-// A sandboxed (origin-null) preview iframe swallows keydown events when focused,
-// so the parent window's global shortcuts (Ctrl+`, Ctrl+P, Ctrl+1-9, …) stop
-// firing once the user clicks into the preview. This bridge forwards any
-// Ctrl/Cmd-modified keydown out to the parent via postMessage; App.tsx replays it
-// as a synthetic window keydown so the existing handler runs unchanged.
-const PREVIEW_KBD_BRIDGE = `<script>(function(){window.addEventListener('keydown',function(e){if(e.ctrlKey||e.metaKey){e.preventDefault();parent.postMessage({__yPreviewKeydown:{key:e.key,ctrlKey:e.ctrlKey,metaKey:e.metaKey,shiftKey:e.shiftKey,altKey:e.altKey}},'*');}});})();<\/script>`;
-
-function withPreviewKbdBridge(html: string): string {
-  return PREVIEW_KBD_BRIDGE + html;
-}
-
 function getExt(path: string): string {
   const dot = path.lastIndexOf(".");
   return dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
@@ -93,18 +75,6 @@ function getExt(path: string): string {
 function getFileName(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash >= 0 ? path.slice(slash + 1) : path;
-}
-
-// FileTree builds node paths as `${workDir}/${entry.name}`, so files opened via
-// the tree carry the absolute workDir (or defaultWorkDir) prefix. Strip whichever
-// matches so links built from the path are y-history-repo-relative.
-function stripWorkDirPrefix(path: string, ...workDirs: (string | undefined)[]): string {
-  for (const dir of workDirs) {
-    if (!dir) continue;
-    if (path === dir) return "";
-    if (path.startsWith(`${dir}/`)) return path.slice(dir.length + 1);
-  }
-  return path;
 }
 
 // Download a file preserving its original name/extension. Pass `blobUrl` for
@@ -664,7 +634,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLi
         const firstKey = validNotes[0]?.content_key;
         if (firstKey) {
           const fullPath = defaultWorkDir ? `${defaultWorkDir}/${firstKey}` : firstKey;
-          const cRes = await authFetch(`${API}/api/file/read?path=${encodeURIComponent(fullPath)}${vmQuery}`);
+          const cRes = await authFetch(`${API}/api/module/file/read?path=${encodeURIComponent(fullPath)}${vmQuery}`);
           if (cRes.ok) {
             const cData = await cRes.json();
             if (!cancelled) setContent(cData.content ?? "");
@@ -929,25 +899,15 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, pendingLines = {}, onConsumeLine, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
-  const [editContent, setEditContent] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<Record<string, boolean>>({});
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [exportMenuPosition, setExportMenuPosition] = useState({ top: 0, left: 0 });
-  const savingRef = useRef<Record<string, boolean>>({});
-  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  const [zoom, setZoom] = useState(100);
-  const [noteImported, setNoteImported] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
-  const historyFilePath = stripWorkDirPrefix(activeFileName, workDir, defaultWorkDir);
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isUiArtifact = !!activeFile?.startsWith("ui:");
@@ -958,63 +918,22 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isEnglishPreview = !isDiff && !isTrace && activeFileName === "english.md";
   const isEmail = !isDiff && !isTrace && activeFileName === "email.md";
   const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
+  // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
-  // Fetch file when it becomes active and isn't cached
-  useEffect(() => {
-    if (mode === "public") return;
-    if (!activeFile) return;
-    if (isDiff || isArtifact || isUiArtifact || isTrace || isLinkPreview || isLinksMd || isEntityPreview || isEnglishPreview || isEmail || isDev) return;
-    if (cache[activeFile] && !cache[activeFile].error) return;
-
-    const ext = getExt(activeFile);
-    const isBinary = IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext);
-
-    setCache((prev) => ({ ...prev, [activeFile]: { loading: true } }));
-
-    if (isBinary) {
-      authFetch(`${API}/api/file/raw?path=${encodeURIComponent(activeFile)}${vmQuery}`)
-        .then(async (res) => {
-          if (!res.ok) throw new Error("Failed to read file");
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          blobUrls.current.add(url);
-          setCache((prev) => ({ ...prev, [activeFile]: { blobUrl: url, loading: false } }));
-        })
-        .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
-    } else {
-      authFetch(`${API}/api/file/read?path=${encodeURIComponent(activeFile)}${vmQuery}`)
-        .then(async (res) => {
-          if (!res.ok) throw new Error("Failed to read file");
-          const data = await res.json();
-          setCache((prev) => ({ ...prev, [activeFile]: { content: data.content, loading: false } }));
-          // Auto-switch to raw (edit) mode for empty files
-          if (!data.content) {
-            setMdPreview((prev) => ({ ...prev, [activeFile]: false }));
-          }
-        })
-        .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
-    }
-  }, [activeFile, cache, isArtifact, isDev, isDiff, isEmail, isEntityPreview, isEnglishPreview, isLinkPreview, isLinksMd, isTrace, isUiArtifact, vmQuery, mode]);
-
-  // Clean up blob URLs, cache, and editContent for closed files
+  // Clean up blob URLs and cache for closed files (link previews still use cache).
   useEffect(() => {
     setCache((prev) => {
       const next: Record<string, FileCache> = {};
       for (const f of openFiles) {
         if (prev[f]) next[f] = prev[f];
       }
+      // Keep link: activity/link cache keys while their special tab is open.
       for (const [path, entry] of Object.entries(prev)) {
-        if (!openFiles.includes(path) && entry.blobUrl) {
+        if (path.startsWith("link:") && openFiles.includes("link.md")) next[path] = entry;
+        if (!openFiles.includes(path) && !path.startsWith("link:") && entry.blobUrl) {
           URL.revokeObjectURL(entry.blobUrl);
           blobUrls.current.delete(entry.blobUrl);
         }
-      }
-      return next;
-    });
-    setEditContent((prev) => {
-      const next: Record<string, string> = {};
-      for (const f of openFiles) {
-        if (prev[f] !== undefined) next[f] = prev[f];
       }
       return next;
     });
@@ -1026,11 +945,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     };
   }, []);
 
-  // Reset zoom when switching files (null = auto fit)
-  useEffect(() => { setZoom(0); }, [activeFile]);
-
-  useEffect(() => { setExportMenuOpen(false); }, [activeFile]);
-
   const handleRefresh = useCallback(() => {
     if (!activeFile) return;
     if (isTrace) {
@@ -1038,7 +952,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       return;
     }
     if (isLinkPreview) {
-      // Clear cache so it re-fetches (both activity-keyed and link-keyed entries)
       setCache((prev) => {
         const next = { ...prev };
         delete next[activeFile];
@@ -1068,77 +981,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
       return;
     }
-    // Clear cache entry so useEffect re-fetches
-    setCache((prev) => {
-      const next = { ...prev };
-      if (next[activeFile]?.blobUrl) {
-        URL.revokeObjectURL(next[activeFile].blobUrl!);
-        blobUrls.current.delete(next[activeFile].blobUrl!);
-      }
-      delete next[activeFile];
-      return next;
-    });
-  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
-
-  const isDirty = useCallback((path: string) => {
-    return editContent[path] !== undefined && editContent[path] !== (cache[path]?.content ?? "");
-  }, [editContent, cache]);
-
-  const handleSave = useCallback(async (path: string) => {
-    if (savingRef.current[path]) return;
-    if (!isDirty(path)) return;
-    const snapshot = editContent[path];
-    savingRef.current[path] = true;
-    setSaving((prev) => ({ ...prev, [path]: true }));
-    try {
-      const res = await authFetch(`${API}/api/file/write${vmQuery ? "?" + vmQuery.slice(1) : ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, content: snapshot }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      setCache((prev) => ({ ...prev, [path]: { ...prev[path], content: snapshot, loading: false } }));
-      setEditContent((prev) => {
-        if (prev[path] !== snapshot) return prev;
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-    } catch (e: any) {
-      alert(`Save failed: ${e.message}`);
-    } finally {
-      savingRef.current[path] = false;
-      setSaving((prev) => ({ ...prev, [path]: false }));
-    }
-  }, [isDirty, editContent, vmQuery]);
-
-  const handleMarkdownExport = useCallback(async (format: MarkdownExportFormat) => {
-    if (!activeFile) return;
-    const content = editContent[activeFile] ?? cache[activeFile]?.content;
-    if (content === undefined || content === null) return;
-    setExportMenuOpen(false);
-    try {
-      if (format === "md") {
-        downloadFile(exportFilename(activeFile, format), { content });
-        return;
-      }
-      const { data: frontMatter, body } = parseFrontMatter(content);
-      const title = typeof frontMatter.title === "string" ? frontMatter.title : getFileName(activeFile).replace(/\.md$/i, "");
-      const htmlDocument = buildHtmlDocument({ title, bodyHtml: renderMarkdownBody(body) });
-      if (format === "html") {
-        downloadFile(exportFilename(activeFile, format), { content: htmlDocument });
-        return;
-      }
-      const filename = exportFilename(activeFile, format);
-      const pdfUrl = `${API}/api/file/export-pdf${vmQuery ? "?" + vmQuery.slice(1) : ""}`;
-      const pdfBlob = await requestPdfExport(authFetch, pdfUrl, htmlDocument, filename);
-      const blobUrl = URL.createObjectURL(pdfBlob);
-      downloadFile(filename, { blobUrl });
-      URL.revokeObjectURL(blobUrl);
-    } catch (error: any) {
-      alert(`Export failed: ${error.message ?? "Unable to export Markdown"}`);
-    }
-  }, [activeFile, cache, editContent, vmQuery]);
+  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, isTrace, mutate, selectedLinkId, selectedLinkLinkId]);
 
   if (mode === "public") {
     return (
@@ -1200,7 +1043,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             onDoubleClick={() => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
             title={filePath}
           >
-            {isDirty(filePath) && <span className="w-2 h-2 rounded-full bg-sol-base0 shrink-0" />}
             <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("artifact:") ? inlineArtifactLabel(filePath, artifactTabs) : filePath.startsWith("ui:") ? uiArtifactLabelForPath(filePath, uiArtifacts) : filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
@@ -1269,133 +1111,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               </button>
             );
           })()}
-          {(activeFileName.startsWith("pages/") || activeFileName.includes("/pages/")) && (
-            <button
-              onClick={async () => {
-                const path = activeFileName;
-                try {
-                  const res = await authFetch(`${API}/api/note/import`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content_key: path }),
-                  });
-                  if (res.ok) {
-                    setNoteImported((prev) => ({ ...prev, [activeFile!]: true }));
-                    setTimeout(() => setNoteImported((prev) => ({ ...prev, [activeFile!]: false })), 2000);
-                  }
-                } catch {}
-              }}
-              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-              title="Import Note"
-            >
-              {noteImported[activeFile] ? "Imported!" : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="12" y1="18" x2="12" y2="12" />
-                  <line x1="9" y1="15" x2="15" y2="15" />
-                </svg>
-              )}
-            </button>
-          )}
-          {(getExt(activeFile) === "md" || HTML_EXTS.has(getExt(activeFile))) && !isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && (
-            <button
-              onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
-              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-              title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
-            >
-              {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
-            </button>
-          )}
-          {!isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (
-            <a
-              href={`https://github.com/luohy15/y-history/commits/main/${historyFilePath}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-              title="View file history"
-            >
-              History
-            </a>
-          )}
-          {!isEmail && !isTrace && !isLinkPreview && !isEntityPreview && !isEnglishPreview && !isDiff && !isDev && !isArtifact && !isUiArtifact && !isLinksMd && (() => {
-            const fileData = cache[activeFile];
-            if (!fileData) return null;
-            // Binary files (images/PDFs) load into blobUrl with no text content;
-            // text files into content. Download from whichever is present.
-            const source = fileData.blobUrl
-              ? { blobUrl: fileData.blobUrl }
-              : (() => {
-                  const content = editContent[activeFile] ?? fileData.content;
-                  return content === undefined ? null : { content };
-                })();
-            if (!source) return null;
-            const formats = availableFormats(activeFile);
-            if (formats.length === 1) {
-              return (
-                <button
-                  onClick={() => downloadFile(getFileName(activeFile), source)}
-                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
-                  title="Download"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </button>
-              );
-            }
-            return (
-              <div className="relative ml-2 shrink-0">
-                <button
-                  ref={exportButtonRef}
-                  onClick={() => {
-                    const button = exportButtonRef.current;
-                    if (button) {
-                      const rect = button.getBoundingClientRect();
-                      setExportMenuPosition({ top: rect.bottom + 4, left: Math.max(4, rect.right - 112) });
-                    }
-                    setExportMenuOpen((open) => !open);
-                  }}
-                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5"
-                  title="Export Markdown"
-                  aria-haspopup="menu"
-                  aria-expanded={exportMenuOpen}
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                </button>
-                {exportMenuOpen && (
-                  <div role="menu" style={exportMenuPosition} className="fixed z-50 w-28 rounded border border-sol-base01 bg-sol-base03 py-1 shadow-lg">
-                    {formats.map((format) => (
-                      <button
-                        key={format}
-                        role="menuitem"
-                        onClick={() => handleMarkdownExport(format)}
-                        className="block w-full px-3 py-1 text-left text-xs text-sol-base0 hover:bg-sol-base02 hover:text-sol-base1 cursor-pointer"
-                      >
-                        {format === "md" ? "Markdown" : format.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          {isDirty(activeFile) && (
-            <button
-              onClick={() => handleSave(activeFile)}
-              disabled={saving[activeFile]}
-              className="text-sol-green hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs font-semibold disabled:opacity-50"
-              title="Save file"
-            >
-              {saving[activeFile] ? "Saving..." : "Save"}
-            </button>
-          )}
           {!isArtifact && !isUiArtifact && <button
             onClick={handleRefresh}
             className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
@@ -1438,11 +1153,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileEmail = !fileDiff && !fileTrace && fileName === "email.md";
           const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
-          const fileData = cache[filePath];
-          const fileExt = getExt(fileName);
-          const fileIsImage = IMAGE_EXTS.has(fileExt);
-          const fileIsPdf = PDF_EXTS.has(fileExt);
-
           return (
             <div
               key={filePath}
@@ -1507,46 +1217,9 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 <EmailViewer threadId={selectedThreadId || null} account={selectedThreadAccount || null} />
               ) : fileDev ? (
                 <DevViewer />
-              ) : !fileData || fileData.loading ? (
-                <p className="text-sol-base01 italic text-sm p-3">Loading...</p>
-              ) : fileData.error ? (
-                <p className="text-sol-red text-sm p-3">{fileData.error}</p>
-              ) : fileIsImage && fileData.blobUrl ? (
-                <div className="flex flex-col h-full">
-                  <div className="flex-1 overflow-auto p-3">
-                    <img
-                      src={fileData.blobUrl}
-                      alt={filePath}
-                      style={zoom ? { width: `${zoom}%`, maxWidth: "none" } : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                      onWheel={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                          e.preventDefault();
-                          setZoom((z) => Math.min(500, Math.max(10, (z || 100) + (e.deltaY < 0 ? 10 : -10))));
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : fileIsPdf && fileData.blobUrl ? (
-                <iframe src={fileData.blobUrl} className="w-full h-full border-0" title={filePath} />
-              ) : fileData.content !== undefined ? (
-                getExt(filePath) === "md" && mdPreview[filePath] !== false ? (
-                  <MarkdownPreview content={editContent[filePath] ?? fileData.content} currentFilePath={filePath} onOpenFile={onPreviewFile} onExternalLinkClick={onExternalLinkClick} />
-                ) : HTML_EXTS.has(getExt(filePath)) && mdPreview[filePath] !== false ? (
-                  <iframe sandbox="allow-scripts" srcDoc={withPreviewKbdBridge(editContent[filePath] ?? fileData.content ?? "")} className="w-full h-full border-0 bg-white" title={filePath} />
-                ) : (
-                  <div className="h-full overflow-hidden bg-sol-base03" data-editor="true">
-                    <CodeEditor
-                      filePath={filePath}
-                      value={editContent[filePath] ?? fileData.content ?? ""}
-                      onChange={(v) => setEditContent((prev) => ({ ...prev, [filePath]: v }))}
-                      onSave={handleSave}
-                      initialLine={pendingLines[filePath]}
-                      onInitialLineApplied={() => onConsumeLine?.(filePath)}
-                    />
-                  </div>
-                )
-              ) : null}
+              ) : (
+                <p className="text-sol-base01 italic text-sm p-3">Ordinary files open in the Files module detail (ui:file).</p>
+              )}
             </div>
           );
         })}
