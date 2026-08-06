@@ -498,7 +498,7 @@ export const TAG_RESULTS_FIXTURE = {
 };
 
 // --- /showcase chat panel: snapshot raw messages ------------------------------
-// Rendered by ChatView in mode="snapshot" (the same read-only path PublicTraceApp
+// Rendered by ChatSnapshotView (the same read-only path PublicTraceApp
 // uses to project mock chat messages). Snapshot mode short-circuits every
 // /api/chat/* request and renders these raw messages directly, so the chat panel
 // needs NO entry in installFetchMock below. The shape matches a real chat

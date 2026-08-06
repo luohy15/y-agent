@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { API } from "../api";
-import ChatView from "./ChatView";
+import ChatSnapshotView from "./ChatSnapshotView";
 import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
 import NoteList from "./NoteList";
@@ -362,15 +362,13 @@ export default function PublicTraceApp() {
                 onOpenNote={openNote}
               />
             </div>
-            {/* Snapshot ChatView, shown when !chatHide */}
+            {/* Snapshot chat, shown when !chatHide */}
             <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
               {selectedChat ? (
-                <ChatView
+                <ChatSnapshotView
                   key={selectedChat.chat_id}
-                  mode="snapshot"
-                  isLoggedIn={false}
                   chatId={selectedChat.chat_id}
-                  snapshotMessages={(selectedChat.messages as unknown[]) || []}
+                  messages={(selectedChat.messages as unknown[]) || []}
                   onRefresh={handleRefresh}
                 />
               ) : (

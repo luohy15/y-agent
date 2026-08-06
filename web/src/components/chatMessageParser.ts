@@ -78,6 +78,26 @@ export function parseRawChatMessage(evt: any): Message[] {
   return result;
 }
 
+export function parseChatMessages(rawMessages: unknown[]): Message[] {
+  const allMessages: Message[] = [];
+  for (const evt of rawMessages) {
+    const parsed = parseRawChatMessage(evt);
+    for (const message of parsed) {
+      if ((message.role === "tool_result" || message.role === "tool_denied") && message.toolCallId) {
+        const pendingIdx = allMessages.findIndex(
+          (item) => item.toolCallId === message.toolCallId && item.role === "tool_pending"
+        );
+        if (pendingIdx !== -1) {
+          allMessages[pendingIdx] = mergeToolResult(allMessages[pendingIdx], message);
+          continue;
+        }
+      }
+      allMessages.push(message);
+    }
+  }
+  return filterTrailingEmptyAssistantMessages(allMessages);
+}
+
 export function mergeToolResult(pending: Message, result: Message): Message {
   return {
     ...pending,

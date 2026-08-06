@@ -9,6 +9,7 @@ import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
 import ChatView from "./ChatView";
+import ChatSnapshotView from "./ChatSnapshotView";
 import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import UserMenu from "./UserMenu";
@@ -80,16 +81,11 @@ export default function ScreenshotShowcase() {
           <TagList isLoggedIn onNavigate={noop} />
         </PanelFrame>
 
-        <PanelFrame name="chat" title="chat · ChatView (snapshot)" width={560} height={680}>
-          {/* ChatView's root is `flex-1 flex flex-col`, so it needs a flex-column
-              parent of known height to fill the fixed panel frame. */}
+        <PanelFrame name="chat" title="chat · ChatSnapshotView" width={560} height={680}>
+          {/* ChatSnapshotView's root is `flex-1 flex flex-col`, so it needs a
+              flex-column parent of known height to fill the fixed panel frame. */}
           <div className="flex flex-col h-full w-full">
-            <ChatView
-              mode="snapshot"
-              isLoggedIn={false}
-              chatId="showcase-chat"
-              snapshotMessages={CHAT_MESSAGES_FIXTURE}
-            />
+            <ChatSnapshotView chatId="showcase-chat" messages={CHAT_MESSAGES_FIXTURE} />
           </div>
         </PanelFrame>
 
