@@ -10,6 +10,42 @@ from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
 from yagent.util.images import stage_image_path
+from yagent.commands.module._local import import_local_cli
+from yagent.commands.module._paths import source_dir
+
+
+class ChatHybridGroup(click.Group):
+    """Built-in chat runtime commands with module-owned browse commands."""
+
+    def _module_group(self) -> Optional[click.Group]:
+        if not (source_dir("chat") / "cli.py").is_file():
+            return None
+        try:
+            module = import_local_cli("chat")
+            group = getattr(module, "group", None)
+            if not isinstance(group, click.Group):
+                raise TypeError("chat cli.py must export `group` (a click.Group)")
+            return group
+        except click.ClickException:
+            raise
+        except BaseException as exc:
+            raise click.ClickException(f"Failed to load CLI for module 'chat': {exc}") from exc
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        names = set(super().list_commands(ctx))
+        module_group = self._module_group()
+        if module_group is not None:
+            names.update(module_group.list_commands(ctx))
+        return sorted(names)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> Optional[click.Command]:
+        builtin = super().get_command(ctx, cmd_name)
+        if builtin is not None:
+            return builtin
+        module_group = self._module_group()
+        if module_group is None:
+            return None
+        return module_group.get_command(ctx, cmd_name)
 
 
 def _stop_chat(chat_id: str):
@@ -182,7 +218,9 @@ def _interactive(
     work_dir = os.getcwd()
 
     if latest:
-        resp = api_request("GET", "/api/chat/list", params={"limit": 1})
+        # Chat browsing is module-owned. If the module is unavailable, callers
+        # can still resume explicitly with -c or use the host dispatch path.
+        resp = api_request("GET", "/api/module/chat/list", params={"limit": 1})
         chats = resp.json()
         if not chats:
             click.echo("Error: No existing chats found")
@@ -238,7 +276,7 @@ def _interactive(
             break
 
 
-@click.group('chat', invoke_without_command=True)
+@click.group('chat', cls=ChatHybridGroup, invoke_without_command=True)
 # Shared
 @click.option('--chat-id', '-c', default=None, help='Target an existing chat')
 # Fire-and-forget (default top-level mode)
@@ -255,7 +293,7 @@ def _interactive(
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
-@click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat')
+@click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
 @click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must run on the same backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
 @click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
@@ -302,8 +340,9 @@ def chat_group(
         y chat -i -c <id>                        resume a specific chat
         y chat -i -p "..."                       one-off query and exit
 
-    Subcommands (`get`, `list`, `search`, `share`, `import`, `import-claude`,
-    `stop`) are unchanged.
+    Browse subcommands (`get`, `list`, `search`, `share`) are loaded from the
+    local chat module. Runtime subcommands (`attach`, `import`, `import-claude`,
+    `stop`) remain built in.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -341,20 +380,12 @@ def chat_group(
     raise SystemExit(2)
 
 
-from .list import list_chats
-from .share import share
 from .import_chat import import_chats
 from .import_claude import import_claude
-from .search import search_chats
-from .get import get_chat
 from .stop import stop_chat
 from .attach import attach_images
 
-chat_group.add_command(list_chats)
-chat_group.add_command(share)
 chat_group.add_command(import_chats)
 chat_group.add_command(import_claude)
-chat_group.add_command(search_chats)
-chat_group.add_command(get_chat)
 chat_group.add_command(stop_chat)
 chat_group.add_command(attach_images)
