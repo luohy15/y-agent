@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSWRConfig } from "swr";
 import { API, getToken, authFetch } from "../api";
+import MessageExportView from "./MessageExportView";
 import MessageList, { type CitationLink, type Message } from "./MessageList";
 import type { ArtifactType } from "./ArtifactView";
 import ChatInput, { type ChatInputHandle, type ImageUploadPayload } from "./ChatInput";
@@ -10,7 +11,7 @@ import SharePopover from "./SharePopover";
 import GoogleSignInButton from "./GoogleSignInButton";
 import { filterTrailingEmptyAssistantMessages, parseChatMessages, parseRawChatMessage } from "./chatMessageParser";
 import { toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
-import { exportMessagesToPng, deliverPng } from "../utils/exportImage";
+import { exportElementToPng, deliverPng } from "../utils/exportImage";
 
 interface ChatViewProps {
   chatId: string | null;
@@ -69,7 +70,7 @@ export default function ChatView({ chatId, onChatCreated, onClear, isLoggedIn, g
     if (!msgs.length || exporting) return;
     setExporting(true);
     try {
-      const { blob, dataUrl } = await exportMessagesToPng(msgs);
+      const { blob, dataUrl } = await exportElementToPng(<MessageExportView messages={msgs} />);
       await deliverPng(blob, dataUrl);
       cancelSelect();
     } finally {

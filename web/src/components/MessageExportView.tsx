@@ -13,7 +13,7 @@ function formatExportDate(date: Date = new Date()): string {
 }
 
 // Offscreen, fixed-width rendering of the selected prose messages, styled to match
-// the solarized-dark chat. Captured to PNG by `exportMessagesToPng`. Renders full
+// the solarized-dark chat. The caller passes it to `exportElementToPng`. Renders full
 // height (no max-h clipping) so the screenshot becomes a tall, phone-friendly image.
 export default function MessageExportView({ messages, title, width = 390 }: MessageExportViewProps) {
   return (

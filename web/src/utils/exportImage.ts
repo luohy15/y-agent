@@ -1,8 +1,6 @@
-import { createElement } from "react";
+import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { domToPng } from "modern-screenshot";
-import MessageExportView from "../components/MessageExportView";
-import type { Message } from "../components/MessageList";
 import { buildExportFilename, pickImageDelivery } from "./messageExport";
 
 function nextFrame(): Promise<void> {
@@ -47,11 +45,11 @@ async function waitForArtifacts(root: HTMLElement, timeoutMs = 4000): Promise<vo
   }
 }
 
-// Render the selected messages into an offscreen container and capture them as a PNG.
+// Render an element into an offscreen container and capture it as a PNG.
 // Returns both a blob (for download / clipboard / share) and the data URL.
-export async function exportMessagesToPng(
-  messages: Message[],
-  opts: { title?: string } = {},
+export async function exportElementToPng(
+  element: ReactElement,
+  opts: { scale?: number; backgroundColor?: string } = {},
 ): Promise<{ blob: Blob; dataUrl: string }> {
   const host = document.createElement("div");
   host.style.position = "fixed";
@@ -63,7 +61,7 @@ export async function exportMessagesToPng(
 
   const root = createRoot(host);
   try {
-    root.render(createElement(MessageExportView, { messages, title: opts.title }));
+    root.render(element);
 
     // Let React commit, then settle async content before capture.
     await nextFrame();
@@ -74,10 +72,10 @@ export async function exportMessagesToPng(
     await nextFrame();
 
     const target = host.firstElementChild as HTMLElement;
-    const backgroundColor = getComputedStyle(document.documentElement)
+    const backgroundColor = opts.backgroundColor ?? getComputedStyle(document.documentElement)
       .getPropertyValue("--color-sol-base03")
       .trim();
-    const dataUrl = await domToPng(target, { scale: 2, backgroundColor });
+    const dataUrl = await domToPng(target, { scale: opts.scale ?? 2, backgroundColor });
     const blob = await (await fetch(dataUrl)).blob();
     return { blob, dataUrl };
   } finally {

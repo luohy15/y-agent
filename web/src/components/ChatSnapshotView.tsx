@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MessageExportView from "./MessageExportView";
 import MessageList, { type CitationLink, type Message } from "./MessageList";
 import ChatToc from "./ChatToc";
 import SourcesSidebar from "./SourcesSidebar";
 import { filterTrailingEmptyAssistantMessages, parseChatMessages } from "./chatMessageParser";
 import { toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
-import { exportMessagesToPng, deliverPng } from "../utils/exportImage";
+import { exportElementToPng, deliverPng } from "../utils/exportImage";
 
 interface ChatSnapshotViewProps {
   chatId: string;
@@ -41,7 +42,7 @@ export default function ChatSnapshotView({ chatId, messages: rawMessages, onRefr
     if (!selectedMessages.length || exporting) return;
     setExporting(true);
     try {
-      const { blob, dataUrl } = await exportMessagesToPng(selectedMessages);
+      const { blob, dataUrl } = await exportElementToPng(<MessageExportView messages={selectedMessages} />);
       await deliverPng(blob, dataUrl);
       cancelSelect();
     } finally {
