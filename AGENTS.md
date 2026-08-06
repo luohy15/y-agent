@@ -143,7 +143,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   every authenticated user because picking a bot in chat is routing selection,
   not management — it is not a leftover of the deleted management surface, and
   deleting it would break the chat picker for non-maintainers and on any module
-  rollback/disable.
+  rollback/disable. Chat itself stays host kernel and is not a migration candidate
+  under the current module contract: no `modules/chat/` exists (see "Chat: the
+  runtime kernel, not a module" in `docs/prd/module-system.md`).
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`

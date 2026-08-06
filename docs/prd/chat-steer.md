@@ -145,3 +145,5 @@ even across Lambda handoffs and turn-end races.
 - Root-topic-style steer routing for non-root Telegram topics.
 - Guarantees about where within the turn the agent acts on a steer: delivery is
   prompt, but the model decides when to attend to it.
+- **Module migration**: see `docs/prd/module-system.md` ("Chat: the runtime kernel,
+  not a module").

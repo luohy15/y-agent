@@ -853,6 +853,58 @@ call (bot management is maintainer-only, matching every other backend module,
 because widening backend-module dispatch to non-maintainers was explicitly
 out of scope for this migration).
 
+### Chat: the runtime kernel, not a module
+
+Todo 3042 audited the chat domain (API, CLI, UI, data) against the finance and bot
+precedents and reached a different answer: **under the current module contract, chat
+does not become a module.** It is not a domain sitting on top of the kernel; it is the
+kernel that the module system, the worker, Telegram, and every agent session dispatch
+*through*. Where bot needed one
+narrow host-kernel-table exception, chat trips **four independent hard constraints at
+once**, each blocking a different half of the domain:
+
+| Constraint (this PRD) | Chat evidence | Blocked half |
+|---|---|---|
+| Modules are owner-scoped; backend dispatch is maintainer-only and fails closed | `module_service.list_modules(user_id)` / `get_version(user_id, …)` scope every module row to one account, and `api/module_runtime/dispatcher.py:114-125` 403s any non-maintainer. A non-maintainer sees no modules at all, UI included | Every chat API + the chat UI panel |
+| Modules have no worker half (see *Background jobs*) | `worker/runner.py` (~20 chat service/repo call sites), `worker/monitor.py` (writes every streamed chunk into the chat row, plus unread/orphan reconciliation), `worker/tasks.py` all read/write `chat` directly | `chat` table, entity, repo, service |
+| Modules cannot serve unauthenticated routes (host-owned allowlist) | `api/middleware/auth.py:11,26-30`: `/api/telegram/webhook` is public and `api/controller/telegram.py` creates chats, appends messages, and calls `send_chat_message`; `GET /api/chat/share` is public | Telegram routing, chat share read |
+| Host code must not read module-owned tables | Non-worker host readers of `chat`: `storage/service/routine.py` (routine dispatch), `storage/repository/todo.py` (per-trace activity ordering), `api/controller/trace.py`, `api/controller/todo.py`, `api/controller/inline.py`, `storage/service/bot_config.py` rename cascade to `chat.bot_name`, `storage/service/english_correction.py` | `chat` table stays host |
+
+Two further findings are chat-specific, with no bot analogue:
+
+- **The web chat surface is the app shell, not a panel.** The module UI contract is a
+  no-props `panel` (+ optional `detail`). `ChatView` is the persistent centre column and
+  `ChatList` takes 14 props wired to shell state (selection, trace/routine filters, tab
+  opening). `PublicTraceApp` (`/t/:shareId`) renders both **logged-out**, while
+  `ShareView` (`/s/:shareId`) reuses the same `MessageList` / `MessageBubble` renderer;
+  the bundle loader is `authFetch`-based. Moving them would mean either breaking public
+  shares or keeping a second bundled copy of the highest-traffic renderer in the app.
+- **Circular availability.** `y chat` is the dispatch primitive every agent session
+  uses, imported eagerly at the CLI root (`cli/src/yagent/command_option.py:8`). A
+  module CLI resolves lazily from local `$Y_AGENT_HOME/modules/<slug>/cli.py`; a bad
+  publish, a disabled module, or missing local source would take out cross-session
+  dispatch, i.e. the mechanism used to fix it.
+
+`GET /api/chat/bot-options` already survived the bot cut for a related reason (routing
+selection, all authenticated users) and is unaffected here.
+
+One slice is genuinely arguable and was surfaced as a Roy decision rather than folded
+into implementation, exactly as the bot auth question was: a **chat *browsing*
+control-plane module** (`list`/`search`/`read`/`trace-read`, `POST /share`, and a Chats
+panel) over host-owned chat state, mirroring the bot hybrid. Recommended against —
+it narrows chat browsing to the maintainer, fails on `ChatList`'s logged-out reuse, and
+puts the primary dispatch-monitoring surface behind a hot-loaded bundle — but recorded
+as available future work, gated on its own decision and review, in
+`pages/decision-3042-chat-module-scope.md`.
+
+Any future attempt at a fuller move needs, first, each as its own module-system design
+decision: a multi-user backend-module authorization model (option 2 of
+`pages/decision-3028-bot-module-auth.md`, still unopened) plus non-owner-scoped module
+rows; unauthenticated module routes, or a host-owned public projection for share/webhook
+paths; worker-side module loading, or a host-owned chat runtime the module never
+touches; and a UI host contract able to express a shell-owned, prop-driven surface with
+a logged-out render path. `pages/plan-3042-chat-module.md` is the full audit.
+
 ## Testing Decisions
 
 Test the observable contract, not the loader's internals.
@@ -956,3 +1008,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 |------|---------|--------|------|-----------|--------|--------|
 | 3020 | Hot-loadable module system live; finance is the reference full-stack module (v20 active, v19 full-stack rollback twin). In-process loading, canonical `$Y_AGENT_HOME/modules` source, atomic API+UI versioning, `y ui` folded into `y module`, module-owned data + hand-applied migrations + publish preflight, trusted-maintainer backend gate, lazy CLI, `routine vm_command`. Built-in finance controller/CLI/storage deleted; routes at `/api/module/finance/*`. Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge timeout (server work completes). Legacy `vm_config.finance_config` intentionally retained for a later contract. PRD: `code/y-agent/docs/prd/module-system.md`. Rollout: `pages/rollout-3020-finance-module-cutover.md` (executed on main `f50f14e`). | - | `pages/plan-3020-module-system.md` | `pages/decision-3020-module-system-boundaries.md`, `pages/decision-3020-module-system-vm-command-timeout.md` | `pages/review-3020-module-system-phase-1.md`, `pages/review-3020-module-system-phase-2.md`, `pages/review-3020-module-system-phase-3.md`, `pages/review-3020-module-owned-data-phase-4.md`, `pages/review-3020-module-system-phase-5.md`, `pages/review-3020-module-system-phase-6.md`, `pages/review-3020-module-system-phase-7.md`, `pages/review-3020-module-system-phase-7-rereview.md`, `pages/review-3020-module-system-phase-7-final.md`, `pages/review-3020-module-system-phase-8.md`, `pages/review-3020-p0-maintainer-config.md` | shipped |
 | 3028 | Bot domain consolidated into the module system as the second full-stack module (v12 active, v11 full-stack rollback twin; v10 and earlier unsafe post-cutover because their UI calls the deleted built-in routes). Hybrid boundary rather than a finance-style full move: the module owns bot **management** (`/api/module/bot/*`, `y bot` CLI, Bots UI panel, pricing display, maintainer-only), while `bot_config` and `bot_route_state` stay **host kernel tables** because the worker reads them on the dispatch hot path and modules have no worker half. Module reaches them only via the new **backend contract v2** `bot_config_*` capability on `agent/module_host.py` (bot declares `min_backend_version: 2`; finance still 1). Built-in bot controller, CLI group, and `storage/service/bot_pricing.py` deleted. `GET /api/chat/bot-options` added and intentionally retained on the host: read-only `name`/`backend`/`model`, all authenticated users, because picking a bot in chat is routing selection, not management. Shipped in two host deploys (A `d1ba83e` additive contract v2, B `7266337` the cut) plus docs `99fbab1`; module source in the home repo at `ba62f8e` / `5dbfa82`. Rollback drill executed: v12 -> v11 -> v12. No DB migration. | - | `pages/plan-3028.md` | `pages/decision-3028-bot-module-auth.md` | `pages/review-3028-subtask2.md`, `pages/review-3028-module-source.md`, `pages/review-3028-cut.md` | shipped |
+| 3042 | No migration, boundary recorded: chat audited against the finance/bot precedents and found to trip four independent hard constraints at once (owner-scoped/maintainer-only module dispatch, no worker half, no unauthenticated module routes, host code reading `chat`), plus a shell-coupled/logged-out-reused UI and a `y chat` dispatch circularity. Chat stays a host kernel domain; no `modules/chat/` is created. A chat-browsing control-plane module (Track B, bot-style hybrid) was surfaced as a Roy decision and recommended against; not dispatched. Documented in this PRD, cross-referenced from `docs/prd/chat-core.md` and `docs/prd/chat-steer.md`, and in `AGENTS.md`. | - | `pages/plan-3042-chat-module.md` | `pages/decision-3042-chat-module-scope.md` (status: proposed, pending Roy confirmation) | `pages/review-3042-chat-module-track-a.md` | boundary recorded (Track B not started) |

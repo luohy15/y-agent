@@ -389,6 +389,8 @@ mode (`-i`) serves a human at a terminal.
   markdown conversion, image reference delivery): adjacent subsystem; this
   PRD covers only that a completed turn delivers the reply to the chat's
   bound topic.
+- **Module migration**: see `docs/prd/module-system.md` ("Chat: the runtime kernel,
+  not a module").
 - **Trace waterfall visualization and public trace shares**: the trace
   subsystem consumes chat records but has its own views and share flow.
 - **Context monitor auto-restart** (fresh-chat rollover at context/turn
