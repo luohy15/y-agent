@@ -1,6 +1,7 @@
 import datetime as _dt
 import os
 import re
+import subprocess
 from pathlib import Path
 
 import click
@@ -53,9 +54,48 @@ def _parse_front_matter(filepath):
     return _json_safe(parsed)
 
 
+def _normalize_worktree_path(path: Path) -> Path:
+    """Map a linked-worktree path to its main-repository counterpart."""
+    try:
+        result = subprocess.run(
+            [
+                "git", "-C", str(path.parent), "rev-parse", "--path-format=absolute",
+                "--show-toplevel", "--git-common-dir",
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return path
+
+    worktree_root, common_dir = result.stdout.splitlines()
+    main_repo_root = Path(common_dir).parent
+    if Path(worktree_root) == main_repo_root:
+        return path
+
+    canonical_path = main_repo_root / path.relative_to(worktree_root)
+    click.echo(
+        f"Normalized linked worktree path to main repository: {canonical_path}",
+        err=True,
+    )
+    if not canonical_path.exists():
+        click.echo(
+            f"Warning: canonical path does not exist yet: {canonical_path}",
+            err=True,
+        )
+    return canonical_path
+
+
 def _compute_content_key(filepath):
-    """Compute content_key relative to the configured agent home."""
-    return os.path.relpath(resolve_content_path(filepath), agent_home())
+    """Compute a durable content_key relative to the configured agent home."""
+    path = resolve_content_path(filepath)
+    normalized_path = _normalize_worktree_path(path)
+    home = agent_home()
+    content_key = os.path.relpath(normalized_path, home)
+    if content_key == ".." or content_key.startswith(f"..{os.sep}"):
+        raise click.ClickException(f"Content path is outside $Y_AGENT_HOME: {path}")
+    return content_key
 
 
 def import_single(filepath):
@@ -77,7 +117,7 @@ def import_single(filepath):
 @click.command("import")
 @click.argument("paths", nargs=-1, required=True)
 def note_import(paths):
-    """Import markdown files as notes. Relative paths use $Y_AGENT_HOME."""
+    """Import markdown files as notes. Relative paths use $Y_AGENT_HOME; worktree paths use the main repo."""
     for filepath in paths:
         content_key, note_id = import_single(filepath)
         if note_id:

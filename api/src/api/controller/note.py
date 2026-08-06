@@ -101,6 +101,7 @@ def _read_note_snapshot(note_id: str) -> str:
 
 @router.post("")
 async def create_note(req: CreateNoteRequest, request: Request):
+    _validate_content_key(req.content_key)
     user_id = _get_user_id(request)
     note = note_service.create_note(user_id, req.content_key, front_matter=req.front_matter)
     return note.to_dict()
@@ -108,6 +109,7 @@ async def create_note(req: CreateNoteRequest, request: Request):
 
 @router.post("/import")
 async def import_note(req: ImportNoteRequest, request: Request):
+    _validate_content_key(req.content_key)
     user_id = _get_user_id(request)
     note = note_service.import_note(user_id, req.content_key, front_matter=req.front_matter)
     return note.to_dict()
@@ -115,6 +117,8 @@ async def import_note(req: ImportNoteRequest, request: Request):
 
 @router.post("/update")
 async def update_note(req: UpdateNoteRequest, request: Request):
+    if req.content_key is not None:
+        _validate_content_key(req.content_key)
     user_id = _get_user_id(request)
     note = note_service.update_note(user_id, req.note_id, content_key=req.content_key, front_matter=req.front_matter)
     if not note:

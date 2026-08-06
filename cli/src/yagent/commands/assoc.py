@@ -70,7 +70,7 @@ def assoc_group():
 @click.argument("ids", nargs=-1, required=True)
 @click.option("--todo", "-t", required=True, help="Todo ID to associate with")
 def assoc_note(ids, todo):
-    """Associate notes with a todo. Local paths are relative to $Y_AGENT_HOME."""
+    """Associate notes with a todo. Local paths are relative to $Y_AGENT_HOME; worktree paths use the main repo."""
     failures = []
     for id_value in ids:
         try:

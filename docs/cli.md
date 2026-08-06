@@ -66,7 +66,7 @@ y todo add "ship docs split" -p high -t docs
 y todo update <id> --progress "drafted self-host.md"
 y todo finish <id>
 
-# Notes. Relative local content paths are rooted at $Y_AGENT_HOME.
+# Notes. Relative local content paths are rooted at $Y_AGENT_HOME. Linked-worktree paths are normalized to the main repo.
 y note import pages/plan-foo.md
 y note list
 

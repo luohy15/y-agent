@@ -6,7 +6,7 @@ from .import_note import _compute_content_key, _parse_front_matter, resolve_cont
 
 @click.command("update")
 @click.argument("note_id")
-@click.option("--content-key", "content_key", help="New content_key (absolute or relative to $Y_AGENT_HOME)")
+@click.option("--content-key", "content_key", help="New content_key (absolute or relative to $Y_AGENT_HOME; worktree paths use the main repo)")
 @click.option("--front-matter", "front_matter", is_flag=True, help="Re-read YAML front matter from the file at content_key")
 def note_update(note_id, content_key, front_matter):
     """Update a note's content_key and/or front matter (typically after a file rename or edit)."""

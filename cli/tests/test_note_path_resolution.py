@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ from click.testing import CliRunner
 
 from yagent.commands.assoc import assoc_link, assoc_note
 from yagent.commands.entity.import_entity import entity_import
-from yagent.commands.note.import_note import note_import, resolve_content_path
+from yagent.commands.note.import_note import _compute_content_key, note_import, resolve_content_path
 from yagent.commands.note.update import note_update
 
 
@@ -48,6 +49,38 @@ class NotePathResolutionCliTest(unittest.TestCase):
             absolute = resolve_content_path(self.page)
         self.assertEqual(relative, self.page.resolve())
         self.assertEqual(absolute, self.page.resolve())
+
+    def test_worktree_paths_normalize_to_main_repository(self):
+        main_repo = self.agent_home / "code" / "project"
+        docs_dir = main_repo / "docs"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "example.md").write_text("Main copy\n")
+        subprocess.run(["git", "init", str(main_repo)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(main_repo), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(main_repo), "config", "user.name", "Test"], check=True)
+        subprocess.run(["git", "-C", str(main_repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(main_repo), "commit", "-m", "initial"], check=True, capture_output=True)
+        worktree = self.agent_home / "code" / "project-feature"
+        subprocess.run(["git", "-C", str(main_repo), "worktree", "add", "-b", "feature", str(worktree)], check=True, capture_output=True)
+        worktree_file = worktree / "docs" / "example.md"
+
+        with patch.dict(os.environ, self.env, clear=False):
+            absolute_key = _compute_content_key(worktree_file)
+            relative_key = _compute_content_key(worktree_file.relative_to(self.agent_home))
+
+        self.assertEqual(absolute_key, "code/project/docs/example.md")
+        self.assertEqual(relative_key, absolute_key)
+
+    def test_content_path_outside_agent_home_is_rejected_without_api_call(self):
+        outside = Path(self.temp_dir.name) / "outside.md"
+        outside.write_text("Outside\n")
+
+        with patch("yagent.commands.note.import_note.api_request") as api_request:
+            result = self.runner.invoke(note_import, [str(outside)], env=self.env)
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Content path is outside $Y_AGENT_HOME", result.output)
+        api_request.assert_not_called()
 
     def test_note_update_has_identical_relative_and_absolute_content_keys(self):
         with self.runner.isolated_filesystem():
