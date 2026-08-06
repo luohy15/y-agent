@@ -28,6 +28,13 @@ import {
   traceIdFromPayload,
   usePublishSelectedChatIntent,
 } from "./utils/chatHost";
+import {
+  fileOpenPayload,
+  fileSearchPayload,
+  publishFileOpenAction,
+  publishFileSearchAction,
+  usePublishFileContext,
+} from "./utils/fileHost";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
@@ -411,6 +418,42 @@ export default function App() {
     setActiveFile(null);
     setPreviewFile(null);
   }, []);
+
+  // Plan H2 (pages/plan-3068-file-module.md decision 6): seam only, no
+  // module consumes this yet. Publish the retained per-location VM/work-
+  // directory context the future Files panel needs — left mirrors the
+  // built-in left `<FileTree>` (default VM, `currentVmWorkDir`), right
+  // mirrors the built-in right `<FileTree>` (`selectedVM`, `effectiveWorkDir`).
+  usePublishFileContext(null, currentVmWorkDir ?? null, selectedVM, effectiveWorkDir ?? null);
+
+  // Plan H2: module -> host file control-plane commands. `file.open` opens
+  // the `ui:file` tab and hands the detail surface the requested path (mirrors
+  // `chat.openFile` -> `handlePreviewFile`, but files live inside `ui:file`
+  // once the module ships); `file.close` closes it, since decision 6 keeps
+  // the module owning its own internal tabs, not host per-file state;
+  // `file.search` opens `ui:file` and asks the detail surface to show its own
+  // search dialog instead of the host's `FileSearchDialog`.
+  useEffect(() => {
+    const unregisterFileOpen = registerHostCommand("file.open", (payload) => {
+      const parsed = fileOpenPayload(payload);
+      if (!parsed) return;
+      handleOpenFile(artifactTabKey("file"));
+      publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir);
+    });
+    const unregisterFileClose = registerHostCommand("file.close", () => {
+      handleCloseFile(artifactTabKey("file"));
+    });
+    const unregisterFileSearch = registerHostCommand("file.search", (payload) => {
+      const { vmName, workDir } = fileSearchPayload(payload);
+      handleOpenFile(artifactTabKey("file"));
+      publishFileSearchAction(vmName, workDir);
+    });
+    return () => {
+      unregisterFileOpen();
+      unregisterFileClose();
+      unregisterFileSearch();
+    };
+  }, [handleOpenFile, handleCloseFile]);
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
