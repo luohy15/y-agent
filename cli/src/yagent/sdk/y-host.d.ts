@@ -325,6 +325,20 @@ declare module "@y/host" {
     onPrev: () => void;
   }): any;
 
+  // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
+  // Language grammars stay host-lazy via codeEditorLangs.ts; modules only pass
+  // the file path / value / save callbacks across the boundary.
+  export function CodeEditor(props: {
+    value: string;
+    onChange: (value: string) => void;
+    filePath: string;
+    onSave?: (filePath: string) => void;
+    readOnly?: boolean;
+    className?: string;
+    initialLine?: number;
+    onInitialLineApplied?: () => void;
+  }): any;
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.

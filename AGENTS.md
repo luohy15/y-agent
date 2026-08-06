@@ -103,7 +103,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   hashes and schema preflight, creates one immutable `module_version`, and atomically
   moves its active pointer. The API dispatches `/api/module/<slug>/*` through a lazy,
   hash-verified per-version sub-application; the web loader preserves the established
-  `@y/host` browser contract (now **v6**), integrity check, and error boundary, and
+  `@y/host` browser contract (now **v7**), integrity check, and error boundary, and
   mounts up to three host slots: the required `panel`, the optional `detail`, and the
   optional `shell` (the persistent centre column; at most one claimant, lowest slug
   wins). `module_version.ui_surfaces` is the immutable per-version record of which
@@ -168,7 +168,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   the `y chat` dispatch primitive (`-m` / `-i` / `stop`, a built-in group that
   delegates only browse subcommands to `modules/chat/cli.py`), and the megabyte
   render leaves the module imports from `@y/host` (`ArtifactView`, `PatchDiff`,
-  `ImageLightbox`, the PNG capture primitive). The module reaches host chat state
+  `ImageLightbox`, `CodeEditor`, the PNG capture primitive). The module reaches host chat state
   only through the backend contract's `chat_list` / `chat_get` /
   `chat_create_share` functions. The `agent.module_host` contract is now **v3**
   (v2 added `bot_config_*`, v3 added the chat capability): chat declares

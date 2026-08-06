@@ -21,10 +21,10 @@ This PRD remains authoritative for the browser runtime contract: `@y/host`,
 integrity-checked blob loading, artifact error boundaries, and the UI surfaces —
 required `panel`, optional `detail`, and, since todo 3042, optional `shell` (the
 persistent centre column, one claimant at a time, claimed through
-`module_version.ui_surfaces`). `@y/host` is at **v6**; the `shell` surface,
-the host render leaves it exports, the panel-location hook, and the renderer seam
-behind them are specified in `docs/prd/module-system.md` (*The `shell` surface
-and the renderer seam*). The
+`module_version.ui_surfaces`). `@y/host` is at **v7**; the `shell` surface,
+the host render leaves it exports (including `CodeEditor` since todo 3068), the
+panel-location hook, and the renderer seam behind them are specified in
+`docs/prd/module-system.md` (*The `shell` surface and the renderer seam*). The
 historic requirements and delivery records below deliberately retain their
 original terminology and endpoints.
 

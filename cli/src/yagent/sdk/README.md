@@ -43,9 +43,9 @@ None of the three receives props. Host state reaches a surface through
 `useArtifactIntent`, and a surface asks the host to act through `runHostCommand`.
 A `shell` module owns everything that decides what the centre column looks like;
 the host keeps the leaves whose dependencies are measured in megabytes
-(`ArtifactView`, `PatchDiff`, `ImageLightbox`, `exportElementToPng`) and exports
-them on `@y/host`. See `docs/prd/module-system.md`, *The `shell` surface and the
-renderer seam*, before bundling anything heavy into a module.
+(`ArtifactView`, `PatchDiff`, `ImageLightbox`, `CodeEditor`, `exportElementToPng`)
+and exports them on `@y/host`. See `docs/prd/module-system.md`, *The `shell`
+surface and the renderer seam*, before bundling anything heavy into a module.
 
 ## Multi-file module UI
 

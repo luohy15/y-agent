@@ -977,9 +977,11 @@ component overrides, citation and file-link presentation, and the artifact
 and in which mode). The host owns every leaf whose dependency is measured in
 megabytes and hands them to the module as component values on `@y/host`:
 `ArtifactView` / `ArtifactRenderer` (mermaid, vega, DOMPurify, highlight.js),
-`PatchDiff` (`@pierre/diffs/react`), `ImageLightbox`, and the PNG capture
-primitive. The rule of thumb: **the module owns everything that decides what a
-message looks like; the host owns every leaf measured in megabytes.**
+`PatchDiff` (`@pierre/diffs/react`), `ImageLightbox`, the PNG capture
+primitive, and (since todo 3068 / contract v7) `CodeEditor` (CodeMirror with
+host-lazy language grammars). The rule of thumb: **the module owns everything
+that decides what a message looks like; the host owns every leaf measured in
+megabytes.**
 
 The numbers are why the seam sits there. Bundling the whole subtree into the
 module produces **20.8 MB** (shiki grammars ≈ 9.95 MB, the artifact subtree

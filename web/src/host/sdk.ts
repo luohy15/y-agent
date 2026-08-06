@@ -25,6 +25,7 @@ import { readThemeColors, useThemeColors } from "./theme";
 import { optimisticListMutate } from "../utils/optimisticMutate";
 import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
+import CodeEditor from "../components/CodeEditor";
 import ImageLightbox from "../components/ImageLightbox";
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
@@ -92,6 +93,12 @@ export const hostSdk = {
   ArtifactView,
   PatchDiff,
   ImageLightbox,
+
+  // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
+  // Keeps lazy per-language loading (codeEditorLangs.ts) inside the host so a
+  // module never chooses which grammars to eagerly bundle; only the wrapper
+  // call crosses the boundary.
+  CodeEditor,
 
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
