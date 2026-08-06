@@ -15,7 +15,7 @@ import shutil
 import stat
 import sys
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -148,8 +148,8 @@ def load_from_bytes(
     return loaded
 
 
-def load_active_module(user_id: int, slug: str) -> LoadedModule:
-    """Resolve the owner's active version for slug and load its API half."""
+def resolve_active_version(user_id: int, slug: str) -> ModuleVersion:
+    """Resolve and validate an owner's active API version without importing it."""
     module = module_service.get_module_by_slug(user_id, slug)
     if not module:
         raise ModuleNotFoundError(slug, f"module {slug!r} not found")
@@ -171,10 +171,18 @@ def load_active_module(user_id: int, slug: str) -> LoadedModule:
             version_id=version.version_id,
             version_no=version.version_no,
         )
+    return version
+
+
+def load_active_module(user_id: int, slug: str) -> LoadedModule:
+    """Resolve the owner's active version for slug and load its API half."""
+    version = resolve_active_version(user_id, slug)
 
     cached = _cache.get(version.api_sha256)
     if cached is not None:
-        return cached
+        if cached.version.version_id == version.version_id:
+            return cached
+        return replace(cached, version=version)
 
     try:
         from api.controller import module as module_ctrl

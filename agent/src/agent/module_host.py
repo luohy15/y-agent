@@ -14,17 +14,21 @@ The v1 surface a module may import from here:
                                   host kernel table (D4), read by host tooling
                                   via is_external_table() / owned_tables()
 
-The v2 surface (BACKEND_CONTRACT_VERSION = 2) adds a narrow bot-config store:
+The v2 surface adds a narrow bot-config store:
   - bot_config_list / bot_config_get / bot_config_upsert / bot_config_delete /
     bot_config_set_enabled / bot_config_rename
 These operate on host-owned BotConfig values only: no repositories, no raw
 sessions, no entities, and no generic host-table access. bot_config_rename goes
-through the host service so its `chat.bot_name` cascade is preserved. Every call
-is bound to the authenticated request owner, like run_vm_command, so a module
-cannot read or overwrite another user's bot configuration (which includes API
-keys). The capability is API-request-scoped only: the module CLI half has
-`cli_user_id()` but no bound request owner, so it must manage config over the
-HTTP API (`/api/module/bot/*`) rather than call these in-process.
+through the host service so its `chat.bot_name` cascade is preserved.
+
+The v3 surface adds request-bound chat browsing and sharing over host-owned chat
+state:
+  - chat_list / chat_get / chat_create_share
+
+Every v2/v3 capability is bound to the authenticated request owner, like
+run_vm_command, so a module cannot read or overwrite another user's state. These
+capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
+but no bound request owner, so it must use the module HTTP API instead.
 
 is_external_table() / owned_tables() are host tooling (publish preflight,
 `y module schema-sql`), so the marker is interpreted in exactly one place; a
@@ -49,24 +53,25 @@ Contract version: cli_user_id and the external-table protocol are part of v1,
 not a v2 bump, because v1 has never shipped — no host carrying
 BACKEND_CONTRACT_VERSION has been deployed and no backend module version has
 been published against it. The bot-config capability is a genuine surface
-addition (todo 3028), so it bumps BACKEND_CONTRACT_VERSION from 1 to 2;
-modules that use it declare `min_backend_version: 2` and an older host rejects
-their bundle. Every later addition to the surface above bumps the version
-and, for modules that need it, `min_backend_version`.
+addition (todo 3028), so it bumps BACKEND_CONTRACT_VERSION from 1 to 2. The chat
+control-plane capability (todo 3042) bumps it from 2 to 3. Modules declare the
+minimum version they use and an older host rejects their bundle. Every later
+addition to the surface above bumps the version and, for modules that need it,
+`min_backend_version`.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 2
+BACKEND_CONTRACT_VERSION = 3
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -281,3 +286,143 @@ def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:
     bot_config.ref_bot_name pointers and host-owned chat.bot_name stay in sync.
     """
     return _bot_service(user_id).rename_config(user_id, old_name, new_name)
+
+
+# ---------------------------------------------------------------------------
+# v3 chat control-plane capability
+#
+# Request-bound browsing and sharing over host-owned chat state. The worker and
+# host routes keep owning chat persistence; modules receive plain dictionaries,
+# never repositories, sessions, or entities.
+# ---------------------------------------------------------------------------
+
+
+def _require_chat_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"chat operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); chat access is request-bound"
+        )
+
+
+async def chat_list(
+    user_id: int,
+    *,
+    limit: int = 50,
+    query: Optional[str] = None,
+    offset: int = 0,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    skill: Optional[str] = None,
+    tier: Optional[str] = None,
+    bot_name: Optional[str] = None,
+    status: Optional[str] = None,
+    routine_id: Optional[str] = None,
+    routine_name: Optional[str] = None,
+    routine_only: Optional[bool] = None,
+    tag: Optional[str] = None,
+    on: Optional[str] = None,
+    from_: Optional[str] = None,
+    to: Optional[str] = None,
+    created_on: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+    updated_on: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """List chats owned by the authenticated request owner as plain dictionaries."""
+    _require_chat_owner(user_id)
+    from storage.service import chat as chat_service
+
+    chats = await chat_service.list_chats(
+        user_id,
+        limit=limit,
+        query=query,
+        offset=offset,
+        trace_id=trace_id,
+        topic=topic,
+        skill=skill,
+        tier=tier,
+        bot_name=bot_name,
+        status=status,
+        routine_id=routine_id,
+        routine_name=routine_name,
+        routine_only=routine_only,
+        tag=tag,
+        on=on,
+        from_=from_,
+        to=to,
+        created_on=created_on,
+        created_from=created_from,
+        created_to=created_to,
+        updated_on=updated_on,
+        updated_from=updated_from,
+        updated_to=updated_to,
+    )
+    return [
+        {
+            "chat_id": chat.chat_id,
+            "title": chat.title,
+            "created_at": chat.created_at,
+            "updated_at": chat.updated_at,
+            "topic": chat.topic,
+            "skill": chat.skill,
+            "trace_id": chat.trace_id,
+            "routine_id": chat.routine_id,
+            "routine_name": chat.routine_name,
+            "backend": chat.backend,
+            "bot_name": chat.bot_name,
+            "tier": chat.tier,
+            "status": chat.status,
+            "unread": chat.unread,
+        }
+        for chat in chats
+    ]
+
+
+async def chat_get(user_id: int, chat_id: str) -> Optional[dict[str, Any]]:
+    """Get one owner-scoped chat's browser content, or None when it is absent."""
+    _require_chat_owner(user_id)
+    from storage.service import chat as chat_service
+
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if chat is None:
+        return None
+    return {
+        "chat_id": chat.id,
+        "messages": [message.to_dict() for message in chat.messages],
+        "create_time": chat.create_time,
+        "update_time": chat.update_time,
+    }
+
+
+async def chat_create_share(
+    user_id: int,
+    chat_id: str,
+    *,
+    message_id: Optional[str] = None,
+    password: Optional[str] = None,
+    generate_password: bool = False,
+) -> dict[str, str]:
+    """Create an owner-scoped chat share and optionally protect it with a password."""
+    _require_chat_owner(user_id)
+    from storage import share_password as sp
+    from storage.service import chat as chat_service
+
+    generated_password: Optional[str] = None
+    password_hash: Optional[str] = None
+    if generate_password and not (password and password.strip()):
+        generated_password = sp.generate_password()
+        password_hash = sp.hash_password(generated_password)
+    elif password and password.strip():
+        password_hash = sp.hash_password(password)
+
+    share_id = await chat_service.create_share(
+        user_id, chat_id, message_id, password_hash=password_hash
+    )
+    result = {"share_id": share_id}
+    if generated_password is not None:
+        result["password"] = generated_password
+    return result

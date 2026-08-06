@@ -34,7 +34,10 @@ def module_versions(slug):
         built = v.get("built_at") or v.get("created_at") or ""
         description = v.get("description") or ""
         sha = (v.get("ui_sha256") or "")[:12]
-        line = f" {mark} v{v['version_no']:<4} {sha}…  {label:16} {built}"
+        # dispatch_scope is the only field that widens a version's audience past
+        # the maintainer; show it so `y module versions` is the audit view.
+        scope = v.get("dispatch_scope") or "maintainer"
+        line = f" {mark} v{v['version_no']:<4} {sha}…  {scope:13} {label:16} {built}"
         if description:
             line += f"  {description}"
         click.echo(line)

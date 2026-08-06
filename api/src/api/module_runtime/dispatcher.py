@@ -61,9 +61,10 @@ def _user_id_from_scope(scope: dict) -> Optional[int]:
 class ModuleDispatcher:
     """ASGI app: parse slug, load active module, forward remaining path."""
 
-    def __init__(self, load_fn: Callable = None):
+    def __init__(self, load_fn: Callable = None, resolve_fn: Callable = None):
         # Injectable for tests (defaults to the real loader).
         self._load = load_fn or loader.load_active_module
+        self._resolve = resolve_fn or loader.resolve_active_version
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -112,11 +113,21 @@ class ModuleDispatcher:
             await _send_json(send, 401, {"detail": "Not authenticated"})
             return
         owner_id = default_owner_user_id()
-        if owner_id is None or user_id != owner_id:
-            # Backend execution loads and runs arbitrary Python in-process under
-            # the API's DB/AWS identity, so only the single trusted maintainer
-            # may trigger it (review finding 1). Fail closed when no maintainer
-            # is configured.
+        if owner_id is None:
+            await _send_json(
+                send,
+                403,
+                {"detail": "backend module dispatch requires a configured maintainer account"},
+            )
+            return
+
+        try:
+            version = self._resolve(owner_id, slug)
+        except ModuleRuntimeError as err:
+            await _send_json(send, _status_for(err), err.detail())
+            return
+
+        if user_id != owner_id and version.dispatch_scope != "authenticated":
             await _send_json(
                 send,
                 403,
@@ -125,9 +136,20 @@ class ModuleDispatcher:
             return
 
         try:
-            loaded = self._load(user_id, slug)
+            loaded = self._load(owner_id, slug)
         except ModuleRuntimeError as err:
             await _send_json(send, _status_for(err), err.detail())
+            return
+
+        # The active pointer can move between resolve and load. Re-check the
+        # loaded immutable version so a rollback to maintainer scope cannot race
+        # an authenticated request through on the earlier version's scope.
+        if user_id != owner_id and loaded.version.dispatch_scope != "authenticated":
+            await _send_json(
+                send,
+                403,
+                {"detail": "backend module dispatch is restricted to the maintainer account"},
+            )
             return
 
         # Forward the same scope (preserving state / request.state) with the

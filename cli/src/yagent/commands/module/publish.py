@@ -61,6 +61,12 @@ def module_publish(slug, no_activate, label, icon, desc):
             raise click.ClickException(
                 f"module.json min_backend_version must be an int, got {min_backend_version!r}"
             ) from exc
+    dispatch_scope = meta.get("dispatch", "maintainer")
+    if dispatch_scope not in {"maintainer", "authenticated"}:
+        raise click.ClickException(
+            "module.json dispatch must be 'maintainer' or 'authenticated', "
+            f"got {dispatch_scope!r}"
+        )
 
     has_ui = source_path(slug).is_file()
     ui_manifest = None
@@ -129,6 +135,7 @@ def module_publish(slug, no_activate, label, icon, desc):
             description=description,
             activate=not no_activate,
             min_backend_version=min_backend_version,
+            dispatch_scope=dispatch_scope,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)

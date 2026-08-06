@@ -84,10 +84,11 @@ class CreateTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ListTest(unittest.IsolatedAsyncioTestCase):
-    async def test_list_joins_active_version_and_omits_integer_ids(self):
+    async def test_maintainer_list_joins_active_version_and_omits_integer_ids(self):
         module = _module(active_version_id="ver_a1")
         version = _version()
-        with patch.object(ctrl.module_service, "list_modules", return_value=[module]), \
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "list_modules", return_value=[module]), \
              patch.object(ctrl.module_service, "get_version", return_value=version):
             result = await ctrl.list_modules(_request(), enabled_only=False)
         self.assertEqual(len(result), 1)
@@ -96,12 +97,91 @@ class ListTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("user_id", result[0])
         self.assertNotIn("id", result[0]["active_version"])
 
-    async def test_list_no_active_version_returns_null(self):
-        with patch.object(ctrl.module_service, "list_modules", return_value=[_module()]), \
+    async def test_maintainer_list_no_active_version_returns_null(self):
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "list_modules", return_value=[_module()]), \
              patch.object(ctrl.module_service, "get_version") as get_fn:
             result = await ctrl.list_modules(_request())
         get_fn.assert_not_called()
         self.assertIsNone(result[0]["active_version"])
+
+    async def test_non_maintainer_list_only_includes_authenticated_scoped_versions(self):
+        finance = _module(module_id="finance", slug="finance", active_version_id="vf")
+        chat = _module(module_id="chat", slug="chat", active_version_id="vc")
+        versions = {
+            "vf": _version(version_id="vf", module_id="finance"),
+            "vc": _version(
+                version_id="vc",
+                module_id="chat",
+                dispatch_scope="authenticated",
+                ui_sha256="chat-ui-sha",
+                ui_storage_key="module/chat/chat-ui-sha.js",
+                api_sha256="chat-api-sha",
+                api_storage_key="module/chat/chat-api-sha.api.zip",
+                source_digest="chat-src",
+                label="Chat",
+                icon="message",
+                min_host_version=2,
+                description="private build note",
+            ),
+        }
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "list_modules", return_value=[finance, chat]) as list_fn, \
+             patch.object(
+                 ctrl.module_service, "get_version", side_effect=lambda owner, version_id: versions[version_id]
+             ):
+            result = await ctrl.list_modules(_request(user_id=456), enabled_only=False)
+        list_fn.assert_called_once_with(123, enabled_only=True)
+        self.assertEqual([row["slug"] for row in result], ["chat"])
+        # S5: non-maintainer projection is browser-loader fields only.
+        active = result[0]["active_version"]
+        self.assertEqual(
+            active,
+            {
+                "version_id": "vc",
+                "version_no": 1,
+                "ui_sha256": "chat-ui-sha",
+                "min_host_version": 2,
+                "label": "Chat",
+                "icon": "message",
+            },
+        )
+        for secret in (
+            "ui_storage_key",
+            "api_storage_key",
+            "api_sha256",
+            "source_digest",
+            "description",
+            "dispatch_scope",
+        ):
+            self.assertNotIn(secret, active)
+
+    async def test_maintainer_list_keeps_full_active_version_dict(self):
+        module = _module(active_version_id="ver_a1")
+        version = _version(
+            ui_storage_key="module/mod_a1/aaa.js",
+            api_sha256="api-sha",
+            api_storage_key="module/mod_a1/api-sha.api.zip",
+            source_digest="src-digest",
+            dispatch_scope="maintainer",
+        )
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "list_modules", return_value=[module]), \
+             patch.object(ctrl.module_service, "get_version", return_value=version):
+            result = await ctrl.list_modules(_request(), enabled_only=False)
+        active = result[0]["active_version"]
+        self.assertEqual(active["ui_storage_key"], "module/mod_a1/aaa.js")
+        self.assertEqual(active["api_sha256"], "api-sha")
+        self.assertEqual(active["api_storage_key"], "module/mod_a1/api-sha.api.zip")
+        self.assertEqual(active["source_digest"], "src-digest")
+        self.assertEqual(active["dispatch_scope"], "maintainer")
+
+    async def test_list_fails_closed_when_maintainer_is_unset(self):
+        with patch.object(ctrl, "default_owner_user_id", return_value=None), \
+             patch.object(ctrl.module_service, "list_modules") as list_fn:
+            result = await ctrl.list_modules(_request(user_id=456))
+        self.assertEqual(result, [])
+        list_fn.assert_not_called()
 
 
 class PublishTest(unittest.IsolatedAsyncioTestCase):
@@ -127,6 +207,21 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(ctx.exception.status_code, 403)
         get_fn.assert_not_called()
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+    async def test_publish_rejects_invalid_dispatch_scope(self):
+        content = b"export default () => null;"
+        sha = hashlib.sha256(content).hexdigest()
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                    dispatch_scope="public",
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
 
@@ -687,7 +782,8 @@ class LocalFallbackTest(unittest.IsolatedAsyncioTestCase):
 
 class BundleTest(unittest.IsolatedAsyncioTestCase):
     async def test_bundle_serves_javascript_with_immutable_cache_control(self):
-        with patch.object(ctrl.module_service, "get_version", return_value=_version()) as get_fn, \
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=_version()) as get_fn, \
              patch.object(ctrl, "_read_bundle", return_value=b"js bytes") as read_fn:
             resp = await ctrl.get_bundle("ver_a1", _request())
         get_fn.assert_called_once_with(123, "ver_a1")
@@ -696,14 +792,55 @@ class BundleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.media_type, "text/javascript")
         self.assertEqual(resp.headers["Cache-Control"], "public, max-age=31536000, immutable")
 
-    async def test_bundle_for_another_users_version_is_404(self):
-        with patch.object(ctrl.module_service, "get_version", return_value=None):
+    async def test_authenticated_scoped_bundle_is_served_to_non_maintainer(self):
+        version = _version(dispatch_scope="authenticated")
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=version) as get_fn, \
+             patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_read_bundle", return_value=b"js bytes"):
+            resp = await ctrl.get_bundle("ver_a1", _request(user_id=456))
+        get_fn.assert_called_once_with(123, "ver_a1")
+        self.assertEqual(resp.body, b"js bytes")
+
+    async def test_maintainer_scoped_bundle_is_404_for_non_maintainer(self):
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=_version()), \
+             patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_read_bundle") as read_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.get_bundle("ver_a1", _request(user_id=456))
+        self.assertEqual(ctx.exception.status_code, 404)
+        read_fn.assert_not_called()
+
+    async def test_disabled_authenticated_scoped_bundle_is_404_for_non_maintainer(self):
+        version = _version(dispatch_scope="authenticated")
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=version), \
+             patch.object(ctrl.module_service, "get_module", return_value=_module(enabled=False)), \
+             patch.object(ctrl, "_read_bundle") as read_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.get_bundle("ver_a1", _request(user_id=456))
+        self.assertEqual(ctx.exception.status_code, 404)
+        read_fn.assert_not_called()
+
+    async def test_bundle_fails_closed_when_maintainer_unset(self):
+        with patch.object(ctrl, "default_owner_user_id", return_value=None), \
+             patch.object(ctrl.module_service, "get_version") as get_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.get_bundle("ver_a1", _request(user_id=456))
+        self.assertEqual(ctx.exception.status_code, 404)
+        get_fn.assert_not_called()
+
+    async def test_bundle_for_unknown_version_is_404(self):
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=None):
             with self.assertRaises(HTTPException) as ctx:
                 await ctrl.get_bundle("ver_other", _request(user_id=456))
         self.assertEqual(ctx.exception.status_code, 404)
 
     async def test_bundle_with_no_ui_half_is_404(self):
-        with patch.object(ctrl.module_service, "get_version", return_value=_version(ui_storage_key=None)):
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "get_version", return_value=_version(ui_storage_key=None)):
             with self.assertRaises(HTTPException) as ctx:
                 await ctrl.get_bundle("ver_a1", _request())
         self.assertEqual(ctx.exception.status_code, 404)

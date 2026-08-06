@@ -322,6 +322,7 @@ class ModuleVersionsDescriptionTest(unittest.TestCase):
                 "label": "Demo",
                 "built_at": "2026-07-31T00:00:00Z",
                 "description": "[2991] fix overflow",
+                "dispatch_scope": "authenticated",
             },
             {
                 "version_id": "ver_1",
@@ -342,7 +343,11 @@ class ModuleVersionsDescriptionTest(unittest.TestCase):
             result = CliRunner().invoke(module_group, ["versions", "demo"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("[2991] fix overflow", result.output)
+        v2_line = next(line for line in result.output.splitlines() if "v2" in line)
         v1_line = next(line for line in result.output.splitlines() if "v1" in line)
+        self.assertIn("authenticated", v2_line)
+        # Missing dispatch_scope falls back to the default maintainer audience.
+        self.assertIn("maintainer", v1_line)
         self.assertNotIn("None", v1_line)
 
 
@@ -565,6 +570,24 @@ class ModulePublishTest(unittest.TestCase):
             self.assertEqual(kwargs["bundle_bytes"], ui_bundle.read_bytes())
             self.assertEqual(kwargs["api_bundle_bytes"], api_bundle.read_bytes())
             self.assertEqual(kwargs["min_backend_version"], 1)
+            self.assertEqual(kwargs["dispatch_scope"], "maintainer")
+
+    def test_publish_rejects_invalid_dispatch_metadata_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            module_dir = home / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.json").write_text(
+                json.dumps({"dispatch": "public"}), encoding="utf-8"
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("dispatch must be", result.output)
+        ui_fn.assert_not_called()
+        api_fn.assert_not_called()
 
 
 class ModulePointerCommandsTest(unittest.TestCase):
@@ -674,6 +697,21 @@ class PublishApiShapeTest(unittest.TestCase):
         self.assertEqual(kwargs["data"]["min_host_version"], "1")
         self.assertNotIn("min_backend_version", kwargs["data"])
         self.assertNotIn("description", kwargs["data"])
+
+    def test_publish_bundle_defaults_dispatch_scope_to_maintainer(self):
+        from yagent.commands.module import _api
+
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["dispatch_scope"], "maintainer")
 
     def test_publish_bundle_includes_min_backend_version_only_when_given(self):
         from yagent.commands.module import _api

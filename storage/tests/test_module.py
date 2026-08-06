@@ -55,6 +55,25 @@ class PublishTest(ModuleTestCase):
         self.assertEqual(v2.version_no, 2)
         self.assertEqual(module_service.get_module(1, module.module_id).active_version_id, v2.version_id)
 
+    def test_dispatch_scope_defaults_to_maintainer_and_round_trips(self):
+        module = module_service.create_module(1, "finance")
+        maintainer = module_service.publish(
+            1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js"
+        )
+        authenticated = module_service.publish(
+            1,
+            module.module_id,
+            ui_sha256="bbb",
+            ui_storage_key="module/finance/bbb.js",
+            dispatch_scope="authenticated",
+        )
+        self.assertEqual(maintainer.dispatch_scope, "maintainer")
+        self.assertEqual(authenticated.dispatch_scope, "authenticated")
+        self.assertEqual(
+            version_repo.get_version(1, authenticated.version_id).dispatch_scope,
+            "authenticated",
+        )
+
     def test_publish_one_row_carries_both_halves(self):
         """PRD atomicity: one publish = one version row spanning UI + API halves."""
         module = module_service.create_module(1, "finance")

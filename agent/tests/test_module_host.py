@@ -23,8 +23,8 @@ from agent.tools.errors import CommandError
 
 
 class ContractSurfaceTest(unittest.TestCase):
-    def test_backend_contract_version_is_two(self):
-        self.assertEqual(BACKEND_CONTRACT_VERSION, 2)
+    def test_backend_contract_version_is_three(self):
+        self.assertEqual(BACKEND_CONTRACT_VERSION, 3)
 
     def test_importing_module_host_does_not_import_paramiko(self):
         # Drop paramiko if a previous test imported it, then re-import the contract.
@@ -209,6 +209,73 @@ class RunVmCommandTest(unittest.IsolatedAsyncioTestCase):
              ):
             with self.assertRaises(RuntimeError):
                 await run_vm_command(1, None, ["y", "todo", "list"])
+
+
+class ChatCapabilityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_every_operation_requires_a_bound_request_owner(self):
+        for call in (
+            lambda: mh.chat_list(1),
+            lambda: mh.chat_get(1, "chat-1"),
+            lambda: mh.chat_create_share(1, "chat-1"),
+        ):
+            with self.subTest(call=call):
+                with self.assertRaises(mh.ModuleHostAuthError):
+                    await call()
+
+    async def test_refuses_a_user_id_differing_from_bound_owner(self):
+        with request_owner(5):
+            with self.assertRaises(mh.ModuleHostAuthError):
+                await mh.chat_list(7)
+            with self.assertRaises(mh.ModuleHostAuthError):
+                await mh.chat_get(7, "chat-1")
+            with self.assertRaises(mh.ModuleHostAuthError):
+                await mh.chat_create_share(7, "chat-1")
+
+    async def test_list_returns_plain_owner_scoped_summaries(self):
+        summary = SimpleNamespace(
+            chat_id="chat-1", title="A", created_at="c", updated_at="u",
+            topic="dev", skill="impl", trace_id="3042", routine_id="",
+            routine_name="", backend="claude_code", bot_name="default",
+            tier="tier1", status="idle", unread=False,
+        )
+        with request_owner(3), \
+             patch("storage.service.chat.list_chats", new_callable=AsyncMock, return_value=[summary]) as svc:
+            result = await mh.chat_list(3, limit=20, query="hello")
+        svc.assert_awaited_once()
+        self.assertEqual(svc.await_args.args[0], 3)
+        self.assertEqual(svc.await_args.kwargs["limit"], 20)
+        self.assertEqual(result[0]["chat_id"], "chat-1")
+        self.assertNotIn("user_id", result[0])
+
+    async def test_get_returns_plain_content_and_none_for_missing(self):
+        message = SimpleNamespace(to_dict=lambda: {"role": "user", "content": "hi"})
+        chat = SimpleNamespace(
+            id="chat-1", messages=[message], create_time="c", update_time="u"
+        )
+        with request_owner(3), \
+             patch("storage.service.chat.get_chat", new_callable=AsyncMock, side_effect=[chat, None]) as svc:
+            result = await mh.chat_get(3, "chat-1")
+            missing = await mh.chat_get(3, "missing")
+        self.assertEqual(result["messages"], [{"role": "user", "content": "hi"}])
+        self.assertIsNone(missing)
+        self.assertEqual(svc.await_args_list[0].args, (3, "chat-1"))
+
+    async def test_create_share_hashes_explicit_password(self):
+        with request_owner(3), \
+             patch("storage.share_password.hash_password", return_value="hash") as hash_fn, \
+             patch("storage.service.chat.create_share", new_callable=AsyncMock, return_value="share-1") as svc:
+            result = await mh.chat_create_share(3, "chat-1", password="secret")
+        hash_fn.assert_called_once_with("secret")
+        svc.assert_awaited_once_with(3, "chat-1", None, password_hash="hash")
+        self.assertEqual(result, {"share_id": "share-1"})
+
+    async def test_create_share_can_return_generated_password(self):
+        with request_owner(3), \
+             patch("storage.share_password.generate_password", return_value="generated"), \
+             patch("storage.share_password.hash_password", return_value="hash"), \
+             patch("storage.service.chat.create_share", new_callable=AsyncMock, return_value="share-1"):
+            result = await mh.chat_create_share(3, "chat-1", generate_password=True)
+        self.assertEqual(result, {"share_id": "share-1", "password": "generated"})
 
 
 class BotConfigCapabilityTest(unittest.TestCase):

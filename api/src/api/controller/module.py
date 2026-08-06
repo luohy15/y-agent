@@ -37,6 +37,7 @@ from api.module_runtime.loader import evict_package, import_candidate_for_prefli
 from api.module_runtime.preflight import SchemaPreflightError, check_metadata_against_database
 from storage.database.base import get_engine
 from storage.dto.module import Module
+from storage.dto.module_version import ModuleVersion
 from storage.service import module as module_service
 
 router = APIRouter(prefix="/module")
@@ -77,6 +78,7 @@ def default_owner_user_id() -> Optional[int]:
 
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+DISPATCH_SCOPES = {"maintainer", "authenticated"}
 
 # Upper bound on a single uploaded half, guarding the API process from
 # unbounded buffers (review finding 3). Generous for real bundles; the API
@@ -210,18 +212,52 @@ async def create_module(req: CreateRequest, request: Request):
     return module.to_dict()
 
 
+def _public_active_version(active: ModuleVersion) -> dict:
+    """Non-maintainer list projection: browser loader fields only.
+
+    Omits ui_storage_key / api_storage_key / api_sha256 / source_digest (and
+    other build internals). version_no and min_host_version are required by
+    ArtifactVersionRef / ArtifactMount even though the review named only
+    version_id / ui_sha256 / label / icon.
+    """
+    return {
+        "version_id": active.version_id,
+        "version_no": active.version_no,
+        "ui_sha256": active.ui_sha256,
+        "min_host_version": active.min_host_version,
+        "label": active.label,
+        "icon": active.icon,
+    }
+
+
 @router.get("/list")
 async def list_modules(request: Request, enabled_only: bool = Query(False)):
-    """Owner's modules with the active version joined in."""
+    """Maintainer modules plus enabled authenticated-scoped modules for other users."""
     user_id = _get_user_id(request)
-    modules = module_service.list_modules(user_id, enabled_only=enabled_only)
+    owner_id = default_owner_user_id()
+    if owner_id is None:
+        return []
+
+    is_maintainer = user_id == owner_id
+    modules = module_service.list_modules(
+        owner_id, enabled_only=enabled_only if is_maintainer else True
+    )
     result = []
     for module in modules:
-        data = module.to_dict()
         active = None
         if module.active_version_id:
-            active = module_service.get_version(user_id, module.active_version_id)
-        data["active_version"] = active.to_dict() if active else None
+            active = module_service.get_version(owner_id, module.active_version_id)
+        if not is_maintainer and (
+            active is None or active.dispatch_scope != "authenticated"
+        ):
+            continue
+        data = module.to_dict()
+        if active is None:
+            data["active_version"] = None
+        elif is_maintainer:
+            data["active_version"] = active.to_dict()
+        else:
+            data["active_version"] = _public_active_version(active)
         result.append(data)
     return result
 
@@ -255,6 +291,7 @@ async def publish(
     icon: Optional[str] = Form(None),
     min_host_version: int = Form(1),
     min_backend_version: Optional[int] = Form(None),
+    dispatch_scope: str = Form("maintainer"),
     source_digest: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     activate: bool = Form(True),
@@ -286,6 +323,14 @@ async def publish(
         raise HTTPException(status_code=400, detail="slug is reserved")
     if isinstance(description, str) and len(description) > 200:
         raise HTTPException(status_code=400, detail="description must be at most 200 characters")
+    candidate_dispatch_scope = (
+        dispatch_scope if isinstance(dispatch_scope, str) else "maintainer"
+    )
+    if candidate_dispatch_scope not in DISPATCH_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail="dispatch_scope must be 'maintainer' or 'authenticated'",
+        )
 
     # File(None) defaults are not None when the endpoint is invoked directly
     # (unit tests); only treat values that actually look like UploadFile.
@@ -396,6 +441,7 @@ async def publish(
         icon=icon,
         min_host_version=min_host_version,
         min_backend_version=min_backend_version,
+        dispatch_scope=candidate_dispatch_scope,
         source_digest=source_digest,
         description=description,
         activate=activate,
@@ -472,9 +518,20 @@ async def delete_module(req: DeleteRequest, request: Request):
 @router.get("/bundle/{version_id}")
 async def get_bundle(version_id: str, request: Request):
     user_id = _get_user_id(request)
-    version = module_service.get_version(user_id, version_id)
+    owner_id = default_owner_user_id()
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    version = module_service.get_version(owner_id, version_id)
     if not version or not version.ui_storage_key:
         raise HTTPException(status_code=404, detail="Version not found")
+    if user_id != owner_id:
+        module = module_service.get_module(owner_id, version.module_id)
+        if (
+            version.dispatch_scope != "authenticated"
+            or module is None
+            or not module.enabled
+        ):
+            raise HTTPException(status_code=404, detail="Version not found")
     content = _read_bundle(version.ui_storage_key)
     # Bundles are content-addressed and versions immutable, so cache forever.
     return Response(

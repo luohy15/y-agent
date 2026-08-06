@@ -209,44 +209,30 @@ class LoaderIsolationTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.kind, "backend_version")
 
-    def test_backend_version_gate_older_host_rejects_a_v2_module(self):
-        """An older (v1) host rejects a v2 module clearly, and still accepts a
-        finance-style v1 module. This is the literal 'older host, newer
-        module' case the plan asks tests to prove, not just the (host, host+1)
-        comparison."""
+    def test_current_v3_host_rejects_v4_and_loads_bot_v2_and_finance_v1(self):
         api_bytes = _zip_module(_ping_api("X"))
         sha = hashlib.sha256(api_bytes).hexdigest()
 
-        # Simulate the previous host release: contract version 1.
-        with patch.object(loader, "BACKEND_CONTRACT_VERSION", 1):
-            # min_backend_version=2 (a bot contract-v2 bundle) is rejected.
-            with self.assertRaises(ModuleBackendVersionError) as ctx:
-                loader.load_from_bytes(
-                    slug="scratch",
-                    version=_version(api_sha256=sha, min_backend_version=2),
-                    api_bytes=api_bytes,
-                    expected_sha256=sha,
-                )
-            self.assertEqual(ctx.exception.kind, "backend_version")
-            self.assertIn("requires backend contract >= 2, host has 1", str(ctx.exception))
-
-            # finance keeps declaring min_backend_version=1 and still loads.
+        with self.assertRaises(ModuleBackendVersionError) as ctx:
             loader.load_from_bytes(
-                slug="scratch",
-                version=_version(api_sha256=sha, min_backend_version=1),
+                slug="chat",
+                version=_version(api_sha256=sha, min_backend_version=4),
                 api_bytes=api_bytes,
                 expected_sha256=sha,
             )
-            self.assertGreaterEqual(loader.cache_size(), 1)
+        self.assertEqual(ctx.exception.kind, "backend_version")
+        self.assertIn("requires backend contract >= 4, host has 3", str(ctx.exception))
 
-            # ... and by the current (v2) host likewise.
-        loader.load_from_bytes(
-            slug="scratch",
-            version=_version(api_sha256=sha, min_backend_version=1),
-            api_bytes=api_bytes,
-            expected_sha256=sha,
-        )
-        self.assertGreaterEqual(loader.cache_size(), 1)
+        for slug, minimum in (("bot", 2), ("finance", 1)):
+            with self.subTest(slug=slug):
+                loaded = loader.load_from_bytes(
+                    slug=slug,
+                    version=_version(api_sha256=sha, min_backend_version=minimum),
+                    api_bytes=api_bytes,
+                    expected_sha256=sha,
+                    cache=False,
+                )
+                self.assertEqual(loaded.version.min_backend_version, minimum)
 
     def test_import_error_on_missing_router(self):
         api_bytes = _zip_module({
@@ -590,7 +576,10 @@ class DispatcherTest(unittest.TestCase):
                 raise ModuleNotFoundError(slug, f"no {slug}")
             return self.loaded
 
-        self.dispatcher = ModuleDispatcher(load_fn=fake_load)
+        self.dispatcher = ModuleDispatcher(
+            load_fn=fake_load,
+            resolve_fn=lambda user_id, slug: fake_load(user_id, slug).version,
+        )
 
         # Build a mini app that mirrors production: management router first,
         # then the mount. Auth middleware sets request.state.user_id.
@@ -631,19 +620,61 @@ class DispatcherTest(unittest.TestCase):
         self.assertEqual(body["user_id"], 42)
         self.assertEqual(body["marker"], "live")
 
-    def test_non_owner_backend_dispatch_is_403(self):
-        """review finding 1: an authenticated account other than the trusted
-        owner cannot execute a backend half."""
+    def test_non_owner_maintainer_scoped_dispatch_is_403(self):
+        """A second authenticated account still cannot execute the default scope."""
         resp = self.client.get("/api/module/scratch-mod/ping")
         self.assertEqual(resp.status_code, 200)  # owner (42) is fine
 
-        # A different authenticated user must be refused before any load.
         with patch(
             "api.module_runtime.dispatcher.default_owner_user_id", return_value=99
         ):
             resp = self.client.get("/api/module/scratch-mod/ping")
         self.assertEqual(resp.status_code, 403)
         self.assertIn("maintainer", resp.json()["detail"])
+
+    def test_non_owner_authenticated_scoped_dispatch_uses_maintainer_version(self):
+        self.loaded.version.dispatch_scope = "authenticated"
+        with patch(
+            "api.module_runtime.dispatcher.default_owner_user_id", return_value=99
+        ):
+            resp = self.client.get("/api/module/scratch-mod/ping")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["user_id"], 42)
+
+    def test_unset_maintainer_fails_closed_for_authenticated_scope(self):
+        self.loaded.version.dispatch_scope = "authenticated"
+        with patch(
+            "api.module_runtime.dispatcher.default_owner_user_id", return_value=None
+        ):
+            resp = self.client.get("/api/module/scratch-mod/ping")
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn("configured maintainer", resp.json()["detail"])
+
+    def test_scope_is_rechecked_after_load_if_active_version_moves(self):
+        authenticated = _version(dispatch_scope="authenticated")
+        maintainer = _version(version_id="ver_new", dispatch_scope="maintainer")
+        dispatcher = ModuleDispatcher(
+            resolve_fn=lambda owner_id, slug: authenticated,
+            load_fn=lambda owner_id, slug: SimpleNamespace(
+                version=maintainer, app=self.loaded.app
+            ),
+        )
+        app = FastAPI()
+
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class FakeAuth(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                request.state.user_id = 42
+                return await call_next(request)
+
+        app.add_middleware(FakeAuth)
+        app.mount("/api/module", dispatcher)
+        with patch(
+            "api.module_runtime.dispatcher.default_owner_user_id", return_value=99
+        ):
+            resp = TestClient(app).get("/api/module/scratch-mod/ping")
+        self.assertEqual(resp.status_code, 403)
 
     def test_root_path_is_mount_prefix_plus_slug_not_duplicated(self):
         """review finding 6: root_path is /api/module/<slug>, not a duplicated prefix."""
@@ -712,7 +743,13 @@ class FailureIsolationTest(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def _client_with(self, load_fn):
-        self.app.mount("/api/module", ModuleDispatcher(load_fn=load_fn))
+        def resolve(user_id, slug):
+            loaded = load_fn(user_id, slug)
+            return loaded.version
+
+        self.app.mount(
+            "/api/module", ModuleDispatcher(load_fn=load_fn, resolve_fn=resolve)
+        )
         return TestClient(self.app)
 
     def test_fetch_failure_isolates(self):
@@ -768,6 +805,189 @@ class FailureIsolationTest(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
         self.assertEqual(bad.json()["kind"], "archive")
         self.assertEqual(client.get("/api/health").json()["ok"], True)
+
+
+class ResolveAndLoadActiveTest(unittest.TestCase):
+    """Real resolve_active_version / load_active_module path (review S4).
+
+    Dispatcher tests inject resolve_fn/load_fn stubs, so the same-hash twin
+    cache branch that live finance v19/v20 and bot v11/v12 hit is otherwise
+    unexercised. These cases call the real functions with service + bundle
+    I/O mocked.
+    """
+
+    def setUp(self):
+        loader.clear_cache()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.extract_root = Path(self._tmpdir.name)
+        self._extract_patch = patch.object(loader, "EXTRACT_ROOT", self.extract_root)
+        self._extract_patch.start()
+
+        self.api_bytes = _zip_module(_ping_api("twin"))
+        self.sha = hashlib.sha256(self.api_bytes).hexdigest()
+        self.v20 = _version(
+            version_id="ver_20",
+            version_no=20,
+            api_sha256=self.sha,
+            api_storage_key=f"module/mod/{self.sha}.api.zip",
+            dispatch_scope="authenticated",
+        )
+        self.v19 = _version(
+            version_id="ver_19",
+            version_no=19,
+            api_sha256=self.sha,
+            api_storage_key=f"module/mod/{self.sha}.api.zip",
+            dispatch_scope="maintainer",
+        )
+        self.module = SimpleNamespace(
+            module_id="mod_1",
+            slug="finance",
+            enabled=True,
+            active_version_id=self.v20.version_id,
+        )
+
+    def tearDown(self):
+        self._extract_patch.stop()
+        for key in list(sys.modules):
+            if key.startswith("ymod_"):
+                sys.modules.pop(key, None)
+        loader.clear_cache()
+        self._tmpdir.cleanup()
+
+    def test_resolve_active_version_returns_active_api_half(self):
+        from api.module_runtime.errors import ModuleDisabledError, ModuleNoApiError, ModuleNotFoundError
+
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ) as get_mod, patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v20,
+        ) as get_ver:
+            resolved = loader.resolve_active_version(1, "finance")
+        get_mod.assert_called_once_with(1, "finance")
+        get_ver.assert_called_once_with(1, "ver_20")
+        self.assertEqual(resolved.version_id, "ver_20")
+        self.assertEqual(resolved.dispatch_scope, "authenticated")
+
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=None,
+        ):
+            with self.assertRaises(ModuleNotFoundError):
+                loader.resolve_active_version(1, "missing")
+
+        disabled = SimpleNamespace(
+            module_id="mod_1", slug="finance", enabled=False, active_version_id="ver_20"
+        )
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=disabled,
+        ):
+            with self.assertRaises(ModuleDisabledError):
+                loader.resolve_active_version(1, "finance")
+
+        no_api = _version(
+            version_id="ver_ui",
+            version_no=1,
+            api_sha256=None,
+            api_storage_key=None,
+        )
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=no_api,
+        ):
+            with self.assertRaises(ModuleNoApiError):
+                loader.resolve_active_version(1, "finance")
+
+    def test_load_active_module_same_hash_different_version_returns_fresh_scope(self):
+        """finance v19/v20 and bot v11/v12 twin shape: same api_sha256, different
+        version_id/dispatch_scope. Cache reuses the imported app but must return
+        the freshly resolved version so the dispatcher's post-load scope recheck
+        reads the right row."""
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v20,
+        ), patch(
+            "api.controller.module._read_bundle", return_value=self.api_bytes
+        ) as read_fn:
+            first = loader.load_active_module(1, "finance")
+        self.assertEqual(first.version.version_id, "ver_20")
+        self.assertEqual(first.version.dispatch_scope, "authenticated")
+        self.assertEqual(loader.cache_size(), 1)
+        read_fn.assert_called_once()
+
+        # Pointer moves to the same-hash twin (v19 maintainer).
+        twin_module = SimpleNamespace(
+            module_id="mod_1",
+            slug="finance",
+            enabled=True,
+            active_version_id=self.v19.version_id,
+        )
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=twin_module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v19,
+        ), patch(
+            "api.controller.module._read_bundle"
+        ) as read_again:
+            twin = loader.load_active_module(1, "finance")
+        read_again.assert_not_called()
+        self.assertEqual(loader.cache_size(), 1)
+        self.assertIs(twin.app, first.app)
+        self.assertEqual(twin.version.version_id, "ver_19")
+        self.assertEqual(twin.version.dispatch_scope, "maintainer")
+        # Cached entry still holds the first version row; returned object is a replace().
+        self.assertEqual(first.version.version_id, "ver_20")
+        self.assertIsNot(twin, first)
+
+        # Pointer moves back to v20: still a cache hit, fresh version again.
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v20,
+        ), patch(
+            "api.controller.module._read_bundle"
+        ) as read_back:
+            back = loader.load_active_module(1, "finance")
+        read_back.assert_not_called()
+        self.assertEqual(back.version.version_id, "ver_20")
+        self.assertEqual(back.version.dispatch_scope, "authenticated")
+        self.assertIs(back.app, first.app)
+
+    def test_load_active_module_exact_version_cache_hit_returns_same_object(self):
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v20,
+        ), patch(
+            "api.controller.module._read_bundle", return_value=self.api_bytes
+        ):
+            first = loader.load_active_module(1, "finance")
+        with patch(
+            "api.module_runtime.loader.module_service.get_module_by_slug",
+            return_value=self.module,
+        ), patch(
+            "api.module_runtime.loader.module_service.get_version",
+            return_value=self.v20,
+        ), patch(
+            "api.controller.module._read_bundle"
+        ) as read_fn:
+            again = loader.load_active_module(1, "finance")
+        read_fn.assert_not_called()
+        self.assertIs(again, first)
 
 
 if __name__ == "__main__":

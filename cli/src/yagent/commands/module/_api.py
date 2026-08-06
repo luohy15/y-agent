@@ -52,6 +52,7 @@ def publish_bundle(
     source_digest: Optional[str] = None,
     activate: bool = True,
     min_backend_version: Optional[int] = None,
+    dispatch_scope: str = "maintainer",
     description: Optional[str] = None,
 ) -> dict:
     """POST one or both halves in a single publish request.
@@ -83,6 +84,7 @@ def publish_bundle(
         data["source_digest"] = source_digest
     if min_backend_version is not None:
         data["min_backend_version"] = str(min_backend_version)
+    data["dispatch_scope"] = dispatch_scope
     if description is not None:
         data["description"] = description
     return api_request("POST", "/api/module/publish", files=files or None, data=data).json()
