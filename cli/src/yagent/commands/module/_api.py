@@ -56,6 +56,7 @@ def publish_bundle(
     ui_surfaces: str = "panel",
     ui_public: bool = False,
     description: Optional[str] = None,
+    trace_id: Optional[str] = None,
 ) -> dict:
     """POST one or both halves in a single publish request.
 
@@ -91,6 +92,8 @@ def publish_bundle(
     data["ui_public"] = "true" if ui_public else "false"
     if description is not None:
         data["description"] = description
+    if trace_id is not None:
+        data["trace_id"] = trace_id
     return api_request("POST", "/api/module/publish", files=files or None, data=data).json()
 
 

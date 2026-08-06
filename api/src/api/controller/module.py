@@ -317,6 +317,7 @@ async def publish(
     ui_public: bool = Form(False),
     source_digest: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    trace_id: Optional[str] = Form(None),
     activate: bool = Form(True),
 ):
     """Publish one version spanning the UI half, the API half, or both.
@@ -346,6 +347,10 @@ async def publish(
         raise HTTPException(status_code=400, detail="slug is reserved")
     if isinstance(description, str) and len(description) > 200:
         raise HTTPException(status_code=400, detail="description must be at most 200 characters")
+    candidate_trace_id = trace_id.strip() if isinstance(trace_id, str) else None
+    if candidate_trace_id and len(candidate_trace_id) > 64:
+        raise HTTPException(status_code=400, detail="trace_id must be at most 64 characters")
+    candidate_trace_id = candidate_trace_id or None
     candidate_dispatch_scope = (
         dispatch_scope if isinstance(dispatch_scope, str) else "maintainer"
     )
@@ -473,6 +478,7 @@ async def publish(
         ui_public=candidate_ui_public,
         source_digest=source_digest,
         description=description,
+        trace_id=candidate_trace_id,
         activate=activate,
     )
     if not version:

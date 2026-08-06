@@ -179,6 +179,23 @@ class PublishTest(ModuleTestCase):
         self.assertEqual(len(versions), 1)
         self.assertEqual(versions[0].description, "[2991] fix overflow")
 
+    def test_publish_trace_id_round_trips_through_list_versions(self):
+        module = module_service.create_module(1, "finance")
+        v1 = module_service.publish(
+            1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js",
+            trace_id="3051",
+        )
+        self.assertEqual(v1.trace_id, "3051")
+
+        versions = module_service.list_versions(1, module.module_id)
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0].trace_id, "3051")
+
+    def test_publish_without_trace_id_leaves_it_none(self):
+        module = module_service.create_module(1, "finance")
+        v1 = module_service.publish(1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js")
+        self.assertIsNone(v1.trace_id)
+
     def test_publish_to_unknown_module_returns_none_and_inserts_nothing(self):
         result = module_service.publish(1, "nope99", ui_sha256="aaa", ui_storage_key="module/x/aaa.js")
         self.assertIsNone(result)

@@ -27,6 +27,7 @@ class ModuleVersionEntity(Base, BaseEntity):
     source_digest = Column(String, nullable=True)
     built_at = Column(String, nullable=True)
     description = Column(String, nullable=True)
+    trace_id = Column(String(64), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "version_id"),

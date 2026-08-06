@@ -26,6 +26,7 @@ def _entity_to_dto(entity: ModuleVersionEntity) -> ModuleVersion:
         source_digest=entity.source_digest,
         built_at=entity.built_at,
         description=entity.description,
+        trace_id=entity.trace_id,
         created_at=entity.created_at,
         updated_at=entity.updated_at,
         created_at_unix=entity.created_at_unix,
@@ -52,6 +53,7 @@ def create_version(
     source_digest: Optional[str] = None,
     built_at: Optional[str] = None,
     description: Optional[str] = None,
+    trace_id: Optional[str] = None,
 ) -> ModuleVersion:
     with get_db() as session:
         entity = ModuleVersionEntity(
@@ -73,6 +75,7 @@ def create_version(
             source_digest=source_digest,
             built_at=built_at,
             description=description,
+            trace_id=trace_id,
         )
         session.add(entity)
         session.flush()

@@ -313,16 +313,26 @@ class ModuleListTest(unittest.TestCase):
 
 
 class ModuleVersionsDescriptionTest(unittest.TestCase):
-    def test_versions_shows_description_when_present_and_omits_none(self):
+    def test_versions_renders_trace_id_and_description_combinations(self):
         payload_versions = [
+            {
+                "version_id": "ver_3",
+                "version_no": 3,
+                "ui_sha256": "c" * 64,
+                "label": "Demo",
+                "built_at": "2026-08-01T00:00:00Z",
+                "description": "fix overflow",
+                "trace_id": "3051",
+                "dispatch_scope": "authenticated",
+            },
             {
                 "version_id": "ver_2",
                 "version_no": 2,
                 "ui_sha256": "b" * 64,
                 "label": "Demo",
                 "built_at": "2026-07-31T00:00:00Z",
-                "description": "[2991] fix overflow",
-                "dispatch_scope": "authenticated",
+                "description": None,
+                "trace_id": "2991",
             },
             {
                 "version_id": "ver_1",
@@ -331,21 +341,25 @@ class ModuleVersionsDescriptionTest(unittest.TestCase):
                 "label": "Demo",
                 "built_at": "2026-07-30T00:00:00Z",
                 "description": None,
+                "trace_id": None,
             },
         ]
         with patch(
             "yagent.commands.module.versions.resolve_module",
-            return_value={"module_id": "mod_1", "slug": "demo", "active_version_id": "ver_2"},
+            return_value={"module_id": "mod_1", "slug": "demo", "active_version_id": "ver_3"},
         ), patch(
             "yagent.commands.module.versions.list_versions",
             return_value=payload_versions,
         ):
             result = CliRunner().invoke(module_group, ["versions", "demo"])
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIn("[2991] fix overflow", result.output)
+        v3_line = next(line for line in result.output.splitlines() if "v3" in line)
         v2_line = next(line for line in result.output.splitlines() if "v2" in line)
         v1_line = next(line for line in result.output.splitlines() if "v1" in line)
-        self.assertIn("authenticated", v2_line)
+        self.assertIn("[3051] fix overflow", v3_line)
+        self.assertIn("authenticated", v3_line)
+        self.assertIn("[2991]", v2_line)
+        self.assertNotIn("[", v1_line)
         # Missing dispatch_scope falls back to the default maintainer audience.
         self.assertIn("maintainer", v1_line)
         self.assertNotIn("None", v1_line)
@@ -448,7 +462,7 @@ class ModulePublishTest(unittest.TestCase):
             self.assertIn("staged", result.output)
             self.assertFalse(pub.call_args.kwargs["activate"])
 
-    def test_publish_desc_flag_composes_and_threads_through_publish_bundle(self):
+    def test_publish_desc_flag_is_not_prefixed(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             bundle = Path(tmp) / "bundle.js"
@@ -483,7 +497,120 @@ class ModulePublishTest(unittest.TestCase):
                     module_group, ["publish", "demo", "-d", "fix overflow"]
                 )
             self.assertEqual(result.exit_code, 0, result.output)
-            self.assertEqual(pub.call_args.kwargs["description"], "[2991] fix overflow")
+            self.assertEqual(pub.call_args.kwargs["description"], "fix overflow")
+            self.assertEqual(pub.call_args.kwargs["trace_id"], "2991")
+
+    def test_publish_trace_id_defaults_from_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"x")
+            manifest = {
+                "slug": "demo",
+                "sha256": "a" * 64,
+                "source_digest": "b" * 64,
+                "min_host_version": 1,
+                "bytes": 1,
+                "bundle": str(bundle),
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "3051"}), \
+                 patch(
+                     "yagent.commands.module.publish.build_artifact",
+                     return_value=manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": "a" * 64},
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(pub.call_args.kwargs["trace_id"], "3051")
+
+    def test_publish_trace_id_flag_overrides_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"x")
+            manifest = {
+                "slug": "demo",
+                "sha256": "a" * 64,
+                "source_digest": "b" * 64,
+                "min_host_version": 1,
+                "bytes": 1,
+                "bundle": str(bundle),
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "2991"}), \
+                 patch(
+                     "yagent.commands.module.publish.build_artifact",
+                     return_value=manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": "a" * 64},
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                result = CliRunner().invoke(
+                    module_group, ["publish", "demo", "--trace-id", "3051"]
+                )
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(pub.call_args.kwargs["trace_id"], "3051")
+
+    def test_publish_no_trace_id_when_unset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"x")
+            manifest = {
+                "slug": "demo",
+                "sha256": "a" * 64,
+                "source_digest": "b" * 64,
+                "min_host_version": 1,
+                "bytes": 1,
+                "bundle": str(bundle),
+            }
+            import os
+
+            env = dict(os.environ)
+            env.pop("Y_TRACE_ID", None)
+            env["Y_AGENT_HOME"] = str(home)
+            with patch.dict("os.environ", env, clear=True), \
+                 patch(
+                     "yagent.commands.module.publish.build_artifact",
+                     return_value=manifest,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.build_api_bundle",
+                     return_value=None,
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": "a" * 64},
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIsNone(pub.call_args.kwargs["trace_id"])
 
     def test_publish_build_failure_exits_nonzero_without_api(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -884,22 +1011,44 @@ class PublishApiShapeTest(unittest.TestCase):
                 min_host_version=1,
                 source_digest="y" * 64,
                 activate=True,
-                description="[2991] fix overflow",
+                description="fix overflow",
             )
         _, kwargs = api.call_args
-        self.assertEqual(kwargs["data"]["description"], "[2991] fix overflow")
+        self.assertEqual(kwargs["data"]["description"], "fix overflow")
 
+    def test_publish_bundle_includes_trace_id_only_when_given(self):
+        from yagent.commands.module import _api
 
-class ComposeDescriptionTest(unittest.TestCase):
-    def test_compose_description_d2_table(self):
-        from yagent.commands.module.publish import _compose_description
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+                min_host_version=1,
+                source_digest="y" * 64,
+                activate=True,
+                trace_id="3051",
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["trace_id"], "3051")
 
-        self.assertEqual(
-            _compose_description("fix chart overflow", "2991"), "[2991] fix chart overflow"
-        )
-        self.assertEqual(_compose_description(None, "2991"), "[2991]")
-        self.assertEqual(_compose_description("fix chart overflow", None), "fix chart overflow")
-        self.assertIsNone(_compose_description(None, None))
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+                min_host_version=1,
+                source_digest="y" * 64,
+                activate=True,
+            )
+        _, kwargs = api.call_args
+        self.assertNotIn("trace_id", kwargs["data"])
 
 
 if __name__ == "__main__":

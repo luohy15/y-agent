@@ -154,6 +154,7 @@ class ListTest(unittest.IsolatedAsyncioTestCase):
             "source_digest",
             "description",
             "dispatch_scope",
+            "trace_id",
         ):
             self.assertNotIn(secret, active)
 
@@ -393,6 +394,61 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIsNone(result["description"])
         self.assertIsNone(pub_fn.call_args.kwargs["description"])
+
+    async def test_publish_with_trace_id_returns_it_in_response_body(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(version_no=3, ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js", trace_id="3051")
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                trace_id="3051",
+            )
+        self.assertEqual(result["trace_id"], "3051")
+        self.assertEqual(pub_fn.call_args.kwargs["trace_id"], "3051")
+
+    async def test_publish_without_trace_id_returns_none(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(version_no=3, ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js")
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            result = await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha, trace_id=None
+            )
+        self.assertIsNone(result["trace_id"])
+        self.assertIsNone(pub_fn.call_args.kwargs["trace_id"])
+
+    async def test_publish_blank_trace_id_normalizes_to_none(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(version_no=3, ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js")
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha, trace_id="   "
+            )
+        self.assertIsNone(pub_fn.call_args.kwargs["trace_id"])
+
+    async def test_trace_id_over_64_chars_is_400_and_inserts_no_version(self):
+        content = b"export default 42;"
+        sha = hashlib.sha256(content).hexdigest()
+        too_long = "3" * 65
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                    trace_id=too_long,
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
 
     async def test_description_over_200_chars_is_400_and_inserts_no_version(self):
         content = b"export default 42;"
@@ -988,6 +1044,12 @@ class PointerActionTest(unittest.IsolatedAsyncioTestCase):
         by_slug.assert_called_once_with(123, "finance")
         lv.assert_called_once_with(123, "mod_a1")
         self.assertEqual(result[0]["version_id"], "ver_a1")
+
+    async def test_versions_carries_trace_id_in_response_body(self):
+        with patch.object(ctrl.module_service, "get_module_by_slug", return_value=_module()), \
+             patch.object(ctrl.module_service, "list_versions", return_value=[_version(trace_id="3051")]):
+            result = await ctrl.list_versions(_request(), module_id=None, slug="finance")
+        self.assertEqual(result[0]["trace_id"], "3051")
 
     async def test_versions_requires_module_id_or_slug(self):
         with self.assertRaises(HTTPException) as ctx:

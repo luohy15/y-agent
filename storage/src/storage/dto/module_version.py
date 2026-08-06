@@ -21,6 +21,7 @@ class ModuleVersion:
     source_digest: Optional[str] = None
     built_at: Optional[str] = None
     description: Optional[str] = None
+    trace_id: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -46,6 +47,7 @@ class ModuleVersion:
             source_digest=data.get('source_digest'),
             built_at=data.get('built_at'),
             description=data.get('description'),
+            trace_id=data.get('trace_id'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -71,6 +73,7 @@ class ModuleVersion:
             'source_digest': self.source_digest,
             'built_at': self.built_at,
             'description': self.description,
+            'trace_id': self.trace_id,
         }
         if self.created_at is not None:
             result['created_at'] = self.created_at

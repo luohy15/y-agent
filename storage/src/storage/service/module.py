@@ -88,6 +88,7 @@ def publish(
     ui_public: bool = False,
     source_digest: Optional[str] = None,
     description: Optional[str] = None,
+    trace_id: Optional[str] = None,
     activate: bool = True,
 ) -> Optional[ModuleVersion]:
     """Insert a new immutable version; move the active pointer unless activate=False.
@@ -117,6 +118,7 @@ def publish(
         source_digest=source_digest,
         built_at=get_utc_iso8601_timestamp(),
         description=description,
+        trace_id=trace_id,
     )
     if activate:
         module_repo.set_active_version(user_id, module_id, version.version_id)
