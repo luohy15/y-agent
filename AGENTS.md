@@ -88,8 +88,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   at the API layer. Web-only artifact fences are stripped to `[chart]` / `[diagram]`
   / `[svg]` placeholders before Telegram delivery.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
-  `artifact-svg` render inline in `MessageBubble` via lazy Mermaid / Vega-Lite / sanitized
-  SVG rendering. Plain `svg` fences remain code blocks.
+  `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.
+  Plain `svg` fences remain code blocks. Which fence becomes which artifact is decided
+  by the `chat` module's bubble (and by host `HostMessageView` on the public/fallback
+  paths); the renderer itself is the host-owned `ArtifactView` / `ArtifactRenderer`
+  leaf, shared by both through `@y/host`.
 - **Hot-loadable modules** — a user-owned module is one versioned domain with
   optional API and UI parts, local CLI commands, and module-owned data. Canonical source
   lives only at `$Y_AGENT_HOME/modules/<slug>/`: `module.json`, an import-free
@@ -100,10 +103,20 @@ entity + controller + service + CLI slices, and most have a web panel.
   hashes and schema preflight, creates one immutable `module_version`, and atomically
   moves its active pointer. The API dispatches `/api/module/<slug>/*` through a lazy,
   hash-verified per-version sub-application; the web loader preserves the established
-  `@y/host` browser contract, integrity check, error boundary, `panel` surface, and
-  optional `detail` surface. Backend modules run in-process under the shared API role,
-  so every publish and backend dispatch are restricted to
-  `Y_AGENT_MODULE_MAINTAINER_USER_ID` and fail closed when it is unset. The module owns
+  `@y/host` browser contract (now **v5**), integrity check, and error boundary, and
+  mounts up to three host slots: the required `panel`, the optional `detail`, and the
+  optional `shell` (the persistent centre column; at most one claimant, lowest slug
+  wins). `module_version.ui_surfaces` is the immutable per-version record of which
+  slots a version *claims*, not of which surfaces it exports: only `shell` is enforced
+  from the column, `panel` / `detail` are still introspected from the bundle. Backend
+  modules run in-process under the shared API role, so every publish is restricted to
+  `Y_AGENT_MODULE_MAINTAINER_USER_ID` and fails closed when it is unset; backend
+  *dispatch* is per-version — `module_version.dispatch_scope` defaults to `maintainer`,
+  and a version published as `authenticated` serves any logged-in user, with code still
+  resolved and loaded as the maintainer while data stays scoped to the caller.
+  `module_version.ui_public` is published and immutable but inert: it reserves the
+  anonymous UI-bytes path (Option B of `pages/decision-3042-public-dispatch-scope.md`)
+  and nothing consumes it yet; there is still no anonymous backend dispatch. The module owns
   its entities, repositories, SQL, and hand-applied migration files. The host owns
   authentication, session/transaction management, dependencies, and VM execution.
   `y module schema-sql <slug>` prints DDL only; migrations are never run by publish,
@@ -135,17 +148,35 @@ entity + controller + service + CLI slices, and most have a web panel.
   enumeration, inline/link bot resolution, and `y init` bootstrap — stay host
   kernel state, because the worker reads them on the dispatch hot path and
   modules have no worker half. The module reaches that state only through the
-  versioned `bot_config_*` functions on the `agent.module_host` contract (now
-  **v2**, up from v1; bot declares `min_backend_version: 2`, finance still
-  declares 1), never a repository or session import.
+  versioned `bot_config_*` functions on the `agent.module_host` contract, never a
+  repository or session import.
   `GET /api/chat/bot-options` (host, `chat.py`) intentionally survives the cut:
   it is read-only, returns only `name`/`backend`/`model`, and stays open to
   every authenticated user because picking a bot in chat is routing selection,
   not management — it is not a leftover of the deleted management surface, and
   deleting it would break the chat picker for non-maintainers and on any module
-  rollback/disable. Chat itself stays host kernel and is not a migration candidate
-  under the current module contract: no `modules/chat/` exists (see "Chat: the
-  runtime kernel, not a module" in `docs/prd/module-system.md`).
+  rollback/disable. `chat` (`modules/chat`) is the third full-stack module and the
+  first `shell` claimant, active at v5 (v4 is the immediate rollback target).
+  It owns chat **browsing and presentation**: the `panel` (Chats list), a
+  full-width `detail` browser, the `shell` (the live centre-column conversation,
+  including `MessageList` / `MessageBubble` / the message parser / message layout
+  / artifact fence dispatch), three routes at `/api/module/chat/{list,content,share}`,
+  and the `y chat list/get/search/share` browse commands. The host keeps the chat
+  **runtime**: the `chat` table/entity/repo/service, the worker, Telegram, every
+  conversational route (`POST /api/chat`, `/message`, `/attach-image`, `/stop`,
+  `/messages*`, `/detail`, `/notify`, public `GET /share`, the four `/trace/read*`),
+  the `y chat` dispatch primitive (`-m` / `-i` / `stop`, a built-in group that
+  delegates only browse subcommands to `modules/chat/cli.py`), and the megabyte
+  render leaves the module imports from `@y/host` (`ArtifactView`, `PatchDiff`,
+  `ImageLightbox`, the PNG capture primitive). The module reaches host chat state
+  only through the backend contract's `chat_list` / `chat_get` /
+  `chat_create_share` functions. The `agent.module_host` contract is now **v3**
+  (v2 added `bot_config_*`, v3 added the chat capability): chat declares
+  `min_backend_version: 3`, bot 2, finance 1. `HostMessageView` (≤300 lines) is the
+  host's single degraded renderer behind `/t/:shareId`, `/s/:shareId`, and
+  `ChatFallbackView`, which the shell slot falls back to when no module claims it
+  (see "Chat: a control-plane module over the runtime kernel" in
+  `docs/prd/module-system.md`).
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -209,7 +240,9 @@ exceptions noted):
   coordination, no service)
 - **English learning**: `english_correction`
 - **Dev / trace**: `dev_worktree`, `trace_share`
-- **Modules**: `module`, `module_version` (identity + immutable API/UI version rows)
+- **Modules**: `module`, `module_version` (identity + immutable API/UI version rows;
+  a version also carries its own `dispatch_scope`, `ui_surfaces`, and `ui_public`, so
+  exposure and claimed host slots roll back with the code)
 - **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (legacy physical
   column `vm_config.finance_config` is intentionally retained for a later contract;
   finance config rows live in the module-owned `finance_config` table). `bot_config`
@@ -223,8 +256,9 @@ exceptions noted):
 
 Grouped by feature area:
 
-- **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (CRUD + SSE streaming +
-  share + stop + steer + cross-skill notify dispatch), `trace.py` (listing,
+- **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (create + SSE streaming +
+  stop + steer + trace read-state + public share read + cross-skill notify dispatch;
+  browse `list` / `content` and share *creation* moved to the `chat` module), `trace.py` (listing,
   share, lookup by chat_id), `file.py` (list/read/search/upload/rename, local + SSH),
   `git.py` (status/diff/discard), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
@@ -234,9 +268,11 @@ Grouped by feature area:
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
-  domain). Finance and bot management live only there (`/api/module/finance/*`,
-  `/api/module/bot/*`); there is no built-in `finance.py` or `bot_config.py`
-  controller. `chat.py` retains one host bot route,
+  domain). Finance, bot management, and chat browsing live only there
+  (`/api/module/finance/*`, `/api/module/bot/*`,
+  `/api/module/chat/{list,content,share}`); there is no built-in `finance.py` or
+  `bot_config.py` controller, and `chat.py` no longer serves `list` / `content` /
+  `POST share`. `chat.py` retains one host bot route,
   `GET /api/chat/bot-options` (read-only `name`/`backend`/`model`, all
   authenticated users) — routing selection, not management, so it did not move.
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
@@ -249,7 +285,9 @@ Grouped by feature area:
 - `config.py` — provider factory, bot/vm config resolution
 - `module_host.py` — backend host contract for modules (`session`, `run_vm_command`,
   `cli_user_id`, external-table protocol; v2 adds a narrow request-scoped
-  `bot_config_*` capability used by the bot module, `BACKEND_CONTRACT_VERSION = 2`)
+  `bot_config_*` capability used by the bot module, v3 adds the request-bound
+  `chat_list` / `chat_get` / `chat_create_share` capability used by the chat module,
+  `BACKEND_CONTRACT_VERSION = 3`)
 - `ssh_pool.py`, `ec2_wake.py` — SSH connection reuse, EC2 wake-on-demand
 - `poll_loop.py` — steer / interrupt polling
 - `tool_base.py`, `tools/` — tool descriptors (bash, file_{read,write,edit}, local_exec,
@@ -268,11 +306,18 @@ Grouped by feature area:
 - `handler.py` — Lambda SQS event handler (in worker root)
 
 ### Web Frontend (`web/src/`)
-- `App.tsx` — multi-panel layout (sidebar / file viewer / chat / terminal / trace)
-- `components/ChatView.tsx` — SSE-based real-time chat with tool call display, steer,
-  context usage tooltip
+- `App.tsx` — multi-panel layout (sidebar / file viewer / chat shell slot / terminal /
+  trace); `host/artifacts.ts` resolves the shell slot (logged-out → host; module list
+  loading → wait; enabled `shell` claimant → module; otherwise `ChatFallbackView`)
+- The live centre-column conversation is the `chat` module's `shell` surface, not host
+  code: `ChatView` / `MessageList` / `MessageBubble` / the message parser were deleted in
+  the todo 3042 cut. The host keeps `components/HostMessageView.tsx` (the single degraded
+  renderer, ≤300 lines), `ChatFallbackView.tsx` (read-only SSE tail + plain send box when
+  no module claims the shell), `ChatSnapshotView.tsx`, `ShareView.tsx`, and the
+  right-drawer `ChatList.tsx` (host component, reads `/api/module/chat/list`)
 - `components/TraceView.tsx` — waterfall; `PublicTraceApp.tsx` — `/t/:shareId` public
-  read-only projection (snapshot ChatView + injected Note/Link panels + public FileViewer)
+  read-only projection (`ChatSnapshotView` over `HostMessageView` + injected Note/Link
+  panels + public FileViewer)
 - `components/FileTree.tsx`, `FileViewer.tsx` — lazy tree + edit mode (syntax
   highlighting, line numbers)
 - `host/commands.ts` — internal registration for artifact-invoked host commands
@@ -291,7 +336,10 @@ Grouped by feature area:
   `reminder`, `rss`, `link`, `email`, `dev`, `image`, `trace`,
   `file`, `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
   Domain CLI groups such as `y finance` and `y bot` are not built-in: they resolve
-  lazily from `$Y_AGENT_HOME/modules/<slug>/cli.py`
+  lazily from `$Y_AGENT_HOME/modules/<slug>/cli.py`. `y chat` is the one hybrid
+  group: the dispatch primitive (`-m` / `-i`) plus `stop` / `attach` / the import
+  commands stay built-in so a bad publish can never take out cross-session dispatch,
+  while `list` / `get` / `search` / `share` fall through to `modules/chat/cli.py`
 - `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
   `y module create`: `contract.json` (single source of truth for the externals list and
   the `@y/host` contract version, also imported by `web/src/host/contract.ts`),
@@ -378,7 +426,9 @@ y finance beancount snapshot
 y finance beancount update-market-data
 
 # Modules. Canonical source is $Y_AGENT_HOME/modules/<slug>/ with module.json and
-# ui/index.tsx (`panel` required, `detail` optional); API/CLI/data parts are optional.
+# ui/index.tsx (`panel` required, `detail` and `shell` optional); API/CLI/data parts are
+# optional. module.json's `surfaces` / `dispatch` / `ui_public` are stamped onto each
+# published version as ui_surfaces / dispatch_scope / ui_public.
 y module create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
 y module list
 y module versions <slug>
@@ -418,9 +468,10 @@ y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|-
   `Y_AGENT_MODULE_BUNDLE_DIR` (local module bundle store used when
   `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`),
   `Y_AGENT_MODULE_MAINTAINER_USER_ID` (the public string `user.user_id` of the
-  single account trusted to publish modules and dispatch backend modules; every
-  publish and backend dispatch 403 for everyone else and fail closed when this is
-  unset; required in any environment that publishes or dispatches backend modules).
+  single account that owns every module: publishing always 403s for everyone else,
+  and backend dispatch 403s for everyone else unless the active version declares
+  `dispatch_scope: authenticated`. Both fail closed when this is unset; required in
+  any environment that publishes or dispatches backend modules).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

@@ -159,9 +159,9 @@ describe("ArtifactMount", () => {
     container.remove();
   });
 
-  // One artifact = one module with two surfaces: the same version renders its
-  // panel in the sidebar and its detail in the center surface, rather than
-  // occupying two sidebar entries.
+  // One artifact = one module with up to three surfaces: the same version
+  // renders its panel in the sidebar and its detail in the center surface,
+  // rather than occupying two sidebar entries.
   it("renders the panel surface by default and the detail surface when asked", async () => {
     loadArtifactMock.mockResolvedValue({
       Panel: () => React.createElement("span", null, "panel surface"),

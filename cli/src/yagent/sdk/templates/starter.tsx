@@ -6,11 +6,15 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  *   y module publish <slug>
  * The host supplies react / @y/host / swr / recharts via the runtime registry.
  *
- * One artifact is one module with two surfaces:
+ * One artifact is one module with up to three surfaces:
  *   `panel`  (required) renders in the ~280px left sidebar
  *   `detail` (optional) renders full-width in the center surface, opened from
  *            the panel header (no dedicated URL; it restores as a persisted
  *            tab like any other file tab)
+ *   `shell`  (optional) takes over the persistent center column (the live chat
+ *            area). Unlike the other two it must be claimed in module.json
+ *            (`"surfaces": ["panel", "shell"]`), only one module may hold it,
+ *            and the host renders its own fallback when nobody does.
  * Delete the `detail` export for a sidebar-only artifact.
  *
  * Outgrowing one file? Keep `ui/index.tsx` as the thin entry and put sibling

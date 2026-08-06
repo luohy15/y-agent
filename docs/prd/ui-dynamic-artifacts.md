@@ -18,9 +18,14 @@ migrations and publish preflight, trusted-maintainer backend execution, lazy CLI
 registration, `common` vendoring, routine VM commands, and rollback/deletion semantics.
 
 This PRD remains authoritative for the browser runtime contract: `@y/host`,
-integrity-checked blob loading, artifact error boundaries, and the `panel`/optional
-`detail` UI surfaces. The historic requirements and delivery records below deliberately
-retain their original terminology and endpoints.
+integrity-checked blob loading, artifact error boundaries, and the UI surfaces —
+required `panel`, optional `detail`, and, since todo 3042, optional `shell` (the
+persistent centre column, one claimant at a time, claimed through
+`module_version.ui_surfaces`). `@y/host` is at **v5**; the `shell` surface, the
+host render leaves it exports, and the renderer seam behind them are specified in
+`docs/prd/module-system.md` (*The `shell` surface and the renderer seam*). The
+historic requirements and delivery records below deliberately retain their
+original terminology and endpoints.
 
 ## Problem Statement
 
@@ -516,4 +521,5 @@ Test the observable contract, not the loader's internals.
 | 2979 | Retained per-slug host↔artifact intent channel (`useArtifactIntent`, `openArtifactDetail`, contract v2 → v3) closing the first host-callback gap a migration has needed rather than accepted; re-port of the calendar view (agenda panel + week grid, drag/resize, event modal) onto the `calendar` artifact; superseded built-in calendar surface (`CalendarViewer`/`ScheduleList`) removed, all three inbound navigation paths retargeted | - | `pages/plan-2979-calendar-dynamic-ui.md` | - | `pages/review-2979-s0-host-intent.md`, `pages/review-2979-s1-calendar-artifact.md`, `pages/review-2979-s2-rm-builtin-calendar.md` | shipped |
 | 2991 | Per-version `description` on `ui_artifact_version`: `y ui publish -d/--desc`, auto-tagged `[<Y_TRACE_ID>] ` by the CLI, write-once (no annotate endpoint, no contract bump) | - | `pages/plan-2991-ui-version-description.md` | - | `pages/review-2991-ui-version-description.md` | shipped |
 | 3006 | Contract v4 adds `swr/infinite`, `optimisticListMutate`, and the artifact-invoked `runHostCommand` channel. The `todo` artifact replaces the built-in Todo list, viewer, and context menu with modal detail surfaces and no in-bundle fallback. `TraceView` remains built-in because it also renders the unauthenticated public trace-share projection, a boundary for every future artifact candidate shared on that route. | - | `pages/plan-3006-todo-dynamic-ui.md` | - | `pages/review-3006-todo-dynamic-ui-s1.md`, `pages/review-3006-todo-dynamic-ui-s2.md` | implemented |
+| 3042 | Contract v4 → v5 for the chat migration: third UI surface `shell` (the persistent centre column, at most one claimant, claimed via `module_version.ui_surfaces`, host precedence logged-out → module-list-loading → module → `ChatFallbackView`); `react-markdown` + `remark-gfm` added as externals (0 main-chunk bytes, since the host's own `HostMessageView` still imports them); `@y/host` exports the host-owned render leaves (`ArtifactView`, `PatchDiff`, `ImageLightbox`, `exportElementToPng` + the pure export/parsing helpers) so a module can own message rendering without bundling megabytes. Requirements and the seam rule live in `docs/prd/module-system.md`. | - | `pages/plan-3042-renderer.md`, `pages/plan-3042-chatview.md` | `pages/decision-3042-chat-shell-host-seam.md`, `pages/decision-3042-public-dispatch-scope.md` | `pages/review-3042-shell-v1-pb1.md`, `pages/review-3042-host-contract-v5.md`, `pages/review-3042-chat-fallback-v4.md`, `pages/review-3042-host-seam-v5a.md` | shipped |
 | 3046 | Right sidebar becomes an activity-bar-style, full-height panel switcher (chat / note / link / file / diff) that also mounts module `panel` surfaces through the existing module list, `artifact:<slug>` keys, loader, and `ArtifactMount` path; the split bottom-right Context area is removed. Confirms `panel` is a location-independent narrow-column contract rather than a left-sidebar-only surface. No new module surface, no second loader, no design phase. | - | `pages/plan-3046-right-sidebar.md` | - | - | planned; implementation blocked on todo 3042's V6/P5 host cut |

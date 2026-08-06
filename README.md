@@ -74,9 +74,16 @@ contain local CLI commands, a lazy-loaded API half, a published React UI half, a
 own ORM entities, repositories, and hand-applied migration SQL. `y module publish <slug>`
 publishes API and UI atomically without a full application deploy; `y module rollback`
 repoints code without altering data. `y module schema-sql <slug>` prints DDL but never
-executes it. Every publish and backend dispatch require the explicitly configured trusted
-maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`) and fail closed when it is unset.
-The system is live. Finance is the reference full-stack module: active version 20 with
+executes it. A UI half claims up to three host slots: a sidebar `panel`, a full-width
+`detail` view, and the `shell` (the persistent centre column). Every publish requires the
+explicitly configured trusted maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`); backend
+dispatch is maintainer-only unless the published version opts into `authenticated`, and
+both fail closed when no maintainer is configured.
+The system is live. Chat is the widest migration so far: chat browsing and the whole
+message renderer are the `chat` module's `panel` / `detail` / `shell` surfaces, so
+changing how a message looks is a publish rather than a deploy, while the chat runtime
+(table, worker, Telegram, and every conversational route) stays in the host.
+Finance is the reference full-stack module: active version 20 with
 version 19 as the immediate full-stack rollback twin, routes at `/api/module/finance/*`,
 and `y finance` resolved from local module source. Built-in finance host code is gone.
 Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge

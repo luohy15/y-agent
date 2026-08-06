@@ -5,16 +5,19 @@
  * contract.json and is stamped onto each published version as min_host_version.
  *
  * MODULE SHAPE (pages/decision-2412-module-shape.md)
- * One artifact is ONE module defining both surfaces:
+ * One artifact is ONE module defining up to three surfaces:
  *
  *     export const panel = MyPanel;    // required — left sidebar (~280px)
  *     export const detail = MyDetail;  // optional — center / full-width view
+ *     export const shell = MyShell;    // optional — persistent center column
  *
  * A bare `export default MyPanel` is the shorthand for a panel-only artifact.
  * The host gives one sidebar entry per artifact; `detail`, when present, opens
  * in the center surface from the panel header. There is no dedicated URL for
  * a detail view; it restores as a persisted tab like any other file tab.
- * Neither surface receives props.
+ * `shell` is claimed in module.json (`"surfaces"`), not inferred from the
+ * bundle, is held by at most one module at a time, and falls back to the host's
+ * own view when unclaimed. No surface receives props.
  */
 
 declare module "react" {

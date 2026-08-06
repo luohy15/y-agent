@@ -212,9 +212,12 @@ only a UI part. One concept, one command, one version line.
 38. As a user, I want a module built against a newer host surface than the running
     API to refuse to load with a clear message, so that version skew surfaces as
     an explicit error rather than a confusing runtime failure.
-39. As a module author, I want the browser-side contract to stay exactly as it is
+39. ~~As a module author, I want the browser-side contract to stay exactly as it is
     today, so that migrating an existing artifact into a module changes its
-    address, not its code.
+    address, not its code.~~ Superseded (todo 3042): the contract held unchanged
+    through the finance, bot, calendar, todo, and module migrations, but chat
+    needed a third UI slot and host-owned render leaves, so `@y/host` went v4 → v5
+    and gained a `shell` surface. See *The `shell` surface and the renderer seam*.
 
 ### Cross-module boundaries
 
@@ -346,16 +349,22 @@ The security framing is inherited from the dynamic UI artifact system but must b
 stated *tightened* for backend code: because a loaded API half executes
 in-process under the shared API database/AWS role, the runtime boundary is
 authorship and integrity, **not** containment. In v1 that is an explicit
-trusted-principal rule, not just ownership scoping: **publish and backend
-dispatch are restricted to a single, explicitly configured trusted maintainer
-account** (resolved by its public `user_id`, never a synthetic "default" user
-created as a bootstrap row). The API is multi-user and invite-gated, so mere
-authentication is deliberately *not* the boundary — metadata ownership (one
-account cannot repoint another's module) does not prevent uploaded Python from
-querying every tenant's rows, reading secrets, or using the Lambda role, so any
-account other than the configured maintainer is refused both at publish and at
-module dispatch (403), and the check fails closed when no maintainer is
-configured. If multi-user backend modules are ever required, in-process
+trusted-principal rule, not just ownership scoping: **publish is restricted to a
+single, explicitly configured trusted maintainer account** (resolved by its
+public `user_id`, never a synthetic "default" user created as a bootstrap row).
+The API is multi-user and invite-gated, so mere authentication is deliberately
+*not* the boundary for authorship — metadata ownership (one account cannot
+repoint another's module) does not prevent uploaded Python from querying every
+tenant's rows, reading secrets, or using the Lambda role, so any account other
+than the configured maintainer is refused at publish (403), and the check fails
+closed when no maintainer is configured. **Who may invoke that maintainer-authored
+code is a separate, per-version question**, opened by todo 3042 and answered by
+`dispatch_scope` (see *Per-version exposure*): a version published as
+`authenticated` is dispatchable by any logged-in account, still resolved and
+loaded as the maintainer's, still with the caller's identity bound for data
+scoping. That widens the caller set, never the author set, which is why it does
+not reopen the containment argument; `maintainer` stays the default, so a module
+is exposed only by an explicit, immutable, per-version choice. If multi-user backend modules are ever required, in-process
 execution under one DB/AWS identity cannot provide that isolation; it needs a
 larger design (for example separate database roles per module). Remaining
 controls within the trusted principal are content hash verification before
@@ -410,7 +419,61 @@ it imports logic directly and never calls the API.
 `AuthMiddleware` runs before the catch-all, so `request.state.user_id` is
 populated exactly as it is today. **Modules cannot serve unauthenticated
 routes**: the public-route allowlist is host-owned, and publishing a module must
-never be able to widen the API's public surface.
+never be able to widen the API's public surface. *Which* authenticated users a
+module answers is a per-version property; see the next section.
+
+### Per-version exposure: dispatch scope, claimed surfaces, public UI
+
+Modules began as a single-user feature: every module row is owner-scoped, and the
+dispatcher answered only the maintainer account. That is right for a maintenance
+console like bot management and wrong for a domain every account uses. Todo 3042
+hit it head-on — 124 live users, 114 with at least one chat — where a
+maintainer-only chat module would have left 113 accounts with no Chats panel and a
+403 on the list route.
+
+The resolution is to make exposure **a property of a published version**, not a
+global switch. Three columns live on `module_version`, set from `module.json` at
+publish time and immutable afterwards, so a rollback restores the exposure the
+code was written for and a republish must re-state it:
+
+| Column | Values | Meaning |
+|---|---|---|
+| `dispatch_scope` | `maintainer` (default) / `authenticated` | Who may reach `/api/module/<slug>/*` and see the module in `GET /api/module/list`. |
+| `ui_surfaces` | comma list drawn from `panel` / `detail` / `shell` (default `panel`) | Which host slots this version **claims**. |
+| `ui_public` | boolean (default `false`) | Reserved for anonymous delivery of UI bytes. Inert today. |
+
+**`dispatch_scope` widens the caller, never the owner.** The dispatcher still
+resolves and loads the *maintainer's* active version — one owner, one code
+pointer, one loader cache keyed on the bundle hash — and then binds the
+**caller** as the request owner, so a module's data access stays scoped to
+whoever made the request. A non-maintainer's `GET /api/module/list` returns only
+enabled modules whose active version is `authenticated`, projected down to the
+fields the browser loader needs (`version_id`, `version_no`, `ui_sha256`,
+`min_host_version`, `ui_surfaces`, label, icon) — never storage keys, the API
+hash, or the source digest. Two alternatives were rejected: widening the gate
+globally, which would have exposed maintenance modules like bot management to
+every account, and keeping the host built-ins as a non-maintainer fallback, which
+means two implementations and no DRY win. The consequence worth stating: a
+module's maintainer-only guarantee is no longer a global property of the system,
+it is whatever its **active version** declared. Bot's stays true because every bot
+version publishes the `maintainer` default; a republish that adds
+`"dispatch": "authenticated"` to `module.json` widens that module and nothing else
+warns, and a rollback restores the scope the older version was published with.
+
+**`ui_surfaces` records what a version claims, not what it has.** Only `shell` is
+enforced from the column: the host picks the shell claimant from module metadata
+*before* fetching any bundle, because the slot has to be decided while the
+conversation is mounting. `panel` and `detail` are still introspected from the
+loaded bundle's exports, and the loader still requires a `panel`, so a version
+declaring `shell` alone still gets a sidebar entry. The column's name promises
+more than it delivers; treat it as a claim on host slots, not as a manifest of
+the bundle.
+
+**`ui_public` is published but unconsumed.** It exists so that the anonymous path
+is a version-level decision when it is built (Option B of
+`pages/decision-3042-public-dispatch-scope.md`: anonymous *UI bytes only*, never
+anonymous backend dispatch). Nothing reads it yet, public pages stay
+host-rendered, and *Unauthenticated module routes* remains out of scope.
 
 ### The host surface: a kernel, not a data layer
 
@@ -501,7 +564,20 @@ first genuine addition: a narrow bot-config store —
 generic host-table access), request-owner-scoped exactly like
 `run_vm_command()`. That addition bumped `BACKEND_CONTRACT_VERSION` from 1 to 2;
 the bot module declares `min_backend_version: 2` while finance continues to
-declare 1 because it never needed the new surface. **v1 has shipped and been
+declare 1 because it never needed the new surface.
+
+Todo 3042 added the second, in the same shape: `chat_list` / `chat_get` /
+`chat_create_share`, request-owner-bound and returning plain dictionaries rather
+than entities, sessions, or repositories. That bumped
+`BACKEND_CONTRACT_VERSION` from 2 to **3**, and the chat module declares
+`min_backend_version: 3`. `chat_mark_read` was deliberately left out: the host
+service behind it takes no `user_id`, so exposing it would have been an unscoped
+write, and its route has no caller in web or CLI. The pattern is now the
+established one for a control-plane module over host-owned runtime state — a
+short list of named, owner-bound functions, added as a version bump, never a
+generic table accessor.
+
+**v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module
 that needs it raises its `min_backend_version`; a host below a module's declared
@@ -676,13 +752,18 @@ module_version
   label
   icon
   min_host_version     browser contract floor
+  ui_surfaces          claimed host slots: comma list of panel/detail/shell
+  ui_public            reserved: anonymous UI-byte delivery (inert today)
   -- API part (nullable: a UI-only module has none)
   api_sha256
   api_storage_key
   min_backend_version  Python host surface floor
+  -- exposure (version-level, see Per-version exposure)
+  dispatch_scope       maintainer | authenticated
   source_digest
   built_at
   description
+  trace_id             todo/trace this version was published for
 ```
 
 Both parts are nullable, which is what makes "a UI artifact is a module with
@@ -851,59 +932,144 @@ avoiding the module-owns-its-tables rule; see decision
 `pages/decision-3028-bot-module-auth.md` for the accompanying authorization
 call (bot management is maintainer-only, matching every other backend module,
 because widening backend-module dispatch to non-maintainers was explicitly
-out of scope for this migration).
+out of scope for this migration; todo 3042 later opened it as a per-version
+property — see *Per-version exposure* — while bot itself stayed
+`dispatch: maintainer`).
 
-### Chat: the runtime kernel, not a module
+### The `shell` surface and the renderer seam
 
-Todo 3042 audited the chat domain (API, CLI, UI, data) against the finance and bot
-precedents and reached a different answer: **under the current module contract, chat
-does not become a module.** It is not a domain sitting on top of the kernel; it is the
-kernel that the module system, the worker, Telegram, and every agent session dispatch
-*through*. Where bot needed one
-narrow host-kernel-table exception, chat trips **four independent hard constraints at
-once**, each blocking a different half of the domain:
+Until todo 3042 the browser contract had two slots: a no-props `panel` in the
+~280px sidebar, required, and an optional `detail` that opens full-width as a
+tab. Chat's live conversation is neither. It is the persistent centre column, and
+a `detail` tab is unmounted when closed, which would tear down a live SSE
+session mid-turn.
 
-| Constraint (this PRD) | Chat evidence | Blocked half |
+**`shell` is the third slot**: an optional export, claimed through `ui_surfaces`,
+occupied by **at most one module at a time** (the lowest slug among enabled
+claimants, which is a tie-break rather than a feature). The host resolves the
+claimant from module metadata before fetching any bundle, and the slot has an
+explicit precedence order: logged-out renders the host branch and never waits on
+the module list; a logged-in user whose module list is still loading waits rather
+than mounting a fallback that would open a wasted SSE; an enabled claimant
+mounts; otherwise the host renders `ChatFallbackView`. Like the other surfaces it
+receives **no props**: what the shell module needs from the app arrives through
+the existing intent channel, and what it needs the app to do goes out through
+`runHostCommand` (the host registers nine for chat, e.g. `chat.open`, `chat.setTraceFilter`,
+`chat.openFile`, `chat.openArtifact`, `chat.openTrace`).
+
+**The renderer seam is below the bubble, not above the list.** A shell module that
+merely orchestrated a host-owned message list would leave the part that actually
+changes weekly — how a message looks — on the deploy clock, which is the whole
+problem this feature exists to solve. So the module owns the message list, the
+bubble and its chrome, the message parser, the export view, layout, markdown
+component overrides, citation and file-link presentation, and the artifact
+**fence dispatch** (deciding that a fence is mermaid / vega-lite / artifact-svg
+and in which mode). The host owns every leaf whose dependency is measured in
+megabytes and hands them to the module as component values on `@y/host`:
+`ArtifactView` / `ArtifactRenderer` (mermaid, vega, DOMPurify, highlight.js),
+`PatchDiff` (`@pierre/diffs/react`), `ImageLightbox`, and the PNG capture
+primitive. The rule of thumb: **the module owns everything that decides what a
+message looks like; the host owns every leaf measured in megabytes.**
+
+The numbers are why the seam sits there. Bundling the whole subtree into the
+module produces **20.8 MB** (shiki grammars ≈ 9.95 MB, the artifact subtree
+≈ 10.3 MB, because esbuild inlines `import()` when splitting is off). With the
+leaves external it is 479 KB, and with `react-markdown` + `remark-gfm` also
+external it is **102 KB** — the same order as bot (155 KB) and finance (238 KB).
+Chat's shipped v5 UI is ~170 KB against a stated 250 KB ceiling.
+
+`react-markdown` and `remark-gfm` becoming externals is the first growth of the
+externals list since contract v4 added `swr/infinite`, and it is free in the
+dimension that list was protecting: both are already eager in the host's main chunk and stay there,
+because the host's own renderer still uses them, so the main chunk gains 0 bytes.
+mermaid, vega, cytoscape, and katex remain **not** externals: they are already
+lazily split chunks reached from inside host code, and making them externals
+would move their cost from first-artifact-render to before-shell-mount. That is
+the content of the `@y/host` **v4 → v5** bump, together with the exported leaf set
+and a default parsing set the module may use as-is or replace.
+
+**Drift control is one degraded host renderer plus physically shared leaves.**
+The host keeps exactly one simple renderer, `HostMessageView` (markdown plus the
+leaves above, ceiling 300 lines), used by three call sites: the public trace
+projection `/t/:shareId`, the public chat share `/s/:shareId`, and
+`ChatFallbackView`. Everything carrying real rendering logic is one physical copy
+shared with the module, so only bubble chrome and layout *can* diverge — which is
+the deliberate "the fallback is plainer" property, not an accident. The line
+ceiling is the tripwire: growth past it means the host renderer is drifting back
+toward parity and the seam should be revisited rather than quietly re-implemented.
+
+The version-coupling consequence inverts, and that is the point: **message
+rendering is now a `y module publish`**, and only a change to an artifact, diff,
+or image leaf needs a host web deploy.
+
+### Chat: a control-plane module over the runtime kernel
+
+Chat is the **third full-stack module** (`$Y_AGENT_HOME/modules/chat`, active v5,
+v4 the immediate rollback target) and the first `shell` claimant. The split is
+the sharpest one in the system: the module owns **browsing and presentation**,
+the host owns the **runtime**.
+
+Todo 3042's first pass audited chat against the finance and bot precedents and
+recommended the opposite — that chat stay host kernel entirely, because it trips
+four hard constraints at once. Roy overrode that recommendation and scoped the
+migration deliberately: move the control plane, include the live conversation
+view, and make the message renderer hot-editable. The audit was not wrong about
+the constraints; one of them dissolved and the other three became the boundary
+rather than a blocker.
+
+| Original constraint | Disposition |
+|---|---|
+| Modules are owner-scoped; backend dispatch is maintainer-only | **Dissolved.** Dispatch exposure became a per-version, opt-in, immutable property (*Per-version exposure*); chat publishes `dispatch_scope: authenticated`, so all 114 chat-owning accounts keep a working app while bot management stays maintainer-only. |
+| Modules have no worker half | **Stands, and defines the boundary.** `worker/runner.py`, `monitor.py`, and `tasks.py` read and write `chat` on the dispatch hot path, so the `chat` table, entity, repository, and service stay host. |
+| Modules cannot serve unauthenticated routes | **Stands.** The Telegram webhook, public `GET /api/chat/share`, and the public trace projection stay host-served and host-rendered through `HostMessageView`. `ui_public` reserves an anonymous UI-bytes path that is deliberately not built. |
+| Host code must not read module-owned tables | **Stands, and is why the table stays host.** Routine dispatch, the trace / todo / inline controllers, the bot rename cascade, and english-correction all read `chat`. The module never touches the table; it reaches host chat state through backend contract v3. |
+
+The resulting ownership:
+
+| Code | Owner | Why |
 |---|---|---|
-| Modules are owner-scoped; backend dispatch is maintainer-only and fails closed | `module_service.list_modules(user_id)` / `get_version(user_id, …)` scope every module row to one account, and `api/module_runtime/dispatcher.py:114-125` 403s any non-maintainer. A non-maintainer sees no modules at all, UI included | Every chat API + the chat UI panel |
-| Modules have no worker half (see *Background jobs*) | `worker/runner.py` (~20 chat service/repo call sites), `worker/monitor.py` (writes every streamed chunk into the chat row, plus unread/orphan reconciliation), `worker/tasks.py` all read/write `chat` directly | `chat` table, entity, repo, service |
-| Modules cannot serve unauthenticated routes (host-owned allowlist) | `api/middleware/auth.py:11,26-30`: `/api/telegram/webhook` is public and `api/controller/telegram.py` creates chats, appends messages, and calls `send_chat_message`; `GET /api/chat/share` is public | Telegram routing, chat share read |
-| Host code must not read module-owned tables | Non-worker host readers of `chat`: `storage/service/routine.py` (routine dispatch), `storage/repository/todo.py` (per-trace activity ordering), `api/controller/trace.py`, `api/controller/todo.py`, `api/controller/inline.py`, `storage/service/bot_config.py` rename cascade to `chat.bot_name`, `storage/service/english_correction.py` | `chat` table stays host |
+| `GET /api/module/chat/list`, `GET /api/module/chat/content`, `POST /api/module/chat/share` | **Module** | Browsing and share creation: the surface whose filters and columns change independently of the runtime. |
+| Chats `panel`, full-width `detail` browser, and the `shell` (the live conversation: message list, bubble, parser, export view, layout, fence dispatch) | **Module** | The whole point of the migration: presentation changes ship with `y module publish`. |
+| `y chat list` / `get` / `search` / `share` | **Module** (`modules/chat/cli.py`) | Browse commands, delegated by the built-in group. |
+| `chat` table, entity, repository, service; the worker; Telegram routing | **Host (runtime kernel)** | Read and written outside the API process; modules have no worker half. |
+| `POST /api/chat`, `/message`, `/attach-image`, `/stop`, `/messages`, `/messages/snapshot`, `/detail`, `/notify`, public `GET /share`, `GET /bot-options` | **Host** | The conversational path. Keeping it host is what makes every module failure mode degrade to "plainer UI" rather than "cannot talk to the agent". |
+| The four `/api/chat/trace/read*` routes | **Host** | The published `todo` module calls them. Moving them would create a lock-step dependency between two independently versioned bundles, and they are trace read-state, not chat browsing. |
+| `ArtifactView`, `PatchDiff`, `ImageLightbox`, PNG capture, `HostMessageView` | **Host** | The megabyte leaves and the one degraded renderer; see *The `shell` surface and the renderer seam*. |
+| `chat_list` / `chat_get` / `chat_create_share` | **Host surface, module-invoked** | Backend contract v3, request-owner-bound, plain dictionaries. Same shape as bot's `bot_config_*`. |
 
-Two further findings are chat-specific, with no bot analogue:
+**`y chat` is a hybrid group, not a module group.** It is the dispatch primitive
+every agent session uses, imported eagerly at the CLI root, and a module CLI runs
+from hand-edited local source with no rollback primitive — so module-izing it
+whole would mean a bad edit could take out the mechanism used to fix it. The
+built-in group therefore keeps the dispatch primitive itself (`-m` / `-i`) plus
+`stop`, `attach`, and the import commands, and falls through to
+`modules/chat/cli.py` only for the browse subcommands. Under every failure mode
+— bad publish, broken local `cli.py`, `y module disable chat` — `y chat list`
+fails and `y chat -m` keeps working.
 
-- **The web chat surface is the app shell, not a panel.** The module UI contract is a
-  no-props `panel` (+ optional `detail`). `ChatView` is the persistent centre column and
-  `ChatList` takes 14 props wired to shell state (selection, trace/routine filters, tab
-  opening). `PublicTraceApp` (`/t/:shareId`) renders both **logged-out**, while
-  `ShareView` (`/s/:shareId`) reuses the same `MessageList` / `MessageBubble` renderer;
-  the bundle loader is `authFetch`-based. Moving them would mean either breaking public
-  shares or keeping a second bundled copy of the highest-traffic renderer in the app.
-- **Circular availability.** `y chat` is the dispatch primitive every agent session
-  uses, imported eagerly at the CLI root (`cli/src/yagent/command_option.py:8`). A
-  module CLI resolves lazily from local `$Y_AGENT_HOME/modules/<slug>/cli.py`; a bad
-  publish, a disabled module, or missing local source would take out cross-session
-  dispatch, i.e. the mechanism used to fix it.
+**The rollback ladder has no step at which a conversation is unreachable.** A
+render or load failure shows the mount's failure card with its inline rollback
+button; `y module rollback chat` returns to v4; rolling back below the first
+shell-claiming version, disabling the module, an unreachable bundle, or an
+integrity failure releases the shell slot and the host renders `ChatFallbackView`
+(read-only SSE tail plus a plain send box) — read and send still work, because
+every conversational route stayed host. `y chat -m` and Telegram are unaffected
+in all cases.
 
-`GET /api/chat/bot-options` already survived the bot cut for a related reason (routing
-selection, all authenticated users) and is unaffected here.
+**The precedent.** Bot established that a domain may become a control-plane module
+over host-owned runtime state through a narrow versioned capability. Chat extends
+it in two directions — a domain every account uses (per-version dispatch scope)
+and a domain that owns the app's centre column (the `shell` surface and the
+renderer seam) — while keeping the same rule underneath: the module owns what
+changes weekly, the host owns what must not be publishable. What is still not
+addressed, and would each need its own design decision: worker-side module
+loading, unauthenticated module routes, moving the `chat` table, and Telegram /
+`tg_topic` migration.
 
-One slice is genuinely arguable and was surfaced as a Roy decision rather than folded
-into implementation, exactly as the bot auth question was: a **chat *browsing*
-control-plane module** (`list`/`search`/`read`/`trace-read`, `POST /share`, and a Chats
-panel) over host-owned chat state, mirroring the bot hybrid. Recommended against —
-it narrows chat browsing to the maintainer, fails on `ChatList`'s logged-out reuse, and
-puts the primary dispatch-monitoring surface behind a hot-loaded bundle — but recorded
-as available future work, gated on its own decision and review, in
-`pages/decision-3042-chat-module-scope.md`.
-
-Any future attempt at a fuller move needs, first, each as its own module-system design
-decision: a multi-user backend-module authorization model (option 2 of
-`pages/decision-3028-bot-module-auth.md`, still unopened) plus non-owner-scoped module
-rows; unauthenticated module routes, or a host-owned public projection for share/webhook
-paths; worker-side module loading, or a host-owned chat runtime the module never
-touches; and a UI host contract able to express a shell-owned, prop-driven surface with
-a logged-out render path. `pages/plan-3042-chat-module.md` is the full audit.
+`pages/plan-3042-chat-module.md` is the superseded first audit;
+`pages/plan-3042-control-plane.md`, `pages/plan-3042-chatview.md`, and
+`pages/plan-3042-renderer.md` are the plan of record, and
+`pages/decision-3042-chat-module-scope.md` records the scope call.
 
 ## Testing Decisions
 
@@ -990,16 +1156,23 @@ hook, both of which cost more than the single-user failure mode justifies.
   model must be revisited.
 - **Sharing modules between users, or a module marketplace.**
 - **Unauthenticated module routes.** The public-route allowlist stays host-owned.
+  `module_version.ui_public` reserves an anonymous *UI-bytes* path for a later
+  decision; nothing consumes it, and anonymous backend dispatch is not on the
+  table (`pages/decision-3042-public-dispatch-scope.md`).
 - **Automatic rollback on failure.** Failure surfaces an explicit error; it does
   not silently change what is live.
 - **Migrating domains other than finance.** Existing UI-only artifacts are
   renamed into modules but keep only a UI part; giving them backends is separate
-  work. (As of todo 3028, bot is that separate work done: see *Bot as the second
-  full-stack module* above. Other UI-only artifacts remain UI-only until their
-  own migration.)
+  work. (As of todo 3028, bot is that separate work done, and as of todo 3042 so
+  is chat: see *Bot as the second full-stack module* and *Chat: a control-plane
+  module over the runtime kernel* above. Other UI-only artifacts remain UI-only
+  until their own migration.)
 - **Changing the browser runtime contract.** The loader, hash verification, error
   boundaries, externals set, and `@y/host` surface carry over untouched and remain
-  owned by the dynamic UI artifacts PRD.
+  owned by the dynamic UI artifacts PRD. (Held through five migrations; **partly
+  superseded by todo 3042**, which added the `shell` surface, two externals, and
+  the host render leaves as `@y/host` v5. The loader, hash verification, and error
+  boundaries are still untouched, and ownership still sits with that PRD.)
 - **A compatibility shim for `/api/finance/*` or `y ui`.** Hard cut.
 
 ## Delivery Records
@@ -1008,6 +1181,6 @@ hook, both of which cost more than the single-user failure mode justifies.
 |------|---------|--------|------|-----------|--------|--------|
 | 3020 | Hot-loadable module system live; finance is the reference full-stack module (v20 active, v19 full-stack rollback twin). In-process loading, canonical `$Y_AGENT_HOME/modules` source, atomic API+UI versioning, `y ui` folded into `y module`, module-owned data + hand-applied migrations + publish preflight, trusted-maintainer backend gate, lazy CLI, `routine vm_command`. Built-in finance controller/CLI/storage deleted; routes at `/api/module/finance/*`. Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge timeout (server work completes). Legacy `vm_config.finance_config` intentionally retained for a later contract. PRD: `code/y-agent/docs/prd/module-system.md`. Rollout: `pages/rollout-3020-finance-module-cutover.md` (executed on main `f50f14e`). | - | `pages/plan-3020-module-system.md` | `pages/decision-3020-module-system-boundaries.md`, `pages/decision-3020-module-system-vm-command-timeout.md` | `pages/review-3020-module-system-phase-1.md`, `pages/review-3020-module-system-phase-2.md`, `pages/review-3020-module-system-phase-3.md`, `pages/review-3020-module-owned-data-phase-4.md`, `pages/review-3020-module-system-phase-5.md`, `pages/review-3020-module-system-phase-6.md`, `pages/review-3020-module-system-phase-7.md`, `pages/review-3020-module-system-phase-7-rereview.md`, `pages/review-3020-module-system-phase-7-final.md`, `pages/review-3020-module-system-phase-8.md`, `pages/review-3020-p0-maintainer-config.md` | shipped |
 | 3028 | Bot domain consolidated into the module system as the second full-stack module (v12 active, v11 full-stack rollback twin; v10 and earlier unsafe post-cutover because their UI calls the deleted built-in routes). Hybrid boundary rather than a finance-style full move: the module owns bot **management** (`/api/module/bot/*`, `y bot` CLI, Bots UI panel, pricing display, maintainer-only), while `bot_config` and `bot_route_state` stay **host kernel tables** because the worker reads them on the dispatch hot path and modules have no worker half. Module reaches them only via the new **backend contract v2** `bot_config_*` capability on `agent/module_host.py` (bot declares `min_backend_version: 2`; finance still 1). Built-in bot controller, CLI group, and `storage/service/bot_pricing.py` deleted. `GET /api/chat/bot-options` added and intentionally retained on the host: read-only `name`/`backend`/`model`, all authenticated users, because picking a bot in chat is routing selection, not management. Shipped in two host deploys (A `d1ba83e` additive contract v2, B `7266337` the cut) plus docs `99fbab1`; module source in the home repo at `ba62f8e` / `5dbfa82`. Rollback drill executed: v12 -> v11 -> v12. No DB migration. | - | `pages/plan-3028.md` | `pages/decision-3028-bot-module-auth.md` | `pages/review-3028-subtask2.md`, `pages/review-3028-module-source.md`, `pages/review-3028-cut.md` | shipped |
-| 3042 | No migration, boundary recorded: chat audited against the finance/bot precedents and found to trip four independent hard constraints at once (owner-scoped/maintainer-only module dispatch, no worker half, no unauthenticated module routes, host code reading `chat`), plus a shell-coupled/logged-out-reused UI and a `y chat` dispatch circularity. Chat stays a host kernel domain; no `modules/chat/` is created. A chat-browsing control-plane module (Track B, bot-style hybrid) was surfaced as a Roy decision and recommended against; not dispatched. Documented in this PRD, cross-referenced from `docs/prd/chat-core.md` and `docs/prd/chat-steer.md`, and in `AGENTS.md`. | - | `pages/plan-3042-chat-module.md` | `pages/decision-3042-chat-module-scope.md` (status: proposed, pending Roy confirmation) | `pages/review-3042-chat-module-track-a.md` | boundary recorded (Track B not started) |
+| 3042 | Chat consolidated into the module system as the **third full-stack module** and the first `shell` claimant (`modules/chat` v5 active, v4 the immediate rollback target). The first audit's "chat stays host kernel" boundary was overridden by Roy and is superseded. Three module-system additions shipped with it: per-version **`dispatch_scope`** (`maintainer` default / `authenticated`, immutable, rolls back with the code) so a module can serve every logged-in account; the **`shell` UI surface** (third slot, one claimant, `ui_surfaces` claim column, host precedence logged-out → loading → module → `ChatFallbackView`) with **`@y/host` v5** (host render leaves `ArtifactView` / `PatchDiff` / `ImageLightbox` / PNG capture exported, `react-markdown` + `remark-gfm` added as externals for 0 main-chunk bytes); and **backend contract v3** (`chat_list` / `chat_get` / `chat_create_share`, request-owner-bound). `module_version.ui_public` shipped as a published-but-inert reservation for anonymous UI bytes (Option B). The module owns browsing, the `panel` / `detail` / `shell` surfaces, the whole message renderer (list, bubble, parser, export view, fence dispatch), `/api/module/chat/{list,content,share}`, and the `y chat list/get/search/share` browse commands; the host keeps the `chat` table/worker/Telegram, every conversational route, the `y chat` dispatch primitive (hybrid group), the megabyte render leaves, and one degraded renderer `HostMessageView` (185 lines against a 300 ceiling) behind `/t/:shareId`, `/s/:shareId`, and `ChatFallbackView`. Host `ChatView` / `MessageList` / `MessageBubble` / `chatMessageParser` / `MessageExportView` and the built-in Chats panel + three browse routes are deleted. Three hand-applied additive migrations, all applied to prod: `migration/3042_module_dispatch_scope.sql` (38 rows backfilled to `maintainer`), `migration/3042_module_ui_surfaces.sql`, `migration/3042_module_ui_public.sql`. Shipped across host deploys `d524468` (P0+P1) → `4dfc72a` (P2) → `d1ae931` / `48e11e2` / `bbe118a` / `2a12f4e` / `7203c33` (V1–V4) → `a91c289` / `b502b5f` → `9625478` (the cut); module source at `7f4e6e5` / `39d2822` / `380ced5` / `73eaef2`. Known follow-ups (not queued): the S3 dispatcher resolves each request twice, and `ArtifactMount`'s inline rollback button 404s for non-maintainers. | - | `pages/plan-3042-control-plane.md`, `pages/plan-3042-chatview.md`, `pages/plan-3042-renderer.md` (`pages/plan-3042-chat-module.md` superseded) | `pages/decision-3042-chat-module-scope.md`, `pages/decision-3042-public-dispatch-scope.md`, `pages/decision-3042-chat-shell-host-seam.md` | `pages/review-3042-chat-module-track-a.md`, `pages/review-3042-control-plane-p0-p1.md`, `pages/review-3042-control-plane-p2.md`, `pages/review-3042-chat-module-p3.md`, `pages/review-3042-chat-snapshot-v3.md`, `pages/review-3042-shell-v1-pb1.md`, `pages/review-3042-host-contract-v5.md`, `pages/review-3042-chat-fallback-v4.md`, `pages/review-3042-chat-module-v2-renderer.md`, `pages/review-3042-host-seam-v5a.md`, `pages/review-3042-chat-cli-p4.md`, `pages/review-3042-chat-cut-v6.md` | shipped; runtime verification pending |
 | 3048 | Module management GUI shipped as `module`, a **UI-only** module (v1 active, `ui=7728f7ea…`), not built-in web code: `panel` lists every deployed module (including disabled and never-published rows, so it requests `/api/module/list` without `enabled_only`) and `detail` renders read-only newest-first version history. Reads the host's existing `GET /api/module/list` and `GET /api/module/versions` from the browser through `@y/host` (`API` / `jsonFetcher`), so there is no API half, no `module_host` capability, no new endpoint, and no `web/src` change; slug `module` is safe because the reserved management routes resolve before `/api/module/<slug>/*` dispatch. `dispatch: maintainer` (matches `/versions` owner scoping), `min_backend_version: null`, `surfaces: panel,detail`. Selection crosses panel→detail via module-local namespaced localStorage plus a same-document event, then `openArtifactDetail("module")`. Self-listing is ordinary metadata, not recursive loading. Read-only by design: publish/activate/rollback/enable/disable/delete stay in `y module`. **First-publish caveat:** `y module rollback module` is a no-op at v1 (no version below the active one); recovery until v2 is `y module disable module` / `y module delete module` plus the host `ArtifactMount` failure card. Module source in the home repo at `5c79acc`. No y-agent deploy, no DB migration. Open follow-up (Roy's call): the modules workspace has no JS test toolchain, so the plan's component-test verify steps for M2-M4 were unrunnable and one rendering bug (F1) reached review. | - | `pages/plan-3048-module-management-gui.md` | - | `pages/review-3048-module-management-gui.md` | shipped |
 | 3051 | Module versions now store their todo/trace structurally in nullable `module_version.trace_id`; publish sends `Y_TRACE_ID` separately and keeps descriptions plain, while `y module versions` preserves the familiar `[trace]` audit display from the new column. The hand-applied additive migration backfilled and stripped 20 historical numeric prefixes with 0 bracket-prefixed descriptions remaining. The UI-only `module` module v2 (`ui=55a19a63e511…`) adds a clickable trace badge to version history through the existing contract-v4 `todo.openTrace` host command, with no host-contract or `web/src` change. Host shipped on main `a702517`; module source commit `3036fc3`. | - | `pages/plan-3051-module-version-trace.md` | - | `pages/review-3051-module-version-trace.md`, `pages/review-3051-module-ui-trace.md` | shipped; UI verification pending |

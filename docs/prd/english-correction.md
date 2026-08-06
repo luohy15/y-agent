@@ -199,8 +199,9 @@ this delivery.
   counts, dismissed flag) is designed to support building this later without
   migration, but generation/delivery (web section vs. scheduled Telegram
   quiz, etc.) is a separate future feature.
-- **Inline chat-bubble annotations** — corrections are not surfaced inside
-  `ChatView`/`MessageBubble`; the standalone panel is the only surface. Live,
+- **Inline chat-bubble annotations** — corrections are not surfaced inside the
+  live conversation view or its message bubbles (the `chat` module's `shell`
+  surface since todo 3042); the standalone panel is the only surface. Live,
   in-conversation nudging is explicitly not this feature's job.
 - **Real-time/synchronous correction** — no per-message latency added to the
   live chat pipeline; hourly batch only.
