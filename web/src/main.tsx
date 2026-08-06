@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router";
 import { SWRConfig } from "swr";
 import App from "./App";
 import Landing from "./components/Landing";
@@ -12,6 +12,7 @@ import { useAuth } from "./hooks/useAuth";
 import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
 import { localStorageProvider } from "./utils/swrPersistedCache";
+import { applyPrefs, loadPrefs } from "./utils/theme";
 import { API } from "./api";
 import "./host/registry";
 
@@ -27,10 +28,22 @@ function RootGate() {
   return isLoggedIn ? <App /> : <Landing />;
 }
 
+// Re-resolve the document theme on client-side navigations. applyPrefs forces
+// solarized-dark on public share routes and otherwise restores loaded prefs, so
+// entering/leaving /t|/s|/share|/n never leaves a stale data-theme behind.
+function ThemeRouteSync() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    applyPrefs(loadPrefs());
+  }, [pathname]);
+  return null;
+}
+
 updateFavicon();
 createRoot(document.getElementById("root")!).render(
   <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
     <BrowserRouter>
+      <ThemeRouteSync />
       <Routes>
         <Route path="/" element={<RootGate />} />
         <Route path="/docs" element={<DocsView />} />

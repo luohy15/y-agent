@@ -97,7 +97,20 @@ export function resolveTheme(prefs: ThemePrefs, osPrefersDark: boolean): Theme {
   return effective === "dark" ? prefs.darkVariant : prefs.lightVariant;
 }
 
+// Public share surfaces (/t, /s, /share, /n) always render Solarized Dark so chrome
+// and hardcoded solarized-dark leaves (e.g. HostMessageView diffs) agree. Keep the
+// predicate in lockstep with the no-flash bootstrap in web/index.html.
+export const PUBLIC_SHARE_THEME: Theme = "solarized-dark";
+
+export function isPublicSharePath(pathname: string): boolean {
+  return /^\/(?:t|s|share|n)\/[^/]+/.test(pathname);
+}
+
 export function applyPrefs(prefs: ThemePrefs): void {
+  if (isPublicSharePath(window.location.pathname)) {
+    applyTheme(PUBLIC_SHARE_THEME);
+    return;
+  }
   applyTheme(resolveTheme(prefs, prefersDark()));
 }
 
