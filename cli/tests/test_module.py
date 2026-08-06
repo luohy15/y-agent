@@ -6,6 +6,7 @@ API and the node build are mocked; SDK package data and scaffolding are real.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -68,17 +69,38 @@ class SdkPackageDataTest(unittest.TestCase):
         self.assertTrue((root / "shims" / "y-host.cjs").is_file())
         self.assertTrue((root / "templates" / "starter.tsx").is_file())
         contract = load_contract()
-        self.assertEqual(contract["version"], 4)
+        self.assertEqual(contract["version"], 5)
         self.assertIn("react", contract["externals"])
         self.assertIn("@y/host", contract["externals"])
         self.assertIn("lightweight-charts", contract["externals"])
         self.assertIn("swr/infinite", contract["externals"])
+        self.assertIn("react-markdown", contract["externals"])
+        self.assertIn("remark-gfm", contract["externals"])
         # F1/F2 markers must stay in the build recipe.
         build = (root / "build.mjs").read_text(encoding="utf-8")
         self.assertIn("theme(reference)", build)
         self.assertIn("source(none)", build)
         self.assertIn("@scope", build)
         self.assertIn("hoistAtProperty", build)
+
+    def test_build_mjs_alias_keys_equal_contract_externals(self):
+        """The esbuild `alias` map in build.mjs must cover exactly the same
+        specifiers as contract.json's externals list (minus none, plus none).
+        A specifier added to one and not the other either leaves a bare
+        import in the bundle (missing alias) or an unused shim (missing
+        external) — this is the drift guard V2 asked for.
+        """
+        root = package_sdk_root()
+        contract = load_contract()
+        build = (root / "build.mjs").read_text(encoding="utf-8")
+
+        alias_block_start = build.index("alias: {")
+        alias_block_end = build.index("},", alias_block_start)
+        alias_block = build[alias_block_start:alias_block_end]
+        alias_keys = set(re.findall(r'(?:"([^"]+)"|([\w$]+)):\s*shim\(', alias_block))
+        alias_keys = {a or b for a, b in alias_keys}
+
+        self.assertEqual(alias_keys, set(contract["externals"]))
 
     def test_y_host_dts_mirrors_runtime_host_sdk_exports(self):
         """d.ts must match web/src/host/sdk.ts hostSdk keys (S5 runtime names win).
@@ -114,6 +136,28 @@ class SdkPackageDataTest(unittest.TestCase):
             "openArtifactDetail",
             "runHostCommand",
             "optimisticListMutate",
+            "ArtifactView",
+            "PatchDiff",
+            "ImageLightbox",
+            "remarkStripComments",
+            "parseLocalFileReference",
+            "normalizeLinks",
+            "citationDomain",
+            "citationHostname",
+            "exportElementToPng",
+            "deliverPng",
+            "buildExportFilename",
+            "pickImageDelivery",
+            "parseRawChatMessage",
+            "parseChatMessages",
+            "mergeToolResult",
+            "mergeToolArguments",
+            "filterTrailingEmptyAssistantMessages",
+            "extractContent",
+            "toggleSelection",
+            "selectMessagesByIndices",
+            "getToken",
+            "stripTracePrefix",
         ]
         for name in required:
             self.assertIn(name, block, f"missing runtime export {name!r} in y-host.d.ts")

@@ -17,8 +17,8 @@ describe("host runtime registry", () => {
     expect(EXTERNALS.every((specifier) => specifier in registry.modules)).toBe(true);
   });
 
-  it("bumps the host contract version to 4 for the host-command channel + swr/infinite", () => {
-    expect(HOST_CONTRACT_VERSION).toBe(4);
+  it("bumps the host contract version to 5 for the R2 renderer leaves + react-markdown/remark-gfm externals", () => {
+    expect(HOST_CONTRACT_VERSION).toBe(5);
   });
 
   it("registers the swr/infinite subpath external", () => {

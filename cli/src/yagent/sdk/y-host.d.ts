@@ -143,6 +143,27 @@ declare module "recharts" {
   export const Label: any;
 }
 
+// Contract v5 external (R3): already eager in the host main chunk today, so
+// a module reusing it costs the main chunk 0 bytes.
+declare module "react-markdown" {
+  export function defaultUrlTransform(value: string): string;
+  const ReactMarkdown: (props: {
+    children?: string;
+    remarkPlugins?: unknown[];
+    rehypePlugins?: unknown[];
+    urlTransform?: (value: string) => string;
+    components?: Record<string, unknown>;
+    [key: string]: unknown;
+  }) => any;
+  export default ReactMarkdown;
+}
+
+// Contract v5 external (R3). See react-markdown above for the rationale.
+declare module "remark-gfm" {
+  const remarkGfm: (options?: unknown) => undefined;
+  export default remarkGfm;
+}
+
 declare module "lightweight-charts" {
   export const AreaSeries: any;
   export enum ColorType {
@@ -196,6 +217,8 @@ declare module "@y/host" {
   export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   /** JSON-decoding fetcher for useSWR. */
   export function jsonFetcher<T = any>(url: string): Promise<T>;
+  /** Raw session token, e.g. to build an EventSource URL or check logged-in state. */
+  export function getToken(): string | null;
 
   // ListStates.tsx — prop shapes mirror web/src/components/ListStates.tsx.
   // `className` replaces the default "p-2" padding on all three.
@@ -233,6 +256,8 @@ declare module "@y/host" {
   export function actionBadgeClass(action: string): string;
   export function getTopicColor(topic: string): { bg: string; text: string };
   export function getTopicChartColors(topic: string): { fill: string; stroke: string };
+  /** Strip a leading `[trace:<id> ...]` prefix from message content. */
+  export function stripTracePrefix(content: string): string;
 
   // navigation.ts — push history + popstate (artifacts cannot import react-router)
   export function navigateTo(path: string): void;
@@ -266,4 +291,88 @@ declare module "@y/host" {
     patch: Partial<T>,
     request: () => Promise<unknown>,
   ): Promise<void>;
+
+  // ArtifactView.tsx / @pierre/diffs / ImageLightbox.tsx (contract v5, R2) —
+  // host-owned megabyte leaves (mermaid, vega-lite, DOMPurify, highlight.js,
+  // @pierre/diffs, react-zoom-pan-pinch). The module owns fence dispatch —
+  // deciding a fence's `ArtifactType` and `ArtifactMode` — but renders through
+  // these leaves rather than bundling the underlying libraries itself.
+  export type ArtifactType = "mermaid" | "vega-lite" | "artifact-svg";
+  export type ArtifactMode = "preview" | "raw";
+  export function ArtifactView(props: {
+    type: ArtifactType;
+    spec: string;
+    mode: ArtifactMode;
+    onModeChange: (mode: ArtifactMode) => void;
+    onOpenInTab?: () => void;
+    variant: "inline" | "tab";
+  }): any;
+  export function PatchDiff(props: { patch: string; options?: Record<string, unknown> }): any;
+  export function ImageLightbox(props: {
+    images: string[];
+    index: number;
+    onClose: () => void;
+    onNext: () => void;
+    onPrev: () => void;
+  }): any;
+
+  // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
+  // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
+  // with HostMessageView.
+  /** Remark plugin: drop standalone/inline HTML-comment mdast nodes. */
+  export function remarkStripComments(): (tree: unknown) => void;
+  export interface LocalFileReference {
+    path: string;
+    line?: number;
+    column?: number;
+  }
+  export function parseLocalFileReference(
+    href?: string | null,
+    options?: { allowRelative?: boolean },
+  ): LocalFileReference | null;
+  export type NormalizedCitationLink = {
+    url: string;
+    title?: string;
+    snippet?: string;
+    last_updated?: string;
+  };
+  export function normalizeLinks(links?: unknown[]): NormalizedCitationLink[];
+  export function citationDomain(url: string): string;
+  export function citationHostname(url: string): string;
+
+  // exportImage.ts / messageExport.ts (contract v5, R2 + V2b) — PNG capture
+  // primitive and its pure helpers; the caller supplies the React element to
+  // render offscreen, so a module-rendered conversation exports module bubbles.
+  export function exportElementToPng(
+    element: unknown,
+    opts?: { scale?: number; backgroundColor?: string },
+  ): Promise<{ blob: Blob; dataUrl: string }>;
+  export function deliverPng(blob: Blob, dataUrl: string, filename?: string): Promise<void>;
+  export function buildExportFilename(date?: Date): string;
+  export function pickImageDelivery(signals: { canShareFiles: boolean; isTouch: boolean }): "share" | "download";
+
+  // chatMessageParser.ts / MessageList.tsx (contract v5, R2) — default
+  // parsing set the module may use as-is or replace with its own.
+  export interface ChatMessage {
+    role: string;
+    content: string;
+    toolName?: string;
+    arguments?: Record<string, unknown>;
+    toolCallId?: string;
+    timestamp?: string;
+    images?: string[];
+    links?: NormalizedCitationLink[] | string[];
+  }
+  export function parseRawChatMessage(evt: unknown): ChatMessage[];
+  /** Batch wrapper over parseRawChatMessage + mergeToolResult + the trailing-empty filter. */
+  export function parseChatMessages(rawMessages: unknown[]): ChatMessage[];
+  export function mergeToolResult(pending: ChatMessage, result: ChatMessage): ChatMessage;
+  export function mergeToolArguments(
+    startArgs?: Record<string, unknown>,
+    resultArgs?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined;
+  export function filterTrailingEmptyAssistantMessages(messages: ChatMessage[]): ChatMessage[];
+  export function extractContent(content?: string | Array<{ type: string; text?: string }>): string;
+  export function toggleSelection(selected: Set<number>, index: number): Set<number>;
+  export function selectMessagesByIndices(messages: ChatMessage[], selectedIndices: Iterable<number>): ChatMessage[];
 }

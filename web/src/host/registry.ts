@@ -18,6 +18,8 @@ import * as SWR from "swr";
 import * as SWRInfinite from "swr/infinite";
 import * as Recharts from "recharts";
 import * as LightweightCharts from "lightweight-charts";
+import * as ReactMarkdown from "react-markdown";
+import * as RemarkGfm from "remark-gfm";
 import { EXTERNALS, HOST_CONTRACT_VERSION } from "./contract";
 import { hostSdk } from "./sdk";
 
@@ -53,6 +55,8 @@ const modules: Record<string, unknown> = {
   "swr/infinite": asModule(SWRInfinite as unknown as Record<string, unknown>),
   recharts: asModule(Recharts as unknown as Record<string, unknown>),
   "lightweight-charts": asModule(LightweightCharts as unknown as Record<string, unknown>),
+  "react-markdown": asModule(ReactMarkdown as unknown as Record<string, unknown>),
+  "remark-gfm": asModule(RemarkGfm as unknown as Record<string, unknown>),
   "@y/host": { ...hostSdk, __esModule: true, default: hostSdk },
 };
 

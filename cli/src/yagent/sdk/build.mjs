@@ -78,6 +78,8 @@ try {
       "swr/infinite": shim("swr-infinite.cjs"),
       recharts: shim("recharts.cjs"),
       "lightweight-charts": shim("lightweight-charts.cjs"),
+      "react-markdown": shim("react-markdown.cjs"),
+      "remark-gfm": shim("remark-gfm.cjs"),
       "@y/host": shim("y-host.cjs"),
     },
   });

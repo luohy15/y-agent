@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "externals": [
     "react",
     "react-dom",
@@ -9,6 +9,8 @@
     "swr/infinite",
     "recharts",
     "lightweight-charts",
+    "react-markdown",
+    "remark-gfm",
     "@y/host"
   ]
 }

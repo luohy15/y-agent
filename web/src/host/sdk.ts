@@ -3,7 +3,7 @@
 // the runtime registry by registry.ts; an artifact imports it as a normal
 // bare specifier (`import { API, jsonFetcher } from "@y/host"`), which
 // `y ui publish`'s esbuild `alias` resolves to `web/sdk/shims/y-host.cjs`.
-import { API, authFetch, jsonFetcher } from "../api";
+import { API, authFetch, getToken, jsonFetcher } from "../api";
 import {
   actionBadgeClass,
   CHAT_BADGE,
@@ -11,6 +11,7 @@ import {
   getTopicColor,
   priorityColorClass,
   statusBadgeClass,
+  stripTracePrefix,
   topicBadgeClass,
   TRACE_BADGE,
 } from "../components/badges";
@@ -21,6 +22,23 @@ import { openArtifactDetail, useArtifactIntent } from "./intents";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
 import { optimisticListMutate } from "../utils/optimisticMutate";
+import { PatchDiff } from "@pierre/diffs/react";
+import ArtifactView from "../components/ArtifactView";
+import ImageLightbox from "../components/ImageLightbox";
+import remarkStripComments from "../utils/remarkStripComments";
+import { parseLocalFileReference } from "../utils/localFileLinks";
+import { citationDomain, citationHostname } from "../components/citationDomain";
+import { normalizeLinks } from "../components/citationLinks";
+import { buildExportFilename, pickImageDelivery, toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
+import { deliverPng, exportElementToPng } from "../utils/exportImage";
+import {
+  filterTrailingEmptyAssistantMessages,
+  mergeToolArguments,
+  mergeToolResult,
+  parseChatMessages,
+  parseRawChatMessage,
+} from "../components/chatMessageParser";
+import { extractContent } from "../components/MessageList";
 
 export const hostSdk = {
   HOST_CONTRACT_VERSION,
@@ -29,6 +47,7 @@ export const hostSdk = {
   API,
   authFetch,
   jsonFetcher,
+  getToken,
 
   // ListStates.tsx
   ListLoading,
@@ -48,6 +67,7 @@ export const hostSdk = {
   actionBadgeClass,
   getTopicColor,
   getTopicChartColors,
+  stripTracePrefix,
 
   // navigation.ts
   navigateTo,
@@ -61,6 +81,40 @@ export const hostSdk = {
 
   // optimisticMutate.ts (contract v4) — shared list optimistic patcher
   optimisticListMutate,
+
+  // ArtifactView.tsx / @pierre/diffs / ImageLightbox.tsx (contract v5, R2) —
+  // host-owned megabyte leaves reached through @y/host instead of bundled.
+  ArtifactView,
+  PatchDiff,
+  ImageLightbox,
+
+  // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
+  // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
+  // with HostMessageView.
+  remarkStripComments,
+  parseLocalFileReference,
+  normalizeLinks,
+  citationDomain,
+  citationHostname,
+
+  // exportImage.ts / messageExport.ts (contract v5, R2 + V2b) — PNG capture
+  // primitive and its pure helpers; the view is supplied by the caller.
+  exportElementToPng,
+  deliverPng,
+  buildExportFilename,
+  pickImageDelivery,
+
+  // chatMessageParser.ts / MessageList.tsx (contract v5, R2) — default
+  // parsing set a module may use as-is or replace.
+  parseRawChatMessage,
+  parseChatMessages,
+  mergeToolResult,
+  mergeToolArguments,
+  filterTrailingEmptyAssistantMessages,
+  extractContent,
+  toggleSelection,
+  selectMessagesByIndices,
 };
 
 export type { ThemeColors } from "./theme";
+export type { ArtifactType, ArtifactMode } from "../components/ArtifactView";
