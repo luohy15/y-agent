@@ -589,6 +589,110 @@ class ModulePublishTest(unittest.TestCase):
         ui_fn.assert_not_called()
         api_fn.assert_not_called()
 
+    def test_publish_rejects_invalid_surfaces_metadata_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            module_dir = home / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.json").write_text(
+                json.dumps({"surfaces": ["panel", "tab"]}), encoding="utf-8"
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("surfaces must only contain", result.output)
+        ui_fn.assert_not_called()
+        api_fn.assert_not_called()
+
+    def test_publish_rejects_non_boolean_ui_public_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            module_dir = home / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.json").write_text(
+                json.dumps({"ui_public": "yes"}), encoding="utf-8"
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("ui_public must be a boolean", result.output)
+        ui_fn.assert_not_called()
+        api_fn.assert_not_called()
+
+    def test_publish_surfaces_and_ui_public_default_and_deduped_from_module_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"export default 1;\nexport const shell = 2;\n")
+            manifest = {
+                "slug": "demo",
+                "sha256": "abc123" + "0" * 58,
+                "source_digest": "src" + "0" * 61,
+                "min_host_version": 1,
+                "bytes": bundle.stat().st_size,
+                "bundle": str(bundle),
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact", return_value=manifest), \
+                 patch("yagent.commands.module.publish.build_api_bundle", return_value=None), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": manifest["sha256"], "version_id": "ver_1"},
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                meta_path("demo").write_text(
+                    json.dumps({
+                        "label": "Demo",
+                        "surfaces": ["shell", "panel", "shell"],
+                        "ui_public": True,
+                    }),
+                    encoding="utf-8",
+                )
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            kwargs = pub.call_args.kwargs
+            self.assertEqual(kwargs["ui_surfaces"], "shell,panel")
+            self.assertTrue(kwargs["ui_public"])
+
+    def test_publish_defaults_surfaces_to_panel_and_ui_public_to_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            bundle = Path(tmp) / "bundle.js"
+            bundle.write_bytes(b"export default 1;\n")
+            manifest = {
+                "slug": "demo",
+                "sha256": "abc123" + "0" * 58,
+                "source_digest": "src" + "0" * 61,
+                "min_host_version": 1,
+                "bytes": bundle.stat().st_size,
+                "bundle": str(bundle),
+            }
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact", return_value=manifest), \
+                 patch("yagent.commands.module.publish.build_api_bundle", return_value=None), \
+                 patch(
+                     "yagent.commands.module.publish.resolve_or_create",
+                     return_value={"module_id": "mod_1", "slug": "demo"},
+                 ), \
+                 patch(
+                     "yagent.commands.module.publish.publish_bundle",
+                     return_value={"version_no": 1, "ui_sha256": manifest["sha256"], "version_id": "ver_1"},
+                 ) as pub:
+                _scaffold_ui("demo", home)
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            kwargs = pub.call_args.kwargs
+            self.assertEqual(kwargs["ui_surfaces"], "panel")
+            self.assertFalse(kwargs["ui_public"])
+
 
 class ModulePointerCommandsTest(unittest.TestCase):
     def test_rollback_resolves_slug(self):
@@ -712,6 +816,40 @@ class PublishApiShapeTest(unittest.TestCase):
             )
         _, kwargs = api.call_args
         self.assertEqual(kwargs["data"]["dispatch_scope"], "maintainer")
+
+    def test_publish_bundle_defaults_ui_surfaces_and_ui_public(self):
+        from yagent.commands.module import _api
+
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["ui_surfaces"], "panel")
+        self.assertEqual(kwargs["data"]["ui_public"], "false")
+
+    def test_publish_bundle_sends_given_ui_surfaces_and_ui_public(self):
+        from yagent.commands.module import _api
+
+        with patch("yagent.commands.module._api.api_request") as api:
+            api.return_value = _resp({"version_no": 1, "sha256": "x" * 64})
+            _api.publish_bundle(
+                module_id="mod_1",
+                bundle_bytes=b"export default 1;",
+                sha256="x" * 64,
+                label="Demo",
+                icon="box",
+                ui_surfaces="panel,shell",
+                ui_public=True,
+            )
+        _, kwargs = api.call_args
+        self.assertEqual(kwargs["data"]["ui_surfaces"], "panel,shell")
+        self.assertEqual(kwargs["data"]["ui_public"], "true")
 
     def test_publish_bundle_includes_min_backend_version_only_when_given(self):
         from yagent.commands.module import _api

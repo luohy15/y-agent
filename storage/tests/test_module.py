@@ -74,6 +74,27 @@ class PublishTest(ModuleTestCase):
             "authenticated",
         )
 
+    def test_ui_surfaces_and_ui_public_default_and_round_trip(self):
+        module = module_service.create_module(1, "finance")
+        defaulted = module_service.publish(
+            1, module.module_id, ui_sha256="aaa", ui_storage_key="module/finance/aaa.js"
+        )
+        shell_public = module_service.publish(
+            1,
+            module.module_id,
+            ui_sha256="bbb",
+            ui_storage_key="module/finance/bbb.js",
+            ui_surfaces="panel,shell",
+            ui_public=True,
+        )
+        self.assertEqual(defaulted.ui_surfaces, "panel")
+        self.assertFalse(defaulted.ui_public)
+        self.assertEqual(shell_public.ui_surfaces, "panel,shell")
+        self.assertTrue(shell_public.ui_public)
+        reloaded = version_repo.get_version(1, shell_public.version_id)
+        self.assertEqual(reloaded.ui_surfaces, "panel,shell")
+        self.assertTrue(reloaded.ui_public)
+
     def test_publish_one_row_carries_both_halves(self):
         """PRD atomicity: one publish = one version row spanning UI + API halves."""
         module = module_service.create_module(1, "finance")

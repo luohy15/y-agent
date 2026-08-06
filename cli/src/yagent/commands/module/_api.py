@@ -53,6 +53,8 @@ def publish_bundle(
     activate: bool = True,
     min_backend_version: Optional[int] = None,
     dispatch_scope: str = "maintainer",
+    ui_surfaces: str = "panel",
+    ui_public: bool = False,
     description: Optional[str] = None,
 ) -> dict:
     """POST one or both halves in a single publish request.
@@ -85,6 +87,8 @@ def publish_bundle(
     if min_backend_version is not None:
         data["min_backend_version"] = str(min_backend_version)
     data["dispatch_scope"] = dispatch_scope
+    data["ui_surfaces"] = ui_surfaces
+    data["ui_public"] = "true" if ui_public else "false"
     if description is not None:
         data["description"] = description
     return api_request("POST", "/api/module/publish", files=files or None, data=data).json()

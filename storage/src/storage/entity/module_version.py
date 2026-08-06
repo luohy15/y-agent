@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Column, Integer, String, ForeignKey, UniqueConstraint
 from .base import Base, BaseEntity
 
 
@@ -22,6 +22,8 @@ class ModuleVersionEntity(Base, BaseEntity):
     min_host_version = Column(Integer, nullable=False, default=1)
     min_backend_version = Column(Integer, nullable=True)
     dispatch_scope = Column(String(16), nullable=False, default="maintainer")
+    ui_surfaces = Column(String(32), nullable=False, default="panel")
+    ui_public = Column(Boolean, nullable=False, default=False)
     source_digest = Column(String, nullable=True)
     built_at = Column(String, nullable=True)
     description = Column(String, nullable=True)

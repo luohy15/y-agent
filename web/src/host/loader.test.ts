@@ -75,6 +75,58 @@ describe("loadArtifact", () => {
     expect(artifact.css).toBe(".x{}");
   });
 
+  // V1 (todo 3042): `shell` is optional like `detail`, validated the same way.
+  it("loads a verified bundle and exposes the shell surface", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const shell = 2;");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    const FakePanel = () => null;
+    const FakeShell = () => null;
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({
+      panel: FakePanel,
+      shell: FakeShell,
+      css: "",
+    });
+
+    const artifact = await loadArtifact(ref({ version_id: "shell-version", ui_sha256: sha256 }));
+    expect(artifact.Shell).toBe(FakeShell);
+  });
+
+  it("reports no shell surface for a module that doesn't export one", async () => {
+    const bytes = new TextEncoder().encode("export default function X(){};");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ default: () => null, css: "" });
+
+    const artifact = await loadArtifact(ref({ version_id: "no-shell-version", ui_sha256: sha256 }));
+    expect(artifact.Shell).toBeNull();
+  });
+
+  it("accepts a null shell export as absent, same as an absent one", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const shell = null;");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({ panel: () => null, shell: null, css: "" });
+
+    const artifact = await loadArtifact(ref({ version_id: "null-shell-version", ui_sha256: sha256 }));
+    expect(artifact.Shell).toBeNull();
+  });
+
+  it("rejects a module whose shell export is not a component", async () => {
+    const bytes = new TextEncoder().encode("export const panel = 1; export const shell = 'oops';");
+    const sha256 = await sha256Hex(bytes);
+    authFetchMock.mockResolvedValue(fakeResponse(bytes));
+    vi.spyOn(artifactImporter, "importBundle").mockResolvedValue({
+      panel: () => null,
+      shell: "oops",
+      css: "",
+    });
+
+    await expect(loadArtifact(ref({ version_id: "bad-shell-version", ui_sha256: sha256 }))).rejects.toMatchObject({
+      kind: "bundle",
+    });
+  });
+
   // A panel-only artifact is the common case; the default export stays a
   // supported shorthand so a one-surface module needs no ceremony.
   it("accepts a bare default export as the panel, and reports no detail surface", async () => {

@@ -79,6 +79,7 @@ def default_owner_user_id() -> Optional[int]:
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DISPATCH_SCOPES = {"maintainer", "authenticated"}
+VALID_SURFACES = {"panel", "detail", "shell"}
 
 # Upper bound on a single uploaded half, guarding the API process from
 # unbounded buffers (review finding 3). Generous for real bundles; the API
@@ -92,6 +93,25 @@ RESERVED_SLUGS = {
     "create", "list", "versions", "publish", "rollback", "activate",
     "enable", "disable", "delete", "bundle", "schema-sql",
 }
+
+
+def _validate_ui_surfaces(raw: str) -> str:
+    """Normalize + validate a comma list against VALID_SURFACES (V1).
+
+    Dedupes while preserving order and rejects an empty or out-of-set list,
+    the same shape as the `dispatch_scope` membership check above.
+    """
+    tokens = [t.strip() for t in (raw or "").split(",") if t.strip()]
+    if not tokens or any(t not in VALID_SURFACES for t in tokens):
+        raise HTTPException(
+            status_code=400,
+            detail="ui_surfaces must be a comma list drawn from 'panel', 'detail', 'shell'",
+        )
+    seen: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            seen.append(t)
+    return ",".join(seen)
 
 
 class CreateRequest(BaseModel):
@@ -225,6 +245,7 @@ def _public_active_version(active: ModuleVersion) -> dict:
         "version_no": active.version_no,
         "ui_sha256": active.ui_sha256,
         "min_host_version": active.min_host_version,
+        "ui_surfaces": active.ui_surfaces,
         "label": active.label,
         "icon": active.icon,
     }
@@ -292,6 +313,8 @@ async def publish(
     min_host_version: int = Form(1),
     min_backend_version: Optional[int] = Form(None),
     dispatch_scope: str = Form("maintainer"),
+    ui_surfaces: str = Form("panel"),
+    ui_public: bool = Form(False),
     source_digest: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     activate: bool = Form(True),
@@ -331,6 +354,10 @@ async def publish(
             status_code=400,
             detail="dispatch_scope must be 'maintainer' or 'authenticated'",
         )
+    candidate_ui_surfaces = _validate_ui_surfaces(
+        ui_surfaces if isinstance(ui_surfaces, str) else "panel"
+    )
+    candidate_ui_public = ui_public if isinstance(ui_public, bool) else False
 
     # File(None) defaults are not None when the endpoint is invoked directly
     # (unit tests); only treat values that actually look like UploadFile.
@@ -442,6 +469,8 @@ async def publish(
         min_host_version=min_host_version,
         min_backend_version=min_backend_version,
         dispatch_scope=candidate_dispatch_scope,
+        ui_surfaces=candidate_ui_surfaces,
+        ui_public=candidate_ui_public,
         source_digest=source_digest,
         description=description,
         activate=activate,

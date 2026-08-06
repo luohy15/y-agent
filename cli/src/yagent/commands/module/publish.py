@@ -17,6 +17,31 @@ from ._paths import meta_path, source_path, validate_slug
 from ._sdk import load_contract
 
 
+VALID_SURFACES = {"panel", "detail", "shell"}
+
+
+def _validate_surfaces(surfaces) -> str:
+    """module.json 'surfaces' -> the comma list the API expects, deduped in order.
+
+    Mirrors the dispatch_scope validation below: reject anything outside
+    {panel, detail, shell} up front, before a build even starts.
+    """
+    if not isinstance(surfaces, list) or not surfaces:
+        raise click.ClickException(
+            f"module.json surfaces must be a non-empty list, got {surfaces!r}"
+        )
+    seen: list[str] = []
+    for s in surfaces:
+        if not isinstance(s, str) or s not in VALID_SURFACES:
+            raise click.ClickException(
+                "module.json surfaces must only contain 'panel', 'detail', 'shell', "
+                f"got {s!r}"
+            )
+        if s not in seen:
+            seen.append(s)
+    return ",".join(seen)
+
+
 def _compose_description(desc: Optional[str], trace_id: Optional[str]) -> Optional[str]:
     """Compose the stored description from --desc and Y_TRACE_ID (plan 2991 D2).
 
@@ -66,6 +91,12 @@ def module_publish(slug, no_activate, label, icon, desc):
         raise click.ClickException(
             "module.json dispatch must be 'maintainer' or 'authenticated', "
             f"got {dispatch_scope!r}"
+        )
+    ui_surfaces = _validate_surfaces(meta.get("surfaces", ["panel"]))
+    ui_public = meta.get("ui_public", False)
+    if not isinstance(ui_public, bool):
+        raise click.ClickException(
+            f"module.json ui_public must be a boolean, got {ui_public!r}"
         )
 
     has_ui = source_path(slug).is_file()
@@ -136,6 +167,8 @@ def module_publish(slug, no_activate, label, icon, desc):
             activate=not no_activate,
             min_backend_version=min_backend_version,
             dispatch_scope=dispatch_scope,
+            ui_surfaces=ui_surfaces,
+            ui_public=ui_public,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)

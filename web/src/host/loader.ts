@@ -13,15 +13,21 @@ export interface ArtifactVersionRef {
   version_no: number;
   ui_sha256: string;
   min_host_version: number;
+  // Comma list drawn from {panel, detail, shell} (V1, todo 3042); absent on
+  // an older host response, so callers should treat undefined as "panel".
+  ui_surfaces?: string;
 }
 
-// One artifact is one pluggable UI module defining BOTH surfaces:
+// One artifact is one pluggable UI module defining up to three surfaces:
 //   export const panel   -> required, the ~280px left sidebar surface
 //   export const detail  -> optional, the center / full-width surface
+//   export const shell   -> optional, the persistent center-column surface
+//                            claimed via module_version.ui_surfaces (V1)
 // `export default <Component>` is the shorthand for a panel-only artifact.
 export interface LoadedArtifact {
   Panel: ComponentType<Record<string, never>>;
   Detail: ComponentType<Record<string, never>> | null;
+  Shell: ComponentType<Record<string, never>> | null;
   css: string;
 }
 
@@ -47,6 +53,7 @@ export const artifactImporter = {
 interface ArtifactModule {
   panel?: unknown;
   detail?: unknown;
+  shell?: unknown;
   default?: unknown;
   css?: unknown;
 }
@@ -153,10 +160,15 @@ async function fetchAndVerify(url: string, expectedSha256: string): Promise<Load
   if (mod.detail !== undefined && mod.detail !== null && typeof mod.detail !== "function") {
     throw new ArtifactLoadError("bundle", "Bundle exported a `detail` that is not a component.");
   }
+  // Same null-tolerant shape as `detail` above (V1, todo 3042).
+  if (mod.shell !== undefined && mod.shell !== null && typeof mod.shell !== "function") {
+    throw new ArtifactLoadError("bundle", "Bundle exported a `shell` that is not a component.");
+  }
 
   return {
     Panel: panel as LoadedArtifact["Panel"],
     Detail: (typeof mod.detail === "function" ? mod.detail : null) as LoadedArtifact["Detail"],
+    Shell: (typeof mod.shell === "function" ? mod.shell : null) as LoadedArtifact["Shell"],
     css: typeof mod.css === "string" ? mod.css : "",
   };
 }

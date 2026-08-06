@@ -179,11 +179,12 @@ interface ArtifactMountProps {
   artifactId: string;
   version: ArtifactVersionRef;
   label?: string;
-  // Which of the module's two surfaces to render (decision note
-  // pages/decision-2412-module-shape.md). "detail" falls back to the panel
-  // when the module is panel-only, so a persisted `ui:<slug>` tab is never a
-  // dead tab.
-  surface?: "panel" | "detail";
+  // Which of the module's surfaces to render (decision note
+  // pages/decision-2412-module-shape.md; "shell" added by V1, todo 3042).
+  // "detail"/"shell" fall back to the panel when the module doesn't define
+  // that surface, so a persisted `ui:<slug>` tab or a stale shell claimant is
+  // never a dead mount.
+  surface?: "panel" | "detail" | "shell";
   // Called after a rollback attempt succeeds (or hits a 409 conflict), so the
   // mount surface can refetch the artifact's current active version and
   // remount instead of the loader falling back to a confirmed full reload.
@@ -275,10 +276,15 @@ export default function ArtifactMount({
     );
   }
 
-  // A panel-only module still renders on the detail surface: the route exists
-  // for every artifact (PRD story 15), it just shows the one surface the
-  // module defines.
-  const Artifact = surface === "detail" ? (state.artifact.Detail ?? state.artifact.Panel) : state.artifact.Panel;
+  // A panel-only module still renders on the detail/shell surface: the route
+  // exists for every artifact (PRD story 15), it just shows the one surface
+  // the module defines.
+  const Artifact =
+    surface === "detail"
+      ? (state.artifact.Detail ?? state.artifact.Panel)
+      : surface === "shell"
+        ? (state.artifact.Shell ?? state.artifact.Panel)
+        : state.artifact.Panel;
   return (
     <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
       <RenderBoundary onError={handleRenderError}>

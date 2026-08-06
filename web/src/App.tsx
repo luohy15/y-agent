@@ -42,6 +42,7 @@ import {
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
+  shellClaimant,
 } from "./host/artifacts";
 import { registerHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
@@ -81,6 +82,10 @@ export default function App() {
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
     [mountedUiArtifacts],
   );
+  // D1a (plan-3042-chatview.md V1): the lowest-slug enabled module claiming
+  // the `shell` surface. Mounted once below, keyed only on its version_id, so
+  // rollback/republish is the only thing that ever remounts it.
+  const shellArtifact = useMemo(() => shellClaimant(mountedUiArtifacts), [mountedUiArtifacts]);
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile overlay
   const [activityBarOpen, setActivityBarOpen] = useState(false); // mobile activity bar drawer
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => localStorage.getItem("desktopSidebarOpen") !== "false");
@@ -1127,16 +1132,32 @@ export default function App() {
               </div>
               {/* Chat (kept mounted, toggled via CSS) */}
               <div className={`absolute inset-0 flex flex-col ${chatHide ? "hidden" : ""}`}>
-                {/* Chat header: VM, workdir, trace_id, chat_id, topic, refresh */}
-                <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
-                  {chatTraceId && <button onClick={() => { requestSelectTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
-                  {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
-                  {chatTopic && <span className={`text-[0.65rem] ${topicBadgeClass(chatTopic)}`}>{chatTopic}</span>}
-                  {chatSkill && <span className={`text-[0.65rem] ${topicBadgeClass(chatSkill)}`} title={`Skill: ${chatSkill}`}>/{chatSkill}</span>}
-                  {(chatBotName || chatBackend) && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{[chatBotName, chatBackend].filter(Boolean).join(" · ")}</span>}
-                  {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatContextRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat and context"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
-                </div>
-                <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onBotNameChange={setChatBotName} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onOpenArtifact={handleOpenArtifact} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                {shellArtifact ? (
+                  // D1a: a module claiming `shell` replaces the host ChatView
+                  // in this slot. Keyed only on version_id, so republishing an
+                  // unrelated module or a slug reordering never remounts it.
+                  <ArtifactMount
+                    key={shellArtifact.active_version.version_id}
+                    slug={shellArtifact.slug}
+                    artifactId={shellArtifact.module_id}
+                    version={shellArtifact.active_version}
+                    surface="shell"
+                    onRolledBack={() => { void mutateUiArtifacts(); }}
+                  />
+                ) : (
+                  <>
+                    {/* Chat header: VM, workdir, trace_id, chat_id, topic, refresh */}
+                    <div className="flex items-center gap-1 px-3 py-0.5 text-sol-base01 font-mono text-xs border-b border-sol-base02 bg-sol-base03 shrink-0">
+                      {chatTraceId && <button onClick={() => { requestSelectTraceId(chatTraceId); handleOpenFile("trace.md"); }} className={`text-[0.65rem] cursor-pointer ${TRACE_BADGE}`} title="View todo">#{chatTraceId.slice(0, 8)}</button>}
+                      {selectedChatId && <button onClick={() => navigator.clipboard.writeText(selectedChatId)} className={`gap-0.5 text-[0.65rem] cursor-pointer ${CHAT_BADGE}`} title="Copy chat ID"><svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{selectedChatId.slice(0, 8)}</button>}
+                      {chatTopic && <span className={`text-[0.65rem] ${topicBadgeClass(chatTopic)}`}>{chatTopic}</span>}
+                      {chatSkill && <span className={`text-[0.65rem] ${topicBadgeClass(chatSkill)}`} title={`Skill: ${chatSkill}`}>/{chatSkill}</span>}
+                      {(chatBotName || chatBackend) && <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono font-medium shrink-0 text-[0.65rem] bg-sol-base01/20 text-sol-base01">{[chatBotName, chatBackend].filter(Boolean).join(" · ")}</span>}
+                      {selectedChatId && <button onClick={() => { setChatRefreshKey((k) => k + 1); setChatContextRefreshKey((k) => k + 1); setChatSpinning(true); setTimeout(() => setChatSpinning(false), 600); }} className="ml-auto inline-flex items-center hover:text-sol-blue cursor-pointer shrink-0" title="Refresh chat and context"><svg className={`w-3 h-3 ${chatSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>}
+                    </div>
+                    <ChatView key={chatRefreshKey} isLoggedIn={auth.isLoggedIn} gsiReady={auth.gsiReady} chatId={selectedChatId} onChatCreated={handleChatCreated} onClear={() => { setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }} vmName={selectedVM} botName={selectedBot} defaultWorkDir={defaultWorkDir} onWorkDirChange={setChatWorkDir} onTopicChange={setChatTopic} onSkillChange={setChatSkill} onTraceIdChange={(traceId) => { setChatTraceId(traceId); if (traceId) setChatListTraceId(traceId); }} onBackendChange={setChatBackend} onBotNameChange={setChatBotName} onComplete={() => setChatListRefreshKey((k) => k + 1)} onOpenFile={handlePreviewFile} onOpenArtifact={handleOpenArtifact} onSelectChat={(id) => { setSelectedChatId(id); setChatHide(false); setChatListOpen(true); }} onSelectTrace={(traceId) => { requestSelectTraceId(traceId); handleOpenFile("trace.md"); }} />
+                  </>
+                )}
               </div>
             </div>
             {/* Bottom panel: Terminal (VS Code style) */}

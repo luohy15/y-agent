@@ -166,6 +166,53 @@ describe("ArtifactMount", () => {
     container.remove();
   });
 
+  // V1 (todo 3042): the same one-artifact-many-surfaces contract extends to
+  // `shell`, the persistent center-column slot.
+  it("renders the shell surface when asked", async () => {
+    loadArtifactMock.mockResolvedValue({
+      Panel: () => React.createElement("span", null, "panel surface"),
+      Detail: null,
+      Shell: () => React.createElement("span", null, "shell surface"),
+      css: "",
+    });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), surface: "shell" as const }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("shell surface");
+    expect(container.querySelector('[data-y-artifact-surface="shell"]')?.textContent).toBe("shell surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("falls back to the panel on the shell surface for a module without a shell export", async () => {
+    loadArtifactMock.mockResolvedValue({
+      Panel: () => React.createElement("span", null, "only surface"),
+      Detail: null,
+      Shell: null,
+      css: "",
+    });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), surface: "shell" as const }),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("only surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("falls back to the panel on the detail surface for a panel-only module, and reports no detail", async () => {
     loadArtifactMock.mockResolvedValue({
       Panel: () => React.createElement("span", null, "only surface"),

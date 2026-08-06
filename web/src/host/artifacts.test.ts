@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isPersistableTab, modulesFromPayload, mountableUiArtifacts } from "./artifacts";
+import { hasSurface, isPersistableTab, modulesFromPayload, mountableUiArtifacts, shellClaimant } from "./artifacts";
+import type { MountableModule } from "./artifacts";
 
 describe("module payload handling", () => {
   it("returns no modules or mountable artifacts for a non-array API payload", () => {
@@ -17,6 +18,46 @@ describe("module payload handling", () => {
       active_version: { ui_sha256: "abc" },
     };
     expect(mountableUiArtifacts([module])).toEqual([module]);
+  });
+});
+
+function mountable(slug: string, ui_surfaces?: string): MountableModule {
+  return {
+    module_id: `mod_${slug}`,
+    slug,
+    active_version_id: `ver_${slug}`,
+    enabled: true,
+    active_version: {
+      version_id: `ver_${slug}`,
+      version_no: 1,
+      ui_sha256: "abc",
+      min_host_version: 1,
+      ...(ui_surfaces !== undefined ? { ui_surfaces } : {}),
+    },
+  };
+}
+
+describe("hasSurface", () => {
+  it("treats an absent ui_surfaces as panel-only", () => {
+    expect(hasSurface(mountable("finance"), "panel")).toBe(true);
+    expect(hasSurface(mountable("finance"), "shell")).toBe(false);
+  });
+
+  it("matches a comma-list entry", () => {
+    expect(hasSurface(mountable("chat", "panel,detail,shell"), "shell")).toBe(true);
+    expect(hasSurface(mountable("chat", "panel,detail,shell"), "detail")).toBe(true);
+  });
+});
+
+describe("shellClaimant", () => {
+  it("returns null when no module claims shell", () => {
+    expect(shellClaimant([mountable("finance"), mountable("chat", "panel,detail")])).toBeNull();
+  });
+
+  it("picks the lowest-slug enabled shell claimant", () => {
+    const b = mountable("bbb-shell", "panel,shell");
+    const a = mountable("aaa-shell", "panel,shell");
+    expect(shellClaimant([b, a])).toBe(a);
   });
 });
 

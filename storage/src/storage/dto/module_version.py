@@ -16,6 +16,8 @@ class ModuleVersion:
     min_host_version: int = 1
     min_backend_version: Optional[int] = None
     dispatch_scope: str = "maintainer"
+    ui_surfaces: str = "panel"
+    ui_public: bool = False
     source_digest: Optional[str] = None
     built_at: Optional[str] = None
     description: Optional[str] = None
@@ -39,6 +41,8 @@ class ModuleVersion:
             min_host_version=data.get('min_host_version', 1),
             min_backend_version=data.get('min_backend_version'),
             dispatch_scope=data.get('dispatch_scope', 'maintainer'),
+            ui_surfaces=data.get('ui_surfaces', 'panel'),
+            ui_public=data.get('ui_public', False),
             source_digest=data.get('source_digest'),
             built_at=data.get('built_at'),
             description=data.get('description'),
@@ -62,6 +66,8 @@ class ModuleVersion:
             'min_host_version': self.min_host_version,
             'min_backend_version': self.min_backend_version,
             'dispatch_scope': self.dispatch_scope,
+            'ui_surfaces': self.ui_surfaces,
+            'ui_public': self.ui_public,
             'source_digest': self.source_digest,
             'built_at': self.built_at,
             'description': self.description,

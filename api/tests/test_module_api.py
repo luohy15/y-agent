@@ -142,6 +142,7 @@ class ListTest(unittest.IsolatedAsyncioTestCase):
                 "version_no": 1,
                 "ui_sha256": "chat-ui-sha",
                 "min_host_version": 2,
+                "ui_surfaces": "panel",
                 "label": "Chat",
                 "icon": "message",
             },
@@ -155,6 +156,23 @@ class ListTest(unittest.IsolatedAsyncioTestCase):
             "dispatch_scope",
         ):
             self.assertNotIn(secret, active)
+
+    async def test_non_maintainer_list_carries_ui_surfaces_for_shell_selection(self):
+        """App.tsx picks the shell claimant from the /module/list response
+        directly, without a maintainer round-trip, so a shell-claiming
+        authenticated-scoped version must carry ui_surfaces too."""
+        chat = _module(module_id="chat", slug="chat", active_version_id="vc")
+        version = _version(
+            version_id="vc",
+            module_id="chat",
+            dispatch_scope="authenticated",
+            ui_surfaces="panel,shell",
+        )
+        with patch.object(ctrl, "default_owner_user_id", return_value=123), \
+             patch.object(ctrl.module_service, "list_modules", return_value=[chat]), \
+             patch.object(ctrl.module_service, "get_version", return_value=version):
+            result = await ctrl.list_modules(_request(user_id=456), enabled_only=False)
+        self.assertEqual(result[0]["active_version"]["ui_surfaces"], "panel,shell")
 
     async def test_maintainer_list_keeps_full_active_version_dict(self):
         module = _module(active_version_id="ver_a1")
@@ -224,6 +242,47 @@ class PublishTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         write_fn.assert_not_called()
         pub_fn.assert_not_called()
+
+    async def test_publish_rejects_invalid_ui_surfaces(self):
+        content = b"export default () => null;"
+        sha = hashlib.sha256(content).hexdigest()
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle") as write_fn, \
+             patch.object(ctrl.module_service, "publish") as pub_fn:
+            with self.assertRaises(HTTPException) as ctx:
+                await ctrl.publish(
+                    _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                    ui_surfaces="panel,tab",
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        write_fn.assert_not_called()
+        pub_fn.assert_not_called()
+
+    async def test_publish_normalizes_and_dedupes_ui_surfaces(self):
+        content = b"export default () => null;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js")
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+                ui_surfaces=" shell, panel ,shell",
+            )
+        self.assertEqual(pub_fn.call_args.kwargs["ui_surfaces"], "shell,panel")
+
+    async def test_publish_defaults_ui_surfaces_and_ui_public(self):
+        content = b"export default () => null;"
+        sha = hashlib.sha256(content).hexdigest()
+        version = _version(ui_sha256=sha, ui_storage_key=f"module/mod_a1/{sha}.js")
+        with patch.object(ctrl.module_service, "get_module", return_value=_module()), \
+             patch.object(ctrl, "_write_bundle"), \
+             patch.object(ctrl.module_service, "publish", return_value=version) as pub_fn:
+            await ctrl.publish(
+                _request(), file=_upload(content), module_id="mod_a1", sha256=sha,
+            )
+        self.assertEqual(pub_fn.call_args.kwargs["ui_surfaces"], "panel")
+        self.assertEqual(pub_fn.call_args.kwargs["ui_public"], False)
 
     async def test_hash_mismatch_is_rejected(self):
         content = b"export default () => null;"
