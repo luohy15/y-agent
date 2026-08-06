@@ -13,6 +13,7 @@ vi.mock("./loader", async () => {
 
 import { ArtifactLoadError, type ArtifactVersionRef } from "./loader";
 import ArtifactMount from "./ArtifactMount";
+import { usePanelLocation } from "./panelLocation";
 
 function renderClient() {
   const container = document.createElement("div");
@@ -191,6 +192,73 @@ describe("ArtifactMount", () => {
     expect(container.textContent).toContain("detail surface");
     expect(container.querySelector('[data-y-artifact-surface="panel"]')?.textContent).toBe("panel surface");
     expect(container.querySelector('[data-y-artifact-surface="detail"]')?.textContent).toBe("detail surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // W3 (todo 3046, contract v6): both sidebar mounts of the same `panel`
+  // export must observe their own host-provided location.
+  it("threads panelLocation to a probe Panel via usePanelLocation, defaulting left when unspecified", async () => {
+    function Probe() {
+      return React.createElement("span", null, usePanelLocation());
+    }
+    loadArtifactMock.mockResolvedValue({ Panel: Probe, Detail: null, css: "" });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement("div", { "data-testid": "left" },
+            React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), panelLocation: "left" }),
+          ),
+          React.createElement("div", { "data-testid": "right" },
+            React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), panelLocation: "right" }),
+          ),
+          React.createElement("div", { "data-testid": "unspecified" },
+            React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref() }),
+          ),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.querySelector('[data-testid="left"]')?.textContent).toBe("left");
+    expect(container.querySelector('[data-testid="right"]')?.textContent).toBe("right");
+    expect(container.querySelector('[data-testid="unspecified"]')?.textContent).toBe("left");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // A detail/shell mount must not masquerade as the right panel even if a
+  // caller passed panelLocation="right" for it — only the panel surface wires
+  // the provider (binding decision 6/10).
+  it("ignores panelLocation on detail and shell surfaces", async () => {
+    function Probe() {
+      return React.createElement("span", null, usePanelLocation());
+    }
+    loadArtifactMock.mockResolvedValue({ Panel: () => null, Detail: Probe, Shell: Probe, css: "" });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), surface: "detail" as const, panelLocation: "right" }),
+          React.createElement(ArtifactMount, { slug: "demo", artifactId: "art1", version: ref(), surface: "shell" as const, panelLocation: "right" }),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.querySelectorAll("span").length).toBe(2);
+    for (const span of container.querySelectorAll("span")) {
+      expect(span.textContent).toBe("left");
+    }
 
     act(() => root.unmount());
     container.remove();

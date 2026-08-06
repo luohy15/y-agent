@@ -9,7 +9,7 @@ import FileTree from "./components/FileTree";
 import FileViewer from "./components/FileViewer";
 import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
-import { buildModulePanelItems, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
+import { buildChatPanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import FileSearchDialog from "./components/FileSearchDialog";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
@@ -66,13 +66,16 @@ interface BotConfigItem {
 // tab state would otherwise fetch a nonexistent file.
 const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md"]);
 
-type RightBuiltInPanel = "notes" | "links" | "files" | "diff";
+// Round-2 gap closure (plan-3046-right-sidebar.md R1): exactly four right
+// categories. Chat is resolved dynamically (buildChatPanelItem); the other
+// three are fixed built-ins. Links is not one of them — the left activity
+// bar's built-in Links panel remains the only Links surface.
+type RightBuiltInPanel = "notes" | "files" | "diff";
 type RightPanel = RightBuiltInPanel | `artifact:${string}`;
 type ArtifactTab = { type: ArtifactType; spec: string };
 
 const RIGHT_BUILT_IN_PANEL_ITEMS: PanelItem<RightBuiltInPanel>[] = [
   { key: "notes", label: "Notes", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> },
-  { key: "links", label: "Links", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg> },
   { key: "files", label: "Files", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg> },
   { key: "diff", label: "Diff", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg> },
 ];
@@ -92,7 +95,7 @@ export default function App() {
     [mountedUiArtifacts],
   );
   const rightPanelItems = useMemo<PanelItem<RightPanel>[]>(
-    () => [...RIGHT_BUILT_IN_PANEL_ITEMS, ...buildModulePanelItems(uiArtifacts)],
+    () => [...buildChatPanelItem(uiArtifacts), ...RIGHT_BUILT_IN_PANEL_ITEMS],
     [uiArtifacts],
   );
   // D1a (plan-3042-chatview.md V1): the lowest-slug enabled module claiming
@@ -414,7 +417,9 @@ export default function App() {
   // Plan P2: publish selected-chat intent for modules/chat (no visible change).
   // D-C: also carries botName, since selectedBot is intentionally not persisted
   // to localStorage the way selectedVM is (no other fallback for the module).
-  usePublishSelectedChatIntent(selectedChatId, selectedBot);
+  // R7 (plan-3046-right-sidebar.md): also carries the host trace filter, so
+  // the right chat panel can consume it once it opts in via usePanelLocation.
+  usePublishSelectedChatIntent(selectedChatId, selectedBot, chatListTraceId);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
@@ -777,15 +782,13 @@ export default function App() {
           version={artifact.active_version}
           label={artifactLabel(artifact)}
           surface="panel"
+          panelLocation="right"
           onRolledBack={() => { void mutateUiArtifacts(); }}
         />
       );
     }
     if (rightPanel === "notes") {
       return <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); closeMobile(); }} todoId={chatListTraceId} hideFilters refreshKey={rightPanelRefreshKey} />;
-    }
-    if (rightPanel === "links") {
-      return <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); closeMobile(); }} todoId={chatListTraceId} hideFilters refreshKey={rightPanelRefreshKey} />;
     }
     if (rightPanel === "files") {
       return <FileTree isLoggedIn={auth.isLoggedIn} onSelectFile={(path) => { handlePreviewFile(path); closeMobile(); }} onDeleteFile={handleCloseFile} onRenameFile={handleRenamedFile} vmName={selectedVM} workDir={effectiveWorkDir} refreshKey={rightPanelRefreshKey} />;
@@ -1018,6 +1021,7 @@ export default function App() {
                     version={sidebarArtifact.active_version}
                     label={artifactLabel(sidebarArtifact)}
                     surface="panel"
+                    panelLocation="left"
                     onRolledBack={() => { void mutateUiArtifacts(); }}
                     onDetailAvailable={(hasDetail) => setUiArtifactHasDetail((prev) => (
                       prev[sidebarArtifact.slug] === hasDetail ? prev : { ...prev, [sidebarArtifact.slug]: hasDetail }
@@ -1212,7 +1216,12 @@ export default function App() {
               </>
             )}
           </div>
-          {/* Right panel (scoped views, always visible independent of chatHide) */}
+          {/* Right panel (scoped views, always visible independent of chatHide).
+              Round-2 gap closure (plan-3046-right-sidebar.md R2/R3): the
+              category row lives inside this resizable pane, above the body,
+              so it disappears with the drawer on collapse. Category clicks
+              only switch panels; Close (here or the header toggle below) is
+              the only thing that collapses. */}
           {!rightPanelCollapsed && (
             <div
               className="hidden sm:flex shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative flex-col"
@@ -1224,29 +1233,19 @@ export default function App() {
               >
                 <div className="absolute top-0 left-2 lg:left-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
               </div>
-              <div className="flex items-center justify-end px-2 py-0.5 border-b border-sol-base02 shrink-0">
-                <button
-                  onClick={refreshRightPanel}
-                  className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
-                  title="Refresh"
-                >
-                  <svg className={`w-3.5 h-3.5 transition-transform ${rightPanelSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                </button>
-              </div>
+              <RightActivityBar
+                items={rightPanelItems}
+                activePanel={rightPanel}
+                onSelectPanel={setRightPanel}
+                onRefresh={refreshRightPanel}
+                onClose={() => setRightPanelCollapsed(true)}
+                refreshing={rightPanelSpinning}
+              />
               <div className="flex-1 min-h-0 overflow-hidden">
                 <ErrorBoundary label="Panel">{renderRightPanel()}</ErrorBoundary>
               </div>
             </div>
           )}
-          <RightActivityBar
-            items={rightPanelItems}
-            activePanel={rightPanel}
-            contentOpen={!rightPanelCollapsed}
-            onSelectPanel={(panel) => {
-              if (!rightPanelCollapsed && rightPanel === panel) setRightPanelCollapsed(true);
-              else { setRightPanel(panel); setRightPanelCollapsed(false); }
-            }}
-          />
           {chatListOpen && (
             <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
           )}
@@ -1259,28 +1258,13 @@ export default function App() {
             style={{ width: rightPanelWidth }}
           >
             <RightActivityBar
-              mobile
               items={rightPanelItems}
               activePanel={rightPanel}
-              contentOpen
               onSelectPanel={setRightPanel}
+              onRefresh={refreshRightPanel}
+              onClose={() => setChatListOpen(false)}
+              refreshing={rightPanelSpinning}
             />
-            <div className="flex items-center justify-end px-2 py-0.5 border-b border-sol-base02 shrink-0">
-              <button
-                onClick={refreshRightPanel}
-                className="p-1.5 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
-                title="Refresh"
-              >
-                <svg className={`w-4 h-4 transition-transform ${rightPanelSpinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              </button>
-              <button
-                onClick={() => setChatListOpen(false)}
-                className="p-1.5 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
-                title="Close"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
             <div className="flex-1 min-h-0 overflow-hidden">
               <ErrorBoundary label="Panel">{renderRightPanel(true)}</ErrorBoundary>
             </div>

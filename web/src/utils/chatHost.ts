@@ -30,19 +30,29 @@ export function setChatTraceFilter(
   setChatListTraceId(traceId);
 }
 
-/** Host -> chat artifact focus intent published whenever selectedChatId or
- * botName changes (D-C, pages/decision-3042-chat-shell-host-seam.md: vmName
- * and defaultWorkDir already have working shell-side fallbacks, botName did
- * not have any path until this widening). */
-export function publishSelectedChatIntent(chatId: string | null, botName: string | null = null): void {
-  setArtifactIntent("chat", { kind: "selected", chatId, botName, nonce: Date.now() });
+/** Host -> chat artifact focus intent published whenever selectedChatId,
+ * botName, or the host trace filter changes (D-C, pages/decision-3042-chat-
+ * shell-host-seam.md: vmName and defaultWorkDir already have working
+ * shell-side fallbacks, botName did not have any path until that widening;
+ * traceId added by plan-3046-right-sidebar.md R7 so the right chat panel can
+ * consume the host's `chatListTraceId` through this same retained channel). */
+export function publishSelectedChatIntent(
+  chatId: string | null,
+  botName: string | null = null,
+  traceId: string | null = null,
+): void {
+  setArtifactIntent("chat", { kind: "selected", chatId, botName, traceId, nonce: Date.now() });
 }
 
-/** Publish the selected-chat intent on every selectedChatId/botName change (including null). */
-export function usePublishSelectedChatIntent(selectedChatId: string | null, botName: string | null = null): void {
+/** Publish the selected-chat intent on every selectedChatId/botName/traceId change (including null). */
+export function usePublishSelectedChatIntent(
+  selectedChatId: string | null,
+  botName: string | null = null,
+  traceId: string | null = null,
+): void {
   useEffect(() => {
-    publishSelectedChatIntent(selectedChatId, botName);
-  }, [selectedChatId, botName]);
+    publishSelectedChatIntent(selectedChatId, botName, traceId);
+  }, [selectedChatId, botName, traceId]);
 }
 
 /** Parse `{ chatId }` from a host-command payload; undefined means malformed. */

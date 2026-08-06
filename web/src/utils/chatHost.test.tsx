@@ -21,8 +21,8 @@ function renderClient() {
   return { container, root };
 }
 
-function IntentProbe({ chatId, botName }: { chatId: string | null; botName?: string | null }) {
-  usePublishSelectedChatIntent(chatId, botName);
+function IntentProbe({ chatId, botName, traceId }: { chatId: string | null; botName?: string | null; traceId?: string | null }) {
+  usePublishSelectedChatIntent(chatId, botName, traceId);
   return null;
 }
 
@@ -131,6 +131,21 @@ describe("selected-chat artifact intent", () => {
     );
   });
 
+  it("publishSelectedChatIntent carries traceId when given, and defaults it to null (R7)", () => {
+    publishSelectedChatIntent("chat-xyz", "gpt-5", "todo-99");
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ kind: "selected", chatId: "chat-xyz", botName: "gpt-5", traceId: "todo-99" }),
+    );
+
+    setArtifactIntentMock.mockClear();
+    publishSelectedChatIntent("chat-xyz");
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ traceId: null }),
+    );
+  });
+
   it("fires the selected intent whenever selectedChatId changes", () => {
     const { root } = renderClient();
     act(() => {
@@ -158,6 +173,57 @@ describe("selected-chat artifact intent", () => {
       "chat",
       expect.objectContaining({ kind: "selected", chatId: null }),
     );
+    root.unmount();
+  });
+
+  // R7 (plan-3046-right-sidebar.md): the retained intent must widen to carry
+  // the host trace filter so the right chat panel can consume it (W3 gates
+  // which mount actually applies it, but the payload itself is global).
+  it("fires the selected intent whenever the trace filter is set, changed, or cleared", () => {
+    const { root } = renderClient();
+    act(() => {
+      root.render(React.createElement(IntentProbe, { chatId: "chat-1", traceId: null }));
+    });
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ chatId: "chat-1", traceId: null }),
+    );
+
+    setArtifactIntentMock.mockClear();
+    act(() => {
+      root.render(React.createElement(IntentProbe, { chatId: "chat-1", traceId: "todo-99" }));
+    });
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ chatId: "chat-1", traceId: "todo-99" }),
+    );
+
+    setArtifactIntentMock.mockClear();
+    act(() => {
+      root.render(React.createElement(IntentProbe, { chatId: "chat-1", traceId: "todo-100" }));
+    });
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ chatId: "chat-1", traceId: "todo-100" }),
+    );
+
+    setArtifactIntentMock.mockClear();
+    act(() => {
+      root.render(React.createElement(IntentProbe, { chatId: "chat-1", traceId: null }));
+    });
+    expect(setArtifactIntentMock).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ chatId: "chat-1", traceId: null }),
+    );
+
+    // chatId/botName-only re-renders (older call sites) remain green: no
+    // traceId argument still publishes traceId: null, never undefined.
+    setArtifactIntentMock.mockClear();
+    act(() => {
+      root.render(React.createElement(IntentProbe, { chatId: "chat-1" }));
+    });
+    expect(setArtifactIntentMock).not.toHaveBeenCalled();
+
     root.unmount();
   });
 });

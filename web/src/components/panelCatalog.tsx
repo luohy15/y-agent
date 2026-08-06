@@ -34,9 +34,22 @@ export function buildModulePanelItems(artifacts: Module[]): PanelItem<`artifact:
   }));
 }
 
+// Round-2 gap closure (plan-3046-right-sidebar.md R1): the right drawer no
+// longer appends every mountable module, only the resolved chat module —
+// arbitrary module panels remain left-activity-bar only. Returns [] while
+// chat is not yet mountable (cold-loading, disabled, unpublished), which
+// resolveRightPanel's cold-retention / removed-module-fallback logic already
+// handles the same way it does for any other catalog item.
+export function buildChatPanelItem(artifacts: Module[]): PanelItem<"artifact:chat">[] {
+  const chat = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "chat");
+  if (!chat) return [];
+  return [{ key: "artifact:chat", label: artifactLabel(chat), icon: artifactIcon(chat.active_version.icon) }];
+}
+
 export function restoreRightPanel(saved: string | null): string {
   if (saved === "git") return "diff";
   if (saved === "chats") return "artifact:chat";
+  if (saved === "links") return "notes";
   return saved || "notes";
 }
 

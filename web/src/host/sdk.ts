@@ -19,6 +19,7 @@ import { ListEmpty, ListError, ListLoading } from "../components/ListStates";
 import { HOST_CONTRACT_VERSION } from "./contract";
 import { runHostCommand } from "./commands";
 import { openArtifactDetail, useArtifactIntent } from "./intents";
+import { usePanelLocation } from "./panelLocation";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
 import { optimisticListMutate } from "../utils/optimisticMutate";
@@ -75,6 +76,10 @@ export const hostSdk = {
   // intents.ts
   useArtifactIntent,
   openArtifactDetail,
+
+  // panelLocation.ts (contract v6) — which sidebar a `panel` surface is
+  // mounted in ("left" activity bar vs. "right" drawer).
+  usePanelLocation,
 
   // commands.ts (contract v4) — artifact -> host named command channel
   runHostCommand,

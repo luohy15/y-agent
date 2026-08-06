@@ -14,6 +14,7 @@ import {
   type ArtifactVersionRef,
   type LoadedArtifact,
 } from "./loader";
+import { PanelLocationProvider } from "./panelLocation";
 
 type FailureKind = ArtifactLoadErrorKind | "render";
 
@@ -197,6 +198,10 @@ interface ArtifactMountProps {
   // claimant's bundle fails, keep ChatFallbackView readable/sendable beneath
   // the rollback card instead of an empty center column).
   fallback?: ReactNode;
+  // Contract v6: which sidebar this `panel` surface is mounted in, exposed to
+  // the loaded module through `usePanelLocation()`. Ignored on "detail"/
+  // "shell" surfaces (see panelLocation.ts) and defaults to "left" when unset.
+  panelLocation?: "left" | "right";
 }
 
 export default function ArtifactMount({
@@ -208,6 +213,7 @@ export default function ArtifactMount({
   onRolledBack,
   onDetailAvailable,
   fallback,
+  panelLocation,
 }: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
 
@@ -307,11 +313,14 @@ export default function ArtifactMount({
       : surface === "shell"
         ? (state.artifact.Shell ?? state.artifact.Panel)
         : state.artifact.Panel;
-  return (
+  const body = (
     <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
       <RenderBoundary onError={handleRenderError}>
         <Artifact />
       </RenderBoundary>
     </div>
   );
+  return surface === "panel"
+    ? <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>
+    : body;
 }

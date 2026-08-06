@@ -273,6 +273,12 @@ declare module "@y/host" {
   /** Ask the host to open this artifact's detail surface as a tab. */
   export function openArtifactDetail(slug: string): void;
 
+  // panelLocation.ts (contract v6) — which sidebar this `panel` surface is
+  // mounted in. Always "left" outside a "panel" surface (detail/shell do not
+  // provide it) and for older/unspecified host call sites.
+  /** Which sidebar this `panel` surface is mounted in: "left" or "right". */
+  export function usePanelLocation(): "left" | "right";
+
   // commands.ts — artifact->host named command channel (contract v4). An
   // unregistered name is a silent no-op. Registration is host-internal and
   // not exported here (same partition as setArtifactIntent).

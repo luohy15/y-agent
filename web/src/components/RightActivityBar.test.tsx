@@ -1,15 +1,14 @@
 import React, { act, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RightActivityBar from "./RightActivityBar";
 import type { PanelItem } from "./panelCatalog";
 
-const items: PanelItem<"notes" | "links" | "files" | "diff" | "artifact:fake">[] = [
+const items: PanelItem<"artifact:chat" | "notes" | "files" | "diff">[] = [
+  { key: "artifact:chat", label: "Chat", icon: <span>C</span> },
   { key: "notes", label: "Notes", icon: <span>N</span> },
-  { key: "links", label: "Links", icon: <span>L</span> },
   { key: "files", label: "Files", icon: <span>F</span> },
   { key: "diff", label: "Diff", icon: <span>D</span> },
-  { key: "artifact:fake", label: "Fake", icon: <span>A</span> },
 ];
 
 function renderClient() {
@@ -18,32 +17,20 @@ function renderClient() {
   return { container, root: createRoot(container) };
 }
 
-function MobileHarness() {
-  const [drawerOpen, setDrawerOpen] = useState(true);
+function Harness({ onClose }: { onClose: () => void }) {
   const [activePanel, setActivePanel] = useState<(typeof items)[number]["key"]>("notes");
-  return drawerOpen ? (
-    <div data-testid="drawer">
-      <RightActivityBar mobile items={items} activePanel={activePanel} contentOpen onSelectPanel={setActivePanel} />
-      <button onClick={() => setDrawerOpen(false)}>Navigate</button>
-    </div>
-  ) : null;
-}
-
-function DesktopHarness() {
-  const [activePanel, setActivePanel] = useState<(typeof items)[number]["key"]>("notes");
-  const [contentOpen, setContentOpen] = useState(true);
-  return <>
-    <RightActivityBar
-      items={items}
-      activePanel={activePanel}
-      contentOpen={contentOpen}
-      onSelectPanel={(panel) => {
-        if (contentOpen && panel === activePanel) setContentOpen(false);
-        else { setActivePanel(panel); setContentOpen(true); }
-      }}
-    />
-    {contentOpen && <div data-testid="right-body">{activePanel}</div>}
-  </>;
+  return (
+    <>
+      <RightActivityBar
+        items={items}
+        activePanel={activePanel}
+        onSelectPanel={setActivePanel}
+        onRefresh={() => {}}
+        onClose={onClose}
+      />
+      <div data-testid="right-body">{activePanel}</div>
+    </>
+  );
 }
 
 describe("RightActivityBar", () => {
@@ -55,32 +42,50 @@ describe("RightActivityBar", () => {
     document.body.replaceChildren();
   });
 
-  it("selects each built-in and module body, then collapses without removing the rail", () => {
+  it("renders exactly four ordered buttons (Chat, Notes, Files, Diff)", () => {
     const { container, root } = renderClient();
-    act(() => root.render(<DesktopHarness />));
+    act(() => root.render(<Harness onClose={() => {}} />));
 
-    for (const item of items) {
-      const button = () => container.querySelector(`[data-right-panel="${item.key}"]`) as HTMLButtonElement;
-      act(() => button().click());
-      if (!container.querySelector("[data-testid=right-body]")) act(() => button().click());
-      expect(container.querySelector("[data-testid=right-body]")?.textContent).toBe(item.key);
-      expect(container.querySelectorAll("[data-right-panel]")).toHaveLength(items.length);
-    }
+    const buttons = container.querySelectorAll("[data-right-panel]");
+    expect(Array.from(buttons).map((b) => b.getAttribute("data-right-panel"))).toEqual([
+      "artifact:chat",
+      "notes",
+      "files",
+      "diff",
+    ]);
 
-    act(() => (container.querySelector('[data-right-panel="artifact:fake"]') as HTMLButtonElement).click());
-    expect(container.querySelector("[data-testid=right-body]")).toBeNull();
-    expect(container.querySelectorAll("[data-right-panel]")).toHaveLength(items.length);
     act(() => root.unmount());
   });
 
-  it("keeps the mobile drawer open for category switches and closes only on navigation", () => {
+  it("switches the body on category click without ever calling onClose", () => {
+    const onClose = vi.fn();
     const { container, root } = renderClient();
-    act(() => root.render(<MobileHarness />));
+    act(() => root.render(<Harness onClose={onClose} />));
 
-    act(() => (container.querySelector('[data-right-panel="artifact:fake"]') as HTMLButtonElement).click());
-    expect(container.querySelector("[data-testid=drawer]")).toBeTruthy();
-    act(() => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Navigate") as HTMLButtonElement).click());
-    expect(container.querySelector("[data-testid=drawer]")).toBeNull();
+    for (const item of items) {
+      const button = container.querySelector(`[data-right-panel="${item.key}"]`) as HTMLButtonElement;
+      act(() => button.click());
+      expect(container.querySelector("[data-testid=right-body]")?.textContent).toBe(item.key);
+    }
+    // Re-clicking the already-active category (the old collapse trigger)
+    // must still just re-select it, never collapse via onClose.
+    const activeAgain = container.querySelector('[data-right-panel="diff"]') as HTMLButtonElement;
+    act(() => activeAgain.click());
+    expect(container.querySelector("[data-testid=right-body]")?.textContent).toBe("diff");
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("fires onClose on desktop and mobile Close alike", () => {
+    const onClose = vi.fn();
+    const { container, root } = renderClient();
+    act(() => root.render(<Harness onClose={onClose} />));
+
+    const closeButton = container.querySelector('button[title="Close"]') as HTMLButtonElement;
+    act(() => closeButton.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+
     act(() => root.unmount());
   });
 });
