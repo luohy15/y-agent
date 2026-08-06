@@ -146,6 +146,67 @@ function MessageImages({ images }: { images?: string[] }) {
   </div>;
 }
 
+export interface HostTurnItem { key: string; message?: HostMessage; process?: HostMessage[] }
+
+// Compact a flat message stream into one item per user/final-assistant pair,
+// folding intervening assistant narration and tool activity into a single
+// disclosure item so a long agentic turn doesn't render as a wall of text.
+export function buildTurnDisplay(messages: HostMessage[]): HostTurnItem[] {
+  const items: HostTurnItem[] = [];
+  const userStarts: number[] = [];
+  for (let i = 0; i < messages.length; i += 1) if (messages[i].role === "user") userStarts.push(i);
+  const rounds: Array<{ start: number; contentStart: number; end: number; hasUser: boolean }> = [];
+  if (userStarts.length === 0 || userStarts[0] > 0) {
+    rounds.push({ start: 0, contentStart: 0, end: userStarts.length ? userStarts[0] : messages.length, hasUser: false });
+  }
+  for (let r = 0; r < userStarts.length; r += 1) {
+    const start = userStarts[r];
+    const end = r + 1 < userStarts.length ? userStarts[r + 1] : messages.length;
+    rounds.push({ start, contentStart: start + 1, end, hasUser: true });
+  }
+  for (const round of rounds) {
+    if (round.hasUser) items.push({ key: `m${round.start}`, message: messages[round.start] });
+    let lastAssistant = -1;
+    for (let i = round.end - 1; i >= round.contentStart; i -= 1) {
+      if (messages[i].role === "assistant") { lastAssistant = i; break; }
+    }
+    const process: HostMessage[] = [];
+    for (let i = round.contentStart; i < round.end; i += 1) if (i !== lastAssistant) process.push(messages[i]);
+    if (process.length) items.push({ key: `p${round.contentStart}`, process });
+    if (lastAssistant >= 0) items.push({ key: `m${lastAssistant}`, message: messages[lastAssistant] });
+  }
+  return items;
+}
+
+const TOOL_LABELS: Record<string, string> = { bash: "Bash", read: "Read", file_read: "Read", write: "Write", file_write: "Write", edit: "Edit", file_edit: "Edit", grep: "Grep", glob: "Glob", agent: "Agent", todowrite: "Todo" };
+
+function toolLabel(name?: string): string {
+  if (!name) return "tool";
+  return TOOL_LABELS[name.toLowerCase()] || name;
+}
+
+function summarizeProcess(messages: HostMessage[]): string {
+  const counts: Record<string, number> = {};
+  let notes = 0;
+  for (const message of messages) {
+    if (message.role === "assistant") { notes += 1; continue; }
+    if (message.role === "tool_pending" || message.role === "tool_result" || message.role === "tool_denied") {
+      const label = toolLabel(message.toolName);
+      counts[label] = (counts[label] || 0) + 1;
+    }
+  }
+  const parts = Object.entries(counts).map(([label, count]) => (count > 1 ? `${label} ×${count}` : label));
+  if (notes) parts.push(notes > 1 ? `${notes} notes` : "note");
+  return parts.length ? parts.join(", ") : `${messages.length} steps`;
+}
+
+function ProcessSummary({ messages }: { messages: HostMessage[] }) {
+  return <details className="font-mono text-xs text-sol-base01">
+    <summary className="cursor-pointer" data-testid="process-summary">{summarizeProcess(messages)}</summary>
+    <div className="mt-1 flex flex-col gap-2">{messages.map((message, index) => <HostBubble key={index} message={message} />)}</div>
+  </details>;
+}
+
 function HostBubble({ message }: { message: HostMessage }) {
   const [modes, setModes] = useState<Record<string, ArtifactMode>>({});
   if (message.role === "user") return <div className="rounded bg-sol-base02 px-2 py-1.5 text-sm text-sol-base1 whitespace-pre-wrap break-words"><span className="mr-2 font-mono text-sol-base01">&gt;</span>{message.content}<MessageImages images={message.images} /></div>;
@@ -181,5 +242,6 @@ export default function HostMessageView({ messages, running = false, centered = 
   const ownRef = useRef<HTMLDivElement>(null);
   const ref = scrollContainerRef || ownRef;
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [messages, ref]);
-  return <div ref={ref} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{messages.map((message, index) => <HostBubble key={index} message={message} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></div>;
+  const items = buildTurnDisplay(messages);
+  return <div ref={ref} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{items.map((item) => item.message ? <HostBubble key={item.key} message={item.message} /> : <ProcessSummary key={item.key} messages={item.process!} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></div>;
 }
