@@ -86,6 +86,17 @@ def create_todo(
     return saved
 
 
+def get_latest_marker(todo: Todo, marker: str) -> Optional[str]:
+    """Return the most recent history entry whose note contains `marker`, formatted as
+    "<timestamp> <note>", or None. Used to surface a single compact status line (e.g. the
+    dev coordinator's `[dev-claim]` lock marker) without exposing full history via the CLI.
+    """
+    for entry in reversed(todo.history or []):
+        if entry.note and marker in entry.note:
+            return f"{entry.timestamp} {entry.note}"
+    return None
+
+
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     todo = todo_repo.get_todo(user_id, todo_id)
     if not todo:

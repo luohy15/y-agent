@@ -92,6 +92,14 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
         raise HTTPException(status_code=404, detail="Todo not found")
     result = todo.to_dict()
 
+    dev_claim = todo_service.get_latest_marker(todo, "[dev-claim]")
+    if dev_claim:
+        result["dev_claim"] = dev_claim
+
+    dev_handoff = todo_service.get_latest_marker(todo, "[dev-handoff]")
+    if dev_handoff:
+        result["dev_handoff"] = dev_handoff
+
     # Include associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note import get_notes_by_ids

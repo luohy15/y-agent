@@ -4,8 +4,7 @@ from yagent.api_client import api_request
 
 @click.command('get')
 @click.argument('todo_id')
-@click.option('--history', is_flag=True, help='Include todo history.')
-def todo_get(todo_id, history):
+def todo_get(todo_id):
     """Show todo details."""
     resp = api_request("GET", "/api/todo/detail", params={"todo_id": todo_id})
     todo = resp.json()
@@ -20,6 +19,10 @@ def todo_get(todo_id, history):
         click.echo(f"Desc:      {todo['desc']}")
     if todo.get('progress'):
         click.echo(f"Progress:  {todo['progress']}")
+    if todo.get('dev_claim'):
+        click.echo(f"Dev-claim: {todo['dev_claim']}")
+    if todo.get('dev_handoff'):
+        click.echo(f"Dev-handoff: {todo['dev_handoff']}")
     if todo.get('completed_at'):
         click.echo(f"Completed: {todo['completed_at']}")
     if todo.get('created_at'):
@@ -31,8 +34,3 @@ def todo_get(todo_id, history):
             if n.get("front_matter") and n["front_matter"].get("tags"):
                 tags = f" [{', '.join(n['front_matter']['tags'])}]"
             click.echo(f"  {n['note_id']}{tags}: {n['content_key']}")
-    if history and todo.get('history'):
-        click.echo("History:")
-        for h in todo['history']:
-            note = f" - {h['note']}" if h.get('note') else ""
-            click.echo(f"  {h['timestamp']} {h['action']}{note}")

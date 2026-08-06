@@ -57,6 +57,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   `cli/commands/finance` + `cli/commands/beancount`, storage finance entities /
   repositories / services / DTOs, and the unreferenced `worker/steps/sync_finance.py`
   are deleted after the full-stack module path was verified live.
+- **`y todo get --history` (3044)**: the CLI flag is gone; full history display belongs
+  in the web UI only, and the API/DB still keep the underlying history data unchanged.
+  `y todo get` now surfaces a compact `Dev-claim:` line (the most recent `[dev-claim]`
+  marker, computed server-side) so the dev coordinator's claim/ownership check keeps
+  working without a full-history CLI dump.
 
 ## [0.5.23] - 2026-08-02
 
