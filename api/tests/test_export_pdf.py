@@ -56,10 +56,7 @@ class ExportPdfBranchTest(unittest.IsolatedAsyncioTestCase):
 
     def _patch_runner(self, stack, run_cmd_return=None, run_cmd_exc=None):
         run_cmd = AsyncMock(return_value=run_cmd_return, side_effect=run_cmd_exc)
-        runner_instance = SimpleNamespace(run_cmd=run_cmd)
-        runner_cls = MagicMock(return_value=runner_instance)
-        stack.enter_context(patch.object(file_controller, "_get_cmd_runner_cls", MagicMock(return_value=runner_cls)))
-        stack.enter_context(patch("agent.config.resolve_vm_config", MagicMock(return_value=VmConfig())))
+        stack.enter_context(patch.object(file_controller, "_exec", run_cmd))
         return run_cmd
 
     async def test_empty_html_400(self):

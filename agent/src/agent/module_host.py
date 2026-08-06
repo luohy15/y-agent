@@ -25,7 +25,12 @@ The v3 surface adds request-bound chat browsing and sharing over host-owned chat
 state:
   - chat_list / chat_get / chat_create_share
 
-Every v2/v3 capability is bound to the authenticated request owner, like
+The v4 surface extends request-bound VM execution with explicit working-directory
+and stdin support, and adds a narrow note-path lookup for file rename guards:
+  - run_vm_command(..., work_dir=..., stdin=...)
+  - note_list_at_path
+
+Every v2/v3/v4 capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
 but no bound request owner, so it must use the module HTTP API instead.
@@ -54,9 +59,11 @@ not a v2 bump, because v1 has never shipped — no host carrying
 BACKEND_CONTRACT_VERSION has been deployed and no backend module version has
 been published against it. The bot-config capability is a genuine surface
 addition (todo 3028), so it bumps BACKEND_CONTRACT_VERSION from 1 to 2. The chat
-control-plane capability (todo 3042) bumps it from 2 to 3. Modules declare the
-minimum version they use and an older host rejects their bundle. Every later
-addition to the surface above bumps the version and, for modules that need it,
+control-plane capability (todo 3042) bumps it from 2 to 3. The file control-plane
+capability (todo 3068) extends VM execution with work_dir and stdin and adds
+note_list_at_path, bumping it from 3 to 4. Modules declare the minimum version
+they use and an older host rejects their bundle. Every later addition to the
+surface above bumps the version and, for modules that need it,
 `min_backend_version`.
 """
 
@@ -71,7 +78,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 3
+BACKEND_CONTRACT_VERSION = 4
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -168,6 +175,8 @@ async def run_vm_command(
     argv: list[str],
     *,
     timeout: float = 30,
+    work_dir: Optional[str] = None,
+    stdin: Optional[str] = None,
 ) -> str:
     """Run argv on the authenticated owner's VM (local when no api_token, SSH otherwise).
 
@@ -176,8 +185,10 @@ async def run_vm_command(
     (bound by the dispatcher): a caller-chosen different id is rejected, and
     the VM is resolved strictly for that user with no default-user fallback
     (review finding 2). VM config is resolved strictly for the owner with no
-    fallback to another user's VM. Raises a typed error on a non-zero local or
-    SSH exit status (or timeout); callers decide how to surface it.
+    fallback to another user's VM. `work_dir` overrides the configured directory
+    when provided; `stdin` is passed without placing bytes in argv. Raises a
+    typed error on a non-zero local or SSH exit status (or timeout); callers
+    decide how to surface it.
     """
     if not argv:
         raise ValueError("argv must be a non-empty list")
@@ -200,16 +211,40 @@ async def run_vm_command(
             f"no VM configured for owner {user_id} (vm={vm_name or 'default'})"
         )
 
-    cmd = list(argv)
-    if not vm_config.api_token:
-        from agent.tools.local_exec import local_exec
+    from agent.vm_command import execute_vm_command
 
-        return await local_exec(cmd, None, timeout=timeout, cwd=vm_config.work_dir or None, check=True)
-    from agent.tools.ssh_exec import ssh_exec
-
-    return await ssh_exec(
-        vm_config, cmd, None, dir=vm_config.work_dir or None, timeout=timeout, check=True
+    return await execute_vm_command(
+        vm_config,
+        list(argv),
+        stdin=stdin,
+        timeout=timeout,
+        work_dir=work_dir,
+        check=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# v4 file control-plane capability
+#
+# The file module may ask only which of the authenticated owner's notes block a
+# content-key rename. It never receives a note service or generic table access.
+# ---------------------------------------------------------------------------
+
+
+def note_list_at_path(user_id: int, content_key: str) -> list[dict[str, str]]:
+    """Return owner-scoped note path blockers as plain dictionaries."""
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"note path lookup for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); note access is request-bound"
+        )
+    from storage.service import note as note_service
+
+    return [
+        {"content_key": note.content_key}
+        for note in note_service.list_notes_at_path(user_id, content_key)
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import dataclasses
 import fnmatch
 import json
 import mimetypes
@@ -13,6 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from agent.vm_command import run_vm_command as _exec
 from storage.service import note as note_service
 
 router = APIRouter(prefix="/file")
@@ -22,36 +22,6 @@ Y_AGENT_HOME = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expa
 
 def _get_user_id(request: Request) -> int:
     return request.state.user_id
-
-
-# Lazily build the Tool subclass so the agent layer (paramiko/cryptography/boto3)
-# stays out of the API import path until /file endpoints are actually hit.
-_cmd_runner_cls = None
-
-
-def _get_cmd_runner_cls():
-    global _cmd_runner_cls
-    if _cmd_runner_cls is None:
-        from agent.tool_base import Tool
-
-        class _CmdRunner(Tool):
-            name = "_cmd_runner"
-            description = ""
-            parameters = {}
-            async def execute(self, arguments):
-                pass
-
-        _cmd_runner_cls = _CmdRunner
-    return _cmd_runner_cls
-
-
-async def _exec(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None, work_dir: str = None) -> str:
-    from agent.config import resolve_vm_config
-    vm_config = resolve_vm_config(user_id, vm_name)
-    if work_dir:
-        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
-    runner = _get_cmd_runner_cls()(vm_config)
-    return await runner.run_cmd(cmd, timeout=timeout)
 
 
 async def _get_vscode_excludes(user_id: int, vm_name: str, key: str, work_dir: str = None) -> list[str]:
@@ -181,19 +151,17 @@ async def list_skills(request: Request, vm_name: str = Query(None)):
 async def _exec_bytes(user_id: int, cmd: list[str], timeout: float = 10, vm_name: str = None, work_dir: str = None) -> bytes:
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, vm_name)
-    if work_dir:
-        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
     if not vm_config.api_token:
+        effective_work_dir = work_dir if work_dir is not None else vm_config.work_dir
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            cwd=os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else None,
+            cwd=os.path.expanduser(effective_work_dir) if effective_work_dir else None,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return stdout or b""
-    # For remote VMs, read via base64 encoding
-    import base64
+    # For remote VMs, read via base64 encoding.
     b64 = await _exec(user_id, ["base64", cmd[-1]], timeout=timeout, vm_name=vm_name, work_dir=work_dir)
     return base64.b64decode(b64)
 
@@ -525,23 +493,15 @@ async def upload_file(
     filename = os.path.basename(file.filename or "upload")
     dest_path = f"{dest_dir}/{filename}"
 
-    from agent.config import resolve_vm_config
-    vm_config = resolve_vm_config(user_id, vm_name)
-    if work_dir:
-        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
-    if not vm_config.api_token:
-        # Local: write directly to disk
-        effective_dir = os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else "."
-        full_path = os.path.normpath(os.path.join(effective_dir, dest_path))
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        with open(full_path, "wb") as f:
-            f.write(content)
-    else:
-        # Remote: pipe base64-encoded content through stdin and decode on target
-        import shlex
-        b64 = base64.b64encode(content).decode("ascii")
-        runner = _get_cmd_runner_cls()(vm_config)
-        await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(dest_path)}"], stdin=b64)
+    import shlex
+    b64 = base64.b64encode(content).decode("ascii")
+    await _exec(
+        user_id,
+        ["bash", "-c", f"mkdir -p {shlex.quote(dest_dir)} && base64 -d > {shlex.quote(dest_path)}"],
+        vm_name=vm_name,
+        work_dir=work_dir,
+        stdin=b64,
+    )
 
     return {"path": dest_path, "size": len(content), "success": True}
 
@@ -554,23 +514,15 @@ class WriteRequest(BaseModel):
 @router.post("/write")
 async def write_file(request: Request, body: WriteRequest, vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = _get_user_id(request)
-    from agent.config import resolve_vm_config
-    vm_config = resolve_vm_config(user_id, vm_name)
-    if work_dir:
-        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
-    if not vm_config.api_token:
-        # Local: write directly to disk
-        effective_dir = os.path.expanduser(vm_config.work_dir) if vm_config.work_dir else "."
-        full_path = os.path.normpath(os.path.join(effective_dir, body.path))
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        with open(full_path, "w") as f:
-            f.write(body.content)
-    else:
-        # Remote: pipe base64-encoded content through stdin and decode on target
-        import shlex
-        b64 = base64.b64encode(body.content.encode("utf-8")).decode("ascii")
-        runner = _get_cmd_runner_cls()(vm_config)
-        await runner.run_cmd(["bash", "-c", f"base64 -d > {shlex.quote(body.path)}"], stdin=b64)
+    import shlex
+    b64 = base64.b64encode(body.content.encode("utf-8")).decode("ascii")
+    await _exec(
+        user_id,
+        ["bash", "-c", f"mkdir -p \"$(dirname {shlex.quote(body.path)})\" && base64 -d > {shlex.quote(body.path)}"],
+        vm_name=vm_name,
+        work_dir=work_dir,
+        stdin=b64,
+    )
     return {"path": body.path, "success": True}
 
 
@@ -634,14 +586,14 @@ async def export_pdf(request: Request, body: ExportPdfRequest, vm_name: str = Qu
     if not body.html or not body.html.strip():
         raise HTTPException(status_code=400, detail="Missing HTML payload")
 
-    from agent.config import resolve_vm_config
-    vm_config = resolve_vm_config(user_id, vm_name)
-    if work_dir:
-        vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
-    runner = _get_cmd_runner_cls()(vm_config)
     try:
-        output = await runner.run_cmd(
-            ["bash", "-c", _WEASYPRINT_RENDER_SCRIPT], stdin=body.html, timeout=60
+        output = await _exec(
+            user_id,
+            ["bash", "-c", _WEASYPRINT_RENDER_SCRIPT],
+            stdin=body.html,
+            timeout=60,
+            vm_name=vm_name,
+            work_dir=work_dir,
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="PDF render timed out")

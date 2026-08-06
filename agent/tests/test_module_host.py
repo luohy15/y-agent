@@ -23,8 +23,8 @@ from agent.tools.errors import CommandError
 
 
 class ContractSurfaceTest(unittest.TestCase):
-    def test_backend_contract_version_is_three(self):
-        self.assertEqual(BACKEND_CONTRACT_VERSION, 3)
+    def test_backend_contract_version_is_four(self):
+        self.assertEqual(BACKEND_CONTRACT_VERSION, 4)
 
     def test_importing_module_host_does_not_import_paramiko(self):
         # Drop paramiko if a previous test imported it, then re-import the contract.
@@ -150,6 +150,7 @@ class RunVmCommandTest(unittest.IsolatedAsyncioTestCase):
         local.assert_awaited_once()
         self.assertEqual(local.await_args.args[0], ["y", "todo", "list"])
         self.assertEqual(local.await_args.kwargs.get("timeout") or local.await_args.args[2], 12)
+        self.assertEqual(local.await_args.kwargs.get("cwd"), "/tmp/work")
         self.assertTrue(local.await_args.kwargs.get("check"))
         ssh.assert_not_awaited()
 
@@ -168,7 +169,40 @@ class RunVmCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ssh.await_args.args[1], ["y", "finance", "holdings"])
         # timeout is keyword on ssh_exec
         self.assertEqual(ssh.await_args.kwargs.get("timeout"), 45)
+        self.assertEqual(ssh.await_args.kwargs.get("dir"), "/home/roy")
         self.assertTrue(ssh.await_args.kwargs.get("check"))
+
+    async def test_local_path_accepts_work_dir_and_stdin(self):
+        vm = SimpleNamespace(api_token=None, work_dir="/tmp/default", vm_name="default")
+        with request_owner(7), \
+             patch("storage.service.vm_config.get_config", return_value=vm), \
+             patch("agent.tools.local_exec.local_exec", new_callable=AsyncMock, return_value="ok") as local:
+            out = await run_vm_command(
+                7,
+                None,
+                ["bash", "-c", "cat"],
+                work_dir="/tmp/override",
+                stdin="payload",
+            )
+        self.assertEqual(out, "ok")
+        self.assertEqual(local.await_args.args[1], "payload")
+        self.assertEqual(local.await_args.kwargs["cwd"], "/tmp/override")
+
+    async def test_ssh_path_accepts_work_dir_and_stdin(self):
+        vm = SimpleNamespace(api_token="secret-key", work_dir="/home/default", vm_name="ssh:roy@host")
+        with request_owner(7), \
+             patch("storage.service.vm_config.get_config", return_value=vm), \
+             patch("agent.tools.ssh_exec.ssh_exec", new_callable=AsyncMock, return_value="remote") as ssh:
+            out = await run_vm_command(
+                7,
+                "prod",
+                ["bash", "-c", "cat"],
+                work_dir="/home/override",
+                stdin="payload",
+            )
+        self.assertEqual(out, "remote")
+        self.assertEqual(ssh.await_args.args[2], "payload")
+        self.assertEqual(ssh.await_args.kwargs["dir"], "/home/override")
 
     async def test_local_nonzero_exit_raises_command_error(self):
         """review finding 2: a failed local producer must look failed."""
@@ -276,6 +310,28 @@ class ChatCapabilityTest(unittest.IsolatedAsyncioTestCase):
              patch("storage.service.chat.create_share", new_callable=AsyncMock, return_value="share-1"):
             result = await mh.chat_create_share(3, "chat-1", generate_password=True)
         self.assertEqual(result, {"share_id": "share-1", "password": "generated"})
+
+
+class NotePathCapabilityTest(unittest.TestCase):
+    def test_requires_a_bound_request_owner(self):
+        with self.assertRaises(mh.ModuleHostAuthError):
+            mh.note_list_at_path(1, "pages/note.md")
+
+    def test_refuses_another_users_note_lookup(self):
+        with request_owner(5):
+            with self.assertRaises(mh.ModuleHostAuthError):
+                mh.note_list_at_path(7, "pages/note.md")
+
+    def test_returns_only_plain_content_key_values_for_the_owner(self):
+        notes = [
+            SimpleNamespace(content_key="pages/a.md"),
+            SimpleNamespace(content_key="pages/b.md"),
+        ]
+        with request_owner(3), \
+             patch("storage.service.note.list_notes_at_path", return_value=notes) as svc:
+            result = mh.note_list_at_path(3, "pages/a.md")
+        svc.assert_called_once_with(3, "pages/a.md")
+        self.assertEqual(result, [{"content_key": "pages/a.md"}, {"content_key": "pages/b.md"}])
 
 
 class BotConfigCapabilityTest(unittest.TestCase):

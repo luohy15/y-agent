@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.controller.file import _exec
+from agent.vm_command import run_vm_command as _exec
 from storage.service import bot_config as bot_service
 from storage.service import link as link_service
 

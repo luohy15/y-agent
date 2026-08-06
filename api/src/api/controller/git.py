@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Request
 
-from api.controller.file import _exec
+from agent.vm_command import run_vm_command as _exec
 
 router = APIRouter(prefix="/git")
 

@@ -7,7 +7,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.controller.file import _exec
+from agent.vm_command import run_vm_command as _exec
 from storage.service import note as note_service
 from storage.service import note_todo_relation as relation_service
 
