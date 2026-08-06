@@ -44,6 +44,11 @@ mode (`-i`) serves a human at a terminal.
    that I can find and resume any conversation.
 2. As a web user, I want the root manager chat pinned above the list, so that
    my main inbox conversation is always one click away regardless of filters.
+   In the right-side chat drawer specifically, when the query is filtered by
+   `todo:<id>`, I also want the newest `dev` chat for that trace pinned
+   directly below manager, so that I can jump straight to whichever session
+   is actually coordinating that todo (this second pin does not apply to the
+   left activity-bar panel or to an unfiltered list).
 3. As a web user, I want each list row to show the title (first user
    message), timestamp, and badges for trace id, chat id, topic, skill, and
    routine, so that I can identify a chat's place in the session tree at a
@@ -51,12 +56,32 @@ mode (`-i`) serves a human at a terminal.
 4. As a web user, I want a running spinner, an interrupted icon, and an
    unread dot on list rows, so that I can see which conversations need
    attention without opening them.
-5. As a web user, I want to filter the list by free-text search, todo (trace)
-   id, topic, skill, routine name, and running status, so that I can narrow
-   hundreds of chats to the ones relevant to a task.
-6. As a web user, I want clicking a row badge to apply that badge's value as
-   a filter, so that I can pivot from one chat to all its trace / topic /
-   skill siblings in one click.
+5. As a web user, I want to filter the list through one compact `key:value`
+   query input (GitHub/Lucene style: space-separated terms AND together, a
+   repeated key overwrites the earlier one, an empty value like `todo:`
+   clears that key, and bare words are free text) instead of a stack of
+   separate filter boxes, so that I can narrow hundreds of chats to the ones
+   relevant to a task with one field. The recognized keys are:
+
+   | Term | Filters by |
+   |------|------------|
+   | `todo:<id>` (alias `trace:`) | todo / trace id |
+   | `topic:<name>` | topic |
+   | `skill:<name>` | skill |
+   | `bot:<name>` | bot |
+   | `routine:<name>` | routine name |
+   | `tier:<tier>` | bot tier |
+   | `tag:<tag>` | tag |
+   | `is:running` | running status |
+   | `is:routine` | routine-originated chats only |
+   | bare word(s) | free-text search |
+
+   The input surfaces this vocabulary while focused (a one-line key hint, and
+   prefix autocomplete on the token under the caret).
+6. As a web user, I want clicking a row badge to write that badge's value as
+   the matching `key:value` term in the query input (replacing any earlier
+   term for that key), so that I can pivot from one chat to all its trace /
+   topic / skill / bot / routine siblings in one click.
 7. As a web user, I want infinite-scroll pagination, so that old chats load
    on demand instead of slowing the initial view.
 8. As a web user, I want a copy-chat-id button on each row, so that I can
@@ -422,3 +447,4 @@ mode (`-i`) serves a human at a terminal.
 | 2951 | Append a context-handoff reminder to inbound user messages once a chat's used tokens exceed `min(50% of context window, 200k tokens)` (revised from a flat 20% ratio, which fired 5x earlier in absolute terms on 200k-window bots than on 1M-window fable-class ones). `Chat.context_usage_ratio()` remains the single Python source for the displayed percentage, and `Chat.used_tokens()` is the shared absolute-token accessor both it and the threshold comparison use; `maybe_append_handoff_reminder` runs at the API layer into the persisted message content, wired at all five existing-chat write sites (API send + notify, Telegram routed / DM steer / DM append). Chat-creation sites are deliberately skipped (`context_window is None` makes the check a no-op). Idempotency is structural: the append is decided once where the `Message` is built, deduped across the trailing user batch via the shared `trailing_user_messages()` that the worker also uses to concatenate a prompt, and no worker/agent path recomputes it. Reminder wording states the session's actual usage percentage and token count (no hardcoded threshold percentage, since the effective percentage now varies by window size) and is role-agnostic (no branching on `chat.topic` / `chat.skill`), deferring callback-vs-self-restart to the session per the AGENTS.md "Context handoff" playbook (todo 2976). `english_correction` strips the trailing reminder block so an injected nag is never scored as the user's own prose. Blob-only usage fields, so no migration and no new columns | - | `pages/plan-2951-context-handoff-reminder.md` | - | `pages/review-2951-context-handoff-reminder.md` | shipped |
 | 2989 | Established that the displayed context window comes from Claude Code's own `result.modelUsage[*].contextWindow`, which `monitor.py` copies into `Chat.context_window` verbatim. The initial delivery configured `sol` as `gpt-5.6-sol[1m]` and kept claude-relay-service commit `4527d56a` to strip the client-only suffix before upstream dispatch. Todo 2993 supersedes the suffix as the active y-agent mechanism but does not revert that relay-side defensive normalization or alter historical 200K telemetry | - | `pages/plan-2989.md` | - | `pages/review-2989-sol-1m-relay-normalization.md` | shipped; superseded by 2993 for active configuration |
 | 2993 | Set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` for every Claude Code subprocess so unknown custom model IDs such as plain `gpt-5.6-sol` report and use a 1M window without a model-string suffix. Known Claude models retain their registered windows. Accepted tradeoff: every unrecognized custom model is declared as 1M even if its real upstream window is smaller; per-bot context-window configuration is the fallback if that becomes a problem. The existing handoff reminder remains capped at 200K used tokens. Deployed from commit `a6ee296`; after the deployment passed, the `sol` bot was reverted to plain `gpt-5.6-sol` | - | - | - | `pages/review-2993-global-max-context-tokens-env.md` | shipped |
+| 3064 | Replace the chat panel's stacked filters with one compact `key:value` query input; keep manager always pinned, pin the newest dev chat below it for right-drawer todo filters, and scope routine-filter intents to the left panel | - | `pages/plan-3064-chat-query-input.md` | - | `pages/review-3064-chat-query-input.md` | reviewed; publish pending |
