@@ -61,15 +61,17 @@ mode (`-i`) serves a human at a terminal.
    repeated key overwrites the earlier one, an empty value like `todo:`
    clears that key, and bare words are free text) instead of a stack of
    separate filter boxes, so that I can narrow hundreds of chats to the ones
-   relevant to a task with one field. The recognized keys are:
+   relevant to a task with one field. Values that contain whitespace are
+   written and parsed as double-quoted spans (e.g. `routine:"Daily Scan"`);
+   a bare value never needs quotes. The recognized keys are:
 
    | Term | Filters by |
    |------|------------|
-   | `todo:<id>` (alias `trace:`) | todo / trace id |
+   | `todo:<id>` | todo / trace id |
    | `topic:<name>` | topic |
    | `skill:<name>` | skill |
    | `bot:<name>` | bot |
-   | `routine:<name>` | routine name |
+   | `routine:<name>` / `routine:"Name With Spaces"` | routine name |
    | `tier:<tier>` | bot tier |
    | `tag:<tag>` | tag |
    | `is:running` | running status |
@@ -77,11 +79,14 @@ mode (`-i`) serves a human at a terminal.
    | bare word(s) | free-text search |
 
    The input surfaces this vocabulary while focused (a one-line key hint, and
-   prefix autocomplete on the token under the caret).
+   prefix autocomplete on the token under the caret). Choosing a suggestion
+   (Tab/Enter or a click on the dropdown option) replaces the active token
+   with that key.
 6. As a web user, I want clicking a row badge to write that badge's value as
    the matching `key:value` term in the query input (replacing any earlier
-   term for that key), so that I can pivot from one chat to all its trace /
-   topic / skill / bot / routine siblings in one click.
+   term for that key, and auto-quoting the value when it contains whitespace),
+   so that I can pivot from one chat to all its trace / topic / skill / bot /
+   routine siblings in one click.
 7. As a web user, I want infinite-scroll pagination, so that old chats load
    on demand instead of slowing the initial view.
 8. As a web user, I want a copy-chat-id button on each row, so that I can
