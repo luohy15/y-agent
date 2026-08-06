@@ -20,10 +20,10 @@ type HostCommandHandler = (payload?: unknown) => void;
 const commands = new Map<string, HostCommandHandler>();
 
 /** Host-internal registration. App.tsx wires the concrete host gestures
- * (`todo.open`, `todo.openTrace`, `chat.refreshList`, …). Returns an
- * unregister function that only clears the slot if it still points at the
- * same handler (so a later re-register is not clobbered by an earlier
- * cleanup). */
+ * (`todo.open`, `todo.openTrace`, `chat.refreshList`, `chat.open`,
+ * `chat.setTraceFilter`, …). Returns an unregister function that only clears
+ * the slot if it still points at the same handler (so a later re-register is
+ * not clobbered by an earlier cleanup). */
 export function registerHostCommand(name: string, handler: HostCommandHandler): () => void {
   commands.set(name, handler);
   return () => {

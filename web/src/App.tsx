@@ -19,6 +19,13 @@ import EntityList from "./components/EntityList";
 import TagList from "./components/TagList";
 import type { TagResultItem } from "./api";
 import { navigateTag, openTodo } from "./utils/tagNavigate";
+import {
+  chatIdFromPayload,
+  openChat,
+  setChatTraceFilter,
+  traceIdFromPayload,
+  usePublishSelectedChatIntent,
+} from "./utils/chatHost";
 import ReminderList from "./components/ReminderList";
 import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
@@ -229,12 +236,33 @@ export default function App() {
     const unregisterRefreshList = registerHostCommand("chat.refreshList", () => {
       setChatListRefreshKey((key) => key + 1);
     });
+    // Plan P2 (pages/plan-3042-control-plane.md): chat control-plane host
+    // commands for the future modules/chat UI. Additive only — built-in ChatList
+    // keeps using handleSelectChat / setChatListTraceId directly.
+    const unregisterChatOpen = registerHostCommand("chat.open", (payload) => {
+      const chatId = chatIdFromPayload(payload);
+      if (chatId === undefined) return;
+      openChat(chatId, {
+        selectedChatId,
+        setSelectedChatId,
+        setChatHide,
+        setChatListOpen,
+        bumpChatRefresh: () => setChatRefreshKey((k) => k + 1),
+      });
+    });
+    const unregisterChatSetTraceFilter = registerHostCommand("chat.setTraceFilter", (payload) => {
+      const traceId = traceIdFromPayload(payload);
+      if (traceId === undefined) return;
+      setChatTraceFilter(traceId, setChatListTraceId);
+    });
     return () => {
       unregisterOpen();
       unregisterOpenTrace();
       unregisterRefreshList();
+      unregisterChatOpen();
+      unregisterChatSetTraceFilter();
     };
-  }, [handleOpenFile, requestSelectTraceId]);
+  }, [handleOpenFile, requestSelectTraceId, selectedChatId]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
@@ -373,6 +401,8 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
+  // Plan P2: publish selected-chat intent for modules/chat (no visible change).
+  usePublishSelectedChatIntent(selectedChatId);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
@@ -586,10 +616,13 @@ export default function App() {
   }, []);
 
   const handleSelectChat = useCallback((id: string | null) => {
-    if (id && id === selectedChatId) setChatRefreshKey((k) => k + 1);
-    setSelectedChatId(id);
-    setChatListOpen(false);
-    setChatHide(false);
+    openChat(id, {
+      selectedChatId,
+      setSelectedChatId,
+      setChatHide,
+      setChatListOpen,
+      bumpChatRefresh: () => setChatRefreshKey((k) => k + 1),
+    });
   }, [selectedChatId]);
 
   const handleSelectFeed = useCallback((feedId: string, label: string) => {
