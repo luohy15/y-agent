@@ -48,7 +48,12 @@ mode (`-i`) serves a human at a terminal.
    `todo:<id>`, I also want the newest `dev` chat for that trace pinned
    directly below manager, so that I can jump straight to whichever session
    is actually coordinating that todo (this second pin does not apply to the
-   left activity-bar panel or to an unfiltered list).
+   left activity-bar panel or to an unfiltered list). When that right-drawer
+   `todo:` filter is applied, default selection follows the rendered eligible
+   order rather than an independent "newest regular list row" pick: if the
+   dev pin is shown, select that dev chat; otherwise select the first regular
+   list result. Manager stays a navigation pin and does not win the default
+   under a todo filter (todo 3070).
 3. As a web user, I want each list row to show the title (first user
    message), timestamp, and badges for trace id, chat id, topic, skill, and
    routine, so that I can identify a chat's place in the session tree at a
@@ -453,3 +458,4 @@ mode (`-i`) serves a human at a terminal.
 | 2989 | Established that the displayed context window comes from Claude Code's own `result.modelUsage[*].contextWindow`, which `monitor.py` copies into `Chat.context_window` verbatim. The initial delivery configured `sol` as `gpt-5.6-sol[1m]` and kept claude-relay-service commit `4527d56a` to strip the client-only suffix before upstream dispatch. Todo 2993 supersedes the suffix as the active y-agent mechanism but does not revert that relay-side defensive normalization or alter historical 200K telemetry | - | `pages/plan-2989.md` | - | `pages/review-2989-sol-1m-relay-normalization.md` | shipped; superseded by 2993 for active configuration |
 | 2993 | Set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` for every Claude Code subprocess so unknown custom model IDs such as plain `gpt-5.6-sol` report and use a 1M window without a model-string suffix. Known Claude models retain their registered windows. Accepted tradeoff: every unrecognized custom model is declared as 1M even if its real upstream window is smaller; per-bot context-window configuration is the fallback if that becomes a problem. The existing handoff reminder remains capped at 200K used tokens. Deployed from commit `a6ee296`; after the deployment passed, the `sol` bot was reverted to plain `gpt-5.6-sol` | - | - | - | `pages/review-2993-global-max-context-tokens-env.md` | shipped |
 | 3064 | Replace the chat panel's stacked filters with one compact `key:value` query input; keep manager always pinned, pin the newest dev chat below it for right-drawer todo filters, and scope routine-filter intents to the left panel | - | `pages/plan-3064-chat-query-input.md` | - | `pages/review-3064-chat-query-input.md` | reviewed; publish pending |
+| 3070 | Right-drawer default chat selection follows rendered eligible order under a `todo:` filter: prefer the pinned newest dev chat when present, otherwise the first regular list result; manager remains a navigation pin and does not win the default | - | - | - | - | implemented; publish pending |

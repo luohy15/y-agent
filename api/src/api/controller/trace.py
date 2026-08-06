@@ -57,12 +57,18 @@ async def list_traces(request: Request, trace_id: str = Query(None), offset: int
 
 @router.get("/latest_chat")
 async def get_latest_chat(request: Request, trace_id: str = Query(...)):
-    """Get the latest chat_id for a trace."""
+    """Get the latest chat_id for a trace.
+
+    Prefers the newest `dev`-topic (coordinator) chat so this agrees with the
+    right drawer's own default pick (`modules/chat/ui/panel.tsx`'s dev pin,
+    which queries `topic=dev`); falls back to the newest chat overall.
+    """
     user_id = _get_user_id(request)
     chats = find_chats_by_trace_id(user_id, trace_id)
     if not chats:
         return {"chat_id": None}
-    return {"chat_id": chats[0].chat_id}
+    dev_chat = next((c for c in chats if c.topic == "dev"), None)
+    return {"chat_id": (dev_chat or chats[0]).chat_id}
 
 
 @router.get("/chats")
