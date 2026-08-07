@@ -65,7 +65,8 @@ of being split across a repo that deploys slowly and a module that publishes
 fast.
 
 The authoring loop is a directory and a command. Module source lives at
-`$Y_AGENT_HOME/modules/<slug>/`. The CLI picks up the module's commands directly
+`code/y-module/<slug>/`, a fixed path (`/Users/roy/luohy15/code/y-module`)
+independent of `Y_AGENT_HOME`. The CLI picks up the module's commands directly
 from that directory, so `y finance investment-returns` reflects an edit the
 instant it is saved, with no publish step at all. When the change is good,
 `y module publish finance` builds the Python and the TSX, uploads both as
@@ -672,7 +673,7 @@ row forbids for the host, breakable by either module's next migration with no
 signal at publish time.
 
 Consumers get `common` by **build-time vendoring**: `y module publish finance`
-copies `modules/common/` into finance's bundle. A module version stays
+copies `code/y-module/common/` into finance's bundle. A module version stays
 self-contained bytes, so the single-pointer atomicity the versioning design rests
 on is preserved — rolling back finance restores the `common` code it was built and
 tested against. A runtime dependency edge with declared version floors and loader
@@ -811,7 +812,7 @@ importing remote Python into `y` is a materially harsher problem than a browser
 ES module. That reasoning is superseded by a fact about the current install, not
 by a change of risk appetite: **`y` already executes Python out of the user's
 home directory**, because the VM's tool install is editable and points at the
-working checkout. Importing `$Y_AGENT_HOME/modules/<slug>/` is the same
+working checkout. Importing `code/y-module/<slug>/` is the same
 capability, differently spelled.
 
 The CLI scans the modules directory and registers one click group per slug,
@@ -905,7 +906,8 @@ writer services for a worker path. That path does not exist: the worker step is
 unreferenced, and preserving host-side writers would mean host code holding
 knowledge of module-owned schema, which the cross-module rules forbid.
 
-`$Y_AGENT_HOME/modules` is the single source of module source. It is a plain
+`code/y-module` (the fixed `/Users/roy/luohy15/code/y-module`) is the single
+source of module source, in its own standalone repository. It is a plain
 canonical directory, not a symlink into the y-agent checkout, and no duplicate
 module source or tests are retained in the host repo.
 
@@ -915,7 +917,7 @@ surfaces were removed after their artifact migrations.
 
 ### Bot as the second full-stack module: a host-kernel-table exception
 
-Todo 3028 moved the bot domain (`$Y_AGENT_HOME/modules/bot`, active v12 with v11
+Todo 3028 moved the bot domain (`code/y-module/bot`, active v12 with v11
 as the full-stack rollback twin) into the module system as the second full-stack
 migration after finance, and its data-layer audit did not reach finance's answer.
 Finance was clean precisely because nothing outside finance touched finance
@@ -1035,7 +1037,7 @@ or image leaf needs a host web deploy.
 
 ### Chat: a control-plane module over the runtime kernel
 
-Chat is the **third full-stack module** (`$Y_AGENT_HOME/modules/chat`, active v12
+Chat is the **third full-stack module** (`code/y-module/chat`, active v12
 with v11 as the byte-identical rollback twin for the file-module image-route
 retarget; chat v2–v10 are unsafe post-file-cutover because they still call the
 deleted `/api/file/raw`) and the first `shell` claimant. The split is
@@ -1063,7 +1065,7 @@ The resulting ownership:
 |---|---|---|
 | `GET /api/module/chat/list`, `GET /api/module/chat/content`, `POST /api/module/chat/share` | **Module** | Browsing and share creation: the surface whose filters and columns change independently of the runtime. |
 | Chats `panel`, full-width `detail` browser, and the `shell` (the live conversation: message list, bubble, parser, export view, layout, fence dispatch) | **Module** | The whole point of the migration: presentation changes ship with `y module publish`. |
-| `y chat list` / `get` / `search` / `share` | **Module** (`modules/chat/cli.py`) | Browse commands, delegated by the built-in group. |
+| `y chat list` / `get` / `search` / `share` | **Module** (`code/y-module/chat/cli.py`) | Browse commands, delegated by the built-in group. |
 | `chat` table, entity, repository, service; the worker; Telegram routing | **Host (runtime kernel)** | Read and written outside the API process; modules have no worker half. |
 | `POST /api/chat`, `/message`, `/attach-image`, `/stop`, `/messages`, `/messages/snapshot`, `/detail`, `/notify`, public `GET /share`, `GET /bot-options` | **Host** | The conversational path. Keeping it host is what makes every module failure mode degrade to "plainer UI" rather than "cannot talk to the agent". |
 | The four `/api/chat/trace/read*` routes | **Host** | The published `todo` module calls them. Moving them would create a lock-step dependency between two independently versioned bundles, and they are trace read-state, not chat browsing. |
@@ -1076,7 +1078,7 @@ from hand-edited local source with no rollback primitive — so module-izing it
 whole would mean a bad edit could take out the mechanism used to fix it. The
 built-in group therefore keeps the dispatch primitive itself (`-m` / `-i`) plus
 `stop`, `attach`, and the import commands, and falls through to
-`modules/chat/cli.py` only for the browse subcommands. Under every failure mode
+`code/y-module/chat/cli.py` only for the browse subcommands. Under every failure mode
 — bad publish, broken local `cli.py`, `y module disable chat` — `y chat list`
 fails and `y chat -m` keeps working.
 
@@ -1107,7 +1109,7 @@ loading, unauthenticated module routes, moving the `chat` table, and Telegram /
 
 ### File: a control-plane module over VM infrastructure
 
-File is the **fourth full-stack module** (`$Y_AGENT_HOME/modules/file`, active
+File is the **fourth full-stack module** (`code/y-module/file`, active
 **v6**, `ui=8fc9638bac0a` / `api=628244cb50ae`). **v1–v4 all hang on ordinary-file
 open** — the detail read effect cancelled itself after writing loading state —
 and **v1–v5 all render Markdown with no table of contents** (the built-in TOC
@@ -1129,7 +1131,7 @@ already established.
 | Code | Owner | Why |
 |---|---|---|
 | `/api/module/file/*` (list/read/prd/skills/search/touch/delete/rename/move/upload/write/raw/export-pdf — all 13 routes from the deleted built-in controller) | **Module** | Domain HTTP behavior; changes with the file UX. |
-| `y file upload` / `download` (`modules/file/cli.py`) | **Module** | Not a hybrid group like `y chat`: file transfer is not the mechanism used to recover the agent system, so it moves whole. |
+| `y file upload` / `download` (`code/y-module/file/cli.py`) | **Module** | Not a hybrid group like `y chat`: file transfer is not the mechanism used to recover the agent system, so it moves whole. |
 | Files `panel` (ported `FileTree` behavior, mounts in either sidebar via `usePanelLocation()`) | **Module** | The user-facing browsing surface. |
 | `detail` workspace (`ui:file`: file tabs, search, CodeMirror editing, Markdown/HTML/image/PDF preview, save/download/export, tab persistence) | **Module** | Owns every ordinary-file view previously in host `FileViewer`. |
 | VM credentials, SSH/EC2 execution (`agent/vm_command.py`) | **Host** | Infrastructure, same rule as every other module. |
@@ -1178,13 +1180,13 @@ browser-contract bump before treating a dependent module publish as safe.
 **One cross-trace hazard surfaced at cutover and was fixed immediately after.**
 Published chat versions up to v10 called the deleted `/api/file/raw` for
 image bytes. Chat source was retargeted
-(`modules/chat/ui/message-bubble.tsx`) and then published from an isolated
+(`code/y-module/chat/ui/message-bubble.tsx`) and then published from an isolated
 tree that excluded concurrent chat-trace WIP: chat **v11** carried the
 retarget, and byte-identical **v12** was published and activated as the
 rollback twin (both `ui=11107bd79435` / `api=3d77a0331766`;
 `y module rollback chat` returns to v11). Chat v2–v10 remain unsafe
 rollback targets post-file-cutover. The cut correctly identified the same
-hazard for the then-unpublished `modules/note` (todo 3071): its tests still
+hazard for the then-unpublished `code/y-module/note` (todo 3071): its tests still
 asserted the built-in `/api/file/*` paths. Todo 3071 subsequently retargeted
 those calls to `/api/module/file/*` and published note v1/v2 (v2 active, v1
 byte-identical rollback twin). A module published against routes another
@@ -1223,7 +1225,7 @@ measurement; the review notes are listed in Delivery Records below.
 ### Note: a control-plane module over shared kernel state
 
 Note is a control-plane module over the shared host note kernel, not a
-finance-style data move. `modules/note` is live at **v2**, with byte-identical
+finance-style data move. `code/y-module/note` is live at **v2**, with byte-identical
 v1 as its rollback twin (`ui=61364ab58245` / `api=5c7a4424f5d5`). The host
 ships the backend-contract v5 capability and the UI seam; the module owns the
 authenticated authoring and browsing surface. The boundary is deliberately
@@ -1233,7 +1235,7 @@ share paths.
 | Surface | Owner | Why |
 |---|---|---|
 | The ten authenticated note and note-relation routes at `/api/module/note/*` | **Module** | Note creation, import, update, delete, detail, list, and todo-relation operations are the independently deployable control plane. |
-| `y note import/list/get/update/delete` | **Module** (`modules/note/cli.py`) | Ordinary note author and browse commands resolve lazily from local module source. |
+| `y note import/list/get/update/delete` | **Module** (`code/y-module/note/cli.py`) | Ordinary note author and browse commands resolve lazily from local module source. |
 | Notes `panel` in both sidebar locations | **Module** | Authenticated note browsing, todo scope, and file-tab presentation change with the note domain. |
 | `note`, `note_todo_relation`, and `note_share` tables, entities, repositories, and services | **Host kernel** | `trace.py`, `todo.py`, tagging, the file rename guard, and the public trace projection read shared note state. Host code must not read module-owned tables. |
 | All five note share routes and `share_note` / `revoke_note_share` helpers | **Host** | Public note and trace shares are unauthenticated, and `trace.py` calls the helpers in process for batch-share and unshare cascades. |
@@ -1366,5 +1368,6 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3061 | Regression fix for the todo 3042 cut: logged-out `/t/:shareId` and `/s/:shareId` rendered every intermediate assistant narration and every tool call as top-level content, because commit `9625478` swapped the deleted `MessageList` (which compacted each turn via `filterLevel0`) for `HostMessageView`, which mapped every parsed message straight to a bubble. Fixed host-side only, in the shared degraded renderer: per-turn display selection shows the user message, one native collapsed `<details>` process summary, and the final assistant, with intermediate content re-using `HostBubble` inside the disclosure so tool output, edit diffs, artifacts, and images stay reachable. All three consumers (`/t`, `/s`, `ChatFallbackView`) get the compact default from one place; `modules/chat`, `ui_public`, and anonymous dispatch are untouched, and the renderer stays under its 300-line ceiling (247). Round-1 review caught a blocker where the process slice ended at the final assistant and dropped trailing tool activity (breaking the live streaming cursor); the fix collects every round message except the selected assistant, preserving order on both sides. Verified live logged-out with Playwright on `https://yovy.app` per Roy's explicit authorization. Shipped on main `9e2c375`. No DB migration, no module publish. | - | `pages/plan-3061-public-share-rendering.md` | - | `pages/review-3061-public-share-rendering.md` | shipped |
 | 3068 | File consolidated into the module system as the **fourth full-stack module** and the first with no database tables: a control-plane module over host **VM infrastructure** rather than module-owned data (`modules/file` active **v6**, `ui=8fc9638bac0a` / `api=628244cb50ae`; **v1–v4 all hang on ordinary-file open** — the detail read effect cancelled itself after writing loading state — and **v1–v5 all render Markdown with no table of contents**, so none restores the full current viewer). Ships all 13 authenticated file routes at `/api/module/file/*`, the whole `y file upload`/`download` CLI (not a hybrid group — file transfer isn't the dispatch-recovery mechanism `y chat` is), the Files `panel` (location-independent via v6 `usePanelLocation()`), and a `detail` workspace (`ui:file`) owning every ordinary-file view. **Backend contract v3 → v4**: `run_vm_command` gains `work_dir`/stdin, plus a narrow `note_list_at_path` for the rename guard. **Browser contract v6 → v7**: the host's `CodeEditor` (CodeMirror) is exported as a versioned `@y/host` leaf after `pages/decision-3068-codemirror-bundle-measurement.md` measured direct bundling at ~957 KB against the 250 KB module ceiling; shipped module bundle (panel+detail) is ~93 KB at the cut. `agent/vm_command.py` extracts the VM execution primitive out of the deleted `api.controller.file`, so host `note.py`/`git.py`/`link.py` import it directly instead of from a controller. Host retains VM credentials/execution, request-owner enforcement, the note rename guard, and the generic special/public tab shell in `FileViewer.tsx` (`PublicFileViewer` plus every non-file special tab). Two-deploy cutover per the established pattern: deploy A (additive, main `2a5dba7`/`5a1719b`) then deploy B (built-in cut, main `787e8a0`). Deploy A's web half reported success but did not actually go live — `__Y_HOST__.version` stayed at 6 in production until deploy B, so v1/v2 rendered the loader's version-mismatch card the whole window, masked by the built-in Files panel still serving; browser contract v7 only became live at deploy B. The v2 → v1 → v2 rollback drill was run during that window; no separate drill was run on later pairs. Full boundary and follow-ups in *File: a control-plane module over VM infrastructure* above. **Chat image regression closed post-cut:** published chat v2–v10 called the deleted `/api/file/raw` for image bytes; fixed by publishing chat v11 (retarget to `/api/module/file/raw`) then activating the byte-identical v12 twin from an isolated tree that excluded concurrent chat-trace WIP (both `ui=11107bd79435` / `api=3d77a0331766`; `y module rollback chat` → v11). Chat v2–v10 remain unsafe rollback targets. **File detail Loading regression closed post-cut:** ordinary-file open stuck on `Loading...` forever because the detail read effect both wrote and depended on `data`, so setting `{loading:true}` re-ran the effect, ran the cancel cleanup, and dropped the in-flight response; fixed by publishing file v5 (drop the cancel, keep the `data` dep so Refresh still retriggers; module source `250d5b8`, `ui=e859bebc25dc`). **Markdown viewer TOC restored post-cut:** the built-in responsive TOC was never ported into the module, so v1–v5 all rendered Markdown with no table of contents; fixed by publishing file v6 alone (module-only, local rehype heading ids, no host/contract bump; `ui=8fc9638bac0a` / `api=628244cb50ae`). Rolling back to v5 keeps the Loading fix but drops the TOC; none of v1–v5 restores it. The cut also correctly flagged a cross-trace hazard: then-unpublished `modules/note` (todo 3071) still asserted deleted built-in `/api/file/*` paths. Todo 3071 retargeted those calls to `/api/module/file/*` before publishing note v1/v2 (v2 active, v1 byte-identical rollback twin). This remains a release trap for any module whose dependency is about to hard-cut its routes. `/file/move` still has no note-pointer rename guard (todo 2888 follow-up, pre-existing and unchanged). | - | `pages/plan-3068-file-module.md`, `pages/plan-3068-file-detail-loading.md`, `pages/plan-3068-markdown-toc.md` | `pages/decision-3068-codemirror-bundle-measurement.md` | `pages/review-3068-file-host-capabilities.md`, `pages/review-3068-codeeditor-host-export.md`, `pages/review-3068-file-browser-seam.md`, `pages/review-3068-file-module-api.md`, `pages/review-3068-file-cli.md`, `pages/review-3068-file-panel.md`, `pages/review-3068-file-detail-workspace.md`, `pages/review-3068-file-builtin-cut.md`, `pages/review-3068-file-detail-loading.md`, `pages/review-3068-markdown-toc.md` | shipped; chat image fix live as chat v12 / v11 twin; file Loading fix live as file v5; Markdown TOC live as file v6 (v1–v5 lack it) |
 | 3071 | Note consolidated as a control-plane module over shared host kernel state. `modules/note` v2 is active, with byte-identical v1 as rollback twin (`ui=61364ab58245` / `api=5c7a4424f5d5`). The module owns ten authenticated note and note-relation routes at `/api/module/note/*`, `y note`, and the Notes panel. The host retains the `note`, `note_todo_relation`, and `note_share` tables, all five share routes, in-process trace sharing helpers, `y assoc note`, the todo 3041 content-path authority, and `PublicNoteList` for logged-out trace shares. Backend contract v5 adds the owner-bound `note_*` capability. Shipped host capability + contract v5 at `6fdb8e0`, UI seam at `79e7dab`, and hard cut at `d1bbd73`; no database migration. | - | `pages/plan-3071-note-module.md` | - | `pages/review-3071-note-backend-capability.md`, `pages/review-3071-note-host-ui-seam.md`, `pages/review-3071-note-module-source.md`, `pages/review-3071-note-cut.md`, `pages/review-3071-note-docs.md` | shipped |
+| 3073 | Module source is moving to the standalone `/Users/roy/luohy15/code/y-module` repository (fixed path, no config key/env var/symlink), a publish-free three-repository cutover across `y-agent`, the `luohy15` home repository, and the new `y-module` repository. Sub-task 1 (prepare the y-agent path cut on an isolated worktree) replaced the path authority in `cli/src/yagent/commands/module/_paths.py` with the fixed `MODULE_SOURCE_ROOT` constant, updated `cli/tests/test_module.py` to patch that constant (with an explicit assertion that `Y_AGENT_HOME`/`Y_AGENT_MODULES_DIR` cannot override it), and refreshed current-path references in `AGENTS.md`, `README.md`, `docs/cli.md`, `cli/src/yagent/sdk/README.md`, and this PRD. Historical prose (this Delivery Records table, the todo 3020 "Surface \| Change" migration mapping) is left as-is. The new source root does not exist yet; this sub-task must not be merged until it does. | - | `pages/plan-3073-module-source-repository.md` | - | - | in progress (sub-task 1 only; not merged) |
 | 3083 | Restored distinct file, note, module, and chat activity-bar glyphs through the host's canonical module-icon registry; the shared SDK contract now validates icon keys before publish, making an unknown icon a CLI error rather than a silent fallback. Finance and bot were audited and already resolved correctly. Host commit `dc27a1f` deployed successfully, and chat module v13 (`ui=2a83bb3b012b…` / `api=8ecab88cc6b6…`) is active with the restored message-bubble declaration; rollback is `y module rollback chat` to v12. No database migration. | - | `pages/plan-3083-module-icons.md` | - | `pages/review-3083-module-icons.md` | shipped |
 | 3084 | Restored ordinary-file affordances dropped in the todo 3068 cut: toolbar copy-path plus icon/styling parity, per-tab image zoom and scrolling, tab tooltips/truncation/dirty/drop indicators, and the themed search dialog with keyboard navigation, loading/empty states, path dedupe, and Close all. File module v7 is active (`ui=10b3064a0b49…` / `api=628244cb50ae…`, 115764-byte UI bundle); rollback is `y module rollback file` to v6. Module source commit `bda3433`; no host/contract change or database migration. Per-tab DOM retention remains an unqueued follow-up for Roy's decision. | - | `pages/plan-3084-file-viewer-affordances.md` | - | `pages/review-3084-file-viewer-affordances.md` | shipped; runtime UI verification pending |

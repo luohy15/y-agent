@@ -69,7 +69,9 @@ Two paths, split by whether you run the server or just use one. Each page opens 
 
 ## Hot-loadable modules
 
-A module is a user-owned, versioned domain at `$Y_AGENT_HOME/modules/<slug>/`. It can
+A module is a user-owned, versioned domain at the fixed `code/y-module/<slug>/`
+(a standalone repository at `/Users/roy/luohy15/code/y-module`, independent of
+`Y_AGENT_HOME`). It can
 contain local CLI commands, a lazy-loaded API half, a published React UI half, and its
 own ORM entities, repositories, and hand-applied migration SQL. `y module publish <slug>`
 publishes API and UI atomically without a full application deploy; `y module rollback`

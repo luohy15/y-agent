@@ -79,7 +79,7 @@ y dev wt add /path/to/repo my-feature
 y dev commit my-feature -m "wip"
 y dev wt rm my-feature
 
-# Finance — module CLI (lazy from $Y_AGENT_HOME/modules/finance), mirrors
+# Finance — module CLI (lazy from code/y-module/finance), mirrors
 # /api/module/finance/*. Active finance v20 with v19 full-stack rollback.
 y finance balance-sheet --convert USD
 y finance income-statement --time month --convert USD
@@ -96,7 +96,8 @@ y finance beancount update-market-data
 ## Modules
 
 A module is one user-owned, versioned domain. Its canonical authoring directory is
-`$Y_AGENT_HOME/modules/<slug>/`, containing `module.json`, optional `api.py` and
+the fixed `code/y-module/<slug>/` (`/Users/roy/luohy15/code/y-module`, a standalone
+repository, independent of `Y_AGENT_HOME`), containing `module.json`, optional `api.py` and
 `cli.py`, `ui/index.tsx`, and any module-owned entities, repositories, migrations, and
 tests. `y <slug>` loads local source lazily, so edit and test a module command before
 publishing it. `y module publish <slug>` atomically publishes the API/UI pair after an
@@ -139,7 +140,7 @@ vendored into consumer bundles at publish time.
 | `link` | Link archive: `fetch`, `get`, `list`, `sync-chrome`, `tldr`, `import-page` |
 | `rss` | Feeds: `add`, `list`, `update`, `import-opml`, remove / restore |
 | `email` | Gmail: `sync-gmail`, `list`, `get`, multi-account `account add/list/rm` |
-| `finance` | Full-stack finance module CLI (lazy from `modules/finance`), mirroring `/api/module/finance/*`; `beancount` is the ledger producer. Active v20 with v19 full-stack rollback |
+| `finance` | Full-stack finance module CLI (lazy from `code/y-module/finance`), mirroring `/api/module/finance/*`; `beancount` is the ledger producer. Active v20 with v19 full-stack rollback |
 | `image` | `generate` (Gemini/OpenAI), `splice`, `tinify` (TinyPNG) |
 | `pdf` | `parse` a PDF into Markdown |
 | `cookies` | `sync` / `list` / `delete` local browser cookies for remote fetchers |

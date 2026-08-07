@@ -1,6 +1,6 @@
 """Lazy root-CLI registration for module-owned Click groups (plan phase 5).
 
-`list_commands` only scans `$Y_AGENT_HOME/modules` (listdir + `module.json`);
+`list_commands` only scans the fixed module source root (listdir + `module.json`);
 no module Python is imported. `get_command` returns a placeholder that imports
 `<pkg>.cli` only when that group is actually resolved. Built-in commands win
 on name collision so a local module cannot shadow `todo` / `module` / etc.

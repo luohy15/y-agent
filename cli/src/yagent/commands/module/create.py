@@ -108,7 +108,7 @@ already has — it never executes anything either.
     help="Scaffold locally only; skip POST /api/module/create",
 )
 def module_create(slug, label, icon, force, no_register):
-    """Scaffold a starter module under $Y_AGENT_HOME/modules/ and bootstrap the SDK."""
+    """Scaffold a starter module under the fixed module source root and bootstrap the SDK."""
     try:
         slug = validate_slug(slug)
     except ValueError as exc:

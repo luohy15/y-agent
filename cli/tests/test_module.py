@@ -17,6 +17,7 @@ from click.testing import CliRunner
 
 from yagent.commands.module.click import module_group
 from yagent.commands.module._paths import (
+    MODULE_SOURCE_ROOT,
     SLUG_RE,
     meta_path,
     modules_dir,
@@ -39,6 +40,11 @@ def _resp(payload, status_code=200):
     m.json.return_value = payload
     m.raise_for_status = MagicMock()
     return m
+
+
+def _source_root(path: Path):
+    """Patch the fixed module source root to a temp dir for a test."""
+    return patch("yagent.commands.module._paths.MODULE_SOURCE_ROOT", path)
 
 
 class ModuleGroupHelpTest(unittest.TestCase):
@@ -196,14 +202,20 @@ class SlugValidationTest(unittest.TestCase):
 
 
 class ModuleSourceLayoutTest(unittest.TestCase):
-    def test_modules_dir_has_no_override(self):
+    def test_modules_dir_is_the_fixed_constant(self):
+        self.assertEqual(modules_dir(), MODULE_SOURCE_ROOT)
+        self.assertEqual(MODULE_SOURCE_ROOT, Path("/Users/roy/luohy15/code/y-module"))
+
+    def test_modules_dir_ignores_env_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with patch.dict(
                 "os.environ",
                 {"Y_AGENT_HOME": str(home), "Y_AGENT_MODULES_DIR": "/tmp/elsewhere"},
             ):
-                self.assertEqual(modules_dir(), home / "modules")
+                self.assertEqual(modules_dir(), MODULE_SOURCE_ROOT)
+                self.assertNotEqual(modules_dir(), home / "modules")
+                self.assertNotEqual(modules_dir(), Path("/tmp/elsewhere"))
 
 
 class SdkRefreshTest(unittest.TestCase):
@@ -211,7 +223,7 @@ class SdkRefreshTest(unittest.TestCase):
         """A fix to build.mjs (no contract bump) must re-materialize ~/ui/.sdk."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"):
                 dest = ensure_sdk()
                 build_path = dest / "build.mjs"
@@ -255,7 +267,7 @@ class SdkRefreshTest(unittest.TestCase):
     def test_ensure_sdk_skips_copy_when_digest_matches(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"):
                 dest = ensure_sdk()
                 build_path = dest / "build.mjs"
@@ -277,7 +289,7 @@ class ModuleCreateTest(unittest.TestCase):
     def test_create_scaffolds_source_and_meta(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -292,8 +304,8 @@ class ModuleCreateTest(unittest.TestCase):
                 self.assertEqual(meta["label"], "Demo")
                 self.assertEqual(meta["icon"], "box")
                 create_fn.assert_called_once_with("demo")
-                self.assertEqual(source_path("demo"), home / "modules" / "demo" / "ui" / "index.tsx")
-                self.assertEqual(meta_path("demo"), home / "modules" / "demo" / "module.json")
+                self.assertEqual(source_path("demo"), home / "demo" / "ui" / "index.tsx")
+                self.assertEqual(meta_path("demo"), home / "demo" / "module.json")
                 self.assertTrue(source_dir("demo").is_dir())
                 # SDK materialized
                 self.assertTrue((modules_dir() / ".sdk" / "build.mjs").is_file())
@@ -316,7 +328,7 @@ class ModuleCreateTest(unittest.TestCase):
     def test_create_accepts_digit_start_slug(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -330,7 +342,7 @@ class ModuleCreateTest(unittest.TestCase):
     def test_create_no_register_skips_api(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module") as resolve_fn, \
                  patch("yagent.commands.module.create.create_module") as create_fn:
@@ -420,7 +432,7 @@ class ModuleVersionsDescriptionTest(unittest.TestCase):
 
 def _scaffold_ui(slug: str, home: Path) -> None:
     """Create the minimum source tree so publish sees a UI half."""
-    ui = home / "modules" / slug / "ui"
+    ui = home / slug / "ui"
     ui.mkdir(parents=True, exist_ok=True)
     (ui / "index.tsx").write_text("export const panel = () => null;\n", encoding="utf-8")
     meta_path(slug).write_text(
@@ -442,7 +454,7 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": bundle.stat().st_size,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -491,7 +503,7 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": 1,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -529,7 +541,8 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": 1,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "2991"}), \
+            with _source_root(home), \
+                 patch.dict("os.environ", {"Y_TRACE_ID": "2991"}), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -567,7 +580,8 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": 1,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "3051"}), \
+            with _source_root(home), \
+                 patch.dict("os.environ", {"Y_TRACE_ID": "3051"}), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -602,7 +616,8 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": 1,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home), "Y_TRACE_ID": "2991"}), \
+            with _source_root(home), \
+                 patch.dict("os.environ", {"Y_TRACE_ID": "2991"}), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -643,8 +658,8 @@ class ModulePublishTest(unittest.TestCase):
 
             env = dict(os.environ)
             env.pop("Y_TRACE_ID", None)
-            env["Y_AGENT_HOME"] = str(home)
-            with patch.dict("os.environ", env, clear=True), \
+            with _source_root(home), \
+                 patch.dict("os.environ", env, clear=True), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=manifest,
@@ -669,7 +684,7 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_build_failure_exits_nonzero_without_api(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      side_effect=RuntimeError("ERROR: Unexpected \")\""),
@@ -707,7 +722,7 @@ class ModulePublishTest(unittest.TestCase):
                 "bundle": str(api_bundle),
                 "entries": ["__init__.py", "api.py"],
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch(
                      "yagent.commands.module.publish.build_artifact",
                      return_value=ui_manifest,
@@ -729,7 +744,7 @@ class ModulePublishTest(unittest.TestCase):
                      },
                  ) as pub:
                 _scaffold_ui("demo", home)
-                (home / "modules" / "demo" / "api.py").write_text(
+                (home / "demo" / "api.py").write_text(
                     "from fastapi import APIRouter\nrouter = APIRouter()\n",
                     encoding="utf-8",
                 )
@@ -756,12 +771,12 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_rejects_invalid_dispatch_metadata_before_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            module_dir = home / "modules" / "demo"
+            module_dir = home / "demo"
             module_dir.mkdir(parents=True)
             (module_dir / "module.json").write_text(
                 json.dumps({"dispatch": "public"}), encoding="utf-8"
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
                  patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
@@ -773,12 +788,12 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_rejects_invalid_surfaces_metadata_before_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            module_dir = home / "modules" / "demo"
+            module_dir = home / "demo"
             module_dir.mkdir(parents=True)
             (module_dir / "module.json").write_text(
                 json.dumps({"surfaces": ["panel", "tab"]}), encoding="utf-8"
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
                  patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
@@ -790,12 +805,12 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_rejects_non_boolean_ui_public_before_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            module_dir = home / "modules" / "demo"
+            module_dir = home / "demo"
             module_dir.mkdir(parents=True)
             (module_dir / "module.json").write_text(
                 json.dumps({"ui_public": "yes"}), encoding="utf-8"
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
                  patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
@@ -807,12 +822,12 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_rejects_unknown_icon_before_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            module_dir = home / "modules" / "demo"
+            module_dir = home / "demo"
             module_dir.mkdir(parents=True)
             (module_dir / "module.json").write_text(
                 json.dumps({"icon": "unknown"}), encoding="utf-8"
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
                  patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
@@ -825,12 +840,12 @@ class ModulePublishTest(unittest.TestCase):
     def test_publish_rejects_unknown_icon_override_before_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            module_dir = home / "modules" / "demo"
+            module_dir = home / "demo"
             module_dir.mkdir(parents=True)
             (module_dir / "module.json").write_text(
                 json.dumps({"icon": "file"}), encoding="utf-8"
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
                  patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
                 result = CliRunner().invoke(
@@ -855,7 +870,7 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": bundle.stat().st_size,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact", return_value=manifest), \
                  patch("yagent.commands.module.publish.build_api_bundle", return_value=None), \
                  patch(
@@ -894,7 +909,7 @@ class ModulePublishTest(unittest.TestCase):
                 "bytes": bundle.stat().st_size,
                 "bundle": str(bundle),
             }
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module.publish.build_artifact", return_value=manifest), \
                  patch("yagent.commands.module.publish.build_api_bundle", return_value=None), \
                  patch(
@@ -961,7 +976,7 @@ class ModuleDeleteTest(unittest.TestCase):
     def test_delete_with_yes_skips_prompt_and_prints_local_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch(
                      "yagent.commands.module.delete.resolve_module",
                      return_value={"module_id": "mod_1", "slug": "demo"},
@@ -1153,8 +1168,8 @@ class ApiZipBuildTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
-                root = home / "modules" / "consumer"
+            with _source_root(home):
+                root = home / "consumer"
                 root.mkdir(parents=True)
                 (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
                 (root / "api.py").write_text(
@@ -1168,7 +1183,7 @@ class ApiZipBuildTest(unittest.TestCase):
                 (root / "migration").mkdir()
                 (root / "migration" / "001.sql").write_text("SELECT 1;\n", encoding="utf-8")
 
-                common = home / "modules" / "common"
+                common = home / "common"
                 common.mkdir(parents=True)
                 (common / "__init__.py").write_text("x = 1\n", encoding="utf-8")
                 (common / "util.py").write_text("y = 2\n", encoding="utf-8")
@@ -1202,8 +1217,8 @@ class ApiZipBuildTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
-                root = home / "modules" / "ui-only"
+            with _source_root(home):
+                root = home / "ui-only"
                 root.mkdir(parents=True)
                 (root / "ui").mkdir()
                 (root / "ui" / "index.tsx").write_text("export const panel = 1\n", encoding="utf-8")
@@ -1217,12 +1232,12 @@ class LocalCommonInjectionTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
-                common = home / "modules" / "common"
+            with _source_root(home):
+                common = home / "common"
                 common.mkdir(parents=True)
                 (common / "__init__.py").write_text("FLAG = 'from-common'\n", encoding="utf-8")
 
-                root = home / "modules" / "consumer"
+                root = home / "consumer"
                 root.mkdir(parents=True)
                 (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
                 (root / "cli.py").write_text(
@@ -1244,7 +1259,7 @@ class CreateScaffoldsEmptyInitTest(unittest.TestCase):
     def test_create_writes_empty_init(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -1253,7 +1268,7 @@ class CreateScaffoldsEmptyInitTest(unittest.TestCase):
                  ):
                 result = CliRunner().invoke(module_group, ["create", "demo", "--no-register"])
             self.assertEqual(result.exit_code, 0, result.output)
-            init_py = home / "modules" / "demo" / "__init__.py"
+            init_py = home / "demo" / "__init__.py"
             self.assertTrue(init_py.is_file())
             body = init_py.read_text(encoding="utf-8")
             self.assertNotIn("import", body)
@@ -1266,7 +1281,7 @@ class CreateScaffoldsDataLayerTest(unittest.TestCase):
     def test_create_writes_entities_repository_migration(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -1277,7 +1292,7 @@ class CreateScaffoldsDataLayerTest(unittest.TestCase):
                     module_group, ["create", "scratch-data", "--no-register"]
                 )
             self.assertEqual(result.exit_code, 0, result.output)
-            root = home / "modules" / "scratch-data"
+            root = home / "scratch-data"
             self.assertTrue((root / "entities" / "__init__.py").is_file())
             self.assertTrue((root / "entities" / "base.py").is_file())
             self.assertTrue((root / "repository" / "README.md").is_file())
@@ -1295,7 +1310,7 @@ class CreateScaffoldsDataLayerTest(unittest.TestCase):
         module's own metadata, and never on storage.entity.base.Base."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -1304,7 +1319,7 @@ class CreateScaffoldsDataLayerTest(unittest.TestCase):
                  ):
                 CliRunner().invoke(module_group, ["create", "scratch-data", "--no-register"])
 
-            root = home / "modules" / "scratch-data"
+            root = home / "scratch-data"
             (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
             (root / "entities" / "widget.py").write_text(
                 "from sqlalchemy import Column, Integer\n"
@@ -1326,7 +1341,7 @@ class CreateScaffoldsDataLayerTest(unittest.TestCase):
             from yagent.commands.module._local import import_local_entities, package_name_for
 
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     entities_mod = import_local_entities("scratch-data")
                 self.assertIn("scratch_widget", entities_mod.metadata.tables)
 
@@ -1346,7 +1361,7 @@ class SchemaSqlTest(unittest.TestCase):
     """Plan 4.2: `y module schema-sql <slug>` prints DDL, never touches a DB."""
 
     def _scaffold(self, home: Path, slug: str, table_sql: str | None) -> None:
-        with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+        with _source_root(home), \
              patch("yagent.commands.module._sdk._ensure_npm_install"), \
              patch("yagent.commands.module.create.resolve_module", return_value=None), \
              patch(
@@ -1354,7 +1369,7 @@ class SchemaSqlTest(unittest.TestCase):
                  return_value={"module_id": "mod_1", "slug": slug},
              ):
             CliRunner().invoke(module_group, ["create", slug, "--no-register"])
-        root = home / "modules" / slug
+        root = home / slug
         (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
         if table_sql is not None:
             (root / "entities" / "widget.py").write_text(table_sql, encoding="utf-8")
@@ -1395,9 +1410,8 @@ class SchemaSqlTest(unittest.TestCase):
             env = dict(os.environ)
             env.pop("DATABASE_URL", None)
             env.pop("DATABASE_URL_DEV", None)
-            env["Y_AGENT_HOME"] = str(home)
             try:
-                with patch.dict("os.environ", env, clear=True):
+                with _source_root(home), patch.dict("os.environ", env, clear=True):
                     result = CliRunner().invoke(module_group, ["schema-sql", "scratch-sql"])
             finally:
                 self._cleanup_sys_modules("scratch-sql")
@@ -1423,7 +1437,7 @@ class SchemaSqlTest(unittest.TestCase):
                 "    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'))\n",
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(module_group, ["schema-sql", "scratch-ext"])
             finally:
                 self._cleanup_sys_modules("scratch-ext")
@@ -1435,7 +1449,7 @@ class SchemaSqlTest(unittest.TestCase):
     def test_schema_sql_rejects_nonempty_root_before_cli_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            root = home / "modules" / "unsafe-root"
+            root = home / "unsafe-root"
             (root / "entities").mkdir(parents=True)
             (root / "__init__.py").write_text(
                 "from . import cli\n", encoding="utf-8"
@@ -1447,7 +1461,7 @@ class SchemaSqlTest(unittest.TestCase):
                 "metadata = None\n", encoding="utf-8"
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(module_group, ["schema-sql", "unsafe-root"])
                 from yagent.commands.module._local import package_name_for
 
@@ -1463,7 +1477,7 @@ class SchemaSqlTest(unittest.TestCase):
     def test_module_with_no_entities_prints_nothing_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+            with _source_root(home), \
                  patch("yagent.commands.module._sdk._ensure_npm_install"), \
                  patch("yagent.commands.module.create.resolve_module", return_value=None), \
                  patch(
@@ -1471,13 +1485,13 @@ class SchemaSqlTest(unittest.TestCase):
                      return_value={"module_id": "mod_1", "slug": "scratch-empty"},
                  ):
                 CliRunner().invoke(module_group, ["create", "scratch-empty", "--no-register"])
-            root = home / "modules" / "scratch-empty"
+            root = home / "scratch-empty"
             (root / "__init__.py").write_text("# empty\n", encoding="utf-8")
             import shutil as _shutil
 
             _shutil.rmtree(root / "entities")
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(module_group, ["schema-sql", "scratch-empty"])
             finally:
                 self._cleanup_sys_modules("scratch-empty")
@@ -1494,7 +1508,7 @@ def _write_module_cli(
     init_body: str = "# empty\n",
     module_json: bool = True,
 ) -> Path:
-    root = home / "modules" / slug
+    root = home / slug
     root.mkdir(parents=True, exist_ok=True)
     (root / "__init__.py").write_text(init_body, encoding="utf-8")
     (root / "cli.py").write_text(cli_body, encoding="utf-8")
@@ -1528,8 +1542,7 @@ class LazyModuleDiscoveryTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            modules = home / "modules"
-            modules.mkdir()
+            modules = home
             # Dot entries (SDK + bak) must never become commands.
             (modules / ".sdk").mkdir()
             (modules / ".sdk-node_modules.bak").mkdir()
@@ -1556,7 +1569,7 @@ class LazyModuleDiscoveryTest(unittest.TestCase):
                     "    pass\n"
                 ),
             )
-            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+            with _source_root(home):
                 self.assertEqual(discover_module_slugs(), ["good-mod"])
 
     def test_help_lists_module_label_without_importing_cli(self):
@@ -1577,7 +1590,7 @@ class LazyModuleDiscoveryTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     before = set(_ymod_keys_in_sys_modules())
                     result = CliRunner().invoke(cli, ["--help"])
                     after = set(_ymod_keys_in_sys_modules())
@@ -1608,7 +1621,7 @@ class LazyModuleDiscoveryTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     before = set(_ymod_keys_in_sys_modules())
                     # `todo --help` is a real built-in; resolving it must not
                     # import any module CLI package.
@@ -1630,7 +1643,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            common = home / "modules" / "common"
+            common = home / "common"
             common.mkdir(parents=True)
             (common / "__init__.py").write_text("FLAG = 'from-common'\n", encoding="utf-8")
             _write_module_cli(
@@ -1650,7 +1663,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(cli, ["consumer", "ping"])
             finally:
                 _cleanup_ymod("consumer")
@@ -1669,7 +1682,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 cli_body="raise RuntimeError('broken on purpose')\n",
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     broken = CliRunner().invoke(cli, ["broken", "anything"])
                     # Built-in still works in the same process after the failure.
                     todo = CliRunner().invoke(cli, ["todo", "--help"])
@@ -1703,7 +1716,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     # Help still lists `todo` once (built-in), and the built-in
                     # help text is the one that appears.
                     help_result = CliRunner().invoke(cli, ["--help"])
@@ -1729,7 +1742,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 cli_body="VALUE = 1\n",
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(cli, ["nogroup", "--help"])
             finally:
                 _cleanup_ymod("nogroup")
@@ -1758,7 +1771,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     with_opt = CliRunner().invoke(
                         cli, ["optmod", "--flavor", "spicy", "sub"]
                     )
@@ -1796,7 +1809,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     help_result = CliRunner().invoke(cli, ["optmod", "--help"])
                     bad = CliRunner().invoke(
                         cli, ["optmod", "--bogus", "sub"]
@@ -1831,7 +1844,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     bare = CliRunner().invoke(cli, ["iwcm"])
                     sub = CliRunner().invoke(cli, ["iwcm", "ping"])
             finally:
@@ -1867,7 +1880,7 @@ class LazyModuleInvocationTest(unittest.TestCase):
                 ),
             )
             try:
-                with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}):
+                with _source_root(home):
                     result = CliRunner().invoke(cli, ["pcmod", "sub"])
             finally:
                 _cleanup_ymod("pcmod")

@@ -49,7 +49,7 @@ surface and the renderer seam*, before bundling anything heavy into a module.
 
 ## Multi-file module UI
 
-The UI entry point is `$Y_AGENT_HOME/modules/<slug>/ui/index.tsx`. Once it gets
+The UI entry point is `code/y-module/<slug>/ui/index.tsx`. Once it gets
 too large to maintain, split it into sibling modules under `ui/` and import them
 with relative specifiers (`./parts/foo`). `build.mjs` bundles relative imports
 normally (esbuild `bundle: true`), so the entry still only needs to re-export the

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -10,14 +9,16 @@ from pathlib import Path
 # cannot accept a slug the API will reject (or reject one the API accepts).
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
-
-def agent_home() -> Path:
-    return Path(os.path.expanduser(os.environ.get("Y_AGENT_HOME", "~/.y-agent")))
+# The single canonical module source root, fixed across every environment
+# that runs local module CLI/build commands. No config key, environment
+# variable, fallback, or symlink/realpath logic selects a different root
+# (todo 3073).
+MODULE_SOURCE_ROOT = Path("/Users/roy/luohy15/code/y-module")
 
 
 def modules_dir() -> Path:
-    """Canonical module source directory: $Y_AGENT_HOME/modules."""
-    return agent_home() / "modules"
+    """Canonical module source directory: the fixed MODULE_SOURCE_ROOT."""
+    return MODULE_SOURCE_ROOT
 
 
 def source_dir(slug: str) -> Path:

@@ -1,7 +1,7 @@
 """Local filesystem import of a module package (CLI half + common vendoring).
 
 Used by the lazy CLI registration (phase 5) and by phase-3 tests that prove
-`from .common import …` resolves against `$Y_AGENT_HOME/modules/common` without
+`from .common import …` resolves against `<MODULE_SOURCE_ROOT>/common` without
 a publish step (plan D12 / 3.5).
 """
 
@@ -44,7 +44,7 @@ def validate_local_package_root(slug: str) -> Path:
 
 
 def import_local_module(slug: str, *, package_name: Optional[str] = None) -> ModuleType:
-    """Import `$Y_AGENT_HOME/modules/<slug>/` as a top-level package.
+    """Import `<MODULE_SOURCE_ROOT>/<slug>/` as a top-level package.
 
     Registers `<pkg>.common` from `modules/common/` when that directory exists
     and the slug is not itself `common` (plan D12 CLI-side path injection).

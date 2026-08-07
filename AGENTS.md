@@ -104,7 +104,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   leaf, shared by both through `@y/host`.
 - **Hot-loadable modules** — a user-owned module is one versioned domain with
   optional API and UI parts, local CLI commands, and module-owned data. Canonical source
-  lives only at `$Y_AGENT_HOME/modules/<slug>/`: `module.json`, an import-free
+  lives only at the fixed `code/y-module/<slug>/` (`/Users/roy/luohy15/code/y-module`,
+  a standalone repository, independent of `Y_AGENT_HOME`): `module.json`, an import-free
   `__init__.py`, optional `api.py` and `cli.py`, `ui/index.tsx`, and optional
   module-local `entities/`, `repository/`, `migration/`, and `tests/` directories.
   `y <slug>` discovers the local source lazily, importing only the invoked module group.
@@ -135,7 +136,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   bundles at publish time. `y module rollback <slug>` or
   `y module activate <slug> <version>` changes code only. `y module delete <slug>`
   removes deployed metadata and bundle bytes but leaves source and tables intact.
-  The system is live: finance is the reference full-stack module (`modules/finance`),
+  The system is live: finance is the reference full-stack module (`code/y-module/finance`),
   active at version 20 with version 19 as the immediate full-stack rollback twin
   (same API/UI hashes). Built-in finance controller, CLI, and storage are deleted;
   routes live at `/api/module/finance/*` and `y finance` resolves from local module
@@ -145,7 +146,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   intentionally as a physical column for a later expand/contract; it is not dropped.
   A module has no worker half: deterministic scheduled work is a `routine`
   `vm_command` action that executes argv on the owner's VM, while judgment-shaped
-  work remains chat dispatch. `bot` (`modules/bot`) is the second full-stack
+  work remains chat dispatch. `bot` (`code/y-module/bot`) is the second full-stack
   module, active at version 16; v11/v12 (identical bundles) is the full-stack
   cutover twin pair, and v10 and earlier are unsafe rollback targets post-cutover
   because their UI still calls the deleted built-in `/api/bot/*` routes. Bot
@@ -165,7 +166,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   every authenticated user because picking a bot in chat is routing selection,
   not management — it is not a leftover of the deleted management surface, and
   deleting it would break the chat picker for non-maintainers and on any module
-  rollback/disable. `chat` (`modules/chat`) is the third full-stack module and the
+  rollback/disable. `chat` (`code/y-module/chat`) is the third full-stack module and the
   first `shell` claimant, active at v12 with v11 as its byte-identical rollback
   twin (the file-module image-route retarget from todo 3068; both
   `ui=11107bd79435` / `api=3d77a0331766`; `y module rollback chat` returns to
@@ -180,7 +181,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conversational route (`POST /api/chat`, `/message`, `/attach-image`, `/stop`,
   `/messages*`, `/detail`, `/notify`, public `GET /share`, the four `/trace/read*`),
   the `y chat` dispatch primitive (`-m` / `-i` / `stop`, a built-in group that
-  delegates only browse subcommands to `modules/chat/cli.py`), and the megabyte
+  delegates only browse subcommands to `code/y-module/chat/cli.py`), and the megabyte
   render leaves the module imports from `@y/host` (`ArtifactView`, `PatchDiff`,
   `ImageLightbox`, `CodeEditor`, the PNG capture primitive). The module reaches host chat state
   only through the backend contract's `chat_list` / `chat_get` /
@@ -193,7 +194,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   `ChatFallbackView`, which the shell slot falls back to when no module claims it
   (see "Chat: a control-plane module over the runtime kernel" in
   `docs/prd/module-system.md`).
-  `file` (`modules/file`) is the fourth full-stack module, active at **v6**
+  `file` (`code/y-module/file`) is the fourth full-stack module, active at **v6**
   (`ui=8fc9638bac0a` / `api=628244cb50ae`); **v1–v4 all hang on ordinary-file
   open** (the detail read effect cancelled itself after writing loading state),
   and **v1–v5 all render Markdown with no table of contents** (the built-in
@@ -204,7 +205,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   module owns the authenticated file API (`/api/module/file/*`, all 13 routes
   ported from the deleted built-in controller — list/read/prd/skills/search/
   touch/delete/rename/move/upload/write/raw/export-pdf), the `y file
-  upload/download` CLI (`modules/file/cli.py`; not a hybrid group like `y chat`,
+  upload/download` CLI (`code/y-module/file/cli.py`; not a hybrid group like `y chat`,
   since file transfer is not the mechanism used to recover the agent system),
   the Files `panel` (ported `FileTree` behavior, mountable in either sidebar via
   `usePanelLocation()`), and a `detail` workspace (`ui:file`: CodeMirror
@@ -246,7 +247,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
   recreation.
 - **Finance / Email / Calendar** — finance is a full-stack module under
-  `$Y_AGENT_HOME/modules/finance`: DB-backed views via `y finance` (local module
+  `code/y-module/finance`: DB-backed views via `y finance` (local module
   CLI) and `/api/module/finance/*` (balance sheet, income statement, holdings,
   transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
   producer / low-level local view layer. Active finance version is 20, with 19 as
@@ -418,14 +419,14 @@ Grouped by feature area:
   `reminder`, `rss`, `link`, `email`, `dev`, `image`, `trace`,
   `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
   Domain CLI groups such as `y finance`, `y bot`, `y file`, and `y note` are not
-  built-in: they resolve lazily from `$Y_AGENT_HOME/modules/<slug>/cli.py`
+  built-in: they resolve lazily from `code/y-module/<slug>/cli.py`
   (`y file`'s upload/download group moved out of `commands/` in the todo 3068
   cut; `y note` moved in todo 3071). `y assoc note` remains built-in because it
   is the multi-domain association group and uses the host's 3041 content-path
   authority. `y chat` is the one hybrid group: the dispatch primitive (`-m` / `-i`)
   plus `stop` / `attach` / the import commands stay built-in so a bad publish
   can never take out cross-session dispatch, while `list` / `get` / `search` /
-  `share` fall through to `modules/chat/cli.py`. `LazyModuleProxy` derives a
+  `share` fall through to `code/y-module/chat/cli.py`. `LazyModuleProxy` derives a
   lazy group's `y --help` short description from `module.json`'s `label`
   field, so a module command's root-level help line reads as its panel label
   (e.g. `file  Files`) rather than a hand-written description.
@@ -499,7 +500,7 @@ y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
-# Finance module CLI (lazy from $Y_AGENT_HOME/modules/finance; --json emits the
+# Finance module CLI (lazy from code/y-module/finance; --json emits the
 # raw envelope, same shape as GET /api/module/finance/*). Active finance v20 with
 # v19 full-stack rollback; Refresh's known 30s Cloudflare edge timeout is a
 # follow-up (server work still completes).
@@ -516,7 +517,7 @@ y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
 y finance beancount snapshot
 y finance beancount update-market-data
 
-# Modules. Canonical source is $Y_AGENT_HOME/modules/<slug>/ with module.json and
+# Modules. Canonical source is the fixed code/y-module/<slug>/ with module.json and
 # ui/index.tsx (`panel` required, `detail` and `shell` optional); API/CLI/data parts are
 # optional. module.json's `surfaces` / `dispatch` / `ui_public` are stamped onto each
 # published version as ui_surfaces / dispatch_scope / ui_public.

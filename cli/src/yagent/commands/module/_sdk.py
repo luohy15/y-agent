@@ -1,4 +1,4 @@
-"""Materialize the in-repo SDK under $Y_AGENT_HOME/modules/.sdk/."""
+"""Materialize the in-repo SDK under <MODULE_SOURCE_ROOT>/.sdk/."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def package_sdk_digest(root: Path | None = None) -> str:
 
 
 def ensure_sdk(*, force: bool = False, install: bool = True) -> Path:
-    """Copy package SDK → $Y_AGENT_HOME/modules/.sdk and npm install once.
+    """Copy package SDK → <MODULE_SOURCE_ROOT>/.sdk and npm install once.
 
     Re-materializes when the packaged content digest changes (any file under
     the shipped SDK, not only contract.json version), when the dest is
