@@ -160,11 +160,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   not management — it is not a leftover of the deleted management surface, and
   deleting it would break the chat picker for non-maintainers and on any module
   rollback/disable. `chat` (`modules/chat`) is the third full-stack module and the
-  first `shell` claimant, active at v10 (v9 is the immediate rollback target;
-  every published chat version through v10 fetches image bytes from the
-  now-deleted `/api/file/raw`, so images 404 on the active version and on
-  every rollback target until v11 ships — see the 3068 row in
-  `docs/prd/module-system.md`'s Delivery Records).
+  first `shell` claimant, active at v12 with v11 as its byte-identical rollback
+  twin (the file-module image-route retarget from todo 3068; both
+  `ui=11107bd79435` / `api=3d77a0331766`; `y module rollback chat` returns to
+  v11). Chat v2–v10 remain unsafe post-file-cutover because they still fetch
+  image bytes from the deleted `/api/file/raw`.
   It owns chat **browsing and presentation**: the `panel` (Chats list), a
   full-width `detail` browser, the `shell` (the live centre-column conversation,
   including `MessageList` / `MessageBubble` / the message parser / message layout
