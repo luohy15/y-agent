@@ -8,11 +8,10 @@ import GoogleSignInButton from "./components/GoogleSignInButton";
 import FileViewer from "./components/FileViewer";
 import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
-import { buildChatPanelItem, buildFilePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
+import { buildChatPanelItem, buildFilePanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
-import NoteList from "./components/NoteList";
 import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
@@ -75,17 +74,13 @@ interface BotConfigItem {
 // tab state would otherwise fetch a nonexistent file.
 const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md"]);
 
-// Round-2 gap closure (plan-3046-right-sidebar.md R1) + C1 (plan-3068): exactly
-// four right categories. Chat and Files are resolved dynamically
-// (buildChatPanelItem / buildFilePanelItem); Notes and Diff remain fixed
-// built-ins. Links is not one of them — the left activity bar's built-in
-// Links panel remains the only Links surface. Order: Chat, Notes, Files, Diff.
-type RightBuiltInPanel = "notes" | "diff";
-type RightPanel = RightBuiltInPanel | `artifact:${string}`;
+// Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
+// four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
+// host-owned. Links remains in the left activity bar. Order: Chat, Notes, Files, Diff.
+type RightPanel = "diff" | `artifact:${string}`;
 type ArtifactTab = { type: ArtifactType; spec: string };
 
-const RIGHT_NOTES_ITEM: PanelItem<RightBuiltInPanel> = { key: "notes", label: "Notes", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> };
-const RIGHT_DIFF_ITEM: PanelItem<RightBuiltInPanel> = { key: "diff", label: "Diff", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg> };
+const RIGHT_DIFF_ITEM: PanelItem<"diff"> = { key: "diff", label: "Diff", icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><line x1="6" y1="9" x2="6" y2="21" /></svg> };
 
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
@@ -104,7 +99,7 @@ export default function App() {
   const rightPanelItems = useMemo<PanelItem<RightPanel>[]>(
     () => [
       ...buildChatPanelItem(uiArtifacts),
-      RIGHT_NOTES_ITEM,
+      ...buildNotePanelItem(uiArtifacts),
       ...buildFilePanelItem(uiArtifacts),
       RIGHT_DIFF_ITEM,
     ],
@@ -158,8 +153,8 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const raw = localStorage.getItem("sidebarPanel");
-    // C1: migrate the retired fixed Files entry onto the module panel key.
-    const saved = (raw === "files" ? "artifact:file" : raw) as SidebarPanel;
+    // C1: migrate retired fixed entries onto their module panel keys.
+    const saved = (raw === "files" ? "artifact:file" : raw === "notes" ? "artifact:note" : raw) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -315,7 +310,7 @@ export default function App() {
   useEffect(() => {
     if (uiArtifactsLoading) return;
     const slug = artifactSlugFromPanel(sidebarPanel);
-    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("notes");
+    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("artifact:todo");
   }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
   const openFilesRef = useRef(openFiles);
@@ -455,10 +450,7 @@ export default function App() {
   // the right chat panel can consume it once it opts in via usePanelLocation.
   usePublishSelectedChatIntent(selectedChatId, selectedBot, chatListTraceId);
   // Plan H2 (pages/plan-3071-note-module.md decision 7): publish the note
-  // trace-scope intent for modules/note (no visible change). Left and right
-  // both mirror the built-in NoteList's current vmName/workDir props
-  // (selectedVM, defaultWorkDir) — the same call sites the future panel's
-  // two `usePanelLocation()` modes replace.
+  // trace-scope intent and per-location VM/work-directory context.
   usePublishNoteIntent(chatListTraceId, selectedVM, defaultWorkDir ?? null, selectedVM, defaultWorkDir ?? null);
   useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
@@ -795,8 +787,7 @@ export default function App() {
 
   const refreshRightPanel = useCallback(() => {
     setRightPanelRefreshKey((k) => k + 1);
-    // Module Files panel reads top-level intent.nonce (note convention);
-    // NoteList / Git still use refreshKey.
+    // Module Files and Notes panels read top-level intent.nonce; Git uses refreshKey.
     publishFileRefresh();
     setRightPanelSpinning(true);
     setTimeout(() => setRightPanelSpinning(false), 600);
@@ -830,9 +821,6 @@ export default function App() {
           onRolledBack={() => { void mutateUiArtifacts(); }}
         />
       );
-    }
-    if (rightPanel === "notes") {
-      return <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={(path) => { handleOpenFile(path); closeMobile(); }} todoId={chatListTraceId} hideFilters refreshKey={rightPanelRefreshKey} />;
     }
     return <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); closeMobile(); }} refreshKey={rightPanelRefreshKey} />;
   };
@@ -1072,8 +1060,6 @@ export default function App() {
                     ))}
                   />
                 </div>
-              ) : sidebarPanel === "notes" ? (
-                <NoteList isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={defaultWorkDir} onOpenFile={handlePreviewFile} />
               ) : sidebarPanel === "links" ? (
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
               ) : sidebarPanel === "email" ? (

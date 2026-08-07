@@ -67,7 +67,7 @@ describe("optimisticListMutate", () => {
       "$inf$https://api/todo/list?status=pending": [[{ todo_id: "1", status: "pending" }]],
       "https://api/todo/list?status=active&limit=500": [{ todo_id: "1", status: "pending" }],
       "https://api/todo/detail?todo_id=1": { todo_id: "1", status: "pending" },
-      "https://api/note/list": [{ note_id: "n1" }],
+      "https://api/module/note/list": [{ note_id: "n1" }],
     });
 
     await optimisticListMutate<Todo>(swr, "/todo/", "todo_id", "1", { status: "active" }, async () => {});
@@ -75,7 +75,7 @@ describe("optimisticListMutate", () => {
     expect(store.get("$inf$https://api/todo/list?status=pending")).toEqual([[{ todo_id: "1", status: "active" }]]);
     expect(store.get("https://api/todo/list?status=active&limit=500")).toEqual([{ todo_id: "1", status: "active" }]);
     expect(store.get("https://api/todo/detail?todo_id=1")).toEqual({ todo_id: "1", status: "active" });
-    expect(store.get("https://api/note/list")).toEqual([{ note_id: "n1" }]); // unmatched, untouched
+    expect(store.get("https://api/module/note/list")).toEqual([{ note_id: "n1" }]); // unmatched, untouched
   });
 
   it("applies the optimistic patch before the request settles, then revalidates the same keys", async () => {
@@ -120,7 +120,7 @@ describe("optimisticListMutate", () => {
   it("matches cache keys via string substring, regexp, and predicate", async () => {
     const { swr } = fakeSwr({
       "https://api/todo/list": [{ todo_id: "1", status: "pending" }],
-      "https://api/note/list": [{ note_id: "n1" }],
+      "https://api/module/note/list": [{ note_id: "n1" }],
     });
 
     await optimisticListMutate<Todo>(swr, "/todo/", "todo_id", "1", { status: "active" }, async () => {});
@@ -129,6 +129,6 @@ describe("optimisticListMutate", () => {
 
     const matchedKeyCalls = (swr.mutate as ReturnType<typeof vi.fn>).mock.calls.map(([key]) => key as string);
     expect(matchedKeyCalls.every((key) => key.includes("/todo/"))).toBe(true);
-    expect(matchedKeyCalls).not.toContain("https://api/note/list");
+    expect(matchedKeyCalls).not.toContain("https://api/module/note/list");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildActivityPanelItems, BUILT_IN_PANEL_ITEMS } from "./ActivityBar";
-import { buildChatPanelItem, buildFilePanelItem, buildModulePanelItems, resolveRightPanel, restoreRightPanel } from "./panelCatalog";
+import { buildChatPanelItem, buildFilePanelItem, buildModulePanelItems, buildNotePanelItem, resolveRightPanel, restoreRightPanel } from "./panelCatalog";
 import type { Module } from "../host/artifacts";
 
 function artifact(slug: string, enabled: boolean, active = true): Module {
@@ -32,62 +32,66 @@ describe("panel catalog", () => {
     expect(rightModules.map((item) => item.key)).toEqual(["artifact:enabled"]);
   });
 
-  // R1/W2 (plan-3046-right-sidebar.md) + C1 (plan-3068): the right catalog
-  // resolves only chat and file modules, not arbitrary enabled modules.
-  it("resolves only the chat and file modules for the right catalog, not arbitrary enabled modules", () => {
+  // R1/W2 (plan-3046-right-sidebar.md) + module cuts: the right catalog
+  // resolves only chat, note, and file modules, not arbitrary enabled modules.
+  it("resolves only the chat, note, and file modules for the right catalog", () => {
     const artifacts = [
       artifact("chat", true),
+      artifact("note", true),
       artifact("file", true),
       artifact("enabled", true),
       artifact("disabled", false),
     ];
     expect(buildChatPanelItem(artifacts).map((item) => item.key)).toEqual(["artifact:chat"]);
+    expect(buildNotePanelItem(artifacts).map((item) => item.key)).toEqual(["artifact:note"]);
     expect(buildFilePanelItem(artifacts).map((item) => item.key)).toEqual(["artifact:file"]);
-    expect(buildChatPanelItem(artifacts)).toHaveLength(1);
-    expect(buildFilePanelItem(artifacts)).toHaveLength(1);
   });
 
-  it("resolves no chat/file entry when the module is unavailable (disabled, unpublished, or absent)", () => {
+  it("resolves no chat/note/file entry when the module is unavailable (disabled, unpublished, or absent)", () => {
     expect(buildChatPanelItem([artifact("chat", false)])).toEqual([]);
     expect(buildChatPanelItem([artifact("chat", true, false)])).toEqual([]);
     expect(buildChatPanelItem([artifact("enabled", true)])).toEqual([]);
     expect(buildChatPanelItem([])).toEqual([]);
+    expect(buildNotePanelItem([artifact("note", false)])).toEqual([]);
+    expect(buildNotePanelItem([artifact("note", true, false)])).toEqual([]);
+    expect(buildNotePanelItem([artifact("enabled", true)])).toEqual([]);
+    expect(buildNotePanelItem([])).toEqual([]);
     expect(buildFilePanelItem([artifact("file", false)])).toEqual([]);
     expect(buildFilePanelItem([artifact("file", true, false)])).toEqual([]);
     expect(buildFilePanelItem([artifact("enabled", true)])).toEqual([]);
     expect(buildFilePanelItem([])).toEqual([]);
   });
 
-  it("migrates legacy persisted keys, including files -> artifact:file", () => {
+  it("migrates legacy persisted keys onto module panels", () => {
     expect(restoreRightPanel("git")).toBe("diff");
     expect(restoreRightPanel("chats")).toBe("artifact:chat");
+    expect(restoreRightPanel("notes")).toBe("artifact:note");
+    expect(restoreRightPanel("links")).toBe("artifact:note");
     expect(restoreRightPanel("files")).toBe("artifact:file");
-    expect(restoreRightPanel("links")).toBe("notes");
     expect(restoreRightPanel("artifact:chat")).toBe("artifact:chat");
+    expect(restoreRightPanel("artifact:note")).toBe("artifact:note");
     expect(restoreRightPanel("artifact:file")).toBe("artifact:file");
-    expect(restoreRightPanel(null)).toBe("notes");
+    expect(restoreRightPanel(null)).toBe("artifact:note");
   });
 
-  it("retains a cold-loading chat/file selection, resolves it once loaded, and falls back only after loading", () => {
+  it("retains module selections while loading and falls back to note after loading", () => {
+    const artifacts = [artifact("chat", true), artifact("note", true), artifact("file", true), artifact("enabled", true)];
     const items = [
-      { key: "notes", label: "Notes", icon: null },
-      ...buildChatPanelItem([artifact("chat", true), artifact("file", true), artifact("enabled", true)]),
-      ...buildFilePanelItem([artifact("chat", true), artifact("file", true), artifact("enabled", true)]),
+      ...buildChatPanelItem(artifacts),
+      ...buildNotePanelItem(artifacts),
+      ...buildFilePanelItem(artifacts),
     ];
 
     expect(resolveRightPanel("artifact:chat", items, false)).toBe("artifact:chat");
     expect(resolveRightPanel("artifact:chat", items, true)).toBe("artifact:chat");
-    expect(resolveRightPanel("artifact:file", items, false)).toBe("artifact:file");
     expect(resolveRightPanel("artifact:file", items, true)).toBe("artifact:file");
-    expect(resolveRightPanel("artifact:removed", items, true)).toBe("notes");
-    expect(items.filter((item) => item.key === "artifact:chat")).toHaveLength(1);
-    expect(items.filter((item) => item.key === "artifact:file")).toHaveLength(1);
+    expect(resolveRightPanel("artifact:note", items, true)).toBe("artifact:note");
+    expect(resolveRightPanel("artifact:removed", items, true)).toBe("artifact:note");
   });
 
-  it("falls back off a removed/disabled chat only once modules have finished loading", () => {
-    // Chat was selected but is now unavailable (disabled/rolled back/removed).
-    const items = [{ key: "notes", label: "Notes", icon: null }, ...buildChatPanelItem([artifact("chat", false)])];
+  it("falls back off a removed chat only once modules have finished loading", () => {
+    const items = buildNotePanelItem([artifact("note", true)]);
     expect(resolveRightPanel("artifact:chat", items, false)).toBe("artifact:chat");
-    expect(resolveRightPanel("artifact:chat", items, true)).toBe("notes");
+    expect(resolveRightPanel("artifact:chat", items, true)).toBe("artifact:note");
   });
 });

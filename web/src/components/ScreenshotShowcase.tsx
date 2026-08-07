@@ -5,7 +5,6 @@
 // fixed-size wrapper tagged `data-screenshot=<name>` for Playwright to target.
 import { installFetchMock, CHAT_MESSAGES_FIXTURE } from "../showcase/fixtures";
 import TraceView from "./TraceView";
-import NoteList from "./NoteList";
 import LinkList from "./LinkList";
 import TagList from "./TagList";
 import ChatSnapshotView from "./ChatSnapshotView";
@@ -58,10 +57,6 @@ export default function ScreenshotShowcase() {
             onPreviewLink={noop}
             onOpenFile={noop}
           />
-        </PanelFrame>
-
-        <PanelFrame name="note" title="note · NoteList" width={420} height={240}>
-          <NoteList isLoggedIn todoId="2541" onOpenFile={noop} />
         </PanelFrame>
 
         <PanelFrame name="link" title="link · LinkList" width={420} height={540}>

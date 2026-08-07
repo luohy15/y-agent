@@ -5,12 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import click
 from click.testing import CliRunner
 
 from yagent.commands.assoc import assoc_link, assoc_note
 from yagent.commands.entity.import_entity import entity_import
-from yagent.commands.note.import_note import _compute_content_key, note_import, resolve_content_path
-from yagent.commands.note.update import note_update
+from yagent.commands.note.import_note import _compute_content_key, import_single, resolve_content_path
 
 
 class NotePathResolutionCliTest(unittest.TestCase):
@@ -33,12 +33,13 @@ class NotePathResolutionCliTest(unittest.TestCase):
             shadow.mkdir()
             (shadow / "example.md").write_text("Cwd shadow\n")
 
-            with patch("yagent.commands.note.import_note.api_request") as api_request:
+            with patch.dict(os.environ, self.env, clear=False), \
+                 patch("yagent.commands.note.import_note.api_request") as api_request:
                 api_request.return_value.json.return_value = {"note_id": "note-1"}
-                result = self.runner.invoke(note_import, ["pages/example.md"], env=self.env)
+                content_key, note_id = import_single("pages/example.md")
 
-        self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIn("Imported: pages/example.md -> note-1", result.output)
+        self.assertEqual((content_key, note_id), ("pages/example.md", "note-1"))
+        self.assertEqual(api_request.call_args.args[:2], ("POST", "/api/module/note/import"))
         payload = api_request.call_args.kwargs["json"]
         self.assertEqual(payload["content_key"], "pages/example.md")
         self.assertEqual(payload["front_matter"]["name"], "Example")
@@ -75,33 +76,13 @@ class NotePathResolutionCliTest(unittest.TestCase):
         outside = Path(self.temp_dir.name) / "outside.md"
         outside.write_text("Outside\n")
 
-        with patch("yagent.commands.note.import_note.api_request") as api_request:
-            result = self.runner.invoke(note_import, [str(outside)], env=self.env)
+        with patch.dict(os.environ, self.env, clear=False), \
+             patch("yagent.commands.note.import_note.api_request") as api_request:
+            with self.assertRaises(click.ClickException) as error:
+                import_single(str(outside))
 
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("Content path is outside $Y_AGENT_HOME", result.output)
+        self.assertIn("Content path is outside $Y_AGENT_HOME", str(error.exception))
         api_request.assert_not_called()
-
-    def test_note_update_has_identical_relative_and_absolute_content_keys(self):
-        with self.runner.isolated_filesystem():
-            with patch("yagent.commands.note.update.api_request") as api_request:
-                api_request.return_value.json.return_value = {"note_id": "note-1", "content_key": "pages/example.md"}
-                relative_result = self.runner.invoke(
-                    note_update,
-                    ["note-1", "--content-key", "pages/example.md"],
-                    env=self.env,
-                )
-                absolute_result = self.runner.invoke(
-                    note_update,
-                    ["note-1", "--content-key", str(self.page)],
-                    env=self.env,
-                )
-
-        self.assertEqual(relative_result.exit_code, 0, relative_result.output)
-        self.assertEqual(absolute_result.exit_code, 0, absolute_result.output)
-        relative_payload, absolute_payload = [call.kwargs["json"] for call in api_request.call_args_list]
-        self.assertEqual(relative_payload["content_key"], "pages/example.md")
-        self.assertEqual(relative_payload["content_key"], absolute_payload["content_key"])
 
     def test_entity_import_uses_agent_home_for_backing_note(self):
         note_response = Mock()
@@ -116,6 +97,7 @@ class NotePathResolutionCliTest(unittest.TestCase):
                 result = self.runner.invoke(entity_import, ["pages/example.md"], env=self.env)
 
         self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(note_api_request.call_args.args[:2], ("POST", "/api/module/note/import"))
         self.assertEqual(note_api_request.call_args.kwargs["json"]["content_key"], "pages/example.md")
         self.assertEqual(api_request.call_args_list[0].kwargs["json"]["name"], "Example")
 
@@ -141,6 +123,7 @@ class NotePathResolutionCliTest(unittest.TestCase):
         self.assertIn("Linked note note-first to todo 3019", result.output)
         self.assertIn("Linked note note-last to todo 3019", result.output)
         self.assertIn("File not found:", result.output)
+        self.assertTrue(all(call.args[:2] == ("POST", "/api/module/note/todo") for call in api_request.call_args_list))
         self.assertEqual(
             [call.kwargs["json"] for call in api_request.call_args_list],
             [

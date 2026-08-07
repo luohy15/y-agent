@@ -6,7 +6,6 @@ import { buildModulePanelItems, type PanelItem } from "./panelCatalog";
 import UserMenu from "./UserMenu";
 
 export type BuiltInSidebarPanel =
-  | "notes"
   | "links"
   | "rss"
   | "entity"
@@ -34,11 +33,6 @@ interface ActivityBarProps {
 }
 
 export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
-  { key: "notes", label: "Notes", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
-    </svg>
-  )},
   { key: "tags", label: "Tags", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" /><path d="M7 7h.01" />
@@ -103,7 +97,8 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   "emails.md": "email",
   "dev.md": "dev",
   chats: "artifact:chat",
-  // C1: fixed left Files entry becomes the module panel.
+  // C1: fixed left module-backed entries become artifact panel keys.
+  notes: "artifact:note",
   files: "artifact:file",
 };
 
@@ -345,7 +340,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   }, [pref.status]);
 
   const panelByKey = useMemo(() => {
-    const m = new Map<SidebarPanel, PanelItem>();
+    const m = new Map<SidebarPanel, PanelItem<SidebarPanel>>();
     panelItems.forEach(p => m.set(p.key, p));
     return m;
   }, [panelItems]);

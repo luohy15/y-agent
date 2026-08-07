@@ -22,7 +22,7 @@ vi.mock("./FileViewer", () => ({
 vi.mock("./ChatList", () => ({
   default: () => React.createElement("div", { "data-testid": "chat-list" }, "chat-list"),
 }));
-vi.mock("./NoteList", () => ({
+vi.mock("./PublicNoteList", () => ({
   default: () => React.createElement("div", { "data-testid": "note-list" }, "note-list"),
 }));
 vi.mock("./LinkList", () => ({

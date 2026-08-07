@@ -4,7 +4,7 @@ import { API } from "../api";
 import ChatSnapshotView from "./ChatSnapshotView";
 import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
-import NoteList from "./NoteList";
+import PublicNoteList from "./PublicNoteList";
 import LinkList, { type Link } from "./LinkList";
 import ErrorBoundary from "./ErrorBoundary";
 import { type TraceChat } from "./WaterfallChart";
@@ -264,11 +264,9 @@ export default function PublicTraceApp() {
             onSelectChat={(id) => { if (id) selectChat(id); }}
           />
         ) : rightPanel === "notes" ? (
-          <NoteList
-            isLoggedIn={false}
-            onOpenFile={() => {}}
+          <PublicNoteList
             items={data.notes ?? []}
-            onSelectNote={(n) => openNote(n as TodoNoteInfo)}
+            onSelectNote={openNote}
           />
         ) : (
           <LinkList isLoggedIn={false} onPreview={() => {}} items={data.links ?? []} />

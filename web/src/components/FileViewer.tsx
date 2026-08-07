@@ -624,7 +624,7 @@ function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLi
         const noteIdsRes = await authFetch(`${API}/api/entity-note/by-entity?entity_id=${encodeURIComponent(entityId)}`);
         const noteIds: string[] = noteIdsRes.ok ? await noteIdsRes.json() : [];
         const noteDetails = await Promise.all(noteIds.map(async (nid) => {
-          const r = await authFetch(`${API}/api/note/detail?note_id=${encodeURIComponent(nid)}`);
+          const r = await authFetch(`${API}/api/module/note/detail?note_id=${encodeURIComponent(nid)}`);
           return r.ok ? (await r.json()) as EntityNote : null;
         }));
         if (cancelled) return;

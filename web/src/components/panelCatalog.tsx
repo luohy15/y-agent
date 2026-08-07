@@ -46,6 +46,12 @@ export function buildChatPanelItem(artifacts: Module[]): PanelItem<"artifact:cha
   return [{ key: "artifact:chat", label: artifactLabel(chat), icon: artifactIcon(chat.active_version.icon) }];
 }
 
+export function buildNotePanelItem(artifacts: Module[]): PanelItem<"artifact:note">[] {
+  const note = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "note");
+  if (!note) return [];
+  return [{ key: "artifact:note", label: artifactLabel(note), icon: artifactIcon(note.active_version.icon) }];
+}
+
 export function buildFilePanelItem(artifacts: Module[]): PanelItem<"artifact:file">[] {
   const file = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "file");
   if (!file) return [];
@@ -55,12 +61,12 @@ export function buildFilePanelItem(artifacts: Module[]): PanelItem<"artifact:fil
 export function restoreRightPanel(saved: string | null): string {
   if (saved === "git") return "diff";
   if (saved === "chats") return "artifact:chat";
+  if (saved === "notes" || saved === "links") return "artifact:note";
   if (saved === "files") return "artifact:file";
-  if (saved === "links") return "notes";
-  return saved || "notes";
+  return saved || "artifact:note";
 }
 
 export function resolveRightPanel(current: string, items: PanelItem[], modulesLoaded: boolean): string {
   if (!modulesLoaded) return current;
-  return items.some((item) => item.key === current) ? current : "notes";
+  return items.some((item) => item.key === current) ? current : "artifact:note";
 }

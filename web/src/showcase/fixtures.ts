@@ -1,7 +1,7 @@
 // Seeded mock fixtures + a `window.fetch` override for the /showcase route.
 //
-// The point: drive the REAL panel components (TraceView, NoteList,
-// LinkList) through their REAL `authFetch` / `jsonFetcher` code
+// The point: drive the REAL panel components (TraceView and LinkList)
+// through their REAL `authFetch` / `jsonFetcher` code
 // path so the rendered output is byte-for-byte production styling. We do NOT
 // reimplement any panel. We only swap the data source by overriding the global
 // `fetch` (which `authFetch` in `../api` ultimately calls) with URL-keyed
@@ -223,46 +223,6 @@ export const TRACE_CHATS_FIXTURE = {
   ],
   calendar_events: [],
 };
-
-// --- /api/note/list?todo_id=... -> Note[] -------------------------------------
-
-export const NOTES_FIXTURE = [
-  {
-    note_id: "b4f9cf",
-    content_key: "pages/plan-2541-docs-refresh.md",
-    front_matter: { tags: ["y-agent", "docs", "plan"] },
-    created_at: isoDaysAgo(1),
-    updated_at: isoDaysAgo(0, -3 * HOUR),
-  },
-  {
-    note_id: "a17e92",
-    content_key: "pages/decision-2541-screenshot-pipeline.md",
-    front_matter: { tags: ["decision"] },
-    created_at: isoDaysAgo(1),
-    updated_at: isoDaysAgo(1),
-  },
-  {
-    note_id: "c8810d",
-    content_key: "pages/capabilities-audit-2541.md",
-    front_matter: { tags: ["audit"] },
-    created_at: isoDaysAgo(1),
-    updated_at: isoDaysAgo(1),
-  },
-  {
-    note_id: "f3d401",
-    content_key: "pages/research-modern-screenshot-vs-playwright.md",
-    front_matter: { tags: ["research"] },
-    created_at: isoDaysAgo(2),
-    updated_at: isoDaysAgo(2),
-  },
-  {
-    note_id: "5b2c77",
-    content_key: "pages/requirement-client-vs-server-split.md",
-    front_matter: { tags: ["requirement"] },
-    created_at: isoDaysAgo(2),
-    updated_at: isoDaysAgo(2),
-  },
-];
 
 // --- /api/link/list -> Link[] -------------------------------------------------
 
@@ -618,7 +578,6 @@ function matchFixture(rawUrl: string): unknown | undefined {
   if (pathname === "/api/todo/list") return TODOS_FIXTURE;
   if (pathname === "/api/trace/chats") return TRACE_CHATS_FIXTURE;
   if (pathname === "/api/trace/share/mine") return null; // no existing share
-  if (pathname === "/api/note/list") return NOTES_FIXTURE;
   if (pathname === "/api/link/list") return LINKS_FIXTURE;
   if (pathname === "/api/tag/list") return TAG_VOCAB_FIXTURE;
   if (pathname === "/api/tag") return TAG_RESULTS_FIXTURE;

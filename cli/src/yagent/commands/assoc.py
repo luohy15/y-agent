@@ -75,7 +75,7 @@ def assoc_note(ids, todo):
     for id_value in ids:
         try:
             note_id = _resolve_note_id(id_value)
-            api_request("POST", "/api/note-todo", json={"note_id": note_id, "todo_id": todo})
+            api_request("POST", "/api/module/note/todo", json={"note_id": note_id, "todo_id": todo})
             click.echo(f"Linked note {note_id} to todo {todo}")
         except (SystemExit, Exception) as e:
             failures.append(id_value)
@@ -147,7 +147,7 @@ def unassoc_group():
 @click.option("--todo", "-t", required=True, help="Todo ID to disassociate from")
 def unassoc_note(note_id, todo):
     """Remove association between a note and a todo."""
-    api_request("POST", "/api/note-todo/delete", json={"note_id": note_id, "todo_id": todo})
+    api_request("POST", "/api/module/note/todo/delete", json={"note_id": note_id, "todo_id": todo})
     click.echo(f"Removed link between note {note_id} and todo {todo}")
 
 

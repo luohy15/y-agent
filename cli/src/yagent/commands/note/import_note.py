@@ -109,7 +109,7 @@ def import_single(filepath):
     payload = {"content_key": content_key}
     if front_matter:
         payload["front_matter"] = front_matter
-    resp = api_request("POST", "/api/note/import", json=payload)
+    resp = api_request("POST", "/api/module/note/import", json=payload)
     note = resp.json()
     return content_key, note["note_id"]
 

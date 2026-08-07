@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RightActivityBar from "./RightActivityBar";
 import type { PanelItem } from "./panelCatalog";
 
-const items: PanelItem<"artifact:chat" | "notes" | "files" | "diff">[] = [
+const items: PanelItem<"artifact:chat" | "artifact:note" | "artifact:file" | "diff">[] = [
   { key: "artifact:chat", label: "Chat", icon: <span>C</span> },
-  { key: "notes", label: "Notes", icon: <span>N</span> },
-  { key: "files", label: "Files", icon: <span>F</span> },
+  { key: "artifact:note", label: "Notes", icon: <span>N</span> },
+  { key: "artifact:file", label: "Files", icon: <span>F</span> },
   { key: "diff", label: "Diff", icon: <span>D</span> },
 ];
 
@@ -18,7 +18,7 @@ function renderClient() {
 }
 
 function Harness({ onClose }: { onClose: () => void }) {
-  const [activePanel, setActivePanel] = useState<(typeof items)[number]["key"]>("notes");
+  const [activePanel, setActivePanel] = useState<(typeof items)[number]["key"]>("artifact:note");
   return (
     <>
       <RightActivityBar
@@ -49,8 +49,8 @@ describe("RightActivityBar", () => {
     const buttons = container.querySelectorAll("[data-right-panel]");
     expect(Array.from(buttons).map((b) => b.getAttribute("data-right-panel"))).toEqual([
       "artifact:chat",
-      "notes",
-      "files",
+      "artifact:note",
+      "artifact:file",
       "diff",
     ]);
 
