@@ -13,6 +13,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Chat full-stack module and shell surface (3042, contract v5)**: chat browsing now
+  runs from the versioned `chat` module (`panel`, detail browser, and the live shell),
+  while the host retains the runtime, cross-session dispatch primitive, and a compact
+  degraded renderer for public shares and missing-module fallback. Module versions can
+  also be associated with traces, and the host contract now supplies request-bound chat
+  plus owner-bound note capabilities.
+- **File full-stack module (3068, contract v7)**: the versioned `file` module now owns
+  the authenticated VM file API, `y file upload` / `download`, Files panel, and ordinary
+  file workspace. It uses host file intents and the host-provided `CodeEditor` leaf to
+  keep the module bundle below the size ceiling while retaining editing, preview, and
+  file-management behavior.
+- **Module-aware right activity rail (3046)**: the horizontal right sidebar is restored
+  as a module-aware activity rail, with panel-location-aware trace filtering.
 - **Bot management module and backend contract v2 (3028, 3031)**: bot management now
   runs through the versioned `bot` module at `/api/module/bot/*`, with the local `y bot`
   CLI resolving from its canonical module source. The module uses narrowly scoped,
@@ -43,11 +56,22 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   dropped.
 
 ### Fixed
+- **Public chat-share rendering (3061, 3063)**: the host fallback renderer restores
+  per-turn compaction in public shares and consistently applies Solarized dark styling
+  on share routes.
+- **Todo default chat selection**: todo navigation now selects the intended default chat.
 - **Module artifact discovery**: normalize the module-list payload at the web host
   boundary, so published module panels render correctly when the API returns its
   envelope rather than a bare list.
 
 ### Removed
+- **Built-in file domain (3068)**: deleted the host authenticated file controller,
+  transfer CLI implementation, Files panel, and ordinary-file workspace after the
+  versioned file module was cut over. The host retains VM execution, note-pointer guards,
+  special/public file views, and module mount infrastructure.
+- **Built-in chat presentation surface (3042)**: deleted host chat browsing commands and
+  the live conversation presentation stack after the `chat` module cutover; runtime chat
+  creation, delivery, streaming, and dispatch remain host-owned.
 - **Built-in bot management surface (3028)**: deleted host `/api/bot/*` management
   routes, the built-in `y bot` command implementation, pricing service, and associated
   tests. `GET /api/chat/bot-options` remains host-owned, read-only routing selection
