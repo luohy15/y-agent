@@ -10,3 +10,5 @@ import contract from "../../../cli/src/yagent/sdk/contract.json";
 export const HOST_CONTRACT_VERSION: number = contract.version;
 
 export const EXTERNALS: readonly string[] = contract.externals;
+
+export const MODULE_ICON_KEYS: readonly string[] = contract.icons;

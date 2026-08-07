@@ -12,5 +12,17 @@
     "react-markdown",
     "remark-gfm",
     "@y/host"
+  ],
+  "icons": [
+    "chart",
+    "calendar",
+    "list",
+    "bot",
+    "todo",
+    "file",
+    "file-text",
+    "package",
+    "box",
+    "message"
   ]
 }

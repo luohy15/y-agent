@@ -1,7 +1,9 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { buildActivityPanelItems, BUILT_IN_PANEL_ITEMS } from "./ActivityBar";
-import { buildChatPanelItem, buildFilePanelItem, buildModulePanelItems, buildNotePanelItem, resolveRightPanel, restoreRightPanel } from "./panelCatalog";
+import { buildChatPanelItem, buildFilePanelItem, buildModulePanelItems, buildNotePanelItem, DEFAULT_MODULE_ICON, MODULE_ICONS, resolveRightPanel, restoreRightPanel } from "./panelCatalog";
 import type { Module } from "../host/artifacts";
+import { MODULE_ICON_KEYS } from "../host/contract";
 
 function artifact(slug: string, enabled: boolean, active = true): Module {
   return {
@@ -21,6 +23,20 @@ function artifact(slug: string, enabled: boolean, active = true): Module {
 }
 
 describe("panel catalog", () => {
+  it("keeps every shared icon key backed by a distinct registry entry", () => {
+    const markup = Object.entries(MODULE_ICONS)
+      .filter(([key]) => key !== "box")
+      .map(([, icon]) => renderToStaticMarkup(icon));
+
+    expect(MODULE_ICON_KEYS.every((key) => key in MODULE_ICONS)).toBe(true);
+    // `box` intentionally shares DEFAULT_MODULE_ICON: it is both the scaffold
+    // default and the honest rendering fallback for an unknown persisted key.
+    expect(new Set(markup).size).toBe(markup.length);
+    for (const key of ["file", "file-text", "package", "list", "chart", "bot", "todo", "calendar"]) {
+      expect(MODULE_ICONS[key]).not.toBe(DEFAULT_MODULE_ICON);
+    }
+  });
+
   it("derives identical module keys, labels, and icons for the left activity bar's arbitrary modules", () => {
     const artifacts = [artifact("enabled", true), artifact("disabled", false), artifact("unpublished", true, false)];
     const leftModules = buildActivityPanelItems(artifacts).slice(BUILT_IN_PANEL_ITEMS.length);

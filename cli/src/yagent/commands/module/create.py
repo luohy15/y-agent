@@ -20,7 +20,10 @@ from ._paths import (
     ui_dir,
     validate_slug,
 )
-from ._sdk import ensure_sdk, package_sdk_root
+from ._sdk import ensure_sdk, load_contract, package_sdk_root
+
+
+ICON_KEYS = load_contract()["icons"]
 
 # D11: the module's own DeclarativeBase + a local copy of the host's
 # four-column timestamp mixin. storage.util is on the D9 pure-function
@@ -92,7 +95,12 @@ already has — it never executes anything either.
 @click.command("create")
 @click.argument("slug")
 @click.option("--label", default=None, help="Sidebar label (default: title-cased slug)")
-@click.option("--icon", default="box", show_default=True, help="Sidebar icon key")
+@click.option(
+    "--icon",
+    default="box",
+    show_default=True,
+    help=f"Sidebar icon key ({', '.join(ICON_KEYS)})",
+)
 @click.option("--force", is_flag=True, help="Overwrite existing source/meta files")
 @click.option(
     "--no-register",

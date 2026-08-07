@@ -67,7 +67,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
 
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
-    icon = icon if icon is not None else meta.get("icon")
+    icon = icon if icon is not None else meta.get("icon", "box")
     min_backend_version = meta.get("min_backend_version")
     if min_backend_version is not None:
         try:
@@ -87,6 +87,12 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
     if not isinstance(ui_public, bool):
         raise click.ClickException(
             f"module.json ui_public must be a boolean, got {ui_public!r}"
+        )
+    contract = load_contract()
+    valid_icons = contract["icons"]
+    if icon not in valid_icons:
+        raise click.ClickException(
+            f"module icon must be one of {', '.join(valid_icons)}, got {icon!r}"
         )
 
     has_ui = source_path(slug).is_file()
@@ -114,7 +120,6 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             f"module {slug!r} has neither ui/index.tsx nor api.py; nothing to publish"
         )
 
-    contract = load_contract()
     min_host_version = int(
         (ui_manifest or {}).get("min_host_version") or contract.get("version") or 1
     )

@@ -300,6 +300,13 @@ class ModuleCreateTest(unittest.TestCase):
                 self.assertTrue((modules_dir() / ".sdk" / "shims" / "react.cjs").is_file())
                 self.assertTrue((modules_dir() / ".sdk" / _DIGEST_MARKER).is_file())
 
+    def test_create_help_uses_contract_icon_keys(self):
+        result = CliRunner().invoke(module_group, ["create", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        help_output = re.sub(r"-\s*\n\s*", "-", result.output)
+        for icon in load_contract()["icons"]:
+            self.assertIn(icon, help_output)
+
     def test_create_rejects_invalid_slug(self):
         result = CliRunner().invoke(module_group, ["create", "Bad Slug"])
         self.assertNotEqual(result.exit_code, 0)
@@ -457,7 +464,7 @@ class ModulePublishTest(unittest.TestCase):
                      },
                  ) as pub:
                 _scaffold_ui("demo", home)
-                result = CliRunner().invoke(module_group, ["publish", "demo"])
+                result = CliRunner().invoke(module_group, ["publish", "demo", "--icon", "file"])
 
             self.assertEqual(result.exit_code, 0, result.output)
             self.assertIn("v3", result.output)
@@ -466,6 +473,7 @@ class ModulePublishTest(unittest.TestCase):
             self.assertEqual(kwargs["module_id"], "mod_1")
             self.assertEqual(kwargs["sha256"], manifest["sha256"])
             self.assertEqual(kwargs["label"], "Demo")
+            self.assertEqual(kwargs["icon"], "file")
             self.assertTrue(kwargs["activate"])
             self.assertEqual(kwargs["bundle_bytes"], bundle.read_bytes())
             self.assertIsNone(kwargs["api_bundle_bytes"])
@@ -793,6 +801,44 @@ class ModulePublishTest(unittest.TestCase):
                 result = CliRunner().invoke(module_group, ["publish", "demo"])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("ui_public must be a boolean", result.output)
+        ui_fn.assert_not_called()
+        api_fn.assert_not_called()
+
+    def test_publish_rejects_unknown_icon_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            module_dir = home / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.json").write_text(
+                json.dumps({"icon": "unknown"}), encoding="utf-8"
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
+                result = CliRunner().invoke(module_group, ["publish", "demo"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("module icon must be one of", result.output)
+        self.assertIn("file-text", result.output)
+        ui_fn.assert_not_called()
+        api_fn.assert_not_called()
+
+    def test_publish_rejects_unknown_icon_override_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            module_dir = home / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.json").write_text(
+                json.dumps({"icon": "file"}), encoding="utf-8"
+            )
+            with patch.dict("os.environ", {"Y_AGENT_HOME": str(home)}), \
+                 patch("yagent.commands.module.publish.build_artifact") as ui_fn, \
+                 patch("yagent.commands.module.publish.build_api_bundle") as api_fn:
+                result = CliRunner().invoke(
+                    module_group, ["publish", "demo", "--icon", "unknown"]
+                )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("module icon must be one of", result.output)
+        self.assertIn("got 'unknown'", result.output)
         ui_fn.assert_not_called()
         api_fn.assert_not_called()
 
