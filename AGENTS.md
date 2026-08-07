@@ -187,12 +187,14 @@ entity + controller + service + CLI slices, and most have a web panel.
   `ChatFallbackView`, which the shell slot falls back to when no module claims it
   (see "Chat: a control-plane module over the runtime kernel" in
   `docs/prd/module-system.md`).
-  `file` (`modules/file`) is the fourth full-stack module, active at v4 with v3
-  as its byte-identical rollback twin; v1/v2 (the pre-cut twin pair) is still a
-  viable second rollback rung — unlike bot's/chat's post-cutover twins it never
-  called a route the cut deleted — but drops the three features M5 restored
-  (Import Note, the History link, the sandboxed-preview keyboard bridge).
-  Unlike finance/bot/chat, file owns no database tables — it is a control-plane
+  `file` (`modules/file`) is the fourth full-stack module, active at **v5**
+  (`ui=e859bebc25dc` / `api=628244cb50ae`); **v1–v4 all hang on ordinary-file
+  open** (the detail read effect cancelled itself after writing loading state),
+  so file currently has **no usable rollback target** for ordinary-file viewing
+  (v1/v2 never called a route the cut deleted, but that is moot while they
+  carry the hang; rolling back also drops the three M5 features: Import Note,
+  the History link, the sandboxed-preview keyboard bridge). Unlike
+  finance/bot/chat, file owns no database tables — it is a control-plane
   module over host **VM infrastructure** instead of module-owned data: the
   module owns the authenticated file API (`/api/module/file/*`, all 13 routes
   ported from the deleted built-in controller — list/read/prd/skills/search/
