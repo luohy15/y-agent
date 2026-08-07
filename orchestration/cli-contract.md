@@ -106,11 +106,17 @@ y dev wt rm <name>                   # remove worktree + branch
 y dev commit <name> [-m "<msg>"]     # commit, rebase onto the target branch, fast-forward merge
 ```
 
-Two behaviors the rules rely on: `wt add` branches off the repo's **current HEAD** (hence "set
+Behaviors the rules rely on: `wt add` branches off the repo's **current HEAD** (hence "set
 the target branch first"), and `wt list` prints the **authoritative** path (hence "never
-hand-construct worktree paths").
+hand-construct worktree paths"). For a root uv project (`pyproject.toml` + committed
+`uv.lock`), `wt add` also runs the repository `worktree/post-create.sh` hook and then
+provisions a worktree-local locked environment (`uv sync --locked --project <worktree>`),
+removing any legacy `.venv` symlink first. Repository hooks must not link `.venv`; share
+only non-environment assets. Existing shared-venv worktrees need one-time repair
+(`rm .venv && uv sync --locked`) or recreation.
 
-Plain `git worktree` plus a two-line shell function substitutes for this entirely.
+Plain `git worktree` plus a two-line shell function substitutes for this entirely, but
+then you own environment isolation yourself.
 
 ## 5. Backend registry: `y bot`
 

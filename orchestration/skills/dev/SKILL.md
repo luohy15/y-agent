@@ -300,7 +300,8 @@ On receiving a task:
 ## Worktree management
 
 ```bash
-# Create a worktree
+# Create a worktree (runs worktree/post-create.sh, then for root uv projects
+# provisions a worktree-local locked .venv via `uv sync --locked`)
 y dev wt add <project_path> <name>
 
 # Remove a worktree and its branch
@@ -312,6 +313,12 @@ y dev wt list
 
 - Worktree paths come from the literal output of `y dev wt add` (`Created worktree at <path>`)
   or `y dev wt list`. Never hand-construct them.
+- Root uv projects (root `pyproject.toml` + committed `uv.lock`) get an isolated
+  worktree-local `.venv`. Repository hooks must not symlink `.venv` from the main
+  checkout; share only non-environment assets (credentials, `node_modules`,
+  `migration`, datasets). Existing worktrees created under the old shared-venv
+  layout need one-time repair (`rm .venv && uv sync --locked` inside the worktree)
+  or recreation.
 
 ## Commit flow
 

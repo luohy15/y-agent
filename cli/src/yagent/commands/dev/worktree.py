@@ -18,6 +18,37 @@ def _run_hook(project_path: str, worktree_path: str, hook_name: str):
     click.echo(f"{hook_name}.sh done")
 
 
+def _is_root_locked_uv_project(worktree_path: str) -> bool:
+    """True when the worktree root is a uv project with a committed lockfile."""
+    return (
+        os.path.isfile(os.path.join(worktree_path, "pyproject.toml"))
+        and os.path.isfile(os.path.join(worktree_path, "uv.lock"))
+    )
+
+
+def _provision_uv_env(worktree_path: str) -> None:
+    """Create/sync a worktree-local locked uv environment when applicable.
+
+    Only root uv projects with a committed ``uv.lock`` are provisioned. Nested
+    projects and non-uv repositories are left alone. A legacy ``.venv`` symlink
+    (from older post-create hooks) is removed first so editable installs cannot
+    rewrite another checkout's path entries.
+    """
+    if not _is_root_locked_uv_project(worktree_path):
+        return
+
+    venv_path = os.path.join(worktree_path, ".venv")
+    if os.path.islink(venv_path):
+        click.echo(f"Removing legacy .venv symlink at {venv_path}")
+        os.unlink(venv_path)
+
+    click.echo(f"Provisioning worktree-local uv environment at {worktree_path} ...")
+    subprocess.check_call(
+        ["uv", "sync", "--locked", "--project", worktree_path],
+    )
+    click.echo("uv environment ready")
+
+
 def _kill_session_processes(session_dir: str):
     """Kill all tracked processes in a session directory."""
     for pid_file in ["vite.pid", "ngrok.pid", "backend.pid", "ngrok-backend.pid"]:
@@ -125,6 +156,9 @@ def wt_add(project_path: str, name: str, todo_id: str):
     click.echo(f"Created worktree at {worktree_path}")
 
     _run_hook(project_path, worktree_path, "post-create")
+    # After the repo hook: isolate root uv projects so editable .pth files never
+    # point at another checkout. Failure here aborts before registry write.
+    _provision_uv_env(worktree_path)
 
     create_worktree(name, project_path, worktree_path, branch, todo_id=todo_id)
     click.echo(f"Registered worktree '{name}'")

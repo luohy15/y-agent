@@ -237,7 +237,14 @@ entity + controller + service + CLI slices, and most have a web panel.
   `s3://` / CDN refs; legacy `s3://` entries from before 2026-05-17 are warning-skipped.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` handle worktree lifecycle; PID and session state live under
-  `/tmp/dev-sessions/<name>/` so multiple worktrees coexist.
+  `/tmp/dev-sessions/<name>/` so multiple worktrees coexist. For a root uv project
+  (root `pyproject.toml` + committed `uv.lock`), `y dev wt add` provisions a
+  worktree-local `.venv` via `uv sync --locked` after the repository hook and
+  refuses to keep a legacy shared `.venv` symlink. Repository hooks must share only
+  non-environment assets (credentials, `node_modules`, `migration`, datasets); they
+  must not link `.venv`. Existing worktrees created before this behavior need a
+  one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
+  recreation.
 - **Finance / Email / Calendar** — finance is a full-stack module under
   `$Y_AGENT_HOME/modules/finance`: DB-backed views via `y finance` (local module
   CLI) and `/api/module/finance/*` (balance sheet, income statement, holdings,
@@ -486,6 +493,8 @@ y chat -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--bot <name>
 y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 
 # Dev worktree lifecycle
+# Root uv projects (pyproject.toml + uv.lock) get an isolated locked .venv;
+# repository post-create hooks must not symlink .venv across checkouts.
 y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
