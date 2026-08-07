@@ -58,15 +58,21 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Topic** — every chat has an optional `topic` (named persistent address). The
   conventional root topic is `manager`; the API rejects notify callbacks aimed at
   root topics (they are conversations, not function calls).
-- **Note** — `note` + `note_todo_relation` tables. A note has a `content_key` file
-  pointer (relative to Y_AGENT_HOME) plus JSON `front_matter`; used for plan /
-  requirement / decision / journal context tied to todos. The file module's Rename
-  endpoint (`POST /api/module/file/rename`) refuses to rename a path while any live
-  note's `content_key` still points at it (or, for a directory, lives under
-  it) — `content_key` is never auto-fixed, so the user must retarget the note
-  first. The module reaches this guard only through the backend contract's
-  `note_list_at_path` (v4), never the note service directly.
-  `POST /api/module/file/move` has the same hazard with no guard yet (todo 2888
+- **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
+  tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
+  JSON `front_matter`; it is used for plan / requirement / decision / journal
+  context tied to todos. The `note` module (active v2, with byte-identical v1 as
+  the rollback twin) owns the ten authenticated note and note-relation routes at
+  `/api/module/note/*`, `y note`, and the Notes panel. The host retains all five
+  share routes and the public trace-note renderer because unauthenticated
+  `/t/:shareId` and `trace.py`'s in-process sharing helpers depend on kernel note
+  state; `y assoc note` and the todo 3041 content-path authority stay built-in.
+  The file module's Rename endpoint (`POST /api/module/file/rename`) refuses to
+  rename a path while any live note's `content_key` still points at it (or, for a
+  directory, lives under it); `content_key` is never auto-fixed, so the user must
+  retarget the note first. The module reaches this guard only through the backend
+  contract's `note_list_at_path`, never the note service directly. `POST
+  /api/module/file/move` has the same hazard with no guard yet (todo 2888
   follow-up, unchanged by the todo 3068 migration).
 - **Entity (knowledge graph)** — `entity` + `entity_note_relation` + `entity_rss_relation`.
   Web sidebar exposes entities as a first-class panel.
@@ -308,20 +314,24 @@ Grouped by feature area:
   browse `list` / `content` and share *creation* moved to the `chat` module), `trace.py` (listing,
   share, lookup by chat_id), `git.py` (status/diff/discard, VM execution via
   `agent.vm_command`), `terminal.py` (shell exec)
-- **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`,
-  `note_todo_relation.py`, `entity.py`, `entity_note_relation.py`, `entity_rss_relation.py`
+- **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
+  (five host share routes and sharing helpers only), `entity.py`,
+  `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
   `english_correction.py`
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
-  domain). Finance, bot management, chat browsing, and the authenticated file
-  domain live only there (`/api/module/finance/*`, `/api/module/bot/*`,
-  `/api/module/chat/{list,content,share}`, `/api/module/file/*`); there is no
-  built-in `finance.py`, `bot_config.py`, or `file.py` controller, and `chat.py`
-  no longer serves `list` / `content` / `POST share`. `chat.py` retains one host bot
-  route, `GET /api/chat/bot-options` (read-only `name`/`backend`/`model`, all
-  authenticated users) — routing selection, not management, so it did not move.
+  domain). Finance, bot management, chat browsing, authenticated file operations,
+  and authenticated note operations live only there (`/api/module/finance/*`,
+  `/api/module/bot/*`, `/api/module/chat/{list,content,share}`,
+  `/api/module/file/*`, `/api/module/note/*`); there is no built-in `finance.py`,
+  `bot_config.py`, `file.py`, or authenticated note controller, and `chat.py` no
+  longer serves `list` / `content` / `POST share`. `note.py` retains the five host
+  share routes and sharing helpers for public trace and note shares. `chat.py`
+  retains one host bot route, `GET /api/chat/bot-options` (read-only
+  `name`/`backend`/`model`, all authenticated users), because routing selection is
+  not management.
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
   `dev_worktree.py`, `tg_topic.py`
 
@@ -335,8 +345,8 @@ Grouped by feature area:
   `bot_config_*` capability used by the bot module, v3 adds the request-bound
   `chat_list` / `chat_get` / `chat_create_share` capability used by the chat module,
   v4 adds `work_dir`/stdin on `run_vm_command` plus `note_list_at_path` used by
-  the file module, v5 adds the owner-bound `note_*` capability for todo 3071,
-  `BACKEND_CONTRACT_VERSION = 5`)
+  the file module, and v5 adds the owner-bound `note_*` capability used by the
+  note module (`BACKEND_CONTRACT_VERSION = 5`)
 - `vm_command.py` — the local/SSH VM execution primitive, extracted from the
   deleted `api.controller.file._exec` (todo 3068 H1); `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
@@ -382,11 +392,14 @@ Grouped by feature area:
   host commands `file.open` / `file.close` / `file.search`
   (`utils/fileHost.ts`); both sidebars resolve the module `panel` as
   `artifact:file`, replacing the fixed built-in `files` entry.
+- The authenticated Notes panel is the `note` module's `panel` surface,
+  resolved as `artifact:note` in both sidebars. The host keeps `PublicNoteList`
+  for logged-out `/t/:shareId` trace shares, while note opens use the host
+  `file.open` command and workspace.
 - `host/commands.ts` — internal registration for artifact-invoked host commands
 - Todo list and modal detail are the runtime-loaded `todo` artifact; `TraceView` stays
   bundled because `PublicTraceApp` must render it for unauthenticated trace shares
-- `components/NoteList.tsx`, `LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx` —
-  subsystem panels
+- `components/LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx` — subsystem panels
 - `components/DiffViewer.tsx`, `GitPanel.tsx` — git status + diff
 - `components/CommandPalette.tsx` — ⌘K palette
 - `api.ts` — `authFetch()` wrapper, base URL from `VITE_API_URL`
@@ -394,13 +407,15 @@ Grouped by feature area:
 
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` command group
-- `commands/` subcommand groups: `chat`, `todo`, `calendar`, `note`, `entity`,
+- `commands/` subcommand groups: `chat`, `todo`, `calendar`, `entity`,
   `reminder`, `rss`, `link`, `email`, `dev`, `image`, `trace`,
   `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
-  Domain CLI groups such as `y finance`, `y bot`, and `y file` are not
+  Domain CLI groups such as `y finance`, `y bot`, `y file`, and `y note` are not
   built-in: they resolve lazily from `$Y_AGENT_HOME/modules/<slug>/cli.py`
   (`y file`'s upload/download group moved out of `commands/` in the todo 3068
-  cut). `y chat` is the one hybrid group: the dispatch primitive (`-m` / `-i`)
+  cut; `y note` moved in todo 3071). `y assoc note` remains built-in because it
+  is the multi-domain association group and uses the host's 3041 content-path
+  authority. `y chat` is the one hybrid group: the dispatch primitive (`-m` / `-i`)
   plus `stop` / `attach` / the import commands stay built-in so a bad publish
   can never take out cross-session dispatch, while `list` / `get` / `search` /
   `share` fall through to `modules/chat/cli.py`. `LazyModuleProxy` derives a
