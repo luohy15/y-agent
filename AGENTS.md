@@ -187,14 +187,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   `ChatFallbackView`, which the shell slot falls back to when no module claims it
   (see "Chat: a control-plane module over the runtime kernel" in
   `docs/prd/module-system.md`).
-  `file` (`modules/file`) is the fourth full-stack module, active at **v5**
-  (`ui=e859bebc25dc` / `api=628244cb50ae`); **v1–v4 all hang on ordinary-file
+  `file` (`modules/file`) is the fourth full-stack module, active at **v6**
+  (`ui=8fc9638bac0a` / `api=628244cb50ae`); **v1–v4 all hang on ordinary-file
   open** (the detail read effect cancelled itself after writing loading state),
-  so file currently has **no usable rollback target** for ordinary-file viewing
-  (v1/v2 never called a route the cut deleted, but that is moot while they
-  carry the hang; rolling back also drops the three M5 features: Import Note,
-  the History link, the sandboxed-preview keyboard bridge). Unlike
-  finance/bot/chat, file owns no database tables — it is a control-plane
+  and **v1–v5 all render Markdown with no table of contents** (the built-in
+  TOC was never ported until v6), so rolling back drops either ordinary-file
+  viewing (v1–v4) or the TOC (v5) and none restores the full current viewer.
+  Unlike finance/bot/chat, file owns no database tables — it is a control-plane
   module over host **VM infrastructure** instead of module-owned data: the
   module owns the authenticated file API (`/api/module/file/*`, all 13 routes
   ported from the deleted built-in controller — list/read/prd/skills/search/
@@ -203,27 +202,28 @@ entity + controller + service + CLI slices, and most have a web panel.
   since file transfer is not the mechanism used to recover the agent system),
   the Files `panel` (ported `FileTree` behavior, mountable in either sidebar via
   `usePanelLocation()`), and a `detail` workspace (`ui:file`: CodeMirror
-  editing, Markdown/HTML/image/PDF preview, tabs, search, upload/move/rename/
-  delete, Markdown export) that owns every ordinary-file view previously in
-  host `FileViewer`. The host keeps VM credentials, SSH/EC2 execution
-  (`agent/vm_command.py`, extracted from the deleted
-  `api.controller.file._exec` so the note/git/link controllers no longer
-  import from a module-owned domain), request-owner enforcement, the note
-  `content_key` rename guard, the generic special/public tab shell retained in
-  `FileViewer.tsx` (`PublicFileViewer` plus every non-file special tab —
-  trace/link/entity/email/dev/diff/artifact/module-detail), and public/degraded
-  rendering. File selection crosses the intent/command seam (`file.open` /
-  `file.close` / `file.search` host commands, retained per-location VM/
-  work-directory context); rename/delete notifications update module-owned
-  tabs directly rather than host file-path state. File declares
+  editing, Markdown/HTML/image/PDF preview with a responsive TOC in Markdown
+  preview, tabs, search, upload/move/rename/delete, Markdown export) that owns
+  every ordinary-file view previously in host `FileViewer`. The host keeps VM
+  credentials, SSH/EC2 execution (`agent/vm_command.py`, extracted from the
+  deleted `api.controller.file._exec` so the note/git/link controllers no
+  longer import from a module-owned domain), request-owner enforcement, the
+  note `content_key` rename guard, the generic special/public tab shell
+  retained in `FileViewer.tsx` (`PublicFileViewer` plus every non-file special
+  tab — trace/link/entity/email/dev/diff/artifact/module-detail), and
+  public/degraded rendering. File selection crosses the intent/command seam
+  (`file.open` / `file.close` / `file.search` host commands, retained
+  per-location VM/work-directory context); rename/delete notifications update
+  module-owned tabs directly rather than host file-path state. File declares
   `min_backend_version: 4`. Bundling CodeMirror directly into the module
   measured ~957 KB unminified (core + one language), breaching the 250 KB
   module ceiling even minified and bare (~267 KB), so the detail workspace
   instead imports the host's `CodeEditor` as a versioned `@y/host` leaf,
   bumping the browser contract **v6 → v7** (file declares `min_host_version: 7`);
-  the shipped module bundle itself measured ~93 KB (panel + detail combined).
-  `POST /api/module/file/move` still has no note-pointer guard, matching the
-  built-in's pre-existing gap (todo 2888 follow-up, unchanged by the migration).
+  the shipped module bundle itself measured ~93 KB at the cut (panel + detail
+  combined; v6 is still well under the ceiling). `POST /api/module/file/move`
+  still has no note-pointer guard, matching the built-in's pre-existing gap
+  (todo 2888 follow-up, unchanged by the migration).
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
