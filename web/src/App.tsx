@@ -282,7 +282,7 @@ export default function App() {
       handleOpenFile("trace.md");
     });
     // Plan P2 (pages/plan-3042-control-plane.md): chat control-plane host
-    // commands for the modules/chat UI.
+    // commands for the code/y-module/chat UI.
     const unregisterChatOpen = registerHostCommand("chat.open", (payload) => {
       const chatId = chatIdFromPayload(payload);
       if (chatId === undefined) return;
@@ -443,7 +443,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
-  // Plan P2: publish selected-chat intent for modules/chat (no visible change).
+  // Plan P2: publish selected-chat intent for code/y-module/chat (no visible change).
   // D-C: also carries botName, since selectedBot is intentionally not persisted
   // to localStorage the way selectedVM is (no other fallback for the module).
   // R7 (plan-3046-right-sidebar.md): also carries the host trace filter, so
@@ -668,7 +668,7 @@ export default function App() {
   }, []);
 
   // D-B (pages/decision-3042-chat-shell-host-seam.md): the six D1b host
-  // commands modules/chat v2 emits (chat/ui/host-commands.ts) that had no
+  // commands code/y-module/chat v2 emits (chat/ui/host-commands.ts) that had no
   // registerHostCommand wiring yet — `chat.open` / `chat.refreshList` /
   // `chat.setTraceFilter` are already registered above. Each mirrors the
   // equivalent built-in ChatView prop/callback so the module shell drives the

@@ -1542,16 +1542,15 @@ class LazyModuleDiscoveryTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            modules = home
             # Dot entries (SDK + bak) must never become commands.
-            (modules / ".sdk").mkdir()
-            (modules / ".sdk-node_modules.bak").mkdir()
+            (home / ".sdk").mkdir()
+            (home / ".sdk-node_modules.bak").mkdir()
             # Invalid slug (underscore) and non-dir file.
-            (modules / "bad_slug").mkdir()
-            (modules / "bad_slug" / "module.json").write_text("{}", encoding="utf-8")
-            (modules / "readme.txt").write_text("nope\n", encoding="utf-8")
+            (home / "bad_slug").mkdir()
+            (home / "bad_slug" / "module.json").write_text("{}", encoding="utf-8")
+            (home / "readme.txt").write_text("nope\n", encoding="utf-8")
             # UI-only: module.json but no cli.py.
-            ui_only = modules / "ui-only"
+            ui_only = home / "ui-only"
             ui_only.mkdir()
             (ui_only / "module.json").write_text(
                 json.dumps({"label": "UI Only", "icon": "box"}), encoding="utf-8"

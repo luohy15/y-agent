@@ -91,9 +91,9 @@ def build_artifact(slug: str) -> dict:
 def build_api_bundle(slug: str) -> dict | None:
     """Zip the module's Python half. Returns None when there is no API half.
 
-    A module has an API half when `<modules>/<slug>/api.py` exists. The zip is
-    deterministic (sorted entries, fixed timestamps) so the content hash is
-    stable across hosts and call sites. When `modules/common/` exists and
+    A module has an API half when `code/y-module/<slug>/api.py` exists. The zip
+    is deterministic (sorted entries, fixed timestamps) so the content hash is
+    stable across hosts and call sites. When `code/y-module/common/` exists and
     `slug != "common"`, its contents are vendored as `common/` inside the zip
     (plan D12); those bytes are part of api_sha256.
     """

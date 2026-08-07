@@ -1,4 +1,4 @@
-// Host-side chat control-plane gestures for the future modules/chat UI
+// Host-side chat control-plane gestures for the future code/y-module/chat UI
 // (plan P2, pages/plan-3042-control-plane.md). Pure helpers so App.tsx can
 // wire host commands / selected-chat intent without bloating the shell, and so
 // the verify unit tests can exercise shell-state movement without mounting App.

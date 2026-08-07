@@ -158,7 +158,8 @@ export function fileSearchPayload(payload: unknown): { vmName: string | null; wo
 }
 
 /** Host workspace tabs after C1: special views + module detail tabs. Ordinary
- * file paths belong to modules/file (mirrored from modules/file/ui/detailState
+ * file paths belong to code/y-module/file (mirrored from
+ * code/y-module/file/ui/detailState
  * `isOrdinaryFileTab` inverted). */
 export function isHostWorkspaceTab(path: string): boolean {
   if (!path) return false;

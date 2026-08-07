@@ -12,7 +12,7 @@ status: superseded-in-part
 
 Todo 3020 supersedes this document's identity, source-layout, storage, lifecycle, and
 command-surface requirements. The current unit is a **module**, authored only under
-`$Y_AGENT_HOME/modules/<slug>/` and managed through `y module`; its version can include
+`code/y-module/<slug>/` and managed through `y module`; its version can include
 an API half as well as the UI half. The module-system PRD owns module-owned data, manual
 migrations and publish preflight, trusted-maintainer backend execution, lazy CLI
 registration, `common` vendoring, routine VM commands, and rollback/deletion semantics.

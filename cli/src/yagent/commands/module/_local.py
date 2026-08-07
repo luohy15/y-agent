@@ -46,7 +46,7 @@ def validate_local_package_root(slug: str) -> Path:
 def import_local_module(slug: str, *, package_name: Optional[str] = None) -> ModuleType:
     """Import `<MODULE_SOURCE_ROOT>/<slug>/` as a top-level package.
 
-    Registers `<pkg>.common` from `modules/common/` when that directory exists
+    Registers `<pkg>.common` from `code/y-module/common/` when that directory exists
     and the slug is not itself `common` (plan D12 CLI-side path injection).
     """
     root = validate_local_package_root(slug)

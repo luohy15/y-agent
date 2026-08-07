@@ -1,4 +1,4 @@
-// Host-side note control-plane gestures for the future modules/note UI (plan
+// Host-side note control-plane gestures for the future code/y-module/note UI (plan
 // H2, pages/plan-3071-note-module.md decision 7). Mirrors chatHost's
 // `usePublishSelectedChatIntent`: one retained intent under the `"note"`
 // artifact slug, republished whenever the trace filter or either location's
