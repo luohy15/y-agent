@@ -26,6 +26,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   file-management behavior.
 - **Module-aware right activity rail (3046)**: the horizontal right sidebar is restored
   as a module-aware activity rail, with panel-location-aware trace filtering.
+- **Note full-stack module (3071, contract v5)**: authenticated note listing, editing,
+  deletion, relation APIs, the `y note` CLI, and the Notes panel now run from the
+  versioned `note` module. The host keeps public sharing, trace rendering, and the
+  cross-domain `y assoc note` content-path authority.
+- **Isolated uv worktree environments**: `y dev wt add` provisions a locked local
+  `.venv` for root uv projects, rather than linking one shared environment across
+  worktrees.
 - **Bot management module and backend contract v2 (3028, 3031)**: bot management now
   runs through the versioned `bot` module at `/api/module/bot/*`, with the local `y bot`
   CLI resolving from its canonical module source. The module uses narrowly scoped,
@@ -44,6 +51,15 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   shared tables and is vendored into consumer bundles. The system is live and deployed.
 
 ### Changed
+- **Canonical module source layout (3073)**: module authoring source now lives only at
+  the fixed `code/y-module/<slug>/` location, independent of `Y_AGENT_HOME`; local
+  module discovery, creation, SDK documentation, and host references use this single
+  path.
+- **Module activity-bar icons (3083)**: declared module icons are restored in the
+  activity rail, with the module SDK and host contract kept in sync.
+- **File workspace recovery (3068, 3084)**: the file module restores ordinary-file
+  loading after a cancelled read effect and restores a responsive table of contents in
+  Markdown preview.
 - **Finance full-stack module cutover (3020)**: finance is now the reference live
   full-stack module. Production serves finance **v20** (with **v19** as the immediate
   full-stack rollback twin, identical API/UI hashes) at `/api/module/finance/*`;
