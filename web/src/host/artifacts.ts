@@ -53,6 +53,14 @@ export function artifactLabel(artifact: MountableModule): string {
   return artifact.active_version.label?.trim() || artifact.slug;
 }
 
+/** File module is contextual (todo 3084) when its active UI requires host contract
+ * v8+ (`useDetailContext`). Aggregate file v7/v10 ignore detailContext and must
+ * keep mounting once at `ui:file` until such a version is active. */
+export function isContextualFileModule(artifact: MountableModule | null | undefined): boolean {
+  if (!artifact?.active_version) return false;
+  return (artifact.active_version.min_host_version ?? 1) >= 8;
+}
+
 // `ui_surfaces` is a comma list; absent (older host response, or a version
 // published before V1) means the pre-existing panel-only default.
 export function hasSurface(module: MountableModule, surface: string): boolean {

@@ -13,6 +13,7 @@ vi.mock("./loader", async () => {
 
 import { ArtifactLoadError, type ArtifactVersionRef } from "./loader";
 import ArtifactMount from "./ArtifactMount";
+import { useDetailContext } from "./detailContext";
 import { usePanelLocation } from "./panelLocation";
 
 function renderClient() {
@@ -192,6 +193,121 @@ describe("ArtifactMount", () => {
     expect(container.textContent).toContain("detail surface");
     expect(container.querySelector('[data-y-artifact-surface="panel"]')?.textContent).toBe("panel surface");
     expect(container.querySelector('[data-y-artifact-surface="detail"]')?.textContent).toBe("detail surface");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // Todo 3084 H2: two detail mounts of the same slug keep isolated contexts.
+  it("threads distinct detailContext values to two file details via useDetailContext", async () => {
+    function Probe() {
+      const ctx = useDetailContext<{ tabId: string; path: string }>();
+      return React.createElement("span", null, ctx ? `${ctx.tabId}:${ctx.path}` : "none");
+    }
+    loadArtifactMock.mockResolvedValue({ Panel: () => null, Detail: Probe, css: "" });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement("div", { "data-testid": "a" },
+            React.createElement(ArtifactMount, {
+              slug: "file",
+              artifactId: "art1",
+              version: ref(),
+              surface: "detail" as const,
+              detailContext: { tabId: "t1", path: "a.md" },
+            }),
+          ),
+          React.createElement("div", { "data-testid": "b" },
+            React.createElement(ArtifactMount, {
+              slug: "file",
+              artifactId: "art1",
+              version: ref(),
+              surface: "detail" as const,
+              detailContext: { tabId: "t2", path: "b.md" },
+            }),
+          ),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.querySelector('[data-testid="a"]')?.textContent).toBe("t1:a.md");
+    expect(container.querySelector('[data-testid="b"]')?.textContent).toBe("t2:b.md");
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement("div", { "data-testid": "a" },
+            React.createElement(ArtifactMount, {
+              slug: "file",
+              artifactId: "art1",
+              version: ref(),
+              surface: "detail" as const,
+              detailContext: { tabId: "t1", path: "a2.md" },
+            }),
+          ),
+          React.createElement("div", { "data-testid": "b" },
+            React.createElement(ArtifactMount, {
+              slug: "file",
+              artifactId: "art1",
+              version: ref(),
+              surface: "detail" as const,
+              detailContext: { tabId: "t2", path: "b.md" },
+            }),
+          ),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    expect(container.querySelector('[data-testid="a"]')?.textContent).toBe("t1:a2.md");
+    expect(container.querySelector('[data-testid="b"]')?.textContent).toBe("t2:b.md");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("does not provide detailContext on panel/shell surfaces", async () => {
+    function Probe() {
+      const ctx = useDetailContext();
+      return React.createElement("span", null, ctx === null ? "none" : "has");
+    }
+    loadArtifactMock.mockResolvedValue({ Panel: Probe, Detail: Probe, Shell: Probe, css: "" });
+
+    const { container, root } = renderClient();
+    await act(async () => {
+      root.render(
+        React.createElement(
+          "div",
+          null,
+          React.createElement(ArtifactMount, {
+            slug: "demo",
+            artifactId: "art1",
+            version: ref(),
+            surface: "panel" as const,
+            detailContext: { tabId: "x" },
+          }),
+          React.createElement(ArtifactMount, {
+            slug: "demo",
+            artifactId: "art1",
+            version: ref(),
+            surface: "shell" as const,
+            detailContext: { tabId: "x" },
+          }),
+        ),
+      );
+      await flushMicrotasks();
+    });
+
+    for (const span of container.querySelectorAll("span")) {
+      expect(span.textContent).toBe("none");
+    }
 
     act(() => root.unmount());
     container.remove();

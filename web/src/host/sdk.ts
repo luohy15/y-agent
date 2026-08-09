@@ -19,6 +19,7 @@ import { ListEmpty, ListError, ListLoading } from "../components/ListStates";
 import { HOST_CONTRACT_VERSION } from "./contract";
 import { runHostCommand } from "./commands";
 import { openArtifactDetail, useArtifactIntent } from "./intents";
+import { useDetailContext } from "./detailContext";
 import { usePanelLocation } from "./panelLocation";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
@@ -81,6 +82,9 @@ export const hostSdk = {
   // panelLocation.ts (contract v6) — which sidebar a `panel` surface is
   // mounted in ("left" activity bar vs. "right" drawer).
   usePanelLocation,
+
+  // detailContext.ts (contract v8) — per-detail-mount host context.
+  useDetailContext,
 
   // commands.ts (contract v4) — artifact -> host named command channel
   runHostCommand,

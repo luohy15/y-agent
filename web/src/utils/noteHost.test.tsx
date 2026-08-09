@@ -169,13 +169,13 @@ describe("note file opens reuse 3068's file.open host command (no note.openFile 
       registerHostCommand("file.open", (payload) => {
         const parsed = fileOpenPayload(payload);
         if (!parsed) return;
-        handleOpenFile("ui:file");
+        handleOpenFile(parsed.path, parsed.vmName, parsed.workDir);
       }),
     );
 
     runHostCommand("file.open", { path: "pages/note.md", vmName: "prod", workDir: "/home/roy" });
 
-    expect(handleOpenFile).toHaveBeenCalledWith("ui:file");
+    expect(handleOpenFile).toHaveBeenCalledWith("pages/note.md", "prod", "/home/roy");
   });
 
   it("runHostCommand('note.openFile', ...) is a silent no-op — no twin command is registered", () => {

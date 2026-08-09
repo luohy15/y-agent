@@ -108,13 +108,13 @@ describe("runHostCommand file.open / file.close / file.search", () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  it("registers file.open so runHostCommand opens the ui:file tab and publishes the open action", () => {
+  it("registers file.open so runHostCommand opens a host ordinary tab and publishes the open action", () => {
     const handleOpenFile = vi.fn();
     cleanups.push(
       registerHostCommand("file.open", (payload) => {
         const parsed = fileOpenPayload(payload);
         if (!parsed) return;
-        handleOpenFile("ui:file");
+        handleOpenFile(parsed.path, parsed.vmName, parsed.workDir, parsed.line);
         publishFileOpenAction(parsed.path, parsed.vmName, parsed.workDir, parsed.line);
       }),
     );
@@ -122,7 +122,7 @@ describe("runHostCommand file.open / file.close / file.search", () => {
 
     runHostCommand("file.open", { path: "notes/a.md", vmName: "prod", workDir: "/home/roy", line: 12 });
 
-    expect(handleOpenFile).toHaveBeenCalledWith("ui:file");
+    expect(handleOpenFile).toHaveBeenCalledWith("notes/a.md", "prod", "/home/roy", 12);
     expect(lastPublished().action).toEqual(
       expect.objectContaining({ kind: "open", path: "notes/a.md", vmName: "prod", workDir: "/home/roy", line: 12 }),
     );
@@ -134,37 +134,38 @@ describe("runHostCommand file.open / file.close / file.search", () => {
       registerHostCommand("file.open", (payload) => {
         const parsed = fileOpenPayload(payload);
         if (!parsed) return;
-        handleOpenFile("ui:file");
+        handleOpenFile(parsed.path);
       }),
     );
     runHostCommand("file.open", {});
     expect(handleOpenFile).not.toHaveBeenCalled();
   });
 
-  it("registers file.close so runHostCommand closes the ui:file tab", () => {
+  it("registers file.close so runHostCommand closes a tab id when provided", () => {
     const handleCloseFile = vi.fn();
-    cleanups.push(registerHostCommand("file.close", () => handleCloseFile("ui:file")));
-    runHostCommand("file.close");
-    expect(handleCloseFile).toHaveBeenCalledWith("ui:file");
+    cleanups.push(registerHostCommand("file.close", (payload) => {
+      if (payload && typeof payload === "object" && typeof (payload as { tabId?: unknown }).tabId === "string") {
+        handleCloseFile((payload as { tabId: string }).tabId);
+      }
+    }));
+    runHostCommand("file.close", { tabId: "tab-1" });
+    expect(handleCloseFile).toHaveBeenCalledWith("tab-1");
   });
 
-  it("registers file.search so runHostCommand opens the ui:file tab and publishes the search action", () => {
-    const handleOpenFile = vi.fn();
+  it("registers file.search so runHostCommand opens the host search dialog", () => {
+    const openSearch = vi.fn();
     cleanups.push(
       registerHostCommand("file.search", (payload) => {
         const { vmName, workDir } = fileSearchPayload(payload);
-        handleOpenFile("ui:file");
-        publishFileSearchAction(vmName, workDir);
+        void vmName;
+        void workDir;
+        openSearch();
       }),
     );
-    setArtifactIntentMock.mockClear();
 
     runHostCommand("file.search", { vmName: "prod", workDir: "/home/roy" });
 
-    expect(handleOpenFile).toHaveBeenCalledWith("ui:file");
-    expect(lastPublished().action).toEqual(
-      expect.objectContaining({ kind: "search", vmName: "prod", workDir: "/home/roy" }),
-    );
+    expect(openSearch).toHaveBeenCalled();
   });
 });
 

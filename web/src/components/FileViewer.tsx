@@ -18,6 +18,7 @@ import { parseFrontMatter } from "../utils/markdown";
 import { extractMarkdownHeadings } from "../utils/markdownExport";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
+import { fileDetailContext, type FocusRequest, type OrdinaryFileTab } from "../utils/fileWorkspace";
 
 
 interface FileViewerProps {
@@ -31,6 +32,9 @@ interface FileViewerProps {
   defaultWorkDir?: string;
   diffFiles?: Set<string>;
   artifactTabs?: Record<string, { type: ArtifactType; spec: string }>;
+  fileTabs?: Record<string, OrdinaryFileTab>;
+  fileDirty?: Record<string, boolean>;
+  fileFocus?: Record<string, FocusRequest>;
   uiArtifacts?: MountableModule[];
   uiArtifactsLoaded?: boolean;
   onUiArtifactRolledBack?: () => void;
@@ -899,7 +903,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -1041,9 +1045,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             } ${dropIdx === i ? "border-l-2 border-l-sol-blue" : ""}`}
             onClick={() => onSelectFile(filePath)}
             onDoubleClick={() => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
-            title={filePath}
+            title={fileTabs[filePath]?.path ?? filePath}
           >
-            <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{filePath.startsWith("artifact:") ? inlineArtifactLabel(filePath, artifactTabs) : filePath.startsWith("ui:") ? uiArtifactLabelForPath(filePath, uiArtifacts) : filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
+            {fileDirty[filePath] && <span className="w-2 h-2 rounded-full bg-sol-base0 shrink-0" />}
+            <span className={`truncate max-w-[150px] ${filePath === previewFile ? "italic" : ""}`}>{fileTabs[filePath] ? getFileName(fileTabs[filePath].path) : filePath.startsWith("artifact:") ? inlineArtifactLabel(filePath, artifactTabs) : filePath.startsWith("ui:") ? uiArtifactLabelForPath(filePath, uiArtifacts) : filePath.startsWith("diff:") ? `${getFileName(filePath.slice(5))} (diff)` : getFileName(filePath)}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1056,8 +1061,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           </div>
         ))}
       </div>
-      {/* Breadcrumb */}
-      {activeFile && (
+      {/* Breadcrumb — ordinary file tabs render their own toolbar inside the module detail. */}
+      {activeFile && !fileTabs[activeFile] && (
         <div className="flex items-center px-3 py-1 bg-sol-base03 text-xs text-sol-base01 shrink-0 border-b border-sol-base02 overflow-x-auto">
           {isDiff && <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span>}
           {getBreadcrumb(isArtifact ? inlineArtifactLabel(activeFile, artifactTabs) : isUiArtifact ? uiArtifactLabelForPath(activeFile, uiArtifacts) : isLinkPreview && selectedLinkContentKey ? (defaultWorkDir ? `${defaultWorkDir}/${selectedLinkContentKey}` : selectedLinkContentKey) : activeFile.replace(/^diff:/, "")).map((part, i, arr) => (
@@ -1140,25 +1145,47 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       {/* Content - render all open files, show/hide to preserve scroll */}
       <div className="flex-1 min-h-0 bg-sol-base03 relative">
         {openFiles.map((filePath) => {
+          const ordinaryTab = fileTabs[filePath];
           const fileDiff = !!(diffFiles?.has(filePath));
           const fileArtifact = filePath.startsWith("artifact:");
           const fileUiArtifactSlug = artifactSlugFromTab(filePath);
           const fileUiArtifact = fileUiArtifactSlug ? uiArtifacts.find((artifact) => artifact.slug === fileUiArtifactSlug) : undefined;
+          const fileModule = ordinaryTab
+            ? uiArtifacts.find((artifact) => artifact.slug === "file")
+            : undefined;
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileTrace = !fileDiff && !fileArtifact && !fileUiArtifactSlug && fileName === "trace.md";
-          const fileLinkPreview = !fileDiff && !fileTrace && fileName === "link.md";
-          const fileLinksMd = !fileDiff && !fileTrace && fileName === "links.md";
-          const fileEntityPreview = !fileDiff && !fileTrace && fileName === "entity.md";
-          const fileEnglishPreview = !fileDiff && !fileTrace && fileName === "english.md";
-          const fileEmail = !fileDiff && !fileTrace && fileName === "email.md";
-          const fileDev = !fileDiff && !fileTrace && fileName.endsWith("dev.md");
+          const fileTrace = !fileDiff && !fileArtifact && !fileUiArtifactSlug && !ordinaryTab && fileName === "trace.md";
+          const fileLinkPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "link.md";
+          const fileLinksMd = !fileDiff && !fileTrace && !ordinaryTab && fileName === "links.md";
+          const fileEntityPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "entity.md";
+          const fileEnglishPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "english.md";
+          const fileEmail = !fileDiff && !fileTrace && !ordinaryTab && fileName === "email.md";
+          const fileDev = !fileDiff && !fileTrace && !ordinaryTab && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
-              {fileDiff ? (
+              {ordinaryTab && fileModule ? (
+                <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
+                  <ArtifactMount
+                    slug={fileModule.slug}
+                    artifactId={fileModule.module_id}
+                    version={fileModule.active_version}
+                    label={uiArtifactLabel(fileModule)}
+                    surface="detail"
+                    detailContext={fileDetailContext(ordinaryTab, isActive, fileFocus[ordinaryTab.id])}
+                    onRolledBack={onUiArtifactRolledBack}
+                  />
+                </div>
+              ) : ordinaryTab ? (
+                uiArtifactsLoaded ? (
+                  <div className="flex h-full items-center justify-center p-4 text-sm text-sol-base01">
+                    Files module is unavailable.
+                  </div>
+                ) : null
+              ) : fileDiff ? (
                 <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileUiArtifact ? (
                 <div className="h-full overflow-auto" data-ui-artifact-route={fileUiArtifact.slug}>
@@ -1218,7 +1245,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
               ) : fileDev ? (
                 <DevViewer />
               ) : (
-                <p className="text-sol-base01 italic text-sm p-3">Ordinary files open in the Files module detail (ui:file).</p>
+                <p className="text-sol-base01 italic text-sm p-3">Unknown tab.</p>
               )}
             </div>
           );

@@ -17,8 +17,8 @@ describe("host runtime registry", () => {
     expect(EXTERNALS.every((specifier) => specifier in registry.modules)).toBe(true);
   });
 
-  it("bumps the host contract version to 7 for CodeEditor (todo 3068 H3)", () => {
-    expect(HOST_CONTRACT_VERSION).toBe(7);
+  it("bumps the host contract version to 8 for useDetailContext (todo 3084 H2)", () => {
+    expect(HOST_CONTRACT_VERSION).toBe(8);
   });
 
   it("registers the swr/infinite subpath external", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasSurface,
+  isContextualFileModule,
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
@@ -109,5 +110,28 @@ describe("isPersistableTab", () => {
 
   it("excludes artifact: inline chart tabs", () => {
     expect(isPersistableTab("artifact:ab12.mermaid")).toBe(false);
+  });
+});
+
+describe("isContextualFileModule", () => {
+  it("is false for aggregate file modules (min_host_version < 8) and missing modules", () => {
+    expect(isContextualFileModule(null)).toBe(false);
+    expect(isContextualFileModule({
+      module_id: "m",
+      slug: "file",
+      active_version_id: "v",
+      enabled: true,
+      active_version: { version_id: "v", version_no: 10, ui_sha256: "a".repeat(64), min_host_version: 7 },
+    } as MountableModule)).toBe(false);
+  });
+
+  it("is true when the active file UI requires host contract v8+", () => {
+    expect(isContextualFileModule({
+      module_id: "m",
+      slug: "file",
+      active_version_id: "v",
+      enabled: true,
+      active_version: { version_id: "v", version_no: 11, ui_sha256: "a".repeat(64), min_host_version: 8 },
+    } as MountableModule)).toBe(true);
   });
 });

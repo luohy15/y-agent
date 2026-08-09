@@ -10,9 +10,10 @@ export interface FileLocationContext {
   workDir: string | null;
 }
 
-/** Module -> host `file.open` request: open the `ui:file` tab and hand the
- * detail surface the requested path plus the VM/work-directory context of
- * the panel that sent it. Optional `line` is end-to-end line focus (C1). */
+/** Module -> host `file.open` request payload. Host v8 (todo 3084) opens a
+ * typed ordinary host tab from this; the retained intent action remains for
+ * the aggregate file v10 module during staged rollout. Optional `line` is
+ * end-to-end line focus. */
 export interface FileOpenAction {
   kind: "open";
   path: string;
@@ -22,9 +23,9 @@ export interface FileOpenAction {
   nonce: number;
 }
 
-/** Module -> host `file.search` request: open the `ui:file` tab and tell the
- * detail surface to show its own search dialog (decision 6: "the module
- * detail owns its internal file tabs and search dialog"). */
+/** Module -> host `file.search` request payload. Host v8 owns the search
+ * dialog; this action remains published only for aggregate-module
+ * compatibility during staged rollout. */
 export interface FileSearchAction {
   kind: "search";
   vmName: string | null;
@@ -157,13 +158,14 @@ export function fileSearchPayload(payload: unknown): { vmName: string | null; wo
   };
 }
 
-/** Host workspace tabs after C1: special views + module detail tabs. Ordinary
- * file paths belong to code/y-module/file (mirrored from
- * code/y-module/file/ui/detailState
- * `isOrdinaryFileTab` inverted). */
+/** Host special/module-detail tabs (not ordinary files). Ordinary file paths
+ * rejoin the host strip as opaque tab ids (todo 3084); this helper still
+ * classifies special identities for restore/filter. */
 export function isHostWorkspaceTab(path: string): boolean {
   if (!path) return false;
   if (path.startsWith("ui:") || path.startsWith("artifact:") || path.startsWith("diff:")) return true;
+  // Ordinary host tab ids are JSON.stringify([vm, workDir, path]).
+  if (path.startsWith("[")) return false;
   const name = path.replace(/^\.\//, "");
   return (
     name === "trace.md"
@@ -177,5 +179,14 @@ export function isHostWorkspaceTab(path: string): boolean {
 }
 
 export function isOrdinaryFilePath(path: string): boolean {
-  return !!path && !isHostWorkspaceTab(path.replace(/^\.\//, ""));
+  const p = path.replace(/^\.\//, "");
+  return !!p && !isHostWorkspaceTab(p) && !p.startsWith("[");
+}
+
+/** Special host tabs + ordinary descriptor keys. */
+export function isHostTabKey(path: string, ordinaryIds?: ReadonlySet<string> | Record<string, unknown>): boolean {
+  if (isHostWorkspaceTab(path)) return true;
+  if (!ordinaryIds) return false;
+  if (ordinaryIds instanceof Set) return ordinaryIds.has(path);
+  return path in ordinaryIds;
 }

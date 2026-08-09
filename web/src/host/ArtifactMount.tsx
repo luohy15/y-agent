@@ -14,6 +14,7 @@ import {
   type ArtifactVersionRef,
   type LoadedArtifact,
 } from "./loader";
+import { DetailContextProvider } from "./detailContext";
 import { PanelLocationProvider } from "./panelLocation";
 
 type FailureKind = ArtifactLoadErrorKind | "render";
@@ -202,6 +203,9 @@ interface ArtifactMountProps {
   // the loaded module through `usePanelLocation()`. Ignored on "detail"/
   // "shell" surfaces (see panelLocation.ts) and defaults to "left" when unset.
   panelLocation?: "left" | "right";
+  // Contract v8: host-only per-detail-mount context, exposed through
+  // `useDetailContext()` on surface="detail". Ignored on panel/shell.
+  detailContext?: unknown;
 }
 
 export default function ArtifactMount({
@@ -214,6 +218,7 @@ export default function ArtifactMount({
   onDetailAvailable,
   fallback,
   panelLocation,
+  detailContext,
 }: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
 
@@ -320,7 +325,11 @@ export default function ArtifactMount({
       </RenderBoundary>
     </div>
   );
-  return surface === "panel"
-    ? <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>
-    : body;
+  if (surface === "panel") {
+    return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
+  }
+  if (surface === "detail") {
+    return <DetailContextProvider value={detailContext ?? null}>{body}</DetailContextProvider>;
+  }
+  return body;
 }

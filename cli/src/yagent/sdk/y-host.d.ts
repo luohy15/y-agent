@@ -279,6 +279,11 @@ declare module "@y/host" {
   /** Which sidebar this `panel` surface is mounted in: "left" or "right". */
   export function usePanelLocation(): "left" | "right";
 
+  // detailContext.ts (contract v8) — host-provided per-detail-mount context.
+  // Null outside a detail surface or when the host did not pass detailContext.
+  /** Read the host-only context for this detail mount (generic; shape is host-defined). */
+  export function useDetailContext<T = unknown>(): T | null;
+
   // commands.ts — artifact->host named command channel (contract v4). An
   // unregistered name is a silent no-op. Registration is host-internal and
   // not exported here (same partition as setArtifactIntent).
