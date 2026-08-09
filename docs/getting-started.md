@@ -102,7 +102,7 @@ The activity bar carries several lighter-weight subsystems:
 - **Email** — multi-account Gmail sync (`y email sync-gmail`) for lightweight inbox review; filter by source account.
 - **Calendar** — timezone-aware events with a current-time ticker; import an ICS with `y calendar import file.ics`.
 - **Bots** — manage bot configs (Claude Code, plus the inline Perplexity / OpenAI backends): add, enable/disable, set model + API key, then pick one per chat or per routine.
-- **Finance** — a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress. Finance is the reference full-stack module: active version 20 (version 19 is the full-stack rollback twin), routes at `/api/module/finance/*`, `y finance` from local module source, and `y finance beancount` as the ledger-side producer. Built-in finance host code is gone. Known limitation: Refresh is still synchronous and can surface a ~30s Cloudflare edge timeout even though the server-side work finishes. Legacy `vm_config.finance_config` remains intentionally for a later contract and is not dropped.
+- **Finance** — a beancount-backed balance sheet, income statement, holdings, prices, investment returns, and FIRE progress. Use the Finance panel or `y finance` (and `y finance beancount` for ledger-side production).
 
 ## Files
 

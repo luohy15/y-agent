@@ -875,87 +875,34 @@ not rewritten.
 
 ### The finance seam
 
-Every importer of the finance code was traced, and the result is what makes
-finance a clean reference case: **nothing outside finance touches finance data.**
-The five `finance_*` entities are imported only by their own repositories, and
-those repositories only by finance services. There is no `relationship()` anywhere
-in the entity package, so the tables are joined to the rest of the schema by
-nothing but an integer `user_id` column. The whole vertical slice can move without
-cutting a single ORM edge.
-
-| Code | Owner | Why |
-|---|---|---|
-| Derived / positions / price-series / fundamentals / realtime-quote services | **Module** | Read and derive side. Nothing outside finance imports them. |
-| Finance controller, including `POST /refresh`, and `y finance` command group including the `beancount` subgroup | **Module** | Domain routes and orchestration move together. Both shell `y finance beancount ...` on the VM, where canonical module source lives. |
-| `finance_holding` / `finance_price` / `finance_transaction` / `finance_fundamentals` / `finance_realtime_quote` entities and their tables | **Module** | Full data ownership. Their only outward reference is `user_id → user.id`, an allowed kernel FK. |
-| Finance repositories, DTOs, and thin CRUD writer services | **Module** | They exist to serve finance and are imported by nothing else. Keeping them host-side would leave the model split across two clocks. |
-| Finance migration SQL | **Module** | Written and applied by hand by the owner, from the module directory. |
-| Session and transaction management | **Host** | The kernel a module composes. |
-| VM command execution capability | **Host** | The module selects finance commands; the host resolves VM config and performs SSH/EC2 execution. |
-| `worker/steps/sync_finance.py` | **Deleted** | It has no caller and no EventBridge schedule; it is dead code. If the sync is wanted back it returns as `y finance sync` plus a routine row. |
-
-The boundary is **domain versus infrastructure**, not reads versus writes and no
-longer logic versus data. Finance owns its tables, the models over them, the
-queries against them, all finance HTTP behavior including Refresh and its
-four-command best-effort sequence, and its CLI. The host keeps auth, session and
-transaction management, VM command execution, and dependencies. The module never
-owns credentials, SSH mechanics, connection pooling, or scheduling.
-
-This supersedes the part of decision 3020-D2 that had the host retaining finance
-writer services for a worker path. That path does not exist: the worker step is
-unreferenced, and preserving host-side writers would mean host code holding
-knowledge of module-owned schema, which the cross-module rules forbid.
-
-`code/y-module` (the fixed `/Users/roy/luohy15/code/y-module`) is the single
-source of module source, in its own standalone repository. It is a plain
-canonical directory, not a symlink into the y-agent checkout, and no duplicate
-module source or tests are retained in the host repo.
-
-**The built-ins are deleted outright.** No dual-run, no in-bundle fallback: the
-same bet already taken when the built-in Finance, Bots, Calendar, and Todo
-surfaces were removed after their artifact migrations.
+Finance established the clean reference case: **nothing outside finance touches
+finance data.** Its entities are imported only by finance repositories and
+services; the only outward schema edge is an integer `user_id`. The boundary is
+**domain versus infrastructure**, not reads versus writes: the module owns its
+tables, models, queries, HTTP behavior (including Refresh), and CLI; the host
+keeps auth, session/transaction management, VM execution, and dependencies. This
+supersedes the part of decision 3020-D2 that had the host retaining finance
+writer services for a worker path that never existed. Built-ins were deleted
+outright (no dual-run, no in-bundle fallback). Instance inventory and hazards:
+`code/y-module/finance/README.md`.
 
 ### Bot as the second full-stack module: a host-kernel-table exception
 
-Todo 3028 moved the bot domain (`code/y-module/bot`, active v12 with v11
-as the full-stack rollback twin) into the module system as the second full-stack
-migration after finance, and its data-layer audit did not reach finance's answer.
-Finance was clean precisely because nothing outside finance touched finance
-data; `bot_config` is not: `agent/src/agent/config.py` resolves it on the
-worker's dispatch hot path, `worker/src/worker/runner.py` consumes that
-resolution to launch the selected backend, `storage/service/model_usage_daily.py`
-enumerates it for usage sync, `inline.py` / `link.py` resolve their own bots
-through it, and `cli/commands/init.py` bootstraps it. Modules have no worker
-half (see *Background jobs*) and host code must not read module-owned tables, so
-a finance-style move of `bot_config` into the module would have broken worker
-dispatch or required loading module code inside the worker, both out of scope.
+Bot established a deliberate exception to "ORM entities and table definitions:
+**Module**". Unlike finance, `bot_config` is read on the worker dispatch hot path
+(`agent/config.py`, `worker/runner.py`, usage sync, inline/link bots, `y init`).
+Modules have no worker half, and host code must not read module-owned tables, so
+a finance-style data move was impossible.
 
-The migration therefore split the domain instead of moving it whole:
-
-| Code | Owner | Why |
-|---|---|---|
-| Bot management API (`/api/module/bot/*`), `y bot` CLI, module UI, pricing display | **Module** | The user-facing management surface that changes independently of runtime dispatch. |
-| `bot_config` / `bot_route_state` tables, their entity/repository/service, `agent/config.py` resolution, worker consumption, usage-sync enumeration, `inline.py` / `link.py` resolution, `y init` bootstrap | **Host (kernel exception)** | Runtime state read on the worker dispatch path; modules have no worker half. |
-| Bot-config CRUD (list/get/upsert/delete/enable/disable/rename) as a versioned capability | **Host surface, module-invoked** | The new v2 backend-contract addition (see *The host surface: a kernel, not a data layer*) — the module manages the table through a narrow function surface, never a repository or session import. |
-| `GET /api/chat/bot-options` | **Host, unchanged, all users** | Read-only `name`/`backend`/`model` list used by the chat bot picker. This is routing selection, not bot management, so it stayed a host route open to every authenticated user and does not move with the rest of the domain. It survives module rollback and disable by construction, since it never touches `module_runtime`. |
-
-This is a deliberate, narrow exception to the "ORM entities and table
-definitions: **Module**" rule in *The host surface: a kernel, not a data layer*
-above, not a reopening of it: `bot_config` and `bot_route_state` stay host
-tables with one persistence implementation, and the module reaches them only
-through the versioned `bot_config_*` capability functions, never through a
-repository or session it owns. The precedent this sets for future full-stack
-migrations is narrow by design — a domain may become a control-plane module
-over host-owned runtime state via a small, versioned `module_host` capability,
-when (and only when) host runtime code outside the API process genuinely
-depends on that state on a hot path. It is not a general escape hatch for
-avoiding the module-owns-its-tables rule; see decision
-`pages/decision-3028-bot-module-auth.md` for the accompanying authorization
-call (bot management is maintainer-only, matching every other backend module,
-because widening backend-module dispatch to non-maintainers was explicitly
-out of scope for this migration; todo 3042 later opened it as a per-version
-property — see *Per-version exposure* — while bot itself stayed
-`dispatch: maintainer`).
+The rule: when (and only when) host runtime code outside the API process depends
+on domain state on a hot path, that state may stay host kernel and the module
+becomes a **control-plane** over it through a narrow, versioned `module_host`
+capability (`bot_config_*` on backend contract v2). The module owns management
+surfaces; the host keeps the tables and routing-selection routes such as
+`GET /api/chat/bot-options`. This is not a general escape hatch from
+module-owns-its-tables. Authorization decision:
+`pages/decision-3028-bot-module-auth.md`. Instance inventory:
+`code/y-module/bot/README.md`.
 
 ### The `shell` surface and the renderer seam
 
@@ -1037,221 +984,74 @@ or image leaf needs a host web deploy.
 
 ### Chat: a control-plane module over the runtime kernel
 
-Chat is the **third full-stack module** (`code/y-module/chat`, active v12
-with v11 as the byte-identical rollback twin for the file-module image-route
-retarget; chat v2–v10 are unsafe post-file-cutover because they still call the
-deleted `/api/file/raw`) and the first `shell` claimant. The split is
-the sharpest one in the system: the module owns **browsing and presentation**,
-the host owns the **runtime**.
+Chat extends the bot control-plane precedent in two directions: a domain every
+account uses (per-version `dispatch_scope: authenticated`) and a domain that
+owns the app's centre column (the `shell` surface and the renderer seam). The
+module owns **browsing and presentation**; the host owns the **runtime**.
 
-Todo 3042's first pass audited chat against the finance and bot precedents and
-recommended the opposite — that chat stay host kernel entirely, because it trips
-four hard constraints at once. Roy overrode that recommendation and scoped the
-migration deliberately: move the control plane, include the live conversation
-view, and make the message renderer hot-editable. The audit was not wrong about
-the constraints; one of them dissolved and the other three became the boundary
-rather than a blocker.
-
-| Original constraint | Disposition |
-|---|---|
-| Modules are owner-scoped; backend dispatch is maintainer-only | **Dissolved.** Dispatch exposure became a per-version, opt-in, immutable property (*Per-version exposure*); chat publishes `dispatch_scope: authenticated`, so all 114 chat-owning accounts keep a working app while bot management stays maintainer-only. |
-| Modules have no worker half | **Stands, and defines the boundary.** `worker/runner.py`, `monitor.py`, and `tasks.py` read and write `chat` on the dispatch hot path, so the `chat` table, entity, repository, and service stay host. |
-| Modules cannot serve unauthenticated routes | **Stands.** The Telegram webhook, public `GET /api/chat/share`, and the public trace projection stay host-served and host-rendered through `HostMessageView`. `ui_public` reserves an anonymous UI-bytes path that is deliberately not built. |
-| Host code must not read module-owned tables | **Stands, and is why the table stays host.** Routine dispatch, the trace / todo / inline controllers, the bot rename cascade, and english-correction all read `chat`. The module never touches the table; it reaches host chat state through backend contract v3. |
-
-The resulting ownership:
-
-| Code | Owner | Why |
-|---|---|---|
-| `GET /api/module/chat/list`, `GET /api/module/chat/content`, `POST /api/module/chat/share` | **Module** | Browsing and share creation: the surface whose filters and columns change independently of the runtime. |
-| Chats `panel`, full-width `detail` browser, and the `shell` (the live conversation: message list, bubble, parser, export view, layout, fence dispatch) | **Module** | The whole point of the migration: presentation changes ship with `y module publish`. |
-| `y chat list` / `get` / `search` / `share` | **Module** (`code/y-module/chat/cli.py`) | Browse commands, delegated by the built-in group. |
-| `chat` table, entity, repository, service; the worker; Telegram routing | **Host (runtime kernel)** | Read and written outside the API process; modules have no worker half. |
-| `POST /api/chat`, `/message`, `/attach-image`, `/stop`, `/messages`, `/messages/snapshot`, `/detail`, `/notify`, public `GET /share`, `GET /bot-options` | **Host** | The conversational path. Keeping it host is what makes every module failure mode degrade to "plainer UI" rather than "cannot talk to the agent". |
-| The four `/api/chat/trace/read*` routes | **Host** | The published `todo` module calls them. Moving them would create a lock-step dependency between two independently versioned bundles, and they are trace read-state, not chat browsing. |
-| `ArtifactView`, `PatchDiff`, `ImageLightbox`, PNG capture, `HostMessageView` | **Host** | The megabyte leaves and the one degraded renderer; see *The `shell` surface and the renderer seam*. |
-| `chat_list` / `chat_get` / `chat_create_share` | **Host surface, module-invoked** | Backend contract v3, request-owner-bound, plain dictionaries. Same shape as bot's `bot_config_*`. |
-
-**`y chat` is a hybrid group, not a module group.** It is the dispatch primitive
-every agent session uses, imported eagerly at the CLI root, and a module CLI runs
-from hand-edited local source with no rollback primitive — so module-izing it
-whole would mean a bad edit could take out the mechanism used to fix it. The
-built-in group therefore keeps the dispatch primitive itself (`-m` / `-i`) plus
-`stop`, `attach`, and the import commands, and falls through to
-`code/y-module/chat/cli.py` only for the browse subcommands. Under every failure mode
-— bad publish, broken local `cli.py`, `y module disable chat` — `y chat list`
-fails and `y chat -m` keeps working.
-
-**The rollback ladder has no step at which a conversation is unreachable.** A
-render or load failure shows the mount's failure card with its inline rollback
-button; `y module rollback chat` returns to v11 (the byte-identical twin of
-active v12); rolling back below the first shell-claiming version, disabling
-the module, an unreachable bundle, or an integrity failure releases the shell
-slot and the host renders `ChatFallbackView`
-(read-only SSE tail plus a plain send box) — read and send still work, because
-every conversational route stayed host. `y chat -m` and Telegram are unaffected
-in all cases.
-
-**The precedent.** Bot established that a domain may become a control-plane module
-over host-owned runtime state through a narrow versioned capability. Chat extends
-it in two directions — a domain every account uses (per-version dispatch scope)
-and a domain that owns the app's centre column (the `shell` surface and the
-renderer seam) — while keeping the same rule underneath: the module owns what
-changes weekly, the host owns what must not be publishable. What is still not
-addressed, and would each need its own design decision: worker-side module
-loading, unauthenticated module routes, moving the `chat` table, and Telegram /
-`tg_topic` migration.
-
-`pages/plan-3042-chat-module.md` is the superseded first audit;
-`pages/plan-3042-control-plane.md`, `pages/plan-3042-chatview.md`, and
-`pages/plan-3042-renderer.md` are the plan of record, and
-`pages/decision-3042-chat-module-scope.md` records the scope call.
+Four hard constraints shaped the boundary. Modules having no worker half, no
+unauthenticated routes, and no host reads of module tables all still stand, so
+the `chat` table/worker/Telegram path and every conversational route stay host.
+Maintainer-only backend dispatch was the one that dissolved: it became a
+per-version property (*Per-version exposure*). `y chat` is a **hybrid group**:
+dispatch (`-m` / `-i`), `stop`, `attach`, and import stay built-in so a bad
+module edit cannot take out the recovery mechanism; browse subcommands fall
+through to module CLI. Under every failure mode, conversations remain reachable
+through host routes and `ChatFallbackView`. Instance inventory and hazards:
+`code/y-module/chat/README.md`. Scope decision:
+`pages/decision-3042-chat-module-scope.md`.
 
 ### File: a control-plane module over VM infrastructure
 
-File is the **fourth full-stack module** (`code/y-module/file`, active
-**v10**, `ui=aa1fee3a5821` / `api=628244cb50ae`). **v1–v4 all hang on ordinary-file
-open** — the detail read effect cancelled itself after writing loading state —
-and **v1–v5 all render Markdown with no table of contents** (the built-in TOC
-was never ported until v6). v7 restored the first viewer affordance pass, v8
-restored the full audited pre-cut viewer behavior, v9 applies Roy's tidier
-toolbar direction, and v10 adds compact race-safe Copy-path success feedback.
-The toolbar has no Search or Import Note buttons; Raw/Preview and History are
-icons while relative path + adjacent Copy and the consolidated Markdown/HTML/PDF
-download control remain. It is architecturally distinct from
-finance, bot, and chat: file has
-no database tables at all. What it owns is the authenticated **file control
-plane** over infrastructure the host still runs.
+File established that a module may own a **control plane over host VM
+infrastructure** with no database tables of its own. Files are credentials,
+SSH, EC2 lifecycle, and local-vs-remote execution — not module-owned data. The
+module owns authenticated file HTTP, the transfer CLI, and the Files panel /
+`detail` workspace; the host keeps VM credentials/execution, request-owner
+enforcement, the note `content_key` rename guard (via `note_list_at_path`), and
+the generic special/public tab shell in `FileViewer.tsx`.
 
-The audit ruled out a finance-style full move for exactly that reason: files
-are VM infrastructure — credentials, SSH, EC2 lifecycle, local-vs-remote
-execution — not module-owned data. What can move is everything that describes
-*how the file domain looks and behaves*, following the same split bot and chat
-already established.
-
-| Code | Owner | Why |
-|---|---|---|
-| `/api/module/file/*` (list/read/prd/skills/search/touch/delete/rename/move/upload/write/raw/export-pdf — all 13 routes from the deleted built-in controller) | **Module** | Domain HTTP behavior; changes with the file UX. |
-| `y file upload` / `download` (`code/y-module/file/cli.py`) | **Module** | Not a hybrid group like `y chat`: file transfer is not the mechanism used to recover the agent system, so it moves whole. |
-| Files `panel` (ported `FileTree` behavior, mounts in either sidebar via `usePanelLocation()`) | **Module** | The user-facing browsing surface. |
-| `detail` workspace (`ui:file`: file tabs, search, CodeMirror editing, Markdown/HTML/image/PDF preview, save/download/export, tab persistence) | **Module** | Owns every ordinary-file view previously in host `FileViewer`. |
-| VM credentials, SSH/EC2 execution (`agent/vm_command.py`) | **Host** | Infrastructure, same rule as every other module. |
-| Request-owner enforcement on VM execution | **Host** | Unchanged from the pre-module `_exec`; every module capability stays request-owner-bound. |
-| The note `content_key` rename guard | **Host, module-invoked** | The module calls the narrow `note_list_at_path` capability; it does not own note metadata or import the note service. |
-| Generic special/public tab shell in `FileViewer.tsx` (`PublicFileViewer`, and every non-file special tab: trace/link/entity/email/dev/diff/artifact/module-detail) | **Host** | Not file-domain logic; `FileViewer` hosts eight other domains and cannot couple them to one module's version. |
-| File selection intent/command seam (`file.open` / `file.close` / `file.search` host commands, per-location VM/work-directory context) | **Host publishes, module consumes** | Same shape as the chat shell's `runHostCommand` channel. |
-
-**Backend contract v4** extends `run_vm_command` with explicit `work_dir` and
-stdin (the existing local/SSH execution path already supported both; this
-makes them a first-class module capability) and adds `note_list_at_path`, the
-narrow lookup the rename guard needs. File declares `min_backend_version: 4`.
-File bytes cross the string contract as base64 through stdin, same as the
-pre-existing remote implementation; this is a real (if small) cost on large
-`/raw` reads, accepted because the alternative — a second, wider execution
-primitive — would widen what every module can do, not just what file needs.
-
-**Browser contract v6 → v7**, the second growth of the host render-leaf set
-after todo 3042. `pages/decision-3068-codemirror-bundle-measurement.md`
-measured CodeMirror bundled directly into the module at ~957 KB unminified
-(core + one language) — already over the 250 KB module ceiling even minified
-and bare (~267 KB) — so the detail workspace imports the host's `CodeEditor`
-as a versioned `@y/host` leaf instead of vendoring the editor. The shipped
-module bundle (panel + detail combined) measured ~93 KB, well inside ceiling.
-
-**Two-deploy cutover, same shape as every prior full-stack migration — with
-one operational lesson worth keeping.** Host deploy A added backend v4,
-browser v7, the file host commands/intents, and the execution-helper
-extraction while the old built-ins kept serving; two identical file versions
-(v1/v2) were published against it and the rollback drill was run there,
-`y module rollback file` → v1 then `y module activate file 2` → v2. But
-deploy A's web half reported success (CloudFront invalidation completed)
-without the new bundle actually going live: `__Y_HOST__.version` stayed at
-**6** in production until deploy B, so v1/v2 rendered as the loader's
-version-mismatch card the whole time, masked only by the built-in Files
-panel still being present and serving users. Browser contract v7 only
-became live at deploy B. Host deploy B then cut the built-in controller, CLI
-group, `FileTree`/`FileSearchDialog`, and the ordinary-file branches of
-`FileViewer`, retargeted host/chat image fetches plus NoteList calls to
-`/api/module/file/*`, and republished the M5 feature-restoration pair v3/v4
-(same hash, published back to back) — no separate rollback drill was run on
-v3/v4 itself. The transferable lesson: a green deploy report is not proof a
-new bundle is being served; verify the live `__Y_HOST__.version` after a
-browser-contract bump before treating a dependent module publish as safe.
-
-**One cross-trace hazard surfaced at cutover and was fixed immediately after.**
-Published chat versions up to v10 called the deleted `/api/file/raw` for
-image bytes. Chat source was retargeted
-(`code/y-module/chat/ui/message-bubble.tsx`) and then published from an isolated
-tree that excluded concurrent chat-trace WIP: chat **v11** carried the
-retarget, and byte-identical **v12** was published and activated as the
-rollback twin (both `ui=11107bd79435` / `api=3d77a0331766`;
-`y module rollback chat` returns to v11). Chat v2–v10 remain unsafe
-rollback targets post-file-cutover. The cut correctly identified the same
-hazard for the then-unpublished `code/y-module/note` (todo 3071): its tests still
-asserted the built-in `/api/file/*` paths. Todo 3071 subsequently retargeted
-those calls to `/api/module/file/*` and published note v1/v2 (v2 active, v1
-byte-identical rollback twin). A module published against routes another
-module is about to cut must be retargeted before its first publish.
-
-**File detail Loading regression closed post-cut (file v5).** Ordinary-file
-open stuck on `Loading...` forever because the detail read effect both wrote
-and depended on `data`: setting `{loading:true}` re-ran the effect, ran the
-cancel cleanup, and dropped the in-flight response. Fixed by publishing file
-**v5** alone (no twin — plan decision: v4 was already host-v7 compatible, and
-v1–v4 all hang so a twin would not be a usable recovery path), dropping the
-cancel while keeping the `data` dep so Refresh still retriggers; module source
-`250d5b8`, `ui=e859bebc25dc` / `api=628244cb50ae`.
-
-**Markdown viewer TOC restored post-cut (file v6).** The built-in
-`MarkdownPreview` TOC (rehype heading ids, three responsive surfaces, the
-`markdownTocCollapsed` localStorage toggle) was never ported into the module,
-so every published version through v5 rendered Markdown with no table of
-contents. Restored by publishing file **v6** alone (module-only, no host
-change, no browser-contract bump; heading ids generated by a local rehype
-plugin rather than externalizing `rehype-slug`): `ui=8fc9638bac0a` /
-`api=628244cb50ae`. **v1–v5 all lack the TOC**, so rolling back to v5 keeps
-the Loading fix but drops the TOC; none of v1–v5 restores it.
-
-The `/file/move` endpoint carries forward its pre-existing gap: it has no
-note-pointer rename guard (todo 2888 follow-up), unchanged by this
-migration — the module is a faithful port, not an opportunity to fix
-unrelated behavior.
-
-`pages/plan-3068-file-module.md` is the plan of record for the cut;
-`pages/plan-3068-file-detail-loading.md` covers the post-cut Loading fix;
-`pages/plan-3068-markdown-toc.md` covers the post-cut TOC restoration;
-`pages/decision-3068-codemirror-bundle-measurement.md` records the bundle
-measurement; the review notes are listed in Delivery Records below.
+Two transferable operational lessons. (1) After a browser-contract bump, verify
+the live `__Y_HOST__.version`; a green deploy report is not proof the new
+bundle is being served. (2) A module published against routes another module is
+about to cut must be retargeted first. Backend contract v4 added
+`run_vm_command` work_dir/stdin and `note_list_at_path`; browser contract v7
+exported host `CodeEditor` after direct CodeMirror bundling breached the module
+size ceiling (`pages/decision-3068-codemirror-bundle-measurement.md`). Instance
+inventory and hazards: `code/y-module/file/README.md`.
 
 ### Note: a control-plane module over shared kernel state
 
-Note is a control-plane module over the shared host note kernel, not a
-finance-style data move. `code/y-module/note` is live at **v2**, with byte-identical
-v1 as its rollback twin (`ui=61364ab58245` / `api=5c7a4424f5d5`). The host
-ships the backend-contract v5 capability and the UI seam; the module owns the
-authenticated authoring and browsing surface. The boundary is deliberately
-narrow because host code reads note state on unauthenticated and in-process
-share paths.
+Note is a control-plane module over **shared host kernel state**, not a
+finance-style data move. Host code reads note state on unauthenticated and
+in-process share paths (`trace.py`, public shares, the file rename guard), so
+the `note` / `note_todo_relation` / `note_share` tables, all five share routes,
+`y assoc note`, the todo 3041 content-path authority, and `PublicNoteList` stay
+host. The module owns the authenticated authoring/browsing surface and reaches
+host note state only through the owner-bound `note_*` capability (backend
+contract v5). Disable or rollback therefore affects the authenticated control
+plane, not public shares or the association primitive. Instance inventory:
+`code/y-module/note/README.md`.
 
-| Surface | Owner | Why |
-|---|---|---|
-| The ten authenticated note and note-relation routes at `/api/module/note/*` | **Module** | Note creation, import, update, delete, detail, list, and todo-relation operations are the independently deployable control plane. |
-| `y note import/list/get/update/delete` | **Module** (`code/y-module/note/cli.py`) | Ordinary note author and browse commands resolve lazily from local module source. |
-| Notes `panel` in both sidebar locations | **Module** | Authenticated note browsing, todo scope, and file-tab presentation change with the note domain. |
-| `note`, `note_todo_relation`, and `note_share` tables, entities, repositories, and services | **Host kernel** | `trace.py`, `todo.py`, tagging, the file rename guard, and the public trace projection read shared note state. Host code must not read module-owned tables. |
-| All five note share routes and `share_note` / `revoke_note_share` helpers | **Host** | Public note and trace shares are unauthenticated, and `trace.py` calls the helpers in process for batch-share and unshare cascades. |
-| `y assoc note` / `y unassoc note` and the todo 3041 content-path authority | **Host** | Association is a built-in multi-domain group. Its worktree normalization and home-escape validation are a durable host contract also used by `y entity import`. |
-| `PublicNoteList` for logged-out `/t/:shareId` | **Host** | Public trace projection must render without loading authenticated module UI or serving an unauthenticated module route. |
+## Documentation ownership
 
-The module reaches host note state only through the owner-bound `note_*`
-capability in backend contract v5. This preserves the 3041 content-key
-invariant at the host boundary while leaving the share plane and shared tables
-outside publishable module code. A module disable or rollback therefore affects
-the authenticated control plane, not public trace shares or the association
-primitive agents use to record durable work.
+y-agent documents the **host**: architecture, the module-system contract and its
+precedents, host-retained tables/routes/render leaves, and the backend/browser
+contract versions it ships. The standalone `y-module` repository documents each
+**module**: what it owns, its surfaces, routes, CLI, host capabilities it
+depends on, and its rollback hazards. Where both are true, y-agent states the
+rule and y-module states the instance.
 
-`pages/plan-3071-note-module.md` is the plan of record. The capability, UI
-seam, module-source, and cut reviews are listed in Delivery Records below.
+Active version numbers and bundle hashes are queryable (`y module list`,
+`y module versions <slug>`) and must not be restated in prose in either repo.
+Known-bad version *ranges* are not queryable and remain durable knowledge in
+each module README's rollback-hazards list. Historical Delivery Records rows
+are exempt and stay verbatim.
+
+Public docs under `docs/*.md` (copied into the deployed SPA by
+`scripts/build-docs.sh`) are a user surface, not an authority surface: they
+describe what a user can do, drop internal ownership/version prose, and gain
+**no** links into the private y-module repository.
 
 ## Testing Decisions
 
@@ -1372,3 +1172,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3073 | Module source moved to the standalone `/Users/roy/luohy15/code/y-module` repository: a fixed canonical path with no config key, environment override, symlink, or home-repository ignore rule. The publish-free three-repository cutover is complete. `y-agent` main is pushed with `MODULE_SOURCE_ROOT` as its single resolver authority; tests patch that constant and prove `Y_AGENT_HOME` / `Y_AGENT_MODULES_DIR` cannot override it. The standalone `y-module` repository contains the live private-pushed source; the former `/Users/roy/luohy15/modules` tree has been removed. Current-path docs and stale source comments now name `code/y-module`; historical Delivery Records remain historical. | - | `pages/plan-3073-module-source-repository.md` | - | `pages/review-3073-y-agent-path-cut.md` | shipped |
 | 3083 | Restored distinct file, note, module, and chat activity-bar glyphs through the host's canonical module-icon registry; the shared SDK contract now validates icon keys before publish, making an unknown icon a CLI error rather than a silent fallback. Finance and bot were audited and already resolved correctly. Host commit `dc27a1f` deployed successfully, and chat module v13 (`ui=2a83bb3b012b…` / `api=8ecab88cc6b6…`) is active with the restored message-bubble declaration; rollback is `y module rollback chat` to v12. No database migration. | - | `pages/plan-3083-module-icons.md` | - | `pages/review-3083-module-icons.md` | shipped |
 | 3084 | Restored the ordinary-file viewer behavior dropped in the todo 3068 cut, then converged its toolbar to Roy's explicitly tidier target. File v7 restored the first affordance pass; v8 restored the full audited pre-cut behavior; v9 removed Search and Import Note and iconified Raw/Preview plus History; active v10 (`ui=aa1fee3a5821…` / `api=628244cb50ae…`, 132116-byte UI bundle) adds compact Copy-path success feedback: the adjacent Copy icon becomes a green `Copied` check for 1.2 seconds only after clipboard success, with generation guards, switch/unmount cleanup, repeated-copy reset, and rejection handling. Canonical relative path, the single Markdown/HTML/PDF download menu, Markdown navigation/front matter, mounted per-tab state, shortcuts, and the remaining viewer parity fixes stay intact; Search remains reachable through the host `file.search` intent. Rollback is `y module rollback file` to v9. Module source commits `dd011ae`, `afc65ad`, and `0d84f59`; no host/contract change or database migration. Known host-seam limitation: shortcuts forwarded from a sandboxed HTML preview still double-fire because the host replays them at `window`; no module-local listener ordering can prevent it. | - | `pages/plan-3084-file-viewer-affordances.md` | - | `pages/review-3084-file-viewer-affordances.md` | shipped; runtime UI verification pending |
+| 3093 | Module documentation ownership split: each module's domain description lives in `code/y-module/<slug>/README.md`; y-agent keeps host architecture, the module-system contract, public user docs, and one pointer per module. Active version numbers/hashes leave prose (queryable via `y module list`); known-bad version ranges stay in module READMEs. PRD gains *Documentation ownership* (D1/D3/D6) and this row. | - | `pages/plan-3093-module-docs-ownership.md` | - | `pages/review-3093-y-module-docs.md`, `pages/review-3093-y-agent-docs-trim.md` | reviewed |

@@ -70,31 +70,13 @@ Two paths, split by whether you run the server or just use one. Each page opens 
 ## Hot-loadable modules
 
 A module is a user-owned, versioned domain at the fixed `code/y-module/<slug>/`
-(a standalone repository at `/Users/roy/luohy15/code/y-module`, independent of
-`Y_AGENT_HOME`). It can
-contain local CLI commands, a lazy-loaded API half, a published React UI half, and its
-own ORM entities, repositories, and hand-applied migration SQL. `y module publish <slug>`
-publishes API and UI atomically without a full application deploy; `y module rollback`
-repoints code without altering data. `y module schema-sql <slug>` prints DDL but never
-executes it. A UI half claims up to three host slots: a sidebar `panel`, a full-width
-`detail` view, and the `shell` (the persistent centre column). Every publish requires the
-explicitly configured trusted maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`); backend
-dispatch is maintainer-only unless the published version opts into `authenticated`, and
-both fail closed when no maintainer is configured.
-The system is live. Chat is the widest migration so far: chat browsing and the whole
-message renderer are the `chat` module's `panel` / `detail` / `shell` surfaces, so
-changing how a message looks is a publish rather than a deploy, while the chat runtime
-(table, worker, Telegram, and every conversational route) stays in the host.
-Finance is the reference full-stack module: active version 20 with
-version 19 as the immediate full-stack rollback twin, routes at `/api/module/finance/*`,
-and `y finance` resolved from local module source. Built-in finance host code is gone.
-Known limitation: finance Refresh is still synchronous and hits the ~30s Cloudflare edge
-timeout (server-side work still completes). Legacy `vm_config.finance_config` remains
-intentionally for a later contract and is not dropped.
-The file browser is a fourth full-stack module with no database tables of its own: it
-owns the authenticated file API, the `y file upload/download` CLI, and the Files panel
-and editor workspace, while the host keeps VM credentials, SSH/EC2 execution, and the
-note rename-safety guard.
+(standalone repo `/Users/roy/luohy15/code/y-module`). It can hold local CLI, a
+lazy-loaded API half, a published React UI half, and module-owned data/migrations.
+`y module publish` ships API+UI atomically; `y module rollback` repoints code only;
+`y module schema-sql` prints DDL and never runs it. UI claims `panel` / `detail` /
+`shell` slots. Publish and backend dispatch require
+`Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed); a version may opt into
+`authenticated` dispatch.
 
 ## Blog Post
 

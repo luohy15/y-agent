@@ -32,7 +32,7 @@ Every activity-bar panel in the web GUI:
 - **Routines** — cron-style schedules that auto-fire a chat to a topic; the admin Lambda fires them on EventBridge (daily journal, weekly digests, health checks).
 - **Files** — lazy file tree of the VM's `work_dir`; viewer/editor with syntax highlighting, line numbers, unsaved-edits preview, and click-to-open relative links.
 - **Calendar** — timezone-aware events with a current-time ticker; ICS import.
-- **Finance** — balance sheet / income statement / holdings / transactions / prices / investment returns / FIRE charts, rendered by the `finance` dynamic UI artifact.
+- **Finance** — balance sheet / income statement / holdings / transactions / prices / investment returns / FIRE charts.
 - **Email** — multi-account Gmail sync for lightweight inbox review; each row tagged with its source account.
 - **Dev** — `y dev` worktree lifecycle from the GUI: create/remove worktrees per task, auto-commit, dynamic merge target.
 

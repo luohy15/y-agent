@@ -61,19 +61,12 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
   JSON `front_matter`; it is used for plan / requirement / decision / journal
-  context tied to todos. The `note` module (active v2, with byte-identical v1 as
-  the rollback twin) owns the ten authenticated note and note-relation routes at
-  `/api/module/note/*`, `y note`, and the Notes panel. The host retains all five
-  share routes and the public trace-note renderer because unauthenticated
-  `/t/:shareId` and `trace.py`'s in-process sharing helpers depend on kernel note
-  state; `y assoc note` and the todo 3041 content-path authority stay built-in.
-  The file module's Rename endpoint (`POST /api/module/file/rename`) refuses to
-  rename a path while any live note's `content_key` still points at it (or, for a
-  directory, lives under it); `content_key` is never auto-fixed, so the user must
-  retarget the note first. The module reaches this guard only through the backend
-  contract's `note_list_at_path`, never the note service directly. `POST
-  /api/module/file/move` has the same hazard with no guard yet (todo 2888
-  follow-up, unchanged by the todo 3068 migration).
+  context tied to todos. The host retains all five share routes, the public
+  trace-note renderer, `y assoc note`, and the todo 3041 content-path authority.
+  Authenticated note browsing/CRUD is the `note` module; see
+  `code/y-module/note/README.md`. File rename refuses a path while any live
+  note's `content_key` still points at it (via the backend contract's
+  `note_list_at_path`); `content_key` is never auto-fixed.
 - **Entity (knowledge graph)** — `entity` + `entity_note_relation` + `entity_rss_relation`.
   Web sidebar exposes entities as a first-class panel.
 - **English correction** — offline hourly loop over the user's own English chat prose.
@@ -98,139 +91,35 @@ entity + controller + service + CLI slices, and most have a web panel.
   / `[svg]` placeholders before Telegram delivery.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.
-  Plain `svg` fences remain code blocks. Which fence becomes which artifact is decided
-  by the `chat` module's bubble (and by host `HostMessageView` on the public/fallback
-  paths); the renderer itself is the host-owned `ArtifactView` / `ArtifactRenderer`
-  leaf, shared by both through `@y/host`.
-- **Hot-loadable modules** — a user-owned module is one versioned domain with
-  optional API and UI parts, local CLI commands, and module-owned data. Canonical source
-  lives only at the fixed `code/y-module/<slug>/` (`/Users/roy/luohy15/code/y-module`,
-  a standalone repository, independent of `Y_AGENT_HOME`): `module.json`, an import-free
-  `__init__.py`, optional `api.py` and `cli.py`, `ui/index.tsx`, and optional
-  module-local `entities/`, `repository/`, `migration/`, and `tests/` directories.
-  `y <slug>` discovers the local source lazily, importing only the invoked module group.
-  `y module publish <slug>` builds API and UI bytes together, server-verifies their
-  hashes and schema preflight, creates one immutable `module_version`, and atomically
-  moves its active pointer. The API dispatches `/api/module/<slug>/*` through a lazy,
-  hash-verified per-version sub-application; the web loader preserves the established
-  `@y/host` browser contract (now **v7**), integrity check, and error boundary, and
-  mounts up to three host slots: the required `panel`, the optional `detail`, and the
-  optional `shell` (the persistent centre column; at most one claimant, lowest slug
-  wins). `module_version.ui_surfaces` is the immutable per-version record of which
-  slots a version *claims*, not of which surfaces it exports: only `shell` is enforced
-  from the column, `panel` / `detail` are still introspected from the bundle. Backend
-  modules run in-process under the shared API role, so every publish is restricted to
-  `Y_AGENT_MODULE_MAINTAINER_USER_ID` and fails closed when it is unset; backend
-  *dispatch* is per-version — `module_version.dispatch_scope` defaults to `maintainer`,
-  and a version published as `authenticated` serves any logged-in user, with code still
-  resolved and loaded as the maintainer while data stays scoped to the caller.
-  `module_version.ui_public` is published and immutable but inert: it reserves the
-  anonymous UI-bytes path (Option B of `pages/decision-3042-public-dispatch-scope.md`)
-  and nothing consumes it yet; there is still no anonymous backend dispatch. The module owns
-  its entities, repositories, SQL, and hand-applied migration files. The host owns
-  authentication, session/transaction management, dependencies, and VM execution.
-  `y module schema-sql <slug>` prints DDL only; migrations are never run by publish,
-  activation, or loading, and must remain expand-only while an older version is
-  rollback-reachable. A module may reference kernel tables but not another module's
-  tables. Shared tables belong to conventional `common`, vendored into consuming API
-  bundles at publish time. `y module rollback <slug>` or
-  `y module activate <slug> <version>` changes code only. `y module delete <slug>`
-  removes deployed metadata and bundle bytes but leaves source and tables intact.
-  The system is live: finance is the reference full-stack module (`code/y-module/finance`),
-  active at version 20 with version 19 as the immediate full-stack rollback twin
-  (same API/UI hashes). Built-in finance controller, CLI, and storage are deleted;
-  routes live at `/api/module/finance/*` and `y finance` resolves from local module
-  source. Known limitation / follow-up: finance Refresh is still synchronous and
-  exceeds the ~30s Cloudflare edge timeout (four VM commands; server-side work still
-  completes, browser sees 504). Legacy `vm_config.finance_config` remains
-  intentionally as a physical column for a later expand/contract; it is not dropped.
-  A module has no worker half: deterministic scheduled work is a `routine`
-  `vm_command` action that executes argv on the owner's VM, while judgment-shaped
-  work remains chat dispatch. `bot` (`code/y-module/bot`) is the second full-stack
-  module, active at version 16; v11/v12 (identical bundles) is the full-stack
-  cutover twin pair, and v10 and earlier are unsafe rollback targets post-cutover
-  because their UI still calls the deleted built-in `/api/bot/*` routes. Bot
-  management is a **narrow,
-  deliberate exception** to "the module owns its tables": the module owns bot
-  **management** (`/api/module/bot/*`, `y bot` CLI, the Bots UI panel, pricing
-  display; maintainer-only per `pages/decision-3028-bot-module-auth.md`), while
-  `bot_config` and `bot_route_state` — table, entity, repository, service,
-  `agent/config.py` resolution, worker consumption, usage-credential
-  enumeration, inline/link bot resolution, and `y init` bootstrap — stay host
-  kernel state, because the worker reads them on the dispatch hot path and
-  modules have no worker half. The module reaches that state only through the
-  versioned `bot_config_*` functions on the `agent.module_host` contract, never a
-  repository or session import.
-  `GET /api/chat/bot-options` (host, `chat.py`) intentionally survives the cut:
-  it is read-only, returns only `name`/`backend`/`model`, and stays open to
-  every authenticated user because picking a bot in chat is routing selection,
-  not management — it is not a leftover of the deleted management surface, and
-  deleting it would break the chat picker for non-maintainers and on any module
-  rollback/disable. `chat` (`code/y-module/chat`) is the third full-stack module and the
-  first `shell` claimant, active at v12 with v11 as its byte-identical rollback
-  twin (the file-module image-route retarget from todo 3068; both
-  `ui=11107bd79435` / `api=3d77a0331766`; `y module rollback chat` returns to
-  v11). Chat v2–v10 remain unsafe post-file-cutover because they still fetch
-  image bytes from the deleted `/api/file/raw`.
-  It owns chat **browsing and presentation**: the `panel` (Chats list), a
-  full-width `detail` browser, the `shell` (the live centre-column conversation,
-  including `MessageList` / `MessageBubble` / the message parser / message layout
-  / artifact fence dispatch), three routes at `/api/module/chat/{list,content,share}`,
-  and the `y chat list/get/search/share` browse commands. The host keeps the chat
-  **runtime**: the `chat` table/entity/repo/service, the worker, Telegram, every
-  conversational route (`POST /api/chat`, `/message`, `/attach-image`, `/stop`,
-  `/messages*`, `/detail`, `/notify`, public `GET /share`, the four `/trace/read*`),
-  the `y chat` dispatch primitive (`-m` / `-i` / `stop`, a built-in group that
-  delegates only browse subcommands to `code/y-module/chat/cli.py`), and the megabyte
-  render leaves the module imports from `@y/host` (`ArtifactView`, `PatchDiff`,
-  `ImageLightbox`, `CodeEditor`, the PNG capture primitive). The module reaches host chat state
-  only through the backend contract's `chat_list` / `chat_get` /
-  `chat_create_share` functions. The `agent.module_host` contract is now **v5**
-  (v2 added `bot_config_*`, v3 added the chat capability, v4 added `work_dir`/
-  stdin on `run_vm_command` plus `note_list_at_path` for the file module, v5
-  added the owner-bound note capability for todo 3071): chat declares
-  `min_backend_version: 3`, bot 2, finance 1, file 4. `HostMessageView` (≤300 lines) is the
-  host's single degraded renderer behind `/t/:shareId`, `/s/:shareId`, and
-  `ChatFallbackView`, which the shell slot falls back to when no module claims it
-  (see "Chat: a control-plane module over the runtime kernel" in
-  `docs/prd/module-system.md`).
-  `file` (`code/y-module/file`) is the fourth full-stack module, active at **v6**
-  (`ui=8fc9638bac0a` / `api=628244cb50ae`); **v1–v4 all hang on ordinary-file
-  open** (the detail read effect cancelled itself after writing loading state),
-  and **v1–v5 all render Markdown with no table of contents** (the built-in
-  TOC was never ported until v6), so rolling back drops either ordinary-file
-  viewing (v1–v4) or the TOC (v5) and none restores the full current viewer.
-  Unlike finance/bot/chat, file owns no database tables — it is a control-plane
-  module over host **VM infrastructure** instead of module-owned data: the
-  module owns the authenticated file API (`/api/module/file/*`, all 13 routes
-  ported from the deleted built-in controller — list/read/prd/skills/search/
-  touch/delete/rename/move/upload/write/raw/export-pdf), the `y file
-  upload/download` CLI (`code/y-module/file/cli.py`; not a hybrid group like `y chat`,
-  since file transfer is not the mechanism used to recover the agent system),
-  the Files `panel` (ported `FileTree` behavior, mountable in either sidebar via
-  `usePanelLocation()`), and a `detail` workspace (`ui:file`: CodeMirror
-  editing, Markdown/HTML/image/PDF preview with a responsive TOC in Markdown
-  preview, tabs, search, upload/move/rename/delete, Markdown export) that owns
-  every ordinary-file view previously in host `FileViewer`. The host keeps VM
-  credentials, SSH/EC2 execution (`agent/vm_command.py`, extracted from the
-  deleted `api.controller.file._exec` so the note/git/link controllers no
-  longer import from a module-owned domain), request-owner enforcement, the
-  note `content_key` rename guard, the generic special/public tab shell
-  retained in `FileViewer.tsx` (`PublicFileViewer` plus every non-file special
-  tab — trace/link/entity/email/dev/diff/artifact/module-detail), and
-  public/degraded rendering. File selection crosses the intent/command seam
-  (`file.open` / `file.close` / `file.search` host commands, retained
-  per-location VM/work-directory context); rename/delete notifications update
-  module-owned tabs directly rather than host file-path state. File declares
-  `min_backend_version: 4`. Bundling CodeMirror directly into the module
-  measured ~957 KB unminified (core + one language), breaching the 250 KB
-  module ceiling even minified and bare (~267 KB), so the detail workspace
-  instead imports the host's `CodeEditor` as a versioned `@y/host` leaf,
-  bumping the browser contract **v6 → v7** (file declares `min_host_version: 7`);
-  the shipped module bundle itself measured ~93 KB at the cut (panel + detail
-  combined; v6 is still well under the ceiling). `POST /api/module/file/move`
-  still has no note-pointer guard, matching the built-in's pre-existing gap
-  (todo 2888 follow-up, unchanged by the migration).
+  Plain `svg` fences remain code blocks. Fence dispatch lives in the chat module's
+  bubble (and in host `HostMessageView` on public/fallback paths); the renderer
+  itself is the host-owned `ArtifactView` / `ArtifactRenderer` leaf on `@y/host`.
+- **Hot-loadable modules** — a user-owned, versioned domain with optional API/UI/
+  CLI/data parts. Canonical source is only at fixed `code/y-module/<slug>/`
+  (`/Users/roy/luohy15/code/y-module`, standalone, independent of `Y_AGENT_HOME`):
+  `module.json`, import-free `__init__.py`, optional `api.py`/`cli.py`,
+  `ui/index.tsx`, optional `entities/`/`repository/`/`migration/`/`tests/`.
+  `y <slug>` loads local source lazily. `y module publish <slug>` builds API+UI
+  together, verifies hashes and schema preflight, creates one immutable
+  `module_version`, and moves the active pointer. API dispatches
+  `/api/module/<slug>/*` via a lazy hash-verified per-version sub-app. Web loader
+  keeps the `@y/host` browser contract (**v7**), integrity check, and error
+  boundary, and mounts required `panel`, optional `detail`, and optional `shell`
+  (centre column; one claimant, lowest slug wins). `module_version.ui_surfaces`
+  records claims; only `shell` is enforced from the column. Publish is gated on
+  `Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed when unset). Per-version
+  `dispatch_scope` defaults to `maintainer`; `authenticated` serves any logged-in
+  user. `ui_public` is published but inert (no anonymous backend dispatch). Module
+  owns entities/repos/SQL/hand-applied migrations; host owns auth, sessions,
+  dependencies, VM execution. `y module schema-sql` prints DDL only; migrations
+  stay expand-only while older versions are rollback-reachable. Kernel tables may
+  be referenced; another module's tables may not. Shared tables live in
+  conventional `common` (vendored at publish). Rollback/activate change code only;
+  delete removes deployed metadata/bytes, not source/tables. No worker half:
+  deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
+  Backend host contract (`agent.module_host`) is **v5**. Per-module ownership,
+  routes, CLI, and rollback hazards: `code/y-module/<slug>/README.md`. Contract:
+  `docs/prd/module-system.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -246,17 +135,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   must not link `.venv`. Existing worktrees created before this behavior need a
   one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
   recreation.
-- **Finance / Email / Calendar** — finance is a full-stack module under
-  `code/y-module/finance`: DB-backed views via `y finance` (local module
-  CLI) and `/api/module/finance/*` (balance sheet, income statement, holdings,
-  transactions, prices, FIRE progress); `y finance beancount` is the ledger-side
-  producer / low-level local view layer. Active finance version is 20, with 19 as
-  the full-stack rollback twin; built-in host finance code is gone. Multi-account
-  Gmail sync: per-account IMAP app passwords live in the `email_account` table
-  (`y email account add/list/rm`), `y email sync-gmail` fans out over all registered
-  accounts, and `email.account` tags each row with its source address (filterable via
-  `?account=` / `--account` / the EmailList dropdown). Full-stack calendar
-  events with timezone-aware filtering.
+- **Email / Calendar** — multi-account Gmail sync: per-account IMAP app passwords live
+  in the `email_account` table (`y email account add/list/rm`), `y email sync-gmail`
+  fans out over all registered accounts, and `email.account` tags each row with its
+  source address (filterable via `?account=` / `--account` / the EmailList dropdown).
+  Full-stack calendar events with timezone-aware filtering. Finance domain views and
+  CLI live in the finance module (`code/y-module/finance/README.md`); legacy physical
+  column `vm_config.finance_config` remains intentionally for a later contract.
 
 ## Agent Runtime
 
@@ -305,11 +190,9 @@ exceptions noted):
   a version also carries its own `dispatch_scope`, `ui_surfaces`, and `ui_public`, so
   exposure and claimed host slots roll back with the code)
 - **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (legacy physical
-  column `vm_config.finance_config` is intentionally retained for a later contract;
-  finance config rows live in the module-owned `finance_config` table). `bot_config`
-  and `bot_route_state` are runtime kernel tables read by the worker dispatch path;
-  they stay host-owned even though bot *management* is module-owned — see the
-  `bot` entry under Hot-loadable modules above.
+  column `vm_config.finance_config` is intentionally retained for a later contract).
+  `bot_config` and `bot_route_state` are runtime kernel tables on the worker
+  dispatch path; bot *management* is module-owned (see `code/y-module/bot/README.md`).
 - **Email**: `email`, `email_account`
 - **Base / DTO**: `base.py`, `dto.py` (Message, BotConfig, VmConfig structures)
 
@@ -318,10 +201,10 @@ exceptions noted):
 Grouped by feature area:
 
 - **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (create + SSE streaming +
-  stop + steer + trace read-state + public share read + cross-skill notify dispatch;
-  browse `list` / `content` and share *creation* moved to the `chat` module), `trace.py` (listing,
-  share, lookup by chat_id), `git.py` (status/diff/discard, VM execution via
-  `agent.vm_command`), `terminal.py` (shell exec)
+  stop + steer + trace read-state + public share read + cross-skill notify dispatch +
+  host `GET /api/chat/bot-options`; browse `list` / `content` and share *creation*
+  are module-owned), `trace.py` (listing, share, lookup by chat_id), `git.py`
+  (status/diff/discard, VM execution via `agent.vm_command`), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
@@ -330,16 +213,7 @@ Grouped by feature area:
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
-  domain). Finance, bot management, chat browsing, authenticated file operations,
-  and authenticated note operations live only there (`/api/module/finance/*`,
-  `/api/module/bot/*`, `/api/module/chat/{list,content,share}`,
-  `/api/module/file/*`, `/api/module/note/*`); there is no built-in `finance.py`,
-  `bot_config.py`, `file.py`, or authenticated note controller, and `chat.py` no
-  longer serves `list` / `content` / `POST share`. `note.py` retains the five host
-  share routes and sharing helpers for public trace and note shares. `chat.py`
-  retains one host bot route, `GET /api/chat/bot-options` (read-only
-  `name`/`backend`/`model`, all authenticated users), because routing selection is
-  not management.
+  domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
 - **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
   `dev_worktree.py`, `tg_topic.py`
 
@@ -348,17 +222,13 @@ Grouped by feature area:
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
 - `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`session`, `run_vm_command`,
-  `cli_user_id`, external-table protocol; v2 adds a narrow request-scoped
-  `bot_config_*` capability used by the bot module, v3 adds the request-bound
-  `chat_list` / `chat_get` / `chat_create_share` capability used by the chat module,
-  v4 adds `work_dir`/stdin on `run_vm_command` plus `note_list_at_path` used by
-  the file module, and v5 adds the owner-bound `note_*` capability used by the
-  note module (`BACKEND_CONTRACT_VERSION = 5`)
-- `vm_command.py` — the local/SSH VM execution primitive, extracted from the
-  deleted `api.controller.file._exec` (todo 3068 H1); `module_host.run_vm_command`
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 5`:
+  `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
+  protocol, plus request-scoped `bot_config_*`, `chat_*`, `note_list_at_path`, and
+  owner-bound `note_*` capabilities)
+- `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
-  import it directly instead of importing from a controller
+  import it directly
 - `ssh_pool.py`, `ec2_wake.py` — SSH connection reuse, EC2 wake-on-demand
 - `poll_loop.py` — steer / interrupt polling
 - `tool_base.py`, `tools/` — tool descriptors (bash, file_{read,write,edit}, local_exec,
@@ -377,63 +247,32 @@ Grouped by feature area:
 - `handler.py` — Lambda SQS event handler (in worker root)
 
 ### Web Frontend (`web/src/`)
-- `App.tsx` — multi-panel layout (sidebar / file viewer / chat shell slot / terminal /
-  trace); `host/artifacts.ts` resolves the shell slot (logged-out → host; module list
-  loading → wait; enabled `shell` claimant → module; otherwise `ChatFallbackView`)
-- The live centre-column conversation is the `chat` module's `shell` surface, not host
-  code: `ChatView` / `MessageList` / `MessageBubble` / the message parser were deleted in
-  the todo 3042 cut. The host keeps `components/HostMessageView.tsx` (the single degraded
-  renderer, ≤300 lines), `ChatFallbackView.tsx` (read-only SSE tail + plain send box when
-  no module claims the shell), `ChatSnapshotView.tsx`, `ShareView.tsx`, and the
-  right-drawer `ChatList.tsx` (host component, reads `/api/module/chat/list`)
-- `components/TraceView.tsx` — waterfall; `PublicTraceApp.tsx` — `/t/:shareId` public
-  read-only projection (`ChatSnapshotView` over `HostMessageView` + injected Note/Link
-  panels + public FileViewer)
-- The authenticated Files panel and ordinary-file workspace are the `file`
-  module's `panel` and `detail` (`ui:file`) surfaces, not host code: built-in
-  `FileTree.tsx` / `FileSearchDialog.tsx` and the ordinary-file fetch/edit/
-  save/preview/export branches of `FileViewer.tsx` were deleted in the todo
-  3068 cut. The host keeps `components/FileViewer.tsx` as a generic special/
-  public tab shell: every non-file special tab (`trace/link/entity/email/dev/
-  diff/artifact/module-detail`), the unauthenticated `PublicFileViewer`, and
-  the mount point for `ui:file`. File selection crosses `App.tsx`-registered
-  host commands `file.open` / `file.close` / `file.search`
-  (`utils/fileHost.ts`); both sidebars resolve the module `panel` as
-  `artifact:file`, replacing the fixed built-in `files` entry.
-- The authenticated Notes panel is the `note` module's `panel` surface,
-  resolved as `artifact:note` in both sidebars. The host keeps `PublicNoteList`
-  for logged-out `/t/:shareId` trace shares, while note opens use the host
-  `file.open` command and workspace.
-- `host/commands.ts` — internal registration for artifact-invoked host commands
-- Todo list and modal detail are the runtime-loaded `todo` artifact; `TraceView` stays
-  bundled because `PublicTraceApp` must render it for unauthenticated trace shares
-- `components/LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx` — subsystem panels
-- `components/DiffViewer.tsx`, `GitPanel.tsx` — git status + diff
-- `components/CommandPalette.tsx` — ⌘K palette
-- `api.ts` — `authFetch()` wrapper, base URL from `VITE_API_URL`
-- `hooks/useAuth.ts` — Google Sign-In + JWT
+- `App.tsx` — multi-panel layout; `host/artifacts.ts` resolves the shell slot
+  (logged-out → host; loading → wait; `shell` claimant → module; else
+  `ChatFallbackView`)
+- Host chat leaves: `HostMessageView.tsx` (≤300 lines), `ChatFallbackView.tsx`,
+  `ChatSnapshotView.tsx`, `ShareView.tsx`, right-drawer `ChatList.tsx`. Live
+  conversation / Files / Notes panels are module surfaces
+  (`code/y-module/{chat,file,note}/README.md`).
+- `FileViewer.tsx` — special/public tab shell + module `detail` mount; file
+  selection via `file.open` / `file.close` / `file.search` (`utils/fileHost.ts`)
+- `TraceView.tsx`, `PublicTraceApp.tsx` (`/t/:shareId`); host `PublicNoteList` for
+  logged-out shares
+- `host/commands.ts`, runtime-loaded `todo` artifact; `TraceView` stays bundled for
+  unauthenticated shares
+- `LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
+  `GitPanel.tsx`, `CommandPalette.tsx`, `api.ts`, `hooks/useAuth.ts`
 
 ### CLI (`cli/src/yagent/`)
-- `command_option.py` — root `y` command group
-- `commands/` subcommand groups: `chat`, `todo`, `calendar`, `entity`,
-  `reminder`, `rss`, `link`, `email`, `dev`, `image`, `trace`,
-  `english`, `module`, `assoc` / `unassoc`, plus `init` / `login` / `logout`.
-  Domain CLI groups such as `y finance`, `y bot`, `y file`, and `y note` are not
-  built-in: they resolve lazily from `code/y-module/<slug>/cli.py`
-  (`y file`'s upload/download group moved out of `commands/` in the todo 3068
-  cut; `y note` moved in todo 3071). `y assoc note` remains built-in because it
-  is the multi-domain association group and uses the host's 3041 content-path
-  authority. `y chat` is the one hybrid group: the dispatch primitive (`-m` / `-i`)
-  plus `stop` / `attach` / the import commands stay built-in so a bad publish
-  can never take out cross-session dispatch, while `list` / `get` / `search` /
-  `share` fall through to `code/y-module/chat/cli.py`. `LazyModuleProxy` derives a
-  lazy group's `y --help` short description from `module.json`'s `label`
-  field, so a module command's root-level help line reads as its panel label
-  (e.g. `file  Files`) rather than a hand-written description.
-- `sdk/` — build-time SDK for dynamic UI artifacts, materialized onto the VM by
-  `y module create`: `contract.json` (single source of truth for the externals list and
-  the `@y/host` contract version, also imported by `web/src/host/contract.ts`),
-  `shims/*.cjs`, `theme.css`, `y-host.d.ts`, `build.mjs`, `templates/starter.*`
+- `command_option.py` — root `y` group
+- Built-in `commands/`: hybrid `chat` (dispatch/stop/attach stay built-in; browse
+  falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`, `email`,
+  `dev`, `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
+  `logout`. Domain groups (`y finance`, `y bot`, `y file`, `y note`, …) resolve
+  lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041
+  content-path authority). `LazyModuleProxy` uses `module.json` `label` for help.
+- `sdk/` — build-time UI SDK (`contract.json`, shims, `build.mjs`, templates);
+  `contract.json` is the `@y/host` version source of truth
 
 ### Infrastructure
 - `template.yaml` — SAM template (SQS, Lambda × 3, S3 + CloudFront, DynamoDB,
@@ -500,27 +339,9 @@ y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
 
-# Finance module CLI (lazy from code/y-module/finance; --json emits the
-# raw envelope, same shape as GET /api/module/finance/*). Active finance v20 with
-# v19 full-stack rollback; Refresh's known 30s Cloudflare edge timeout is a
-# follow-up (server work still completes).
-y finance balance-sheet [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
-y finance income-statement [--user-id <id>] [--vm-name <name>] [--time month] [--history] [--granularity monthly] [--convert USD] [--json]
-y finance investment-returns [--user-id <id>] [--vm-name <name>] [--time ytd] [--history] [--granularity monthly] [--convert USD] [--json]
-y finance holdings [--user-id <id>] [--at YYYY-MM-DD] [--risky-only] [--base-currency USD] [--json]
-y finance transactions [--user-id <id>] [--symbol AAPL] [--limit 500] [--json]
-y finance prices [--symbol AAPL] [--time ytd] [--limit 1000] [--json]
-y finance price-series SYMBOL [--range 1w|1m|3m|ytd|1y|5y|all] [--json]
-y finance fire-progress [--user-id <id>] [--vm-name <name>] [--json]
-
-# Ledger-side producer / low-level local views
-y finance beancount snapshot
-y finance beancount update-market-data
-
-# Modules. Canonical source is the fixed code/y-module/<slug>/ with module.json and
-# ui/index.tsx (`panel` required, `detail` and `shell` optional); API/CLI/data parts are
-# optional. module.json's `surfaces` / `dispatch` / `ui_public` are stamped onto each
-# published version as ui_surfaces / dispatch_scope / ui_public.
+# Modules. Canonical source is code/y-module/<slug>/ (module.json + ui/index.tsx;
+# API/CLI/data optional). Domain CLI groups resolve lazily from that source —
+# use `y <slug> --help` for the authoritative command list.
 y module create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
 y module list
 y module versions <slug>
@@ -530,10 +351,6 @@ y module rollback <slug>
 y module activate <slug> <version_no>
 y module enable <slug> | y module disable <slug>
 y module delete <slug> [-y|--yes]
-
-# Push/pull files between this Mac and the EC2 host (rsync over SSH).
-y file upload SOURCE... [--host <user@host|alias>] [--dest <remote-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
-y file download SOURCE... [--host <user@host|alias>] [--dest <local-path>] [-n|--dry-run] [--mirror] [--checksum] [--exclude PATTERN]
 ```
 
 ## Conventions
