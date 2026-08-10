@@ -1,21 +1,4 @@
-export const THEMES = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "solarized-dark", label: "Solarized Dark" },
-  { value: "solarized-light", label: "Solarized Light" },
-] as const;
-
-export type Theme = (typeof THEMES)[number]["value"];
-
-export const DEFAULT_THEME: Theme = "light";
-
-export function isTheme(value: unknown): value is Theme {
-  return typeof value === "string" && THEMES.some((theme) => theme.value === value);
-}
-
-export function isDark(theme: Theme): boolean {
-  return theme === "dark" || theme === "solarized-dark";
-}
+export type Theme = "solarized-light" | "solarized-dark";
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
@@ -25,30 +8,13 @@ export function applyTheme(theme: Theme): void {
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
 }
 
-export function loadTheme(): Theme {
-  try {
-    const stored = window.localStorage.getItem("theme");
-    return isTheme(stored) ? stored : DEFAULT_THEME;
-  } catch {
-    return DEFAULT_THEME;
-  }
-}
-
 export type Mode = "system" | "light" | "dark";
-export type LightVariant = "light" | "solarized-light";
-export type DarkVariant = "dark" | "solarized-dark";
 
 export interface ThemePrefs {
   mode: Mode;
-  lightVariant: LightVariant;
-  darkVariant: DarkVariant;
 }
 
-export const DEFAULT_PREFS: ThemePrefs = {
-  mode: "system",
-  lightVariant: "light",
-  darkVariant: "dark",
-};
+export const DEFAULT_PREFS: ThemePrefs = { mode: "system" };
 
 export const MODES: { value: Mode; label: string }[] = [
   { value: "system", label: "System" },
@@ -56,32 +22,17 @@ export const MODES: { value: Mode; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-export const LIGHT_VARIANTS: { value: LightVariant; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "solarized-light", label: "Solarized Light" },
-];
-
-export const DARK_VARIANTS: { value: DarkVariant; label: string }[] = [
-  { value: "dark", label: "Dark" },
-  { value: "solarized-dark", label: "Solarized Dark" },
-];
-
 function isMode(value: unknown): value is Mode {
   return value === "system" || value === "light" || value === "dark";
 }
 
-function isLightVariant(value: unknown): value is LightVariant {
-  return value === "light" || value === "solarized-light";
-}
-
-function isDarkVariant(value: unknown): value is DarkVariant {
-  return value === "dark" || value === "solarized-dark";
-}
-
+// Tolerant on purpose: old-shape ThemePrefs objects (with now-dropped
+// lightVariant/darkVariant) still carry a valid mode, so validating mode
+// alone migrates every stored object for free.
 export function isThemePrefs(value: unknown): value is ThemePrefs {
   if (!value || typeof value !== "object") return false;
   const prefs = value as Record<string, unknown>;
-  return isMode(prefs.mode) && isLightVariant(prefs.lightVariant) && isDarkVariant(prefs.darkVariant);
+  return isMode(prefs.mode);
 }
 
 export function prefersDark(): boolean {
@@ -94,7 +45,7 @@ export function prefersDark(): boolean {
 
 export function resolveTheme(prefs: ThemePrefs, osPrefersDark: boolean): Theme {
   const effective = prefs.mode === "system" ? (osPrefersDark ? "dark" : "light") : prefs.mode;
-  return effective === "dark" ? prefs.darkVariant : prefs.lightVariant;
+  return effective === "dark" ? "solarized-dark" : "solarized-light";
 }
 
 // Public share surfaces (/t, /s, /share, /n) always render Solarized Dark so chrome
@@ -114,17 +65,23 @@ export function applyPrefs(prefs: ThemePrefs): void {
   applyTheme(resolveTheme(prefs, prefersDark()));
 }
 
-export function migrateLegacyTheme(theme: Theme): ThemePrefs {
-  switch (theme) {
-    case "light":
-      return { mode: "light", lightVariant: "light", darkVariant: "dark" };
-    case "solarized-light":
-      return { mode: "light", lightVariant: "solarized-light", darkVariant: "dark" };
-    case "dark":
-      return { mode: "dark", lightVariant: "light", darkVariant: "dark" };
-    case "solarized-dark":
-      return { mode: "dark", lightVariant: "light", darkVariant: "solarized-dark" };
-  }
+// Legacy single-string preference ("theme" key, web and server): maps each of
+// the four now-removed names to the mode of the same polarity.
+const LEGACY_THEME_MODE: Record<string, Mode> = {
+  light: "light",
+  "solarized-light": "light",
+  dark: "dark",
+  "solarized-dark": "dark",
+};
+
+export function isLegacyTheme(value: unknown): value is string {
+  return (
+    typeof value === "string" && Object.prototype.hasOwnProperty.call(LEGACY_THEME_MODE, value)
+  );
+}
+
+export function migrateLegacyTheme(theme: string): ThemePrefs {
+  return { mode: LEGACY_THEME_MODE[theme] };
 }
 
 export function loadPrefs(): ThemePrefs {
@@ -137,7 +94,7 @@ export function loadPrefs(): ThemePrefs {
   } catch {}
   try {
     const legacy = window.localStorage.getItem("theme");
-    if (isTheme(legacy)) return migrateLegacyTheme(legacy);
+    if (isLegacyTheme(legacy)) return migrateLegacyTheme(legacy);
   } catch {}
   return DEFAULT_PREFS;
 }

@@ -22,15 +22,12 @@ const renderCache = new Map<string, string>();
 
 let artifactSeq = 0;
 
-/** Local isDark until ST2 lands utils/theme.ts (ST5 stays independent). */
-const DARK_THEMES = new Set(["dark", "solarized-dark"]);
-
 function isDark(theme?: string | null): boolean {
   const t =
     theme ??
     (typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined) ??
-    "light";
-  return DARK_THEMES.has(t);
+    "solarized-light";
+  return t === "solarized-dark";
 }
 
 function artifactLabel(type: ArtifactType): string {

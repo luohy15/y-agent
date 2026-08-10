@@ -6,15 +6,12 @@ import type { Extension } from "@codemirror/state";
 const FONT_MONO =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
-/** Dark themes: dark + solarized-dark. ST2 owns utils/theme.ts; keep local until merged. */
-const DARK_THEMES = new Set(["dark", "solarized-dark"]);
-
 export function isDark(theme?: string | null): boolean {
   const t =
     theme ??
     (typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined) ??
-    "light";
-  return DARK_THEMES.has(t);
+    "solarized-light";
+  return t === "solarized-dark";
 }
 
 const COLORS = {
@@ -33,7 +30,7 @@ const COLORS = {
   green: "var(--color-sol-green)",
 } as const;
 
-/** Dark editor behavior for dark + solarized-dark; colors follow active tokens. */
+/** Dark editor behavior for solarized-dark; colors follow active tokens. */
 export const solarizedDarkTheme = EditorView.theme(
   {
     "&": {
@@ -122,7 +119,7 @@ const solarizedDarkHighlight = HighlightStyle.define([
 
 export const solarizedDarkSyntaxHighlight: Extension = syntaxHighlighting(solarizedDarkHighlight);
 
-/** Light editor behavior for light + solarized-light; colors follow active tokens. */
+/** Light editor behavior for solarized-light; colors follow active tokens. */
 export const lightTheme = EditorView.theme(
   {
     "&": {

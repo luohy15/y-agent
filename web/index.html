@@ -3,29 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#fdf6e3">
   <title>y-agent — a personal AI agent built on coding agents</title>
   <meta name="description" content="y-agent extends coding agents like Claude Code and Codex into a personal agent platform: chat, todos, notes, knowledge graph, links, RSS, finance, calendar — always-on via Lambda and Telegram.">
   <link rel="shortcut icon" type="image/x-icon">
   <link rel="manifest" href="/manifest.json">
   <script>
     (function () {
-      var themeColors = { light: '#ffffff', dark: '#0d1117', 'solarized-dark': '#002b36', 'solarized-light': '#fdf6e3' };
+      var themeColors = { 'solarized-dark': '#002b36', 'solarized-light': '#fdf6e3' };
       var legacyMap = {
-        light: { mode: 'light', lightVariant: 'light', darkVariant: 'dark' },
-        'solarized-light': { mode: 'light', lightVariant: 'solarized-light', darkVariant: 'dark' },
-        dark: { mode: 'dark', lightVariant: 'light', darkVariant: 'dark' },
-        'solarized-dark': { mode: 'dark', lightVariant: 'light', darkVariant: 'solarized-dark' },
+        light: { mode: 'light' },
+        'solarized-light': { mode: 'light' },
+        dark: { mode: 'dark' },
+        'solarized-dark': { mode: 'dark' },
       };
-      var defaultPrefs = { mode: 'system', lightVariant: 'light', darkVariant: 'dark' };
+      var defaultPrefs = { mode: 'system' };
       // Keep in lockstep with isPublicSharePath in web/src/utils/theme.ts.
       var isPublicShare = /^\/(?:t|s|share|n)\/[^/]+/.test(window.location.pathname || '');
 
       function isPrefs(value) {
         return value && typeof value === 'object'
-          && (value.mode === 'system' || value.mode === 'light' || value.mode === 'dark')
-          && (value.lightVariant === 'light' || value.lightVariant === 'solarized-light')
-          && (value.darkVariant === 'dark' || value.darkVariant === 'solarized-dark');
+          && (value.mode === 'system' || value.mode === 'light' || value.mode === 'dark');
       }
 
       var theme;
@@ -43,7 +41,7 @@
         if (!prefs) {
           try {
             var legacy = localStorage.getItem('theme');
-            if (legacy && legacyMap[legacy]) prefs = legacyMap[legacy];
+            if (legacy && Object.prototype.hasOwnProperty.call(legacyMap, legacy)) prefs = legacyMap[legacy];
           } catch (_) {}
         }
         if (!prefs) prefs = defaultPrefs;
@@ -54,7 +52,7 @@
         } catch (_) {}
 
         var effective = prefs.mode === 'system' ? (osPrefersDark ? 'dark' : 'light') : prefs.mode;
-        theme = effective === 'dark' ? prefs.darkVariant : prefs.lightVariant;
+        theme = effective === 'dark' ? 'solarized-dark' : 'solarized-light';
       }
 
       document.documentElement.dataset.theme = theme;

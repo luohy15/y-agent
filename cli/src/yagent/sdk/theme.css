@@ -11,22 +11,24 @@
  * Values below are fallbacks only (F4): they must never force a palette on
  * the host. Renaming a host token does not break the artifact loudly — it
  * silently pins the stale colour via the fallback.
+ *
+ * Mirrors the host's :root default in web/src/style.css (Solarized Light).
  */
 @theme reference {
-  --color-sol-base03: #ffffff;
-  --color-sol-base02: #f3f4f6;
-  --color-sol-base01: #6b7280;
-  --color-sol-base00: #57606a;
-  --color-sol-base0: #24292f;
-  --color-sol-base1: #1f2328;
-  --color-sol-base2: #0d1117;
-  --color-sol-base3: #000000;
-  --color-sol-yellow: #9a6700;
-  --color-sol-orange: #bc4c00;
-  --color-sol-red: #cf222e;
-  --color-sol-magenta: #bf3989;
-  --color-sol-violet: #8250df;
-  --color-sol-blue: #0969da;
-  --color-sol-cyan: #1b7c83;
-  --color-sol-green: #1a7f37;
+  --color-sol-base03: #fdf6e3;
+  --color-sol-base02: #eee8d5;
+  --color-sol-base01: #93a1a1;
+  --color-sol-base00: #839496;
+  --color-sol-base0: #657b83;
+  --color-sol-base1: #586e75;
+  --color-sol-base2: #073642;
+  --color-sol-base3: #002b36;
+  --color-sol-yellow: #b58900;
+  --color-sol-orange: #cb4b16;
+  --color-sol-red: #dc322f;
+  --color-sol-magenta: #d33682;
+  --color-sol-violet: #6c71c4;
+  --color-sol-blue: #268bd2;
+  --color-sol-cyan: #2aa198;
+  --color-sol-green: #859900;
 }

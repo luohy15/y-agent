@@ -8,68 +8,50 @@ html {
 /*
  * Theme tokens.
  * @theme registers the sol-* color names for Tailwind utilities and emits
- * default :root values (Light). Each :root[data-theme="…"] block overrides
- * all 16 --color-sol-* vars. Utilities reference var(--color-sol-*) at
- * runtime, so overriding these rethemes the whole app.
+ * default :root values (Solarized Light). Each :root[data-theme="…"] block
+ * overrides all 16 --color-sol-* vars. Utilities reference var(--color-sol-*)
+ * at runtime, so overriding these rethemes the whole app.
  */
 @theme {
-  /* Light (default) */
-  --color-sol-base03: #ffffff;
-  --color-sol-base02: #f3f4f6;
-  --color-sol-base01: #6b7280;
-  --color-sol-base00: #57606a;
-  --color-sol-base0: #24292f;
-  --color-sol-base1: #1f2328;
-  --color-sol-base2: #0d1117;
-  --color-sol-base3: #000000;
-  --color-sol-yellow: #9a6700;
-  --color-sol-orange: #bc4c00;
-  --color-sol-red: #cf222e;
-  --color-sol-magenta: #bf3989;
-  --color-sol-violet: #8250df;
-  --color-sol-blue: #0969da;
-  --color-sol-cyan: #1b7c83;
-  --color-sol-green: #1a7f37;
+  /* Solarized Light (default) */
+  --color-sol-base03: #fdf6e3;
+  --color-sol-base02: #eee8d5;
+  --color-sol-base01: #93a1a1;
+  --color-sol-base00: #839496;
+  --color-sol-base0: #657b83;
+  --color-sol-base1: #586e75;
+  --color-sol-base2: #073642;
+  --color-sol-base3: #002b36;
+  --color-sol-yellow: #b58900;
+  --color-sol-orange: #cb4b16;
+  --color-sol-red: #dc322f;
+  --color-sol-magenta: #d33682;
+  --color-sol-violet: #6c71c4;
+  --color-sol-blue: #268bd2;
+  --color-sol-cyan: #2aa198;
+  --color-sol-green: #859900;
 }
 
-/* Explicit light (same as :root default; wins when data-theme is set) */
-:root,
-[data-theme="light"] {
-  --color-sol-base03: #ffffff;
-  --color-sol-base02: #f3f4f6;
-  --color-sol-base01: #6b7280;
-  --color-sol-base00: #57606a;
-  --color-sol-base0: #24292f;
-  --color-sol-base1: #1f2328;
-  --color-sol-base2: #0d1117;
-  --color-sol-base3: #000000;
-  --color-sol-yellow: #9a6700;
-  --color-sol-orange: #bc4c00;
-  --color-sol-red: #cf222e;
-  --color-sol-magenta: #bf3989;
-  --color-sol-violet: #8250df;
-  --color-sol-blue: #0969da;
-  --color-sol-cyan: #1b7c83;
-  --color-sol-green: #1a7f37;
-}
-
-[data-theme="dark"] {
-  --color-sol-base03: #0d1117;
-  --color-sol-base02: #161b22;
-  --color-sol-base01: #6e7681;
-  --color-sol-base00: #7d8590;
-  --color-sol-base0: #c9d1d9;
-  --color-sol-base1: #e6edf3;
-  --color-sol-base2: #f0f6fc;
-  --color-sol-base3: #ffffff;
-  --color-sol-yellow: #d29922;
-  --color-sol-orange: #db6d28;
-  --color-sol-red: #f85149;
-  --color-sol-magenta: #e685b5;
-  --color-sol-violet: #a371f7;
-  --color-sol-blue: #4493f8;
-  --color-sol-cyan: #39c5cf;
-  --color-sol-green: #3fb950;
+/* :root default (Solarized Light) — renders a real palette before/without a
+   data-theme attribute; duplicates the @theme block above by design so
+   Tailwind's registration and the actual cascade default stay in sync. */
+:root {
+  --color-sol-base03: #fdf6e3;
+  --color-sol-base02: #eee8d5;
+  --color-sol-base01: #93a1a1;
+  --color-sol-base00: #839496;
+  --color-sol-base0: #657b83;
+  --color-sol-base1: #586e75;
+  --color-sol-base2: #073642;
+  --color-sol-base3: #002b36;
+  --color-sol-yellow: #b58900;
+  --color-sol-orange: #cb4b16;
+  --color-sol-red: #dc322f;
+  --color-sol-magenta: #d33682;
+  --color-sol-violet: #6c71c4;
+  --color-sol-blue: #268bd2;
+  --color-sol-cyan: #2aa198;
+  --color-sol-green: #859900;
 }
 
 /* Exact previous app palette (Solarized Dark) */

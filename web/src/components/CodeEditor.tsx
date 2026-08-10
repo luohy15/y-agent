@@ -33,8 +33,8 @@ export default function CodeEditor({
   const [langExtension, setLangExtension] = useState<Extension | null>(
     () => getCachedLanguage(langKey) ?? null,
   );
-  // Track data-theme so editor chrome/syntax switch without reload.
-  // Local isDark until ST2 lands utils/theme.ts; MutationObserver covers ST2 applyTheme.
+  // Track data-theme so editor chrome/syntax switch without reload;
+  // the MutationObserver below covers applyTheme's dataset writes.
   const [dark, setDark] = useState(() => isDark());
 
   const onSaveRef = useRef(onSave);

@@ -15,7 +15,7 @@ export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMe
   const [infoOpen, setInfoOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { prefs, setMode, setLightVariant, setDarkVariant } = useTheme(isLoggedIn);
+  const { prefs, setMode } = useTheme(isLoggedIn);
 
   useEffect(() => {
     if (!open) return;
@@ -122,8 +122,6 @@ export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMe
         open={settingsOpen}
         prefs={prefs}
         onModeChange={setMode}
-        onLightVariantChange={setLightVariant}
-        onDarkVariantChange={setDarkVariant}
         onClose={() => setSettingsOpen(false)}
       />
     </>

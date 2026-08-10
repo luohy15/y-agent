@@ -3,25 +3,22 @@ import { useUserPreference } from "./useUserPreference";
 import {
   applyPrefs,
   DEFAULT_PREFS,
-  isTheme,
+  isLegacyTheme,
   isThemePrefs,
   loadPrefs,
   migrateLegacyTheme,
-  type DarkVariant,
-  type LightVariant,
   type Mode,
-  type Theme,
   type ThemePrefs,
 } from "../utils/theme";
 
 function prefsEqual(a: ThemePrefs, b: ThemePrefs): boolean {
-  return a.mode === b.mode && a.lightVariant === b.lightVariant && a.darkVariant === b.darkVariant;
+  return a.mode === b.mode;
 }
 
 export function useTheme(isLoggedIn: boolean) {
   const [prefs, setCurrentPrefs] = useState<ThemePrefs>(loadPrefs);
   const preference = useUserPreference<ThemePrefs>("themePrefs", { enabled: isLoggedIn });
-  const legacyPreference = useUserPreference<Theme>("theme", { enabled: isLoggedIn });
+  const legacyPreference = useUserPreference<string>("theme", { enabled: isLoggedIn });
   const userTouchedRef = useRef(false);
   const reconciledRef = useRef(false);
   const prefsRef = useRef(prefs);
@@ -51,11 +48,15 @@ export function useTheme(isLoggedIn: boolean) {
 
     if (isThemePrefs(preference.serverValue)) {
       if (userTouchedRef.current) return;
-      setCurrentPrefs(preference.serverValue);
+      const normalized: ThemePrefs = { mode: preference.serverValue.mode };
+      setCurrentPrefs(normalized);
       try {
-        window.localStorage.setItem("themePrefs", JSON.stringify(preference.serverValue));
+        window.localStorage.setItem("themePrefs", JSON.stringify(normalized));
       } catch {}
-    } else if (isTheme(legacyPreference.serverValue)) {
+      // Old-shape payload (extra lightVariant/darkVariant) — write the normalized
+      // { mode } shape back so subsequent reads no longer see a removed palette.
+      if (Object.keys(preference.serverValue).length > 1) preference.setValue(normalized);
+    } else if (isLegacyTheme(legacyPreference.serverValue)) {
       if (userTouchedRef.current) return;
       const migrated = migrateLegacyTheme(legacyPreference.serverValue);
       setCurrentPrefs(migrated);
@@ -80,20 +81,7 @@ export function useTheme(isLoggedIn: boolean) {
     [isLoggedIn, preference],
   );
 
-  const setMode = useCallback(
-    (mode: Mode) => persist({ ...prefsRef.current, mode }),
-    [persist],
-  );
+  const setMode = useCallback((mode: Mode) => persist({ mode }), [persist]);
 
-  const setLightVariant = useCallback(
-    (lightVariant: LightVariant) => persist({ ...prefsRef.current, lightVariant }),
-    [persist],
-  );
-
-  const setDarkVariant = useCallback(
-    (darkVariant: DarkVariant) => persist({ ...prefsRef.current, darkVariant }),
-    [persist],
-  );
-
-  return { prefs, setMode, setLightVariant, setDarkVariant };
+  return { prefs, setMode };
 }
