@@ -21,7 +21,8 @@ class UsageRateCommandTest(unittest.TestCase):
         }
         with (
             patch("yagent.commands.usage.rate.usage_service._crs_admin_creds", return_value=("user", "password")),
-            patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example"),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value="user-id"),
+            patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example") as origin,
             patch("yagent.commands.usage.rate.usage_service.crs_admin_login", return_value="token") as login,
             patch("yagent.commands.usage.rate.usage_service.crs_admin_get", return_value=dashboard) as get,
         ):
@@ -34,6 +35,7 @@ class UsageRateCommandTest(unittest.TestCase):
         self.assertEqual(envelope["window_minutes"], 5)
         self.assertFalse(envelope["is_historical"])
         self.assertIsNone(envelope["error"])
+        origin.assert_called_once_with("user-id")
         login.assert_called_once_with("https://relay.example", "user", "password")
         get.assert_called_once_with("https://relay.example", "/admin/dashboard", "token")
 
@@ -50,6 +52,7 @@ class UsageRateCommandTest(unittest.TestCase):
         }
         with (
             patch("yagent.commands.usage.rate.usage_service._crs_admin_creds", return_value=("user", "password")),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value="user-id"),
             patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example"),
             patch("yagent.commands.usage.rate.usage_service.crs_admin_login", return_value="token"),
             patch("yagent.commands.usage.rate.usage_service.crs_admin_get", return_value=dashboard),
@@ -77,6 +80,7 @@ class UsageRateCommandTest(unittest.TestCase):
     def test_malformed_dashboard_returns_parse_failed(self):
         with (
             patch("yagent.commands.usage.rate.usage_service._crs_admin_creds", return_value=("user", "password")),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value="user-id"),
             patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example"),
             patch("yagent.commands.usage.rate.usage_service.crs_admin_login", return_value="token"),
             patch("yagent.commands.usage.rate.usage_service.crs_admin_get", return_value={"data": {}}),
