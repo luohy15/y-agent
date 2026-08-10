@@ -13,6 +13,20 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+- **Per-file workspace tabs (3084, browser contract v8)**: FileViewer restores a
+  host-managed tab strip for ordinary files, including close and switch actions,
+  persisted workspace state, path search, and module detail mounting scoped to the
+  selected file rather than a shared workspace tab.
+
+### Removed
+
+## [0.5.24] - 2026-08-09
+
+### Added
 - **Chat full-stack module and shell surface (3042, contract v5)**: chat browsing now
   runs from the versioned `chat` module (`panel`, detail browser, and the live shell),
   while the host retains the runtime, cross-session dispatch primitive, and a compact
