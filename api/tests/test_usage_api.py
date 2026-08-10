@@ -82,5 +82,24 @@ class ListModelDailyTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["model"], "claude-opus-4-8")
 
 
+class UsageRateEndpointTest(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_the_rate_service_envelope_for_request_user(self):
+        envelope = {
+            "rpm": 2.5,
+            "tpm": 123456,
+            "window_minutes": 5,
+            "is_historical": False,
+            "observed_at": "2026-08-10T00:00:00Z",
+            "error": None,
+        }
+        with patch.object(usage_controller.rate_service, "get_usage_rate", return_value=envelope) as get_usage_rate:
+            result = await usage_controller.rate(_request(user_id=456))
+
+        get_usage_rate.assert_called_once_with(456)
+        self.assertEqual(result, envelope)
+        self.assertNotIn("id", result)
+        self.assertNotIn("user_id", result)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -543,6 +543,12 @@ expired-login card tells the user to run.
   unavailable row (so a dead-grant card still renders), with ties broken by
   observation recency and stable identity fields.
 
+### Realtime run rate
+
+- **CRS is the authoritative source.** The Live Usage view can show the relay dashboard's system-wide RPM and TPM over CRS's own five-minute Redis bucket window. y-agent cannot reconstruct this from `model_usage_daily`, which is daily aggregate data, nor from its overwritten per-chat context-token counters.
+- **VM-only admin access.** `y usage rate --json` authenticates to CRS's `GET /admin/dashboard` on the user's VM using the VM-local `[crs] admin_username/admin_password` config. `GET /api/usage/rate` SSH-execs that CLI command, applies a per-user ~60-second memo, and never wakes a stopped VM. Lambda receives only the CLI's closed envelope `{rpm, tpm, window_minutes, is_historical, observed_at, error}` plus an API-only `stale: true` marker when a transient VM/CLI failure retains the prior reading. It never receives or stores the admin credential.
+- **Availability semantics.** A historical CRS fallback (`is_historical: true`, including a zero-minute source window) is unavailable rather than a live rate. Malformed source fields are null with a closed error code, never fabricated as zero. A transient VM/CLI failure retains the last good reading with a stale error marker; a VM-asleep poll responds `vm_unreachable` without starting EC2. The UI's 60-second, visibility-gated poll shares the existing Usage limits cadence.
+
 ### Provider credential lifecycle
 
 - **The vendor's own credential file is the single source of truth.**
@@ -912,6 +918,7 @@ expired-login card tells the user to run.
 | 3001 | Grok card went `parse_failed` when xAI's `?format=credits` view stopped carrying `creditUsagePercent` (2026-08-03). Fixed by making the xAI reader plain-view-first: derive `used_percent` from `config.used.val` / `config.monthlyLimit.val` on `GET /v1/billing`, falling back to the legacy `creditUsagePercent` shape on `?format=credits` only if the plain view yields no window. No API/web/DB change — same `billing_period` window kind, same envelope contract, same `bot` artifact. Whether `creditUsagePercent` is gone for good or merely zero-omitted, and end-to-end confirmation via `y usage limits --json` on the VM, are unverified from this sandboxed impl session (no VM/SSH access); pending a run from an environment with VM access | - | `pages/plan-3001-grok-usage-parse.md` | this PRD | - | implemented, pending VM verification |
 | 3025 | Distinguished subscription-backed notional token cost from real spend for go-forward daily usage and surfaced window-level cache-hit percentage; historical backfill preserves known basis but remains conservatively `real` where relay stats cannot attribute models to keys | - | `pages/plan-3025-bridged-model-prompt-caching.md` | this PRD | `pages/review-3025-track-b-notional-cost-r3.md`, `pages/review-3025-usage-panel-cleanup.md` | shipped (`c3de992` backend, `bot` artifact v10, `91728b28336b…`) |
 | 3031 | Rolled forward from unsafe bot v10, hardened Usage against malformed top-level API payloads, surfaced refresh failures, and restored the prior Live cost presentation without notional annotations | - | - | - | `pages/review-3031-usage-payload-guards.md` | shipped (`bot` artifact v14, `6c44a56752b2…`; source `6fbf696`, `1b31f85`) |
+| 3111 | Live Usage run-rate strip backed by CRS's five-minute dashboard RPM/TPM through a VM-only admin CLI and SSH API; unavailable, historical, stale, and VM-asleep states stay explicit | - | `pages/plan-3111-usage-run-rate.md` | this PRD | `pages/review-3111-bot-usage-run-rate-ui.md`, `pages/review-3111-usage-run-rate-backend.md` | reviewed, pending VM verification and delivery |
 
 ## Out of Scope
 
@@ -932,8 +939,7 @@ expired-login card tells the user to run.
   legend filtering (only one model at a time, click again to clear). Both are
   deferred rather than rejected: the legend filter is a chart-reading aid, and
   neither has been asked for.
-- **Relay admin credentials in the deployed system** (backfill stays a manual
-  one-shot with invocation-time credentials).
+- **Relay admin credentials in Lambda, the database, or deployed worker.** The VM-only `[crs]` credential is the narrow exception for `y usage rate` and remains inaccessible to every deployed service. Backfill may still use invocation-time credentials.
 - **A CLI listing/reporting surface** for spend rows (only sync and backfill
   commands exist; no consumer has asked for a terminal view). The limit-window
   side does have one, `y usage limits`, because the backend is built on it.

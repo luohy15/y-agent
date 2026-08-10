@@ -3,6 +3,7 @@ import click
 from .backfill import backfill
 from .credentials_cmd import credentials
 from .limits import limits
+from .rate import rate
 from .sync import sync
 
 
@@ -17,3 +18,4 @@ usage_group.add_command(sync)
 usage_group.add_command(backfill)
 usage_group.add_command(credentials)
 usage_group.add_command(limits)
+usage_group.add_command(rate)
