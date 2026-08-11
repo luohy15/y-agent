@@ -19,6 +19,7 @@ from loguru import logger
 
 from storage.repository import model_usage_daily as repo
 from storage.service import bot_config as bot_config_service
+from storage.service import user_preference as user_pref_service
 from storage.util import get_utc_iso8601_timestamp, local_today
 
 # Cloudflare in front of CRS blocks the default urllib/httpx UA (error 1010).
@@ -227,8 +228,9 @@ def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
 #
 # The public per-key user-model-stats endpoint is today-only, so dated history
 # is only reachable through the admin model-stats route (global daily buckets by
-# date). These helpers are used ONLY by the manual `backfill_crs` one-shot —
-# admin creds never live in the deployed worker.
+# date). Shared by the manual `backfill_crs` one-shot and the direct run-rate
+# reader (`storage.service.usage_rate.read_rate`), which stores the admin
+# credentials in `user_preference` under `crs_admin`.
 
 def _crs_config_block() -> dict:
     """The optional [crs] table in ~/.y-agent/config.toml (nested tables are not
@@ -241,29 +243,36 @@ def _crs_config_block() -> dict:
         return tomllib.load(f).get("crs") or {}
 
 
-def _crs_admin_creds() -> tuple[str, str]:
-    """Admin username/password from env, falling back to the [crs] config block."""
-    user = os.getenv("CRS_ADMIN_USERNAME")
-    pw = os.getenv("CRS_ADMIN_PASSWORD")
-    if not (user and pw):
+def _crs_admin_creds(user_id: int | None = None) -> dict:
+    """Admin credentials from the DB, then env or the local [crs] config block."""
+    if user_id is not None:
+        pref = user_pref_service.get_preference(user_id, "crs_admin")
+        value = pref.value if pref and isinstance(pref.value, dict) else None
+        if isinstance(value, dict) and isinstance(value.get("username"), str) and isinstance(value.get("password"), str):
+            if value["username"] and value["password"]:
+                return {"username": value["username"], "password": value["password"]}
+
+    username = os.getenv("CRS_ADMIN_USERNAME")
+    password = os.getenv("CRS_ADMIN_PASSWORD")
+    if not (username and password):
         block = _crs_config_block()
-        user = user or block.get("admin_username")
-        pw = pw or block.get("admin_password")
-    if not (user and pw):
+        username = username or block.get("admin_username")
+        password = password or block.get("admin_password")
+    if not (username and password):
         raise RuntimeError(
             "CRS admin creds missing: set CRS_ADMIN_USERNAME/CRS_ADMIN_PASSWORD or a "
             "[crs] block (admin_username/admin_password) in ~/.y-agent/config.toml"
         )
-    return user, pw
+    return {"username": username, "password": password}
 
 
-def crs_admin_login(origin: str, username: str, password: str) -> str:
-    """POST {origin}/web/auth/login -> 24h admin session token (discard after use)."""
+def crs_admin_login(origin: str, username: str, password: str, timeout: float = 30) -> str:
+    """POST {origin}/web/auth/login -> an admin session token."""
     resp = httpx.post(
         f"{origin}/web/auth/login",
         json={"username": username, "password": password},
         headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
-        timeout=30,
+        timeout=timeout,
     )
     resp.raise_for_status()
     token = resp.json().get("token")
@@ -272,12 +281,12 @@ def crs_admin_login(origin: str, username: str, password: str) -> str:
     return token
 
 
-def crs_admin_get(origin: str, path: str, token: str) -> dict:
+def crs_admin_get(origin: str, path: str, token: str, timeout: float = 60) -> dict:
     """GET an admin endpoint with the session token (Bearer)."""
     resp = httpx.get(
         f"{origin}{path}",
         headers={"Authorization": f"Bearer {token}", "User-Agent": _BROWSER_UA},
-        timeout=60,
+        timeout=timeout,
     )
     resp.raise_for_status()
     return resp.json()
@@ -303,9 +312,9 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
     stats lack per-key attribution, backfill omits cost_basis: new rows default to
     `real`, while existing go-forward labels remain unchanged."""
     synced_at = synced_at or get_utc_iso8601_timestamp()
-    username, password = _crs_admin_creds()
+    creds = _crs_admin_creds(user_id)
     origin = _crs_origin(user_id)
-    token = crs_admin_login(origin, username, password)
+    token = crs_admin_login(origin, creds["username"], creds["password"])
 
     result: dict = {"source": "crs", "status": "ok", "origin": origin, "daily_rows": 0, "days": []}
 

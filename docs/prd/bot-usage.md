@@ -113,9 +113,16 @@ expired-login card tells the user to run.
 13. As a user, I want the backfill to stop at yesterday, so that the recurring
     sync keeps sole ownership of the in-progress day and there is no mid-day
     clobber.
-14. As a user, I want the backfill to authenticate with relay admin credentials
-    supplied at invocation time only, so that no admin secret is ever persisted
-    in the deployed system or the database.
+14. As a user, I want the backfill (and the direct run-rate path) to authenticate
+    with relay admin credentials resolved DB-first from the `user_preference`
+    key `crs_admin` (shape `{username, password, session_token,
+    token_expires_at}`), falling back to env / the local `[crs]` config block so
+    one-shot local runs still work without a prior `y usage crs-creds set`. The
+    previous "never persist admin secrets" rule was deliberately revised under
+    todo 3121 so the API Lambda can call the Relay admin API directly; the
+    blast-radius escalation (admin creds > per-key API keys already stored in
+    `bot_config.api_key`) is accepted, and no secret-encryption layer is added
+    here (see Out of Scope).
 15. As a user, I want re-running the backfill to be a no-op-equivalent upsert,
     so that a flaky run can simply be retried.
 
@@ -420,17 +427,21 @@ expired-login card tells the user to run.
 ### Backfill (one-shot)
 
 - **Admin dated window, manual only.** A CLI backfill command logs into the
-  relay's admin session with credentials supplied via environment or local
-  config at invocation time, fetches per-model per-day stats for each day in
-  `[today - N, yesterday]` (N defaulting to the relay's ~32-day daily-bucket
-  retention), writes rows at the same daily aggregate grain as go-forward sync,
-  and discards the session. The admin endpoint has no per-key breakdown, so the
-  backfill does not supply `cost_basis`: a newly inserted row defaults
-  conservatively to `real`, while an existing row keeps the label previously
-  established by go-forward sync. Backfill therefore refreshes counters and cost
-  without inferring historical per-model attribution from the current key
-  topology or downgrading known attribution. Credentials and tokens never reach
-  the database, logs, or the deployed Lambda.
+  relay's admin session with credentials resolved DB-first from the
+  `user_preference` key `crs_admin` (same row the direct run-rate path uses),
+  falling back to environment or the local `[crs]` config block so one-shot
+  local runs still work without a prior `y usage crs-creds set`. It fetches
+  per-model per-day stats for each day in `[today - N, yesterday]` (N
+  defaulting to the relay's ~32-day daily-bucket retention) and writes rows at
+  the same daily aggregate grain as go-forward sync. The admin endpoint has no
+  per-key breakdown, so the backfill does not supply `cost_basis`: a newly
+  inserted row defaults conservatively to `real`, while an existing row keeps
+  the label previously established by go-forward sync. Backfill therefore
+  refreshes counters and cost without inferring historical per-model
+  attribution from the current key topology or downgrading known attribution.
+  Session tokens minted during a backfill are not the durable store; the
+  durable admin credential row is the intentional todo-3121 exception (see
+  user story 14 and Realtime run rate), not a silent leak into logs.
 - **Yesterday cap.** The backfill never writes today, so the recurring sync
   owns the in-progress day and the two paths cannot fight.
 - **Lifetime anchor rejected.** A design for storing the relay's all-time
@@ -546,37 +557,43 @@ expired-login card tells the user to run.
 ### Realtime run rate
 
 - **CRS is the authoritative source.** The Live Usage view can show the relay dashboard's system-wide RPM and TPM over CRS's own five-minute Redis bucket window. y-agent cannot reconstruct this from `model_usage_daily`, which is daily aggregate data, nor from its overwritten per-chat context-token counters.
-- **VM-only admin access.** `y usage rate [--json] [--store]` authenticates to CRS's `GET /admin/dashboard` on the user's VM using the VM-local `[crs] admin_username/admin_password` config, emitting the closed envelope `{rpm, tpm, window_minutes, is_historical, observed_at, error}`. It never receives or stores the admin credential outside the VM, and `GET /api/usage/rate` never talks to CRS or the VM directly (see the read-path decision below).
-- **Availability semantics.** A historical CRS fallback (`is_historical: true`, including a zero-minute source window) is unavailable rather than a live rate. Malformed source fields are null with a closed error code, never fabricated as zero. The UI's 60-second, visibility-gated poll shares the existing Usage limits cadence.
-- **Read path: precomputed on the VM, served from the database (todo 3121).**
-  The original design (`GET /api/usage/rate` SSH-execing `y usage rate --json`
-  per request, with a per-container ~60s memo) measured **3.0–3.5s
-  server-side** cold, dominated by the VM-side CLI process (~2.5s, over half
-  of that just importing the `y` root command group's 26 unrelated command
-  groups) plus ~0.6–1.0s of Lambda-side `vm_config` lookup, EC2-asleep check,
-  and SSH connect. In-place optimization (lazy CLI imports, a cached CRS
-  session, one reused EC2 describe) was measured to reach only ~1.3–1.45s,
-  still over the 1s target. Instead, a per-minute VM crontab
-  (`scripts/usage-rate-store.sh` → `y usage rate --store`) runs the same CLI
-  read and upserts `{envelope, last_error, last_attempt_at}` into
-  `user_preference` (key `usage_rate_latest`) via
-  `storage.service.usage_rate`; the API reads that one row
-  (`storage.service.usage_rate.get_reading`), which costs about the same as
-  any other DB-backed endpoint (~0.2–0.3s). A failed VM-side attempt never
-  clobbers the last good envelope — only `last_error`/`last_attempt_at`
-  advance. The endpoint marks the reading `stale: true` when its
-  `observed_at` is older than 180s (3x the write period) or the most recent
-  write attempt failed, and returns `vm_unreachable` only when nothing has
-  ever been stored; a sleeping VM (which stops writing entirely) therefore
-  ages into `stale` rather than going instantly unavailable. The per-container
-  60s poll-cost memo was deleted along with the SSH read it protected — a DB
-  read is cheaper than the memo itself. Net effect: the number can be up to
-  ~2 minutes old (60s write period + 60s UI poll) instead of read on demand,
-  which is an accepted tradeoff given CRS's own figure is already a 5-minute
-  rolling average; an accidental side effect of the old design (an open Usage
-  panel's 60s SSH poll blocked `auto-hibernate.sh` from ever hibernating) is
-  also gone. See `pages/plan-3121-usage-rate-latency.md` for the measured
-  before/after and the rejected in-place-optimization option.
+- **Direct Relay proxy (todo 3121 revision).** `GET /api/usage/rate` and
+  `y usage rate [--json]` both call the shared
+  `storage.service.usage_rate.read_rate(user_id)`, which resolves admin
+  credentials (DB-first `user_preference` key `crs_admin`, then env / `[crs]`
+  config.toml), reuses a cached admin session token (23h conservative TTL,
+  re-login on expiry or on a dashboard 401 with one retry), and
+  `GET`s the Relay admin dashboard with ~5s timeouts. Parsing lives only in
+  `usage_rate.parse_dashboard`. There is no VM, no SSH, no cron, and no
+  stored rate snapshot on the request path. Credential bootstrap is
+  `y usage crs-creds set` (copies env/`[crs]` into the DB row without taking
+  the secret on argv) and `y usage crs-creds show` (username + `password: set`,
+  never the secret or token). Origin stays derived from `bot_config` via
+  `_crs_origin()` rather than being copied into the credential row.
+- **Closed error envelope.** The public envelope is still
+  `{rpm, tpm, window_minutes, is_historical, observed_at, error}`. Error codes
+  are `{not_configured, auth_failed, transport_error, parse_failed}`. The
+  precompute-era codes (`vm_unreachable`, `cli_failed`, `bad_payload`) and the
+  `stale` marker are gone: every response is either a fresh reading or an
+  explicit error. A historical CRS fallback (`is_historical: true`, including
+  a zero-minute source window) remains unavailable rather than a live rate.
+  Malformed source fields are null with a closed error code, never fabricated
+  as zero. The UI's 60-second, visibility-gated poll shares the existing
+  Usage limits cadence.
+- **Latency path (why direct proxy).** The original design (SSH-exec
+  `y usage rate --json` per request) measured **3.05 / 3.31 / 3.46s**
+  server-side. A first 3121 attempt precomputed on the VM into
+  `user_preference` (`usage_rate_latest`) and served a DB read; that shipped
+  and is being retired by this revision because Roy approved storing the
+  Relay admin credentials in the database so the API can call Relay
+  directly. Projected direct-proxy cost from co-region measurements:
+  auth + one preference read + one authed dashboard GET ≈ **0.3–0.4s** with
+  a cached token, ≈ 0.6s on the request that has to log in first. Losing
+  graceful degradation (no last-good `stale` badge on CRS failure) is the
+  accepted tradeoff for deleting the storage path. See
+  `pages/plan-3121-usage-rate-latency.md` for the measured segments and the
+  ship/tear-down order (cron off → merge → `y usage crs-creds set` → deploy
+  → measure → drop orphaned `usage_rate_latest` rows → bot module publish).
 
 ### Provider credential lifecycle
 
@@ -948,7 +965,7 @@ expired-login card tells the user to run.
 | 3025 | Distinguished subscription-backed notional token cost from real spend for go-forward daily usage and surfaced window-level cache-hit percentage; historical backfill preserves known basis but remains conservatively `real` where relay stats cannot attribute models to keys | - | `pages/plan-3025-bridged-model-prompt-caching.md` | this PRD | `pages/review-3025-track-b-notional-cost-r3.md`, `pages/review-3025-usage-panel-cleanup.md` | shipped (`c3de992` backend, `bot` artifact v10, `91728b28336b…`) |
 | 3031 | Rolled forward from unsafe bot v10, hardened Usage against malformed top-level API payloads, surfaced refresh failures, and restored the prior Live cost presentation without notional annotations | - | - | - | `pages/review-3031-usage-payload-guards.md` | shipped (`bot` artifact v14, `6c44a56752b2…`; source `6fbf696`, `1b31f85`) |
 | 3111 | Live Usage run-rate strip backed by CRS's five-minute dashboard RPM/TPM through a VM-only admin CLI and SSH API; unavailable, historical, stale, and VM-asleep states stay explicit | - | `pages/plan-3111-usage-run-rate.md` | this PRD | `pages/review-3111-bot-usage-run-rate-ui.md`, `pages/review-3111-usage-run-rate-backend.md` | shipped (`da3289a` backend, bot artifact v17, `ab050ed3a956…`; live VM response verified) |
-| 3121 | `GET /api/usage/rate` cut from ~3.0-3.5s to a DB read (~0.2-0.3s server-side): the per-request SSH read was replaced by a per-minute VM crontab (`scripts/usage-rate-store.sh` → `y usage rate --store`) writing into `user_preference`, with `storage.service.usage_rate.get_reading` applying a 180s staleness rule so a sleeping VM's stored reading ages into `stale: true` instead of going unavailable; `agent/usage_rate.py` (the SSH/memo path) was deleted. No API contract or UI change | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | - | implemented; deploy + VM crontab install pending (not done in this impl session, per dispatch) |
+| 3121 | `GET /api/usage/rate` under 1s via a direct Relay proxy: store CRS admin credentials in `user_preference` key `crs_admin`, share `storage.service.usage_rate.read_rate` between the API and `y usage rate`, cache the admin session token (~23h, re-login on 401), retire the VM precompute path (`--store`, `scripts/usage-rate-store.sh`, `usage_rate_latest`, `stale` / `vm_unreachable`). UI contract changes (`auth_failed`, drop VM wording) land in a separate bot-module publish step | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | `pages/review-3121-usage-rate-latency.md` | host path implemented (sub-tasks 1-5, 7); ship/tear-down + bot UI publish are sub-tasks 6/8 |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
 
 ## Out of Scope
@@ -970,7 +987,11 @@ expired-login card tells the user to run.
   legend filtering (only one model at a time, click again to clear). Both are
   deferred rather than rejected: the legend filter is a chart-reading aid, and
   neither has been asked for.
-- **Relay admin credentials in Lambda, the database, or deployed worker.** The VM-only `[crs]` credential is the narrow exception for `y usage rate` and remains inaccessible to every deployed service. Backfill may still use invocation-time credentials.
+- **Encrypting `crs_admin` / `bot_config.api_key` at rest.** The repo has no
+  secret-encryption layer; both already store plaintext secrets, and adding one
+  is a separate decision. The approved 3121 change deliberately stores the
+  Relay admin credentials in `user_preference` so the API can call Relay
+  directly; that is in scope above, encryption is not.
 - **A CLI listing/reporting surface** for spend rows (only sync and backfill
   commands exist; no consumer has asked for a terminal view). The limit-window
   side does have one, `y usage limits`, because the backend is built on it.

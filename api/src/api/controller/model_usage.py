@@ -82,11 +82,10 @@ async def sync(request: Request, source: Optional[str] = Query("crs")):
 
 @router.get("/rate")
 async def rate(request: Request):
-    """Current CRS 5-minute RPM/TPM, precomputed once a minute by a VM-side
-    cron (`y usage rate --store`) and read from `user_preference` here — no
-    per-request SSH or VM wake. See docs/prd/bot-usage.md "Realtime run
-    rate"."""
-    return rate_service.get_reading(request.state.user_id)
+    """Current CRS 5-minute RPM/TPM, read by calling the Relay admin
+    dashboard directly with the caller's stored admin credentials. See
+    docs/prd/bot-usage.md "Realtime run rate"."""
+    return rate_service.read_rate(request.state.user_id)
 
 
 @router.get("/limits")

@@ -221,7 +221,7 @@ class CostBasisTest(unittest.TestCase):
             return len(rows)
 
         with (
-            patch.object(usage_service, "_crs_admin_creds", return_value=("admin", "secret")),
+            patch.object(usage_service, "_crs_admin_creds", return_value={"username": "admin", "password": "secret"}),
             patch.object(usage_service, "_crs_origin", return_value="https://cc1.yovy.app"),
             patch.object(usage_service, "crs_admin_login", return_value="token"),
             patch.object(usage_service, "_local_today", return_value="2026-07-08"),

@@ -92,13 +92,18 @@ class UsageRateEndpointTest(unittest.IsolatedAsyncioTestCase):
             "observed_at": "2026-08-10T00:00:00Z",
             "error": None,
         }
-        with patch.object(usage_controller.rate_service, "get_reading", return_value=envelope) as get_reading:
+        with patch.object(usage_controller.rate_service, "read_rate", return_value=envelope) as read_rate:
             result = await usage_controller.rate(_request(user_id=456))
 
-        get_reading.assert_called_once_with(456)
+        read_rate.assert_called_once_with(456)
         self.assertEqual(result, envelope)
+        self.assertEqual(
+            set(result),
+            {"rpm", "tpm", "window_minutes", "is_historical", "observed_at", "error"},
+        )
         self.assertNotIn("id", result)
         self.assertNotIn("user_id", result)
+        self.assertNotIn("stale", result)
 
 
 if __name__ == "__main__":
