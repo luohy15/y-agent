@@ -9,9 +9,14 @@ from storage.entity.dto import Chat, Message, trailing_user_messages
 from storage.repository import chat as chat_repo
 from storage.repository.chat import ChatSummary
 
-from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, generate_id, generate_message_id, build_message_path
+from storage.repository.chat import ChatIdCollision
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, generate_message_id, generate_unique_id, build_message_path
 
 IS_WINDOWS = sys.platform == 'win32'
+
+# Generated chat_id creation retries the full allocate+insert on ChatIdCollision
+# (plan 3131 D3). Caller-supplied ids never enter this loop.
+CHAT_ID_CREATE_ATTEMPTS = 5
 
 CONTEXT_HANDOFF_RATIO = 0.50
 # The reminder fires once used tokens exceed the smaller of this ratio's share
@@ -111,16 +116,71 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
     return await chat_repo.get_chat(user_id, chat_id)
 
 
-async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None) -> Chat:
-    timestamp = get_utc_iso8601_timestamp()
-    chat = Chat(
-        id=chat_id if chat_id else generate_id(),
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=[msg for msg in messages if msg.role != 'system'],
-        external_id=external_id,
+def new_chat_id(user_id: int) -> str:
+    """Allocate a collision-free chat_id for `user_id` (pre-check + retry)."""
+    return generate_unique_id(
+        lambda candidate: chat_repo.chat_id_exists(user_id, candidate),
+        attempts=CHAT_ID_CREATE_ATTEMPTS,
     )
-    return await chat_repo.add_chat(user_id, chat)
+
+
+def _insert_generated_chat_sync(user_id: int, build_chat) -> Chat:
+    """Allocate a chat_id, build the Chat DTO, and insert; retry on race.
+
+    `build_chat(chat_id) -> Chat` must produce a complete create-time DTO for
+    that id. Caller-supplied ids are not accepted here: every attempt mints a
+    fresh id so a concurrent insert is recoverable rather than user-visible.
+    """
+    last_exc: Optional[ChatIdCollision] = None
+    for _ in range(CHAT_ID_CREATE_ATTEMPTS):
+        chat_id = new_chat_id(user_id)
+        chat = build_chat(chat_id)
+        try:
+            return chat_repo._insert_chat_sync(user_id, chat)
+        except ChatIdCollision as exc:
+            last_exc = exc
+            continue
+    raise RuntimeError(
+        f"Failed to create a unique chat after {CHAT_ID_CREATE_ATTEMPTS} attempts"
+    ) from last_exc
+
+
+async def insert_generated_chat(user_id: int, build_chat) -> Chat:
+    """Async wrapper around allocate-and-insert with collision retry."""
+    return _insert_generated_chat_sync(user_id, build_chat)
+
+
+async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None) -> Chat:
+    """Create a chat row.
+
+    - Caller-supplied `chat_id`: single insert attempt; ChatIdCollision propagates
+      (HTTP layer maps it to 409).
+    - Generated id (`chat_id is None`): allocate+insert retries up to
+      CHAT_ID_CREATE_ATTEMPTS so a DB unique-constraint race is recoverable.
+    """
+    filtered = [msg for msg in messages if msg.role != 'system']
+    timestamp = get_utc_iso8601_timestamp()
+
+    if chat_id is not None:
+        chat = Chat(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=filtered,
+            external_id=external_id,
+        )
+        return await chat_repo.add_chat(user_id, chat)
+
+    def build(chat_id: str) -> Chat:
+        return Chat(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=filtered,
+            external_id=external_id,
+        )
+
+    return await insert_generated_chat(user_id, build)
 
 
 async def restart_manager_session(user_id: int) -> Chat:
@@ -207,27 +267,26 @@ async def create_share(user_id: int, chat_id: str, message_id: str = None, passw
                 chat_repo.set_share_password_hash(default_user_id, e.id, password_hash)
             return e.id
 
-    # Create shared copy
-    share_id = generate_id()
+    # Create shared copy under the default user (share_id competes only in that namespace)
     timestamp = get_utc_iso8601_timestamp()
-
     messages = chat.messages
     if message_id:
         messages = build_message_path(messages, message_id)
 
-    shared_chat = Chat(
-        id=share_id,
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=messages,
-        origin_chat_id=chat_id,
-        origin_message_id=message_id,
-    )
+    def build(share_id: str) -> Chat:
+        return Chat(
+            id=share_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=messages,
+            origin_chat_id=chat_id,
+            origin_message_id=message_id,
+        )
 
-    await chat_repo.save_chat(default_user_id, shared_chat)
+    shared_chat = await insert_generated_chat(default_user_id, build)
     if password_hash is not None:
-        chat_repo.set_share_password_hash(default_user_id, share_id, password_hash)
-    return share_id
+        chat_repo.set_share_password_hash(default_user_id, shared_chat.id, password_hash)
+    return shared_chat.id
 
 
 def _get_sqs_client():

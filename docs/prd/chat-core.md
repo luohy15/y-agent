@@ -86,7 +86,14 @@ mode (`-i`) serves a human at a terminal.
    The input surfaces this vocabulary while focused (a one-line key hint, and
    prefix autocomplete on the token under the caret). Choosing a suggestion
    (Tab/Enter or a click on the dropdown option) replaces the active token
-   with that key.
+   with that key. The raw query string is persisted in localStorage with a
+   distinct key per panel location (`left` activity bar vs `right` drawer), so
+   filter state survives refresh and view switches without the two mounts
+   overwriting each other (todo 3072; same localStorage restore pattern as the
+   bot table sort and todo panel query). On the right drawer the host's trace
+   filter still takes precedence for the `todo:` term: if the host holds a
+   restored `chatListTraceId`, remount re-applies that value over a
+   panel-local override (3046 R7/R8).
 6. As a web user, I want clicking a row badge to write that badge's value as
    the matching `key:value` term in the query input (replacing any earlier
    term for that key, and auto-quoting the value when it contains whitespace),
@@ -344,6 +351,22 @@ mode (`-i`) serves a human at a terminal.
   a persisted one. Root (manager) chats deliberately never persist a trace id
   (a root participates in many traces; per-message metadata carries trace
   context instead).
+- **Chat identity allocation is collision-free and insert-only** (todo 3131):
+  a `chat_id` is a 6-hex public id. Generated creation goes through one shared
+  allocate-and-insert boundary (`chat_service.insert_generated_chat` /
+  `_insert_generated_chat_sync`, used by `create_chat` when no id is supplied
+  and by every other create site) that retries the full mint+insert on
+  `ChatIdCollision` up to five attempts, so a DB unique-constraint race is
+  recoverable rather than user-visible. Creation never upserts: `insert_chat`
+  / `add_chat` insert a new row and raise `ChatIdCollision` on the pre-check
+  or on the `UNIQUE (user_id, chat_id)` constraint, so a new dispatch can never
+  silently overwrite an existing conversation or its running VM session.
+  Caller-supplied ids are single-attempt only and surface as HTTP 409 on
+  `POST /api/chat`. Re-dispatching an existing chat under a different
+  trace/topic/skill is legitimate; the worker logs a loud mismatch warning
+  with both values and keeps the persisted identity (write-once). Historical
+  overwrite damage is unrecoverable for lost messages; identity-column repair
+  is a maintainer-only SQL step, never automatic.
 - **Lambda time limit**: the worker releases its monitoring lease before the
   deadline and re-enqueues itself; the next invocation resumes tailing from
   the stored offset. This is core lifecycle; steer-specific handoff behavior
@@ -458,4 +481,7 @@ mode (`-i`) serves a human at a terminal.
 | 2989 | Established that the displayed context window comes from Claude Code's own `result.modelUsage[*].contextWindow`, which `monitor.py` copies into `Chat.context_window` verbatim. The initial delivery configured `sol` as `gpt-5.6-sol[1m]` and kept claude-relay-service commit `4527d56a` to strip the client-only suffix before upstream dispatch. Todo 2993 supersedes the suffix as the active y-agent mechanism but does not revert that relay-side defensive normalization or alter historical 200K telemetry | - | `pages/plan-2989.md` | - | `pages/review-2989-sol-1m-relay-normalization.md` | shipped; superseded by 2993 for active configuration |
 | 2993 | Set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000` for every Claude Code subprocess so unknown custom model IDs such as plain `gpt-5.6-sol` report and use a 1M window without a model-string suffix. Known Claude models retain their registered windows. Accepted tradeoff: every unrecognized custom model is declared as 1M even if its real upstream window is smaller; per-bot context-window configuration is the fallback if that becomes a problem. The existing handoff reminder remains capped at 200K used tokens. Deployed from commit `a6ee296`; after the deployment passed, the `sol` bot was reverted to plain `gpt-5.6-sol` | - | - | - | `pages/review-2993-global-max-context-tokens-env.md` | shipped |
 | 3064 | Replace the chat panel's stacked filters with one compact `key:value` query input; keep manager always pinned, pin the newest dev chat below it for right-drawer todo filters, and scope routine-filter intents to the left panel | - | `pages/plan-3064-chat-query-input.md` | - | `pages/review-3064-chat-query-input.md` | reviewed; publish pending |
-| 3070 | Right-drawer default chat selection follows rendered eligible order under a `todo:` filter: prefer the pinned newest dev chat when present, otherwise the first regular list result; manager remains a navigation pin and does not win the default | - | - | - | - | implemented; publish pending |
+| 3070 | Right-drawer default chat selection follows rendered eligible order under a `todo:` filter: prefer the pinned newest dev chat when present, otherwise the first regular list result; manager remains a navigation pin and does not win the default | - | - | - | `pages/review-3070-right-drawer-default-selection.md` | shipped |
+| 3072 | Persist the chat panel query input in localStorage with distinct keys per panel location (`chatListQueryLeft` / `chatListQueryRight`), preserving the compact query input from 3064/3070 | - | - | - | `pages/review-3072-chat-query-persistence.md` | reviewed; shared publish coordinated by 3070 |
+| 3103 | Linkify tightly validated absolute `/...` and home-relative `~/...` file paths only inside inline-code spans; resolve `~/...` from the selected VM's runtime `HOME`, preserve relative-path opening, and avoid free-prose or URL false positives | - | - | - | `pages/review-3103-chat-path-links.md` | shipped in chat v17 |
+| 3131 | Make chat_id allocation collision-safe: shared `generate_unique_id` allocator, insert-only chat creation (`ChatIdCollision` on pre-check or unique constraint), 409 on caller-supplied id conflicts, loud worker mismatch warnings when dispatch identity differs from the persisted row, and a damage-scan script for historical overwrites. Identity-repair SQL for known victims is maintainer-only and not auto-run | - | `pages/plan-3131-chat-id-collision.md` | - | `pages/review-3131-chat-id-collision.md` | reviewed; local commit `a4c87ba`, not deployed |

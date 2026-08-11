@@ -3,8 +3,8 @@ from pydantic import BaseModel
 
 from storage.entity.dto import Chat, Message
 from storage.service import bot_config as bot_service
-from storage.repository import chat as chat_repo
-from storage.util import generate_id, generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
+from storage.service import chat as chat_service
+from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
 router = APIRouter(prefix="/inline")
 
@@ -50,20 +50,23 @@ def _message(role: str, content: str, *, provider: str = None, model: str = None
 
 async def _persist_inline_chat(user_id: int, bot_config, user_content: str, result: str) -> None:
     timestamp = get_utc_iso8601_timestamp()
-    chat = Chat(
-        id=generate_id(),
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=[
-            _message("user", user_content),
-            _message("assistant", result, provider="openai", model=bot_config.model),
-        ],
-        backend="openai",
-        bot_name=bot_config.name,
-        topic=INLINE_TOPIC,
-        skill=INLINE_TOPIC,
-    )
-    await chat_repo.save_chat(user_id, chat)
+
+    def build(chat_id: str) -> Chat:
+        return Chat(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=[
+                _message("user", user_content),
+                _message("assistant", result, provider="openai", model=bot_config.model),
+            ],
+            backend="openai",
+            bot_name=bot_config.name,
+            topic=INLINE_TOPIC,
+            skill=INLINE_TOPIC,
+        )
+
+    await chat_service.insert_generated_chat(user_id, build)
 
 
 @router.post("", response_model=InlineResponse)

@@ -14,6 +14,7 @@ from storage.service.tg_topic import auto_discover_topic
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
+# generate_id remains for non-chat identifiers (e.g. safe_file_id fallback).
 from api.util.images import resolve_send_image_path, save_image_bytes, save_send_image_upload
 
 router = APIRouter(prefix="/telegram")
@@ -292,19 +293,23 @@ async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=No
         await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
         return {"ok": True}
 
-    # Create a new empty chat with topic set
-    chat_id = generate_id()
+    # Create a new empty chat with topic set (allocate+insert with race retry)
+    from storage.service import chat as chat_service
     from storage.dto.chat import Chat as ChatDTO
-    timestamp = get_utc_iso8601_timestamp()
-    chat = ChatDTO(
-        id=chat_id,
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=[],
-        topic=topic,
-    )
     from storage.repository import chat as chat_repo
-    await chat_repo.save_chat(user.id, chat)
+    timestamp = get_utc_iso8601_timestamp()
+
+    def build(chat_id: str):
+        return ChatDTO(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=[],
+            topic=topic,
+        )
+
+    chat = await chat_service.insert_generated_chat(user.id, build)
+    chat_id = chat.id
 
     # Singleton root topic: /clear always starts a fresh root chat (no trace),
     # so release any prior holder of the same topic.
@@ -454,12 +459,15 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         await chat_repo.save_chat_by_id(chat)
         chat_id = chat.id
     else:
-        # Create new chat
-        chat_id = generate_id()
+        # Create new chat (allocate+insert with race retry)
+        from storage.service import chat as chat_service
+        from storage.dto.chat import Chat as ChatDTO
+        from storage.repository import chat as chat_repo
+        timestamp = get_utc_iso8601_timestamp()
         msg_dict = {
             "role": "user",
             "content": text,
-            "timestamp": get_utc_iso8601_timestamp(),
+            "timestamp": timestamp,
             "unix_timestamp": get_unix_timestamp(),
             "id": generate_message_id(),
             "source": "telegram",
@@ -467,18 +475,19 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         if images:
             msg_dict["images"] = images
         user_msg = Message.from_dict(msg_dict)
-        from storage.dto.chat import Chat as ChatDTO
-        timestamp = get_utc_iso8601_timestamp()
-        chat = ChatDTO(
-            id=chat_id,
-            create_time=timestamp,
-            update_time=timestamp,
-            messages=[user_msg],
-            topic=topic,
-            running=True,
-        )
-        from storage.repository import chat as chat_repo
-        await chat_repo.save_chat(user.id, chat)
+
+        def build(chat_id: str):
+            return ChatDTO(
+                id=chat_id,
+                create_time=timestamp,
+                update_time=timestamp,
+                messages=[user_msg],
+                topic=topic,
+                running=True,
+            )
+
+        chat = await chat_service.insert_generated_chat(user.id, build)
+        chat_id = chat.id
 
         # Singleton root topic: a Telegram DM creates a fresh root chat (no trace),
         # so release any prior holder of the same topic. Normally a no-op because

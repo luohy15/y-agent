@@ -7,10 +7,12 @@ from sqlalchemy import inspect as sa_inspect, text
 
 import json
 
-from storage.util import generate_id
+from sqlalchemy.exc import IntegrityError
+
 from storage.entity.dto import Chat
 from storage.repository.chat import find_external_id_map, _extract_title
 from storage.database.base import get_db
+from storage.service.chat import CHAT_ID_CREATE_ATTEMPTS, new_chat_id
 from storage.service.user import get_cli_user_id
 from agent.claude_code import convert_history_session, _iso_to_unix_ms
 from yagent.config import config  # noqa: F401 - triggers DB init
@@ -158,23 +160,50 @@ def import_claude(source: str, project: str | None, verbose: bool):
             first_ts = messages[0].timestamp
             last_ts = messages[-1].timestamp
 
-            chat = Chat(
-                id=existing_chat_id or generate_id(),
-                create_time=first_ts,
-                update_time=last_ts,
-                messages=messages,
-                external_id=external_id,
-                backend="claude_code",
-                work_dir=work_dir,
-            )
-
-            _upsert_import_chat(user_id, chat, existing_chat_id, file_mtime_ms)
-
             if existing_chat_id:
+                chat = Chat(
+                    id=existing_chat_id,
+                    create_time=first_ts,
+                    update_time=last_ts,
+                    messages=messages,
+                    external_id=external_id,
+                    backend="claude_code",
+                    work_dir=work_dir,
+                )
+                _upsert_import_chat(user_id, chat, existing_chat_id, file_mtime_ms)
                 updated_count += 1
                 if verbose:
                     click.echo(f"  updated: {proj_name}/{fname} -> {existing_chat_id} ({len(messages)} msgs)")
             else:
+                # New import: allocate+insert with race retry so a concurrent
+                # chat_id collision cannot leave a half-imported session.
+                last_exc = None
+                chat = None
+                for _ in range(CHAT_ID_CREATE_ATTEMPTS):
+                    chat = Chat(
+                        id=new_chat_id(user_id),
+                        create_time=first_ts,
+                        update_time=last_ts,
+                        messages=messages,
+                        external_id=external_id,
+                        backend="claude_code",
+                        work_dir=work_dir,
+                    )
+                    try:
+                        _upsert_import_chat(user_id, chat, None, file_mtime_ms)
+                        last_exc = None
+                        break
+                    except Exception as e:
+                        # Unique violations surface as IntegrityError through get_db;
+                        # treat any integrity failure as a collision and retry.
+                        if isinstance(e, IntegrityError) or isinstance(getattr(e, "__cause__", None), IntegrityError):
+                            last_exc = e
+                            continue
+                        raise
+                if last_exc is not None:
+                    raise RuntimeError(
+                        f"Failed to import session with a unique chat_id after {CHAT_ID_CREATE_ATTEMPTS} attempts"
+                    ) from last_exc
                 existing_map[external_id] = (chat.id, None)
                 new_count += 1
                 if verbose:

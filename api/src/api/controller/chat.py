@@ -10,8 +10,9 @@ from sse_starlette.sse import EventSourceResponse
 from storage.service import bot_config as bot_service
 from storage.service import chat as chat_service
 from storage.service.chat import send_chat_message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from storage.entity.dto import Message
+from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from storage.entity.dto import Chat, Message
+from storage.repository.chat import ChatIdCollision
 from api.util.images import resolve_message_image_paths
 
 router = APIRouter(prefix="/chat")
@@ -176,8 +177,9 @@ async def get_bot_options(request: Request):
 
 @router.post("")
 async def post_create_chat(req: CreateChatRequest, request: Request):
-    chat_id = req.chat_id or generate_id()
     user_id = _get_user_id(request)
+    # Caller-supplied ids: single attempt, ChatIdCollision → 409.
+    # Generated ids: create_chat retries allocate+insert on race (no pre-mint).
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=req.work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
@@ -185,19 +187,22 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     # Build user message
     user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort))
 
-    chat = await chat_service.create_chat(
-        user_id,
-        messages=[user_msg],
-        chat_id=chat_id,
-    )
+    try:
+        chat = await chat_service.create_chat(
+            user_id,
+            messages=[user_msg],
+            chat_id=req.chat_id,
+        )
+    except ChatIdCollision as exc:
+        raise HTTPException(status_code=409, detail=f"chat_id '{exc.chat_id}' already exists") from exc
 
     # Set running immediately so frontend shows running state without waiting for worker
     chat.running = True
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat(user_id, chat)
 
-    send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
-    return CreateChatResponse(chat_id=chat_id)
+    send_chat_message(chat.id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, vm_name=req.vm_name, work_dir=req.work_dir, post_hooks=req.post_hooks)
+    return CreateChatResponse(chat_id=chat.id)
 
 
 @router.post("/message")
@@ -504,8 +509,11 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
 
     skill = _resolve_skill(req)
 
-    # Resolve target chat: explicit chat_id > topic+trace lookup > new
+    # Resolve target chat: explicit chat_id > topic+trace lookup > new.
+    # Do not pre-mint a generated id: create_chat retries allocate+insert, and
+    # the final id must land in the to_chat: prefix (built after create).
     existing_chat = None
+    chat_id = None
     if req.chat_id:
         existing_chat = await chat_service.get_chat_by_id(req.chat_id)
         if not existing_chat:
@@ -522,10 +530,6 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
         if found:
             chat_id = found.id
             existing_chat = await chat_service.get_chat_by_id(chat_id)
-        else:
-            chat_id = generate_id()
-    else:
-        chat_id = generate_id()
 
     # Root topics are long-lived conversations, not function calls — they have no
     # parent to "return" to, so notify callbacks targeting them are rejected.
@@ -549,30 +553,34 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
             detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.",
         )
 
-    # Build message content with trace metadata prefix (only include parts we have)
-    parts = []
-    if req.trace_id:
-        parts.append(f'trace:{req.trace_id}')
-    if req.from_topic:
-        parts.append(f'from:{req.from_topic}')
-    if req.topic:
-        parts.append(f'to:{req.topic}')
-    if req.from_chat_id:
-        parts.append(f'from_chat:{req.from_chat_id}')
-    parts.append(f'to_chat:{chat_id}')
-    msg_content = f"[{' '.join(parts)}]\n{req.message}"
-    if existing_chat:
-        msg_content = chat_service.maybe_append_handoff_reminder(existing_chat, msg_content)
+    # Build message content with trace metadata prefix (only include parts we have).
+    # For a brand-new chat the to_chat: id is filled in after create (see below).
+    def _notify_content(to_chat_id: str) -> str:
+        parts = []
+        if req.trace_id:
+            parts.append(f'trace:{req.trace_id}')
+        if req.from_topic:
+            parts.append(f'from:{req.from_topic}')
+        if req.topic:
+            parts.append(f'to:{req.topic}')
+        if req.from_chat_id:
+            parts.append(f'from_chat:{req.from_chat_id}')
+        parts.append(f'to_chat:{to_chat_id}')
+        return f"[{' '.join(parts)}]\n{req.message}"
+
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-notify-upload", vm_config=vm_config)
-    user_msg = Message.from_dict(_message_dict("user", msg_content, images, req.reasoning_effort))
 
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir
     from storage.repository import chat as chat_repo
     if existing_chat:
+        msg_content = chat_service.maybe_append_handoff_reminder(
+            existing_chat, _notify_content(chat_id),
+        )
+        user_msg = Message.from_dict(_message_dict("user", msg_content, images, req.reasoning_effort))
         if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
                 raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat '{chat_id}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
@@ -588,15 +596,27 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
             updated_chat.running = True
         await chat_repo.save_chat_by_id(updated_chat)
     else:
-        chat = await chat_service.create_chat(user_id, messages=[user_msg], chat_id=chat_id)
-        # Stamp identity fields on creation.
-        if req.topic:
-            chat.topic = req.topic
-        if skill:
-            chat.skill = skill
-        # Set running immediately so frontend shows running state without waiting for worker
-        chat.running = True
-        await chat_repo.save_chat(user_id, chat)
+        # create_chat mints + inserts with race retry; rebuild the message so
+        # to_chat: matches the final id.
+        def build(new_id: str):
+            user_msg = Message.from_dict(
+                _message_dict("user", _notify_content(new_id), images, req.reasoning_effort)
+            )
+            chat = Chat(
+                id=new_id,
+                create_time=get_utc_iso8601_timestamp(),
+                update_time=get_utc_iso8601_timestamp(),
+                messages=[user_msg],
+                topic=req.topic,
+                skill=skill,
+                running=True,
+            )
+            return chat
+
+        # Use insert_generated_chat so topic/skill/running land on the first write
+        # and the allocate+insert race is retried (plan 3131 D3).
+        chat = await chat_service.insert_generated_chat(user_id, build)
+        chat_id = chat.id
         already_running = False
 
         # Singleton root topic: a new chat claiming a topic without a trace_id is a

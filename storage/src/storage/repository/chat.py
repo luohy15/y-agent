@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 from sqlalchemy import or_, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer
 
 from storage.entity.chat import ChatEntity
@@ -13,6 +14,15 @@ from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity
 from storage.entity.dto import Chat
 from storage.database.base import get_db
 from storage.util import apply_time_filter
+
+
+class ChatIdCollision(Exception):
+    """Raised when creating a chat would overwrite an existing (user_id, chat_id)."""
+
+    def __init__(self, user_id: int, chat_id: str):
+        self.user_id = user_id
+        self.chat_id = chat_id
+        super().__init__(f"chat_id {chat_id!r} already exists for user_id={user_id}")
 
 
 @dataclass
@@ -179,8 +189,75 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
             return None
 
 
+def chat_id_exists(user_id: int, chat_id: str) -> bool:
+    """Return True if (user_id, chat_id) already has a row."""
+    with get_db() as session:
+        return (
+            session.query(ChatEntity.id)
+            .filter_by(user_id=user_id, chat_id=chat_id)
+            .first()
+            is not None
+        )
+
+
+def _chat_status(chat: Chat) -> str:
+    if chat.running:
+        return "running"
+    if chat.interrupted:
+        return "interrupted"
+    return "idle"
+
+
+def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
+    """Insert a new chat row. Never updates an existing row.
+
+    Raises ChatIdCollision on a pre-check hit or on the DB unique constraint
+    (IntegrityError), so a collision cannot silently overwrite another chat.
+    """
+    from storage.util import get_utc_iso8601_timestamp
+
+    if not chat.id:
+        raise ValueError("chat.id is required for insert")
+    if chat_id_exists(user_id, chat.id):
+        raise ChatIdCollision(user_id, chat.id)
+
+    chat.update_time = get_utc_iso8601_timestamp()
+    content = json.dumps(chat.to_dict())
+    title = _extract_title(chat)
+    search_text = _extract_search_text(chat)
+    status = _chat_status(chat)
+    entity = ChatEntity(
+        user_id=user_id,
+        chat_id=chat.id,
+        title=title,
+        external_id=chat.external_id,
+        backend=chat.backend,
+        bot_name=chat.bot_name,
+        tier=chat.tier,
+        origin_chat_id=chat.origin_chat_id,
+        topic=chat.topic,
+        skill=chat.skill,
+        trace_id=chat.trace_id,
+        routine_id=chat.routine_id,
+        json_content=content,
+        search_text=search_text,
+        status=status,
+    )
+    try:
+        with get_db() as session:
+            session.add(entity)
+    except IntegrityError as exc:
+        raise ChatIdCollision(user_id, chat.id) from exc
+    return chat
+
+
+async def insert_chat(user_id: int, chat: Chat) -> Chat:
+    return _insert_chat_sync(user_id, chat)
+
+
 async def add_chat(user_id: int, chat: Chat) -> Chat:
-    return await save_chat(user_id, chat)
+    """Create a chat. Insert-only — collisions raise ChatIdCollision."""
+    return await insert_chat(user_id, chat)
 
 
 async def update_chat(user_id: int, chat: Chat) -> Chat:

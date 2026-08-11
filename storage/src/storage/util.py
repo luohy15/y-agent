@@ -122,6 +122,23 @@ def generate_id() -> str:
     import uuid
     return uuid.uuid4().hex[:6]
 
+
+def generate_unique_id(exists, attempts: int = 5) -> str:
+    """Mint a 6-hex id that does not collide according to `exists(id)`.
+
+    Retries with a fresh `generate_id()` up to `attempts` times. The authoritative
+    guard for chat rows is still the DB unique constraint (see insert_chat); this
+    pre-check only avoids the common case before the write.
+    """
+    if attempts < 1:
+        raise ValueError(f"attempts must be >= 1, got {attempts}")
+    for _ in range(attempts):
+        candidate = generate_id()
+        if not exists(candidate):
+            return candidate
+    raise RuntimeError(f"Failed to generate a unique id after {attempts} attempts")
+
+
 _BASE62_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
 def generate_long_id(length: int = 22) -> str:

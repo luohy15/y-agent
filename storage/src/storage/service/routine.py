@@ -312,10 +312,8 @@ def fire_routine(user_id: int, routine_id: str) -> str:
         return _fire_vm_command_routine(user_id, routine)
 
     from storage.dto.chat import Chat, Message
-    from storage.repository.chat import _save_chat_sync
     from storage.service import chat as chat_service
 
-    chat_id = generate_id()
     msg_content = f"[routine:{routine.name}]\n{routine.message}"
     timestamp = get_utc_iso8601_timestamp()
     user_msg = Message(
@@ -326,19 +324,22 @@ def fire_routine(user_id: int, routine_id: str) -> str:
         id=generate_message_id(),
     )
 
-    chat = Chat(
-        id=chat_id,
-        create_time=timestamp,
-        update_time=timestamp,
-        messages=[user_msg],
-        topic=routine.target_topic,
-        skill=routine.target_skill,
-        backend=routine.backend,
-        work_dir=routine.work_dir,
-        routine_id=routine.routine_id,
-        running=True,
-    )
-    _save_chat_sync(user_id, chat)
+    def build(chat_id: str) -> Chat:
+        return Chat(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=[user_msg],
+            topic=routine.target_topic,
+            skill=routine.target_skill,
+            backend=routine.backend,
+            work_dir=routine.work_dir,
+            routine_id=routine.routine_id,
+            running=True,
+        )
+
+    chat = chat_service._insert_generated_chat_sync(user_id, build)
+    chat_id = chat.id
 
     try:
         chat_service.send_chat_message(

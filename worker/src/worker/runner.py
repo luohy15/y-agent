@@ -490,6 +490,51 @@ def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, 
     return requested
 
 
+def _stamp_dispatch_identity(chat, *, chat_id: str, trace_id: str = None, topic: str = None, skill: str = None) -> str | None:
+    """Stamp first-time identity fields from dispatch and warn on mismatches.
+
+    Dispatch may re-target an existing chat under a different trace/topic/skill
+    (e.g. `y chat --chat-id X --trace-id Y`). Identity fields stay write-once at
+    the repository layer, so a mismatch is legitimate — log both values loudly
+    and keep the persisted ones (todo 3131 D5). Returns the topic to use for the
+    rest of the run (dispatch topic, or the chat's persisted topic as fallback).
+    """
+    if (
+        trace_id
+        and chat.topic != 'manager'
+        and chat.trace_id
+        and chat.trace_id != trace_id
+    ):
+        logger.warning(
+            "run_chat identity mismatch chat_id={} field=trace_id persisted={} dispatched={}",
+            chat_id, chat.trace_id, trace_id,
+        )
+    if topic and chat.topic and chat.topic != topic:
+        logger.warning(
+            "run_chat identity mismatch chat_id={} field=topic persisted={} dispatched={}",
+            chat_id, chat.topic, topic,
+        )
+    if skill and chat.skill and chat.skill != skill:
+        logger.warning(
+            "run_chat identity mismatch chat_id={} field=skill persisted={} dispatched={}",
+            chat_id, chat.skill, skill,
+        )
+    if trace_id and chat.topic != 'manager' and not chat.trace_id:
+        chat.trace_id = trace_id
+    if topic and not chat.topic:
+        chat.topic = topic
+    elif not topic and chat.topic:
+        topic = chat.topic
+        logger.info("Using topic from chat: {}", topic)
+    if skill and not chat.skill:
+        chat.skill = skill
+    # Default skill = topic for non-root topics. Covers chats created outside
+    # /api/chat/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
+    if not chat.skill and chat.topic and chat.topic != "manager":
+        chat.skill = chat.topic
+    return topic
+
+
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
     """Execute a chat round. Perplexity runs inline; claude_code detaches to tmux.
 
@@ -517,19 +562,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # per-message metadata instead. A proper many-to-many chat↔trace table is
     # the right long-term shape but is deferred (see plan-1876 §4).
     from storage.repository import chat as chat_repo
-    if trace_id and chat.topic != 'manager' and not chat.trace_id:
-        chat.trace_id = trace_id
-    if topic and not chat.topic:
-        chat.topic = topic
-    elif not topic and chat.topic:
-        topic = chat.topic
-        logger.info("Using topic from chat: {}", topic)
-    if skill and not chat.skill:
-        chat.skill = skill
-    # Default skill = topic for non-root topics. Covers chats created outside
-    # /api/chat/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
-    if not chat.skill and chat.topic and chat.topic != "manager":
-        chat.skill = chat.topic
+    topic = _stamp_dispatch_identity(chat, chat_id=chat_id, trace_id=trace_id, topic=topic, skill=skill)
 
     # Reset interrupted flag and mark as running
     chat.interrupted = False
