@@ -97,7 +97,7 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
       <div
-        className="w-full max-w-lg bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+        className="w-full max-w-lg bg-sol-base03 border border-sol-base01 rounded shadow-float overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-3 py-2 border-b border-sol-base02">

@@ -151,7 +151,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <div
                   key={c.chat_id}
                   onClick={() => onSelectChat(c.chat_id)}
-                  className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
+                  className={`px-2 py-1.5 rounded cursor-pointer hover:bg-sol-base02 transition-colors ${
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
@@ -212,11 +212,11 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               placeholder="Search tasks..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field flex-1 px-2 py-1 rounded"
             />
             <button
               onClick={() => { mutate(); mutatePinnedManager(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
               title="Refresh"
             >
               <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -229,7 +229,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 placeholder="Todo ID..."
                 value={traceId}
                 onChange={(e) => setInternalTraceId(e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
                 readOnly={!!externalTraceId}
               />
               {(externalTraceId || internalTraceId) && (
@@ -248,7 +248,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 placeholder="Topic..."
                 value={topicFilter}
                 onChange={(e) => setTopicFilter(e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
               />
               {topicFilter && (
                 <button
@@ -263,7 +263,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
           </div>
           <div className="flex gap-1.5">
             <div className="relative flex-1">
-              <input type="text" placeholder="Bot..." value={botFilter} onChange={(e) => setBotFilter(e.target.value)} className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue" />
+              <input type="text" placeholder="Bot..." value={botFilter} onChange={(e) => setBotFilter(e.target.value)} className="y-field w-full px-2 py-1 rounded" />
               {botFilter && <button onClick={() => setBotFilter("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer" title="Clear bot filter">✕</button>}
             </div>
           </div>
@@ -274,7 +274,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 placeholder="Routine name..."
                 value={routineName}
                 onChange={(e) => setInternalRoutineName(e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
                 readOnly={!!externalRoutineName}
               />
               {(externalRoutineName || internalRoutineName) && (
@@ -293,7 +293,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 placeholder="Skill..."
                 value={skillFilter}
                 onChange={(e) => setSkillFilter(e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
               />
               {skillFilter && (
                 <button
@@ -328,7 +328,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
         <div className="border-b border-sol-base02 p-1.5">
           <div
             onClick={() => handleClick(pinnedManager.chat_id)}
-            className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors border-l-2 border-sol-blue ${
+            className={`px-2 py-1.5 rounded cursor-pointer hover:bg-sol-base02 transition-colors border-l-2 border-sol-blue ${
               pinnedManager.chat_id === selectedChatId ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
             }`}
           >
@@ -383,7 +383,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                 <div
                   key={c.chat_id}
                   onClick={() => handleClick(c.chat_id)}
-                  className={`px-2 py-1.5 rounded-md cursor-pointer hover:bg-sol-base02 transition-colors ${
+                  className={`px-2 py-1.5 rounded cursor-pointer hover:bg-sol-base02 transition-colors ${
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >

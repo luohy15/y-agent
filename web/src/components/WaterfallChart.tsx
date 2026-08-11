@@ -218,7 +218,7 @@ export default function WaterfallChart({ chats, onClickChat }: { chats: TraceCha
                     return (
                       <div
                         key={`${c.chat_id}-${i}`}
-                        className={`absolute top-1/2 -translate-y-1/2 h-4 rounded-sm cursor-pointer ${colors.bar}`}
+                        className={`absolute top-1/2 -translate-y-1/2 h-4 rounded cursor-pointer ${colors.bar}`}
                         style={{ left: `${left}%`, width: `${width}%` }}
                         title={`${c.title || c.chat_id} (#${c.chat_id.slice(-6)})\n${formatTime(seg.start_unix, multiDay)} → ${formatTime(seg.end_unix, multiDay)}`}
                         onClick={() => onClickChat?.(c.chat_id)}

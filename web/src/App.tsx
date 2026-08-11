@@ -1230,7 +1230,7 @@ export default function App() {
                 {selectedVM || "default"}
               </button>
               {vmDropdownOpen && (
-                <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[140px]">
                   <button
                     onClick={() => { setSelectedVM(null); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}
                     className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
@@ -1260,7 +1260,7 @@ export default function App() {
                   {selectedBot || (selectedChatId ? chatBotName : null) || "default"}
                 </button>
                 {botDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[140px]">
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[140px]">
                     <button
                       onClick={() => { setSelectedBot(null); setBotDropdownOpen(false); }}
                       className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedBot ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
@@ -1557,7 +1557,7 @@ export default function App() {
                   />
                 ) : !auth.isLoggedIn ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                    <a href="/t/7ef7c6" className="px-4 py-2 bg-sol-cyan text-sol-base03 rounded-md text-sm font-semibold cursor-pointer">Demo Trace</a>
+                    <a href="/t/7ef7c6" className="px-4 py-2 bg-sol-cyan text-sol-base03 rounded text-sm font-semibold cursor-pointer">Demo Trace</a>
                     <GoogleSignInButton gsiReady={auth.gsiReady} />
                   </div>
                 ) : (

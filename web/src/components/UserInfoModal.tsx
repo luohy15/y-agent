@@ -80,7 +80,7 @@ export default function UserInfoModal({ open, email, onClose }: UserInfoModalPro
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded shadow-float overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-sol-base02">

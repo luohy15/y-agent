@@ -30,6 +30,10 @@ html {
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  /* Absolute 4px (root font is 110%, so 0.25rem would be 4.4px). */
+  --radius: 4px;
+  /* Theme-aware floating elevation; resolves via --sol-shadow-float. */
+  --shadow-float: var(--sol-shadow-float);
 }
 
 /* :root default (Solarized Light) — renders a real palette before/without a
@@ -52,6 +56,7 @@ html {
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  --sol-shadow-float: 0 12px 28px rgb(7 54 66 / 16%);
 }
 
 /* Exact previous app palette (Solarized Dark) */
@@ -72,6 +77,7 @@ html {
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  --sol-shadow-float: 0 12px 28px rgb(0 0 0 / 30%);
 }
 
 [data-theme="solarized-light"] {
@@ -171,4 +177,56 @@ html {
 /* Hide native caret — we render a custom block cursor */
 .caret-hide {
   caret-color: transparent;
+}
+
+/*
+ * Host→module CSS contract (append-only class names):
+ * .y-check / .y-field. Do not rename while older module versions remain
+ * rollback-reachable. Ordinary utilities may still override per site.
+ */
+@layer components {
+  .y-check {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--color-sol-base01) 40%, transparent);
+    border-radius: 3px;
+    background: var(--color-sol-base03);
+    cursor: pointer;
+    transition: background .12s, border-color .12s, box-shadow .12s;
+  }
+  .y-check:hover:not(:disabled) {
+    border-color: var(--color-sol-base01);
+  }
+  .y-check:checked {
+    border-color: var(--color-sol-blue);
+    background: var(--color-sol-blue);
+    box-shadow: inset 0 0 0 3px var(--color-sol-base03);
+  }
+  .y-check:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-sol-blue) 45%, transparent);
+    outline-offset: 2px;
+  }
+  .y-check:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+
+  .y-field {
+    background: color-mix(in srgb, var(--color-sol-base02) 62%, var(--color-sol-base03));
+    border: 1px solid color-mix(in srgb, var(--color-sol-base01) 48%, transparent);
+    outline: none;
+    color: var(--color-sol-base0);
+    transition: border-color .12s, background .12s, box-shadow .12s;
+  }
+  .y-field:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-sol-base01) 70%, transparent);
+  }
+  .y-field:focus {
+    border-color: var(--color-sol-blue);
+    background: var(--color-sol-base03);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-sol-blue) 18%, transparent);
+  }
 }

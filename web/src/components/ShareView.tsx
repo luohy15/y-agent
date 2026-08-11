@@ -129,7 +129,7 @@ export default function ShareView() {
       <div className="px-6 py-3 shrink-0 flex items-center justify-center gap-3">
         <button
           onClick={() => navigate(isLoggedIn ? "/" : "/")}
-          className="px-4 py-2 bg-sol-blue text-sol-base03 rounded-md text-sm font-semibold cursor-pointer"
+          className="px-4 py-2 bg-sol-blue text-sol-base03 rounded text-sm font-semibold cursor-pointer"
         >
           {isLoggedIn ? "Continue chatting" : "Login to chat"}
         </button>

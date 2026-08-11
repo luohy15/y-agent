@@ -265,7 +265,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
                         return (
                           <label key={note.note_id} className="flex items-center gap-2 py-0.5 cursor-pointer">
                             <input
-                              type="checkbox"
+                              type="checkbox" className="y-check"
                               checked={checked}
                               disabled={shared}
                               onChange={(e) => {

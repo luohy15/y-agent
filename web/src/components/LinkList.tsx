@@ -410,11 +410,11 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-              className="flex-1 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field flex-1 px-2 py-1 rounded"
             />
             <button
               onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
               title="Refresh"
             >
               <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -469,7 +469,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                 type="date"
                 value={filter.mode === "range" ? filter.from ?? "" : ""}
                 onChange={(e) => handleRangeInput("from", e.target.value)}
-                className="flex-1 px-1.5 py-0.5 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field flex-1 px-1.5 py-0.5 rounded"
                 aria-label="From date"
               />
               <span className="text-sol-base01">–</span>
@@ -477,7 +477,7 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
                 type="date"
                 value={filter.mode === "range" ? filter.to ?? "" : ""}
                 onChange={(e) => handleRangeInput("to", e.target.value)}
-                className="flex-1 px-1.5 py-0.5 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field flex-1 px-1.5 py-0.5 rounded"
                 aria-label="To date"
               />
             </div>

@@ -134,7 +134,7 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
         {label}
       </button>
       {open && (
-        <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-1 z-20 w-64 bg-sol-base03 border border-sol-base02 rounded shadow-lg p-2 text-xs`}>
+        <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-1 z-20 w-64 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
           {existingShare ? (
             <>
               <div className="text-sol-base01 mb-1.5">Currently shared</div>

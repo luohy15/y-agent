@@ -196,7 +196,7 @@ function MiniMap({ src, transform, wrapperRef }: MiniMapProps) {
   const width = ((xMax - xMin) / W) * 100;
   const height = ((yMax - yMin) / H) * 100;
   return (
-    <div className="absolute top-2 left-2 pointer-events-none overflow-hidden rounded-sm border border-white/60 shadow-lg shadow-black/50" style={{ width: 128 }}>
+    <div className="absolute top-2 left-2 pointer-events-none overflow-hidden rounded border border-white/60 shadow-lg shadow-black/50" style={{ width: 128 }}>
       <img src={src} alt="" draggable={false} className="block w-full h-auto select-none" />
       <div
         className="absolute border border-white bg-white/20"

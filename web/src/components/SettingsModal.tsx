@@ -30,7 +30,7 @@ export default function SettingsModal({ open, prefs, onModeChange, onClose }: Se
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
-        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl"
+        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded shadow-float"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-sol-base02">

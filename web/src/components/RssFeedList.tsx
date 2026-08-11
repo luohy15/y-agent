@@ -179,11 +179,11 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-            className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            className="y-field flex-1 min-w-0 px-2 py-1 rounded"
           />
           <button
             onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
             <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -193,7 +193,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
           <select
             value={feedType}
             onChange={(e) => setFeedType(e.target.value as FeedType)}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue text-[0.7rem]"
+            className="y-field px-1.5 py-1 rounded text-[0.7rem]"
             title="Feed type"
           >
             <option value="rss">RSS</option>
@@ -205,12 +205,12 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
             value={titleInput}
             onChange={(e) => setTitleInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-            className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            className="y-field flex-1 min-w-0 px-2 py-1 rounded"
           />
           <button
             onClick={handleAdd}
             disabled={submitting || !urlInput.trim()}
-            className="px-2 py-1 bg-sol-blue text-sol-base03 rounded-md text-[0.7rem] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-sol-cyan"
+            className="px-2 py-1 bg-sol-blue text-sol-base03 rounded text-[0.7rem] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-sol-cyan"
           >
             {submitting ? "Adding..." : "Add"}
           </button>
@@ -223,7 +223,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
               value={itemSelector}
               onChange={(e) => setItemSelector(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-              className="px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field px-2 py-1 rounded"
             />
             <div className="flex gap-1.5">
               <input
@@ -232,7 +232,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={titleSelector}
                 onChange={(e) => setTitleSelector(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field flex-1 min-w-0 px-2 py-1 rounded"
               />
               <input
                 type="text"
@@ -240,7 +240,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={linkSelector}
                 onChange={(e) => setLinkSelector(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field flex-1 min-w-0 px-2 py-1 rounded"
               />
               <input
                 type="text"
@@ -248,7 +248,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={linkAttr}
                 onChange={(e) => setLinkAttr(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="w-20 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-20 px-2 py-1 rounded"
               />
             </div>
             <div className="flex gap-1.5">
@@ -258,7 +258,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={dateSelector}
                 onChange={(e) => setDateSelector(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field flex-1 min-w-0 px-2 py-1 rounded"
               />
               <input
                 type="text"
@@ -266,7 +266,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={dateAttr}
                 onChange={(e) => setDateAttr(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="w-28 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-28 px-2 py-1 rounded"
               />
               <input
                 type="text"
@@ -274,7 +274,7 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
                 value={dateFormat}
                 onChange={(e) => setDateFormat(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-                className="w-32 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-32 px-2 py-1 rounded"
               />
             </div>
           </div>

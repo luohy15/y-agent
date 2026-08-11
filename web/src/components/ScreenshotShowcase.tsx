@@ -30,7 +30,7 @@ function PanelFrame({ name, title, width, height, children }: PanelFrameProps) {
       <span className="text-sol-base01 text-xs font-mono">{title}</span>
       <div
         data-screenshot={name}
-        className="bg-sol-base03 border border-sol-base02 rounded-lg overflow-hidden"
+        className="bg-sol-base03 border border-sol-base02 rounded overflow-hidden"
         style={{ width, height }}
       >
         {children}

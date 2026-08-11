@@ -148,7 +148,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full max-w-lg bg-sol-base03 border border-sol-base01 rounded shadow-float overflow-hidden flex flex-col max-h-[90vh]"
       >
         <div className="px-4 py-3 border-b border-sol-base02 text-sol-base1 text-sm font-semibold shrink-0">
           {title}
@@ -159,7 +159,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               type="text"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field w-full px-2 py-1 rounded"
               autoFocus
             />
           </Field>
@@ -168,7 +168,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               type="text"
               value={form.schedule}
               onChange={(e) => update("schedule", e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 font-mono outline-none focus:border-sol-blue"
+              className="y-field w-full px-2 py-1 rounded font-mono"
               placeholder="0 9 * * *"
             />
           </Field>
@@ -177,7 +177,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               value={form.message}
               onChange={(e) => update("message", e.target.value)}
               rows={3}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue resize-y"
+              className="y-field w-full px-2 py-1 rounded resize-y"
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
@@ -186,7 +186,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
                 type="text"
                 value={form.target_topic}
                 onChange={(e) => update("target_topic", e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
               />
             </Field>
             <Field label="Target skill" hint="optional">
@@ -194,7 +194,7 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
                 type="text"
                 value={form.target_skill}
                 onChange={(e) => update("target_skill", e.target.value)}
-                className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+                className="y-field w-full px-2 py-1 rounded"
               />
             </Field>
           </div>
@@ -203,14 +203,14 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               type="text"
               value={form.work_dir}
               onChange={(e) => update("work_dir", e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field w-full px-2 py-1 rounded"
             />
           </Field>
           <Field label="Backend" hint="optional: claude_code">
             <select
               value={form.backend}
               onChange={(e) => update("backend", e.target.value)}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue"
+              className="y-field w-full px-2 py-1 rounded"
             >
               <option value="">(default)</option>
               <option value="claude_code">claude_code</option>
@@ -221,13 +221,14 @@ function FormDialog({ open, title, initial, isEdit, onCancel, onSubmit }: FormDi
               value={form.description}
               onChange={(e) => update("description", e.target.value)}
               rows={2}
-              className="w-full px-2 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base0 outline-none focus:border-sol-blue resize-y"
+              className="y-field w-full px-2 py-1 rounded resize-y"
             />
           </Field>
           {!isEdit && (
             <label className="flex items-center gap-2 text-sol-base0">
               <input
                 type="checkbox"
+                className="y-check"
                 checked={form.enabled}
                 onChange={(e) => update("enabled", e.target.checked)}
               />
@@ -412,14 +413,14 @@ export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }:
           )}
           <button
             onClick={() => setCreating(true)}
-            className={`${onShowAllChats ? "" : "ml-auto "}px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer`}
+            className={`${onShowAllChats ? "" : "ml-auto "}px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer`}
             title="New routine"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <button
             onClick={refresh}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
             <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -451,7 +452,7 @@ export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }:
             return (
               <div
                 key={r.routine_id}
-                className={`px-2 py-1.5 rounded-md hover:bg-sol-base02 transition-colors ${r.enabled ? "" : "opacity-60"}`}
+                className={`px-2 py-1.5 rounded hover:bg-sol-base02 transition-colors ${r.enabled ? "" : "opacity-60"}`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
                   <button

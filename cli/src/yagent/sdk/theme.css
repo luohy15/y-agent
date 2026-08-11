@@ -31,4 +31,7 @@
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  /* Host-resolved at runtime (web/src/style.css). Fallbacks keep builds green. */
+  --radius: 4px;
+  --shadow-float: var(--sol-shadow-float);
 }

@@ -80,7 +80,7 @@ function ManageAccountsModal({ accounts, onClose, onChanged }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="w-80 max-w-[90vw] bg-sol-base03 border border-sol-base01 rounded-lg p-3 text-xs flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+      <div className="w-80 max-w-[90vw] bg-sol-base03 border border-sol-base01 rounded p-3 text-xs flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <span className="text-sol-base1 font-medium">Gmail accounts</span>
           <button onClick={onClose} className="text-sol-base01 hover:text-sol-base0 cursor-pointer" title="Close">✕</button>
@@ -108,7 +108,7 @@ function ManageAccountsModal({ accounts, onClose, onChanged }: {
           placeholder="Gmail address"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
-          className="px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+          className="y-field px-2 py-1 rounded"
         />
         <input
           type="password"
@@ -116,13 +116,13 @@ function ManageAccountsModal({ accounts, onClose, onChanged }: {
           value={appPassword}
           onChange={(e) => setAppPassword(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
-          className="px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+          className="y-field px-2 py-1 rounded"
         />
         {err && <p className="text-sol-red break-words">{err}</p>}
         <button
           onClick={handleAdd}
           disabled={submitting || !address.trim() || !appPassword.trim()}
-          className="px-2 py-1 bg-sol-blue text-sol-base03 rounded-md font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-sol-cyan"
+          className="px-2 py-1 bg-sol-blue text-sol-base03 rounded font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-sol-cyan"
         >
           {submitting ? "Adding..." : "Add account"}
         </button>
@@ -219,18 +219,18 @@ export default function EmailList({ isLoggedIn, selectedThreadId, onSelectEmail,
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-            className="flex-1 min-w-0 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue"
+            className="y-field flex-1 min-w-0 px-2 py-1 rounded"
           />
           <button
             onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Refresh"
           >
             <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
           <button
             onClick={() => setManageOpen(true)}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
             title="Manage accounts"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -240,7 +240,7 @@ export default function EmailList({ isLoggedIn, selectedThreadId, onSelectEmail,
           <select
             value={account}
             onChange={(e) => handleAccountChange(e.target.value)}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded-md text-sol-base0 outline-none focus:border-sol-blue text-[0.7rem]"
+            className="y-field px-1.5 py-1 rounded text-[0.7rem]"
             title="Filter by account"
           >
             <option value="">All accounts</option>

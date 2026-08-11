@@ -127,7 +127,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
           <button
             onClick={() => setConfirm(true)}
             disabled={busy}
-            className="shrink-0 px-2 py-1 rounded-md bg-sol-base02 border border-sol-base01 text-sol-base0 hover:text-sol-base1 hover:border-sol-base0 text-[0.65rem] cursor-pointer disabled:opacity-50"
+            className="shrink-0 px-2 py-1 rounded bg-sol-base02 border border-sol-base01 text-sol-base0 hover:text-sol-base1 hover:border-sol-base0 text-[0.65rem] cursor-pointer disabled:opacity-50"
           >
             Dismiss
           </button>
@@ -157,7 +157,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
 
         <div>
           <div className="text-[0.6rem] uppercase tracking-wider text-sol-base01 mb-1.5">Original</div>
-          <div className="rounded-md bg-sol-base02/60 border border-sol-base02 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed whitespace-pre-wrap">
+          <div className="rounded bg-sol-base02/60 border border-sol-base02 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed whitespace-pre-wrap">
             {data.original_text}
           </div>
         </div>
@@ -166,7 +166,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
           <div className="text-[0.6rem] uppercase tracking-wider text-sol-base01 mb-1.5">
             Minimally corrected
           </div>
-          <div className="rounded-md bg-sol-base02/60 border border-sol-base02 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed whitespace-pre-wrap">
+          <div className="rounded bg-sol-base02/60 border border-sol-base02 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed whitespace-pre-wrap">
             {data.corrected_text}
           </div>
         </div>
@@ -178,7 +178,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
               (from original / corrected · not stored)
             </span>
           </div>
-          <div className="rounded-md bg-sol-base02 border border-sol-base01/40 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed font-mono whitespace-pre-wrap">
+          <div className="rounded bg-sol-base02 border border-sol-base01/40 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed font-mono whitespace-pre-wrap">
             {spans.map((s, i) =>
               s.type === "same" ? (
                 <span key={i}>{s.text}</span>
@@ -207,7 +207,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
           <div className="text-[0.6rem] uppercase tracking-wider text-sol-base01 mb-1.5">
             Grammar explanation
           </div>
-          <div className="rounded-md border border-sol-base02 px-3 py-2 text-[0.75rem] text-sol-base0 leading-relaxed whitespace-pre-wrap">
+          <div className="rounded border border-sol-base02 px-3 py-2 text-[0.75rem] text-sol-base0 leading-relaxed whitespace-pre-wrap">
             {data.explanation}
           </div>
         </div>
@@ -219,7 +219,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
           onClick={() => !busy && setConfirm(false)}
         >
           <div
-            className="w-full max-w-sm bg-sol-base03 border border-sol-base02 rounded-lg overflow-hidden text-xs shadow-2xl"
+            className="w-full max-w-sm bg-sol-base03 border border-sol-base02 rounded overflow-hidden text-xs shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-3 py-2 border-b border-sol-base02 flex items-center justify-between">
@@ -231,7 +231,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
                 Dismissed items stay in history but drop out of recurring-pattern counts. Use this
                 for false positives or deliberate informal phrasing.
               </p>
-              <div className="rounded-md bg-sol-base02/60 border border-sol-base02 px-2.5 py-2 text-[0.7rem] text-sol-base1">
+              <div className="rounded bg-sol-base02/60 border border-sol-base02 px-2.5 py-2 text-[0.7rem] text-sol-base1">
                 {data.original_text}
               </div>
               <p className="text-[0.55rem] text-sol-base01 leading-relaxed">
@@ -242,14 +242,14 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
                 <button
                   onClick={() => setConfirm(false)}
                   disabled={busy}
-                  className="px-2.5 py-1 rounded-md bg-sol-base02 text-sol-base01 text-[0.65rem] cursor-pointer"
+                  className="px-2.5 py-1 rounded bg-sol-base02 text-sol-base01 text-[0.65rem] cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDismiss}
                   disabled={busy}
-                  className="px-2.5 py-1 rounded-md bg-sol-orange/20 border border-sol-orange/50 text-sol-orange text-[0.65rem] cursor-pointer disabled:opacity-50"
+                  className="px-2.5 py-1 rounded bg-sol-orange/20 border border-sol-orange/50 text-sol-orange text-[0.65rem] cursor-pointer disabled:opacity-50"
                 >
                   {busy ? "Dismissing…" : "Dismiss"}
                 </button>

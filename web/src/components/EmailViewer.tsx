@@ -134,7 +134,7 @@ function RecipientDetails({ email }: { email: Email }) {
         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-max max-w-[24rem] bg-sol-base02 border border-sol-base01 rounded shadow-lg p-3">
+        <div className="absolute left-0 top-full mt-1 z-50 w-max max-w-[24rem] bg-sol-base02 border border-sol-base01 rounded shadow-float p-3">
           <table className="text-xs">
             <tbody>
               {rows.map(([label, value]) => (

@@ -27,7 +27,7 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
   return (
     <header className="px-4 md:px-6 py-4 border-b border-sol-base02 shrink-0 flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <button onClick={onClickLogo} className="h-8 w-8 shrink-0 rounded-full bg-sol-base02 flex items-center justify-center shadow-sm cursor-pointer hover:bg-sol-base01 transition-colors">
+        <button onClick={onClickLogo} className="h-8 w-8 shrink-0 rounded-full bg-sol-base02 flex items-center justify-center cursor-pointer hover:bg-sol-base01 transition-colors">
           <span className="text-lg font-bold text-sol-blue">Y</span>
         </button>
         {/* Mobile-only: Sidebar drawer toggle (files, git, apps) */}
@@ -78,7 +78,7 @@ export default function Header({ email, isLoggedIn, gsiReady, onLogout, onToggle
             <span className="text-sm text-sol-base01 hidden sm:inline">{email}</span>
             <button
               onClick={onLogout}
-              className="px-3 py-1.5 sm:px-2.5 sm:py-1 bg-sol-base02 border border-sol-base01 text-sol-base01 rounded-md text-sm sm:text-xs cursor-pointer hover:bg-sol-base01 hover:text-sol-base2"
+              className="px-3 py-1.5 sm:px-2.5 sm:py-1 bg-sol-base02 border border-sol-base01 text-sol-base01 rounded text-sm sm:text-xs cursor-pointer hover:bg-sol-base01 hover:text-sol-base2"
             >
               Logout
             </button>

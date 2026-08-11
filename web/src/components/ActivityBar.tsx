@@ -575,7 +575,7 @@ function SyncStatusPill({ variant, status }: { variant: "error" | "offline" | "s
   return (
     <div
       role="status"
-      className={`fixed bottom-3 left-3 z-50 px-2.5 py-1 rounded-full border text-xs shadow-sm pointer-events-none ${cls}`}
+      className={`fixed bottom-3 left-3 z-50 px-2.5 py-1 rounded-full border text-xs shadow-float pointer-events-none ${cls}`}
     >
       {text}
     </div>

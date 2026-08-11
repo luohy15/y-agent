@@ -51,11 +51,11 @@ export default function Landing() {
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <GoogleSignInButton
             gsiReady={gsiReady}
-            className="px-5 py-2.5 bg-sol-cyan text-sol-base03 rounded-md text-sm font-semibold cursor-pointer hover:bg-sol-base1 hover:text-sol-base03"
+            className="px-5 py-2.5 bg-sol-cyan text-sol-base03 rounded text-sm font-semibold cursor-pointer hover:bg-sol-base1 hover:text-sol-base03"
           />
           <Link
             to="/docs"
-            className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded-md text-sm font-semibold hover:bg-sol-base01 hover:text-sol-base2"
+            className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded text-sm font-semibold hover:bg-sol-base01 hover:text-sol-base2"
           >
             Docs
           </Link>
@@ -63,7 +63,7 @@ export default function Landing() {
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded-md text-sm font-semibold hover:bg-sol-base01 hover:text-sol-base2"
+            className="px-5 py-2.5 bg-sol-base02 border border-sol-base01 text-sol-base1 rounded text-sm font-semibold hover:bg-sol-base01 hover:text-sol-base2"
           >
             GitHub
           </a>
@@ -75,7 +75,7 @@ export default function Landing() {
           </a>
         </div>
 
-        <div className="mt-12 rounded-lg overflow-hidden border border-sol-base02 bg-sol-base02">
+        <div className="mt-12 rounded overflow-hidden border border-sol-base02 bg-sol-base02">
           <img
             src="https://cdn.luohy15.com/y-agent-demo-4.png"
             alt="y-agent TraceView: waterfall of a real cross-skill task"
@@ -88,7 +88,7 @@ export default function Landing() {
       <section className="max-w-5xl mx-auto px-6 pb-16">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {FEATURES.map((f) => (
-            <article key={f.title} className="bg-sol-base02 border border-sol-base02 rounded-lg overflow-hidden flex flex-col">
+            <article key={f.title} className="bg-sol-base02 border border-sol-base02 rounded overflow-hidden flex flex-col">
               <div className="bg-sol-base03 border-b border-sol-base02">
                 <img
                   src={f.image}

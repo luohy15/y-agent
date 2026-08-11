@@ -75,8 +75,8 @@ export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMe
             role="menu"
             className={
               mobile
-                ? "absolute bottom-full left-0 right-0 mb-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1"
-                : "absolute bottom-0 left-full ml-2 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-lg py-1 min-w-[180px]"
+                ? "absolute bottom-full left-0 right-0 mb-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1"
+                : "absolute bottom-0 left-full ml-2 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[180px]"
             }
           >
             {email && (

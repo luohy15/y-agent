@@ -38,7 +38,7 @@ export default function RssFeedContextMenu({ x, y, onClose, onRename, onDelete }
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[100] bg-sol-base02 border border-sol-base01 rounded shadow-lg py-0.5"
+      className="fixed z-[100] bg-sol-base02 border border-sol-base01 rounded shadow-float py-0.5"
       style={{ left: x, top: y }}
     >
       {items.map((item) => (

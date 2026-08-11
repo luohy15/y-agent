@@ -43,7 +43,7 @@ export default function MobileToc({ items }: Props) {
         onClick={() => setOpen((v) => !v)}
         aria-label="Table of contents"
         aria-expanded={open}
-        className={`w-9 h-9 rounded-lg border flex items-center justify-center cursor-pointer shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-sol-cyan focus-visible:outline-offset-2 ${
+        className={`w-9 h-9 rounded border flex items-center justify-center cursor-pointer shadow-float focus-visible:outline focus-visible:outline-2 focus-visible:outline-sol-cyan focus-visible:outline-offset-2 ${
           open ? "text-sol-cyan border-sol-cyan bg-sol-base02" : "text-sol-base1 border-sol-base01 bg-sol-base02 hover:bg-sol-base01/30"
         }`}
       >
@@ -57,7 +57,7 @@ export default function MobileToc({ items }: Props) {
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <nav
             aria-label="On this page"
-            className="absolute right-0 top-11 z-30 w-56 max-h-80 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded-lg shadow-xl p-2"
+            className="absolute right-0 top-11 z-30 w-56 max-h-80 overflow-y-auto bg-sol-base03 border border-sol-base01 rounded shadow-float p-2"
           >
             <div className="text-[11px] uppercase tracking-wider text-sol-base01 px-2 pb-1.5 mb-1 border-b border-sol-base02">
               On this page

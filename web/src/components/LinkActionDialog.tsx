@@ -72,7 +72,7 @@ export default function LinkActionDialog({ open, url, status, onClose, onDownloa
     >
       <div
         ref={dialogRef}
-        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded-lg shadow-2xl overflow-hidden"
+        className="w-full max-w-md bg-sol-base03 border border-sol-base01 rounded shadow-float overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-sol-base02">

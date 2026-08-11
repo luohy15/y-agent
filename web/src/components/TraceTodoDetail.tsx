@@ -63,7 +63,7 @@ interface TraceTodoDetailProps {
 const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
 const PRIORITY_OPTIONS = ["none", "high", "medium", "low"] as const;
 
-const inputClass = "w-full bg-sol-base03 text-sol-base1 border border-sol-base01/30 rounded px-2 py-1 text-xs outline-none focus:border-sol-blue";
+const inputClass = "y-field w-full text-sol-base1 rounded px-2 py-1 text-xs";
 
 // Cap auto-grow so a huge field still scrolls instead of taking over the panel.
 const MAX_EXPANDED_HEIGHT = 600;
