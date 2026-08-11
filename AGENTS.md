@@ -356,7 +356,10 @@ y module delete <slug> [-y|--yes]
 ## Conventions
 
 - Python: no linter/formatter configured; follow existing style. Minimum 3.11.
-- Frontend: TypeScript strict, TailwindCSS utility classes, Solarized light/dark theme.
+- Frontend: TypeScript strict, TailwindCSS utility classes, Solarized light/dark
+  theme. Control patterns (4px radius, `shadow-float`, host classes `.y-check` /
+  `.y-field`) are documented in `docs/prd/design-language.md` and the approved
+  visual reference `pages/design-3112.html`.
 - Storage pattern: Entity (ORM) → Repository (CRUD) → Service (business logic) →
   Controller (API). Do not call repos directly from controllers.
 - `chat` stores its DTO as a `json_content` blob **plus** promoted columns, so a

@@ -1033,6 +1033,17 @@ contract v5). Disable or rollback therefore affects the authenticated control
 plane, not public shares or the association primitive. Instance inventory:
 `code/y-module/note/README.md`.
 
+### Host CSS contract (additive, not versioned)
+
+Beyond the `@y/host` browser contract and the `sol-*` color-token contract (see
+`pages/feature-y-agent-theming.md`), host `web/src/style.css` ships an
+**append-only CSS class contract** for module UI: `.y-check` and `.y-field`, plus
+theme keys `--radius` and `--shadow-float` registered in
+`cli/src/yagent/sdk/theme.css` under `@theme reference`. Modules apply the class
+names from TSX and inherit the tokens at runtime; the class names must never be
+renamed while older module versions stay rollback-reachable. Full control
+conventions live in `docs/prd/design-language.md`.
+
 ## Documentation ownership
 
 y-agent documents the **host**: architecture, the module-system contract and its
