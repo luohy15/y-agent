@@ -356,6 +356,8 @@ y module delete <slug> [-y|--yes]
 ## Conventions
 
 - Python: no linter/formatter configured; follow existing style. Minimum 3.11.
+- Tests are local-only and untracked. Run `uv run python -m unittest discover -s tests`
+  per Python package or `npm run test` in `web`; fresh clones have no test files.
 - Frontend: TypeScript strict, TailwindCSS utility classes, Solarized light/dark
   theme. Control patterns (4px radius, `shadow-float`, host classes `.y-check` /
   `.y-field`) are documented in `docs/prd/design-language.md` and the approved

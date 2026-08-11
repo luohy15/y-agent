@@ -7,3 +7,8 @@
 for item in web/node_modules web/.env.local .env migration; do
   ln -sfn /Users/roy/luohy15/code/y-agent/$item $item
 done
+
+# Tests stay local-only, so share the suites that are safe outside their checkout.
+for item in agent/tests api/tests cli/tests storage/tests worker/tests web/e2e; do
+  ln -sfn /Users/roy/luohy15/code/y-agent/$item $item
+done

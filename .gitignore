@@ -40,3 +40,16 @@ web/public/docs-content/
 
 # One-off backfill scripts (run manually, not part of app)
 backfill_*.py
+
+# Tests are kept local-only
+agent/tests/
+api/tests/
+cli/tests/
+storage/tests/
+worker/tests/
+web/e2e/
+web/src/**/*.test.ts
+web/src/**/*.test.tsx
+.pytest_cache/
+web/test-results/
+web/playwright-report/
