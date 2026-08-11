@@ -13,6 +13,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Live relay run rate (3111)**: `y usage rate` and a new usage API endpoint expose
+  the current relay run rate (requests/min) computed from recent model usage, backed
+  by a dedicated `agent.usage_rate` module and covered by CLI/API/unit tests.
 
 ### Changed
 
@@ -23,6 +26,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   selected file rather than a shared workspace tab.
 
 ### Removed
+- **Non-Solarized themes**: the web app now ships only the Solarized light/dark
+  themes, trimming the theme picker, code editor theme, and related styling to match.
 
 ## [0.5.24] - 2026-08-09
 
