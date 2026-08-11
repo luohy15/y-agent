@@ -90,6 +90,62 @@ class UsageRateCommandTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(json.loads(result.output)["error"], "parse_failed")
 
+    def test_without_store_flag_never_persists(self):
+        dashboard = {
+            "data": {
+                "realtimeMetrics": {"rpm": 2.5, "tpm": 123456, "windowMinutes": 5, "isHistorical": False}
+            }
+        }
+        with (
+            patch("yagent.commands.usage.rate.usage_service._crs_admin_creds", return_value=("user", "password")),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value="user-id"),
+            patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example"),
+            patch("yagent.commands.usage.rate.usage_service.crs_admin_login", return_value="token"),
+            patch("yagent.commands.usage.rate.usage_service.crs_admin_get", return_value=dashboard),
+            patch("yagent.commands.usage.rate.rate_storage.store_reading") as store_reading,
+        ):
+            result = CliRunner().invoke(cli, ["usage", "rate", "--json"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        store_reading.assert_not_called()
+
+    def test_store_flag_persists_the_envelope_under_the_cli_user_id(self):
+        dashboard = {
+            "data": {
+                "realtimeMetrics": {"rpm": 2.5, "tpm": 123456, "windowMinutes": 5, "isHistorical": False}
+            }
+        }
+        with (
+            patch("yagent.commands.usage.rate.usage_service._crs_admin_creds", return_value=("user", "password")),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value=85),
+            patch("yagent.commands.usage.rate.usage_service._crs_origin", return_value="https://relay.example"),
+            patch("yagent.commands.usage.rate.usage_service.crs_admin_login", return_value="token"),
+            patch("yagent.commands.usage.rate.usage_service.crs_admin_get", return_value=dashboard),
+            patch("yagent.commands.usage.rate.rate_storage.store_reading") as store_reading,
+        ):
+            result = CliRunner().invoke(cli, ["usage", "rate", "--store", "--json"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        envelope = json.loads(result.output)
+        self.assertEqual(envelope["rpm"], 2.5)
+        store_reading.assert_called_once_with(85, envelope)
+
+    def test_store_flag_persists_a_failed_read_too(self):
+        with (
+            patch(
+                "yagent.commands.usage.rate.usage_service._crs_admin_creds",
+                side_effect=RuntimeError("credentials missing"),
+            ),
+            patch("yagent.commands.usage.rate.get_cli_user_id", return_value=85),
+            patch("yagent.commands.usage.rate.rate_storage.store_reading") as store_reading,
+        ):
+            result = CliRunner().invoke(cli, ["usage", "rate", "--store", "--json"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        envelope = json.loads(result.output)
+        self.assertEqual(envelope["error"], "not_configured")
+        store_reading.assert_called_once_with(85, envelope)
+
 
 if __name__ == "__main__":
     unittest.main()

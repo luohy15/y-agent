@@ -546,8 +546,37 @@ expired-login card tells the user to run.
 ### Realtime run rate
 
 - **CRS is the authoritative source.** The Live Usage view can show the relay dashboard's system-wide RPM and TPM over CRS's own five-minute Redis bucket window. y-agent cannot reconstruct this from `model_usage_daily`, which is daily aggregate data, nor from its overwritten per-chat context-token counters.
-- **VM-only admin access.** `y usage rate --json` authenticates to CRS's `GET /admin/dashboard` on the user's VM using the VM-local `[crs] admin_username/admin_password` config. `GET /api/usage/rate` SSH-execs that CLI command, applies a per-user ~60-second memo, and never wakes a stopped VM. Lambda receives only the CLI's closed envelope `{rpm, tpm, window_minutes, is_historical, observed_at, error}` plus an API-only `stale: true` marker when a transient VM/CLI failure retains the prior reading. It never receives or stores the admin credential.
-- **Availability semantics.** A historical CRS fallback (`is_historical: true`, including a zero-minute source window) is unavailable rather than a live rate. Malformed source fields are null with a closed error code, never fabricated as zero. A transient VM/CLI failure retains the last good reading with a stale error marker; a VM-asleep poll responds `vm_unreachable` without starting EC2. The UI's 60-second, visibility-gated poll shares the existing Usage limits cadence.
+- **VM-only admin access.** `y usage rate [--json] [--store]` authenticates to CRS's `GET /admin/dashboard` on the user's VM using the VM-local `[crs] admin_username/admin_password` config, emitting the closed envelope `{rpm, tpm, window_minutes, is_historical, observed_at, error}`. It never receives or stores the admin credential outside the VM, and `GET /api/usage/rate` never talks to CRS or the VM directly (see the read-path decision below).
+- **Availability semantics.** A historical CRS fallback (`is_historical: true`, including a zero-minute source window) is unavailable rather than a live rate. Malformed source fields are null with a closed error code, never fabricated as zero. The UI's 60-second, visibility-gated poll shares the existing Usage limits cadence.
+- **Read path: precomputed on the VM, served from the database (todo 3121).**
+  The original design (`GET /api/usage/rate` SSH-execing `y usage rate --json`
+  per request, with a per-container ~60s memo) measured **3.0–3.5s
+  server-side** cold, dominated by the VM-side CLI process (~2.5s, over half
+  of that just importing the `y` root command group's 26 unrelated command
+  groups) plus ~0.6–1.0s of Lambda-side `vm_config` lookup, EC2-asleep check,
+  and SSH connect. In-place optimization (lazy CLI imports, a cached CRS
+  session, one reused EC2 describe) was measured to reach only ~1.3–1.45s,
+  still over the 1s target. Instead, a per-minute VM crontab
+  (`scripts/usage-rate-store.sh` → `y usage rate --store`) runs the same CLI
+  read and upserts `{envelope, last_error, last_attempt_at}` into
+  `user_preference` (key `usage_rate_latest`) via
+  `storage.service.usage_rate`; the API reads that one row
+  (`storage.service.usage_rate.get_reading`), which costs about the same as
+  any other DB-backed endpoint (~0.2–0.3s). A failed VM-side attempt never
+  clobbers the last good envelope — only `last_error`/`last_attempt_at`
+  advance. The endpoint marks the reading `stale: true` when its
+  `observed_at` is older than 180s (3x the write period) or the most recent
+  write attempt failed, and returns `vm_unreachable` only when nothing has
+  ever been stored; a sleeping VM (which stops writing entirely) therefore
+  ages into `stale` rather than going instantly unavailable. The per-container
+  60s poll-cost memo was deleted along with the SSH read it protected — a DB
+  read is cheaper than the memo itself. Net effect: the number can be up to
+  ~2 minutes old (60s write period + 60s UI poll) instead of read on demand,
+  which is an accepted tradeoff given CRS's own figure is already a 5-minute
+  rolling average; an accidental side effect of the old design (an open Usage
+  panel's 60s SSH poll blocked `auto-hibernate.sh` from ever hibernating) is
+  also gone. See `pages/plan-3121-usage-rate-latency.md` for the measured
+  before/after and the rejected in-place-optimization option.
 
 ### Provider credential lifecycle
 
@@ -919,6 +948,7 @@ expired-login card tells the user to run.
 | 3025 | Distinguished subscription-backed notional token cost from real spend for go-forward daily usage and surfaced window-level cache-hit percentage; historical backfill preserves known basis but remains conservatively `real` where relay stats cannot attribute models to keys | - | `pages/plan-3025-bridged-model-prompt-caching.md` | this PRD | `pages/review-3025-track-b-notional-cost-r3.md`, `pages/review-3025-usage-panel-cleanup.md` | shipped (`c3de992` backend, `bot` artifact v10, `91728b28336b…`) |
 | 3031 | Rolled forward from unsafe bot v10, hardened Usage against malformed top-level API payloads, surfaced refresh failures, and restored the prior Live cost presentation without notional annotations | - | - | - | `pages/review-3031-usage-payload-guards.md` | shipped (`bot` artifact v14, `6c44a56752b2…`; source `6fbf696`, `1b31f85`) |
 | 3111 | Live Usage run-rate strip backed by CRS's five-minute dashboard RPM/TPM through a VM-only admin CLI and SSH API; unavailable, historical, stale, and VM-asleep states stay explicit | - | `pages/plan-3111-usage-run-rate.md` | this PRD | `pages/review-3111-bot-usage-run-rate-ui.md`, `pages/review-3111-usage-run-rate-backend.md` | shipped (`da3289a` backend, bot artifact v17, `ab050ed3a956…`; live VM response verified) |
+| 3121 | `GET /api/usage/rate` cut from ~3.0-3.5s to a DB read (~0.2-0.3s server-side): the per-request SSH read was replaced by a per-minute VM crontab (`scripts/usage-rate-store.sh` → `y usage rate --store`) writing into `user_preference`, with `storage.service.usage_rate.get_reading` applying a 180s staleness rule so a sleeping VM's stored reading ages into `stale: true` instead of going unavailable; `agent/usage_rate.py` (the SSH/memo path) was deleted. No API contract or UI change | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | - | implemented; deploy + VM crontab install pending (not done in this impl session, per dispatch) |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
 
 ## Out of Scope

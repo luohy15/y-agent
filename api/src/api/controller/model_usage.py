@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request
 
 from agent import usage_limits as limits_service
-from agent import usage_rate as rate_service
 from storage.service import model_usage_daily as usage_service
+from storage.service import usage_rate as rate_service
 from storage.service.model_usage_daily import _local_today
 from storage.service.time_range import parse_time_range
 
@@ -82,8 +82,11 @@ async def sync(request: Request, source: Optional[str] = Query("crs")):
 
 @router.get("/rate")
 async def rate(request: Request):
-    """Current CRS 5-minute RPM/TPM, read through the VM CLI without waking it."""
-    return await rate_service.get_usage_rate(request.state.user_id)
+    """Current CRS 5-minute RPM/TPM, precomputed once a minute by a VM-side
+    cron (`y usage rate --store`) and read from `user_preference` here — no
+    per-request SSH or VM wake. See docs/prd/bot-usage.md "Realtime run
+    rate"."""
+    return rate_service.get_reading(request.state.user_id)
 
 
 @router.get("/limits")
