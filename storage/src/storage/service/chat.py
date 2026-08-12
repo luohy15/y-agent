@@ -387,6 +387,38 @@ def mark_chat_unread(chat_id: str) -> None:
     set_chat_unread(chat_id, True)
 
 
+def mark_chat_needs_attention(user_id: int, chat_id: str) -> None:
+    """Explicit blocked-on-Roy signal, set by a running session (`y chat attention`).
+
+    user_id scopes the write to the authenticated owner: public chat ids are
+    only unique per user, so chat_id alone cannot select the right row.
+    """
+    from storage.repository.chat import set_chat_attention
+    set_chat_attention(user_id, chat_id, True)
+
+
+def clear_chat_needs_attention(user_id: int, chat_id: str) -> None:
+    """Explicit unblock, set by a running session (`y chat attention --clear`)."""
+    from storage.repository.chat import set_chat_attention
+    set_chat_attention(user_id, chat_id, False)
+
+
+def clear_attention_on_reply(user_id: int, chat_id: str) -> None:
+    """Clear needs_attention and unread when a user message is accepted into a chat.
+
+    Replying resolves whatever the chat was waiting on or announcing, whether
+    the reply lands on an idle chat or steers a running one.
+    """
+    from storage.repository.chat import clear_attention_and_unread
+    clear_attention_and_unread(user_id, chat_id)
+
+
+def mark_chat_completion_unread(user_id: int, chat_id: str) -> None:
+    """Mark unread on successful completion, preserving a stronger needs_attention state."""
+    from storage.repository.chat import mark_completion_unread
+    mark_completion_unread(user_id, chat_id)
+
+
 def mark_trace_read(user_id: int, trace_id: str) -> int:
     from storage.repository.chat import mark_chats_read_by_trace
     return mark_chats_read_by_trace(user_id, trace_id)

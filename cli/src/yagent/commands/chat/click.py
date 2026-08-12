@@ -341,8 +341,8 @@ def chat_group(
         y chat -i -p "..."                       one-off query and exit
 
     Browse subcommands (`get`, `list`, `search`, `share`) are loaded from the
-    local chat module. Runtime subcommands (`attach`, `import`, `import-claude`,
-    `stop`) remain built in.
+    local chat module. Runtime subcommands (`attach`, `attention`, `import`,
+    `import-claude`, `stop`) remain built in.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -384,8 +384,10 @@ from .import_chat import import_chats
 from .import_claude import import_claude
 from .stop import stop_chat
 from .attach import attach_images
+from .attention import chat_attention
 
 chat_group.add_command(import_chats)
 chat_group.add_command(import_claude)
 chat_group.add_command(stop_chat)
 chat_group.add_command(attach_images)
+chat_group.add_command(chat_attention)

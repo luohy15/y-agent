@@ -43,6 +43,7 @@ class ChatSummary:
     updated_at_unix: int = 0
     status: str = "idle"
     unread: bool = False
+    needs_attention: bool = False
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
@@ -152,7 +153,15 @@ async def list_chats(
         q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, ChatEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, ChatEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
-        rows = (q.order_by(ChatEntity.updated_at_unix.desc())
+        # Attention precedence before recency: needs_attention rows first, then
+        # unread, then neutral rows, each bucket ordered by recency. A row
+        # outside the fetched page can never be promoted by a client-side sort,
+        # so this has to happen before offset/limit.
+        rows = (q.order_by(
+                    ChatEntity.needs_attention.desc(),
+                    ChatEntity.unread.desc(),
+                    ChatEntity.updated_at_unix.desc(),
+                )
                  .offset(offset)
                  .limit(limit)
                  .all())
@@ -172,6 +181,7 @@ async def list_chats(
                 tier=row.tier or "",
                 status=row.status or "idle",
                 unread=bool(row.unread),
+                needs_attention=bool(row.needs_attention),
             )
             for row in rows
         ]
@@ -628,6 +638,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 updated_at_unix=row.updated_at_unix or 0,
                 status=row.status or "idle",
                 unread=bool(row.unread),
+                needs_attention=bool(row.needs_attention),
             )
             for row in rows
         ]
@@ -699,6 +710,67 @@ def set_chat_unread(chat_id: str, unread: bool) -> None:
         session.execute(
             text("UPDATE chat SET unread = :unread WHERE chat_id = :chat_id AND unread IS DISTINCT FROM :unread"),
             {"unread": unread, "chat_id": chat_id},
+        )
+
+
+def set_chat_attention(user_id: int, chat_id: str, needs_attention: bool) -> None:
+    """Set the needs_attention column on a chat without touching updated_at.
+
+    Mirrors set_chat_unread: raw SQL so the attention-only write never bumps a
+    chat to the top of the recency-ordered list on its own. `(user_id,
+    chat_id)` is unique, `chat_id` alone is not (public chat ids are only
+    unique per user), so the predicate must include user_id or this can hit
+    another user's same-id chat.
+    """
+    with get_db() as session:
+        session.execute(
+            text(
+                "UPDATE chat SET needs_attention = :needs_attention "
+                "WHERE user_id = :user_id AND chat_id = :chat_id "
+                "AND needs_attention IS DISTINCT FROM :needs_attention"
+            ),
+            {"needs_attention": needs_attention, "user_id": user_id, "chat_id": chat_id},
+        )
+
+
+def clear_attention_and_unread(user_id: int, chat_id: str) -> None:
+    """Clear both needs_attention and unread without touching updated_at.
+
+    Used when a new user message is accepted into an existing chat: replying
+    resolves whatever the chat was waiting on or announcing, so both signals
+    reset atomically in one statement rather than two separate writes.
+    user_id is required for the same reason as set_chat_attention above.
+    """
+    with get_db() as session:
+        session.execute(
+            text(
+                "UPDATE chat SET needs_attention = false, unread = false "
+                "WHERE user_id = :user_id AND chat_id = :chat_id "
+                "AND (needs_attention = true OR unread = true)"
+            ),
+            {"user_id": user_id, "chat_id": chat_id},
+        )
+
+
+def mark_completion_unread(user_id: int, chat_id: str) -> None:
+    """Mark unread on successful completion, unless the chat already needs attention.
+
+    needs_attention is the stronger state: an agent that called `y chat
+    attention` mid-turn to signal it is blocked on Roy must not have that
+    immediately downgraded to a plain unread by the same turn's completion
+    hook. The WHERE clause makes "only when not already blocked" atomic
+    instead of a read-then-write race with the producer command. user_id is
+    required for the same reason as set_chat_attention above; the worker
+    already has it on every completion path (proc/messages carry it).
+    """
+    with get_db() as session:
+        session.execute(
+            text(
+                "UPDATE chat SET unread = true "
+                "WHERE user_id = :user_id AND chat_id = :chat_id "
+                "AND needs_attention = false AND unread = false"
+            ),
+            {"user_id": user_id, "chat_id": chat_id},
         )
 
 
