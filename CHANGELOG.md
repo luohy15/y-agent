@@ -13,13 +13,23 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **Live relay run rate (3111)**: `y usage rate` and a new usage API endpoint expose
-  the current relay run rate (requests/min) computed from recent model usage, backed
-  by a dedicated `agent.usage_rate` module and covered by CLI/API/unit tests.
+- **Live relay run rate (3111, 3121)**: `y usage rate` and `GET /api/usage/rate`
+  expose the relay's system-wide RPM/TPM. The API proxies the CRS admin dashboard
+  directly with DB-stored `crs_admin` credentials, replacing the earlier on-request
+  compute path and the short-lived VM-precomputed store path.
 
 ### Changed
+- **Host UI control convergence (3115)**: host surfaces share a design-language
+  control kit (`--radius`, Solarized-aware `shadow-float`, host-owned
+  `.y-check` / `.y-field`), with radii and floating elevation normalized across
+  lists, dialogs, and settings.
+- **Local-only tests**: package and web unit/e2e tests stay untracked and out of
+  CI, with local discovery documented as the verification path.
 
 ### Fixed
+- **Chat ID collision overwrites**: creating a chat is insert-only and raises on
+  `(user_id, chat_id)` collisions instead of silently overwriting an existing row
+  via upsert, with callers and a scan script updated accordingly.
 - **Per-file workspace tabs (3084, browser contract v8)**: FileViewer restores a
   host-managed tab strip for ordinary files, including close and switch actions,
   persisted workspace state, path search, and module detail mounting scoped to the
