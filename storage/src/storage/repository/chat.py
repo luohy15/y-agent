@@ -1,7 +1,7 @@
 """Chat repository using SQLAlchemy ORM."""
 
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from loguru import logger
@@ -16,6 +16,18 @@ from storage.database.base import get_db
 from storage.util import apply_time_filter
 
 
+# Closed sort surface for list_chats (todo 3152). Defaults preserve the
+# historical pure-recency order from todo 3141.
+CHAT_SORT_BY_UPDATED_AT = "updated_at"
+CHAT_SORT_BY_CREATED_AT = "created_at"
+CHAT_SORT_ORDER_ASC = "asc"
+CHAT_SORT_ORDER_DESC = "desc"
+CHAT_SORT_BY_VALUES = frozenset({CHAT_SORT_BY_UPDATED_AT, CHAT_SORT_BY_CREATED_AT})
+CHAT_SORT_ORDER_VALUES = frozenset({CHAT_SORT_ORDER_ASC, CHAT_SORT_ORDER_DESC})
+DEFAULT_CHAT_SORT_BY = CHAT_SORT_BY_UPDATED_AT
+DEFAULT_CHAT_SORT_ORDER = CHAT_SORT_ORDER_DESC
+
+
 class ChatIdCollision(Exception):
     """Raised when creating a chat would overwrite an existing (user_id, chat_id)."""
 
@@ -23,6 +35,29 @@ class ChatIdCollision(Exception):
         self.user_id = user_id
         self.chat_id = chat_id
         super().__init__(f"chat_id {chat_id!r} already exists for user_id={user_id}")
+
+
+def resolve_chat_list_order(
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+) -> Tuple[str, str]:
+    """Normalize and validate list_chats sort parameters.
+
+    Returns (sort_by, sort_order). None/empty inputs resolve to the defaults
+    (updated_at, desc). Unknown values raise ValueError so callers can map them
+    to a 422 at the module API edge.
+    """
+    by = DEFAULT_CHAT_SORT_BY if sort_by is None or sort_by == "" else sort_by
+    order = DEFAULT_CHAT_SORT_ORDER if sort_order is None or sort_order == "" else sort_order
+    if by not in CHAT_SORT_BY_VALUES:
+        raise ValueError(
+            f"sort_by must be one of {sorted(CHAT_SORT_BY_VALUES)}, got {sort_by!r}"
+        )
+    if order not in CHAT_SORT_ORDER_VALUES:
+        raise ValueError(
+            f"sort_order must be one of {sorted(CHAT_SORT_ORDER_VALUES)}, got {sort_order!r}"
+        )
+    return by, order
 
 
 @dataclass
@@ -105,7 +140,10 @@ async def list_chats(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> List[ChatSummary]:
+    sort_by, sort_order = resolve_chat_list_order(sort_by, sort_order)
     with get_db() as session:
         q = (session.query(ChatEntity)
              .filter_by(user_id=user_id)
@@ -153,13 +191,30 @@ async def list_chats(
         q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, ChatEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, ChatEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
-        # Pure recency: newest updated_at_unix first. Internal id DESC is the
-        # deterministic tiebreaker for equal-millisecond rows so pagination stays
-        # stable. Attention flags are display-only and never influence order.
-        rows = (q.order_by(
-                    ChatEntity.updated_at_unix.desc(),
-                    ChatEntity.id.desc(),
-                )
+        # Ordering is applied after every filter and before offset/limit so
+        # pagination is globally correct for the selected mode (todo 3152).
+        # Internal id is the deterministic tiebreaker in the same direction as
+        # the chosen timestamp. Attention flags remain display-only.
+        #
+        # created_at_unix is NULL on a large historical cohort (pre ~2026-02-12).
+        # Postgres sorts NULLS FIRST under DESC, which would put those rows at
+        # the top of "Created ↓". Apply NULLS LAST only on the created_at
+        # branch so unknown-created rows sink in both directions; leave the
+        # updated_at branch byte-identical so idx_chat_user_updated stays
+        # usable (updated_at_unix has zero NULLs in production).
+        if sort_by == CHAT_SORT_BY_CREATED_AT:
+            ts_col = ChatEntity.created_at_unix
+            if sort_order == CHAT_SORT_ORDER_ASC:
+                order_clauses = (ts_col.asc().nullslast(), ChatEntity.id.asc())
+            else:
+                order_clauses = (ts_col.desc().nullslast(), ChatEntity.id.desc())
+        else:
+            ts_col = ChatEntity.updated_at_unix
+            if sort_order == CHAT_SORT_ORDER_ASC:
+                order_clauses = (ts_col.asc(), ChatEntity.id.asc())
+            else:
+                order_clauses = (ts_col.desc(), ChatEntity.id.desc())
+        rows = (q.order_by(*order_clauses)
                  .offset(offset)
                  .limit(limit)
                  .all())

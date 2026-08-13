@@ -588,6 +588,26 @@ without importing the note service. That bumped `BACKEND_CONTRACT_VERSION`
 from 3 to **4**, and the file module declares `min_backend_version: 4`. See
 *File: a control-plane module over VM infrastructure* below.
 
+Todo 3071 added the note control-plane surface (`note_list` / `note_get` /
+`note_create` / `note_import` / `note_update` / `note_delete` /
+`note_list_by_todo` / `note_relation_create` / `note_relation_delete` /
+`note_relations_by_todo` / `note_relations_by_note`), bumping
+`BACKEND_CONTRACT_VERSION` from 4 to **5**; the note module declares
+`min_backend_version: 5`. Todo 3137 extended the existing chat list row dict
+with `needs_attention`, bumping it from 5 to **6**. Todo 3152 extends
+`chat_list` again with optional closed `sort_by` (`updated_at` | `created_at`)
+and `sort_order` (`asc` | `desc`) parameters — separate parameters, not a
+combined sort enum — defaulting to `updated_at` + `desc` so callers that omit
+them keep pure-recency order. That bumps `BACKEND_CONTRACT_VERSION` from 6 to
+**7**, and the chat module raises its floor to 7 so list ordering stays
+server-side and globally correct across pagination. On the host query path,
+`created_at` ordering applies `NULLS LAST` in both directions because a large
+historical cohort has NULL `created_at_unix` with no recoverable source; the
+`updated_at` branch keeps its pre-3152 form so `idx_chat_user_updated` stays
+usable. The ownership boundary is unchanged: the host still owns the `chat`
+table and list query; the module owns the controls and validates/forwards the
+sort choice.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module

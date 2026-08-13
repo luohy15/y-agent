@@ -74,9 +74,11 @@ note_list_at_path, bumping it from 3 to 4. The note control-plane capability
 (todo 3071) adds the eleven owner-bound note_* functions and bumps it from 4
 to 5. The three-state chat attention UX (todo 3137) adds `needs_attention` to
 `chat_list` row dicts, a surface addition to the existing v3 chat capability,
-bumping it from 5 to 6. Modules declare the minimum version they use and an
-older host rejects their bundle. Every later addition to the surface above
-bumps the version and, for modules that need it, `min_backend_version`.
+bumping it from 5 to 6. Chat-list server-side sorting (todo 3152) adds optional
+closed `sort_by` / `sort_order` parameters to `chat_list`, bumping it from 6
+to 7. Modules declare the minimum version they use and an older host rejects
+their bundle. Every later addition to the surface above bumps the version and,
+for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -92,7 +94,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 6
+BACKEND_CONTRACT_VERSION = 7
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -380,8 +382,15 @@ async def chat_list(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """List chats owned by the authenticated request owner as plain dictionaries."""
+    """List chats owned by the authenticated request owner as plain dictionaries.
+
+    Optional `sort_by` / `sort_order` (v7) select the closed server-side order:
+    sort_by is `updated_at` or `created_at`, sort_order is `asc` or `desc`,
+    defaulting to updated_at + desc. Unknown values raise ValueError.
+    """
     _require_chat_owner(user_id)
     from storage.service import chat as chat_service
 
@@ -409,6 +418,8 @@ async def chat_list(
         updated_on=updated_on,
         updated_from=updated_from,
         updated_to=updated_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return [
         {

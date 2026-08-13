@@ -40,8 +40,15 @@ mode (`-i`) serves a human at a terminal.
 
 ### GUI: chat list
 
-1. As a web user, I want a list of my chats ordered by recent activity, so
-   that I can find and resume any conversation.
+1. As a web user, I want a list of my chats ordered by recent activity by
+   default, so that I can find and resume any conversation. I also want to
+   choose server-side sorting by updated time or created time, each ascending
+   or descending, so that the order is globally correct across infinite-scroll
+   pages rather than only among already-loaded rows (todo 3152). The closed
+   options are `sort_by=updated_at|created_at` and `sort_order=asc|desc`,
+   defaulting to `updated_at` + `desc`. Manager and right-drawer dev pin
+   requests stay newest-updated navigation shortcuts and do not take the
+   ordinary-list sort mode.
 2. As a web user, I want the root manager chat pinned above the list, so that
    my main inbox conversation is always one click away regardless of filters.
    In the right-side chat drawer specifically, when the query is filtered by
@@ -63,11 +70,13 @@ mode (`-i`) serves a human at a terminal.
    attention without opening them. The marker reflects one of three mutually
    exclusive states, `needs_attention`, `unread`, or `none` (an orange marker
    for the first, the existing blue dot for the second, nothing for the
-   third). The marker is display-only: the list itself is ordered by recency
-   (`updated_at` descending, with a deterministic internal-id tiebreaker), so
-   opening a chat or flipping an attention flag never repositions its row.
-   Running and interrupted stay independent execution statuses that render
-   alongside the attention marker, not additional attention states.
+   third). The marker is display-only: attention flags never influence row
+   order. Default list order is pure recency (`updated_at` descending, with a
+   deterministic internal-id tiebreaker in the same direction as the chosen
+   timestamp), so opening a chat or flipping an attention flag never
+   repositions its row under the default sort. Running and interrupted stay
+   independent execution statuses that render alongside the attention marker,
+   not additional attention states.
 5. As a web user, I want to filter the list through one compact `key:value`
    query input (GitHub/Lucene style: space-separated terms AND together, a
    repeated key overwrites the earlier one, an empty value like `todo:`
@@ -338,15 +347,27 @@ mode (`-i`) serves a human at a terminal.
     write sites (the same five as the handoff-reminder mechanism below): a
     reply resolves whatever the chat was waiting on or announcing, whether it
     lands on an idle chat or steers a running one.
-  - Ordinary list queries (`storage.repository.chat.list_chats`) order by
-    pure recency: `updated_at_unix DESC, id DESC` before offset/limit
-    (todo 3141). Attention flags are display-only markers and never influence
-    row order, so opening a chat or flipping an attention flag never
-    repositions a row, and `limit=1` pin fetches remain "newest".
+  - Ordinary list queries (`storage.repository.chat.list_chats`) accept
+    optional closed `sort_by` (`updated_at` | `created_at`) and `sort_order`
+    (`asc` | `desc`), defaulting to `updated_at` + `desc` so callers that omit
+    them keep the pure-recency order from todo 3141. Ordering is applied after
+    every filter and before offset/limit. The chosen timestamp column is paired
+    with internal `id` in the same direction as the deterministic pagination
+    tiebreaker; `id` stays SQL-only and is never exposed in response payloads.
+    On the `created_at` branch only, `created_at_unix` uses `NULLS LAST` in both
+    directions: a large historical cohort has NULL `created_at_unix` (and no
+    recoverable source column), and Postgres would otherwise put those rows at
+    the top of `desc`. The `updated_at` branch stays without an explicit NULLS
+    clause so `idx_chat_user_updated` remains usable (`updated_at_unix` has no
+    NULLs in production). Attention flags are display-only markers and never
+    influence row order, so opening a chat or flipping an attention flag never
+    repositions a row under the default sort, and `limit=1` pin fetches remain
+    "newest updated".
   - The module contract (`agent.module_host.chat_list`) exposes
-    `needs_attention` alongside the existing `unread`, bumping
-    `BACKEND_CONTRACT_VERSION` from 5 to 6; the `chat` module's UI (marker
-    rendering, `min_backend_version`) is that module's surface, documented in
+    `needs_attention` alongside the existing `unread` (todo 3137, contract v6)
+    and optional `sort_by` / `sort_order` (todo 3152, contract v7, floor for
+    the chat module). The `chat` module's UI (marker rendering, sort controls,
+    `min_backend_version`) is that module's surface, documented in
     `code/y-module/chat/README.md`.
 - **Synchronous accept, asynchronous run.** Every send path (create, message,
   notify) persists the user message and sets `running` before returning, then
@@ -579,3 +600,4 @@ mode (`-i`) serves a human at a terminal.
 | 3131 | Make chat_id allocation collision-safe: shared `generate_unique_id` allocator, insert-only chat creation (`ChatIdCollision` on pre-check or unique constraint), 409 on caller-supplied id conflicts, loud worker mismatch warnings when dispatch identity differs from the persisted row, and a damage-scan script for historical overwrites. Identity-repair SQL for known victims is maintainer-only and not auto-run | - | `pages/plan-3131-chat-id-collision.md` | - | `pages/review-3131-chat-id-collision.md` | reviewed; local commit `a4c87ba`, not deployed |
 | 3137 | Add the three-state `needs_attention` / `unread` / `none` chat attention model: additive `chat.needs_attention` column + raw-SQL semantic setters that never bump `updated_at`, explicit producer (`POST /api/chat/attention`, `y chat attention [CHAT_ID] [--clear]`), completion-preserves-stronger-state and clear-on-reply transitions wired at the worker and all five existing-chat inbound write sites, and `agent.module_host.BACKEND_CONTRACT_VERSION` 5→6. The original delivery also ordered the list by attention precedence before recency; todo 3141 reverts that ordering to pure recency while keeping the marker display-only. Delivered as two halves: the host half (storage/worker/API/CLI/agent contract, migration SQL generated but not applied) and the `chat` module's marker UI + `min_backend_version` 6 bump, see `code/y-module/chat/README.md`. All attention mutations are owner-scoped on `(user_id, chat_id)`, since a public `chat_id` is only unique per user | - | `pages/plan-3137-chat-attention-states.md` | - | `pages/review-3137-chat-attention-host.md` (host), `pages/review-3137-chat-module-attention-ui.md` (module UI) | both halves reviewed and approved, committed; release sequence (migration → backend deploy → module publish) pending user approval |
 | 3141 | Restore pure recency ordering in the chat list (`updated_at_unix DESC, id DESC`), keep attention markers display-only, fix module live list refresh so a completed turn repositions its row without a host `chat.refreshList` command, and update chat-core / chat-module docs | - | `pages/plan-3141-chat-list-recency-order.md` | - | `pages/review-3141-chat-list-recency-order.md`, `pages/review-3141-chat-list-live-refresh.md` | reviewed and committed; backend deploy and chat module publish pending approval |
+| 3152 | Add server-side chat-list sorting by updated/created time ascending or descending via separate closed `sort_by` / `sort_order` parameters on host `list_chats` and `chat_list` (backend contract 6→7); chat module API/UI request the selected order and stop sorting loaded pages locally. Round-2 host fix: `created_at` order uses `NULLS LAST` so historical NULL `created_at_unix` rows sink instead of leading "Created ↓" | - | `pages/plan-3152-chat-list-backend-sorting.md` | - | `pages/review-3152-chat-list-sort-controls.md` | host + module implemented in worktrees; round-2 host NULLS LAST fix applied; deploy host first then publish chat (not yet authorized from this chat) |
