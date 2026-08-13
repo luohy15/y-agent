@@ -335,6 +335,7 @@ export default function App() {
   fileTabsRef.current = fileTabs;
   const workspaceTouchedRef = useRef(false);
   const workspaceReconciledRef = useRef(false);
+  const [workspaceVisible, setWorkspaceVisible] = useState(!auth.isLoggedIn);
   const workspaceModeKeyRef = useRef<string | null>(null);
   const workspaceModeSettledRef = useRef(false);
   const [workspaceModeSettled, setWorkspaceModeSettled] = useState(false);
@@ -346,16 +347,27 @@ export default function App() {
   const lastWorkspacePayloadRef = useRef<string | null>(null);
   const touchWorkspace = useCallback(() => {
     workspaceTouchedRef.current = true;
+    setWorkspaceVisible(true);
   }, []);
 
   useEffect(() => {
     if (!auth.isLoggedIn) {
       workspaceTouchedRef.current = false;
       workspaceReconciledRef.current = false;
+      setWorkspaceVisible(true);
       setWorkspaceModeSettled(false);
       lastWorkspacePayloadRef.current = null;
+    } else {
+      setWorkspaceVisible(false);
     }
   }, [auth.isLoggedIn]);
+
+  // Do not leave the cached fallback hidden indefinitely if module discovery stalls.
+  useEffect(() => {
+    if (!auth.isLoggedIn || workspaceVisible || !fileWorkspacePref.loaded) return;
+    const timer = window.setTimeout(() => setWorkspaceVisible(true), 1500);
+    return () => window.clearTimeout(timer);
+  }, [auth.isLoggedIn, fileWorkspacePref.loaded, workspaceVisible]);
 
   // Reconcile only after the authenticated preference GET and file-module mode
   // are known. A local action during the GET wins over its stale response.
@@ -389,6 +401,7 @@ export default function App() {
     } else if (result.shouldPersist) {
       fileWorkspacePref.setValue(payload);
     }
+    setWorkspaceVisible(true);
   }, [auth.isLoggedIn, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading, workspaceModeSettled]);
 
   // Persist complete normalized snapshots after bootstrap. This deliberately has
@@ -1647,7 +1660,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={fileTabs} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live
