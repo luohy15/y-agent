@@ -289,7 +289,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         chat_id,
                     )
                     complete_process(chat_id, status=result["status"])
-                    await _relaunch_claude_code_turn(chat_id, user_id, proc, backend=backend_type)
+                    await _relaunch_claude_code_turn(
+                        chat_id, user_id, proc, backend=backend_type,
+                        resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)),
+                    )
                     return
 
             complete_process(chat_id, status=result["status"])
