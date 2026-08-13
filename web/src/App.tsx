@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import useSWR from "swr";
 import { useAuth } from "./hooks/useAuth";
+import { useUserPreference } from "./hooks/useUserPreference";
 import { API, authFetch, jsonFetcher } from "./api";
 import ChatFallbackView from "./components/ChatFallbackView";
 import GoogleSignInButton from "./components/GoogleSignInButton";
@@ -47,8 +48,11 @@ import {
   openOrdinaryWorkspaceTab,
   persistHostWorkspace,
   readStoredDescriptors,
+  reconcileFileWorkspace,
+  serializeFileWorkspace,
   remapOrdinaryTabs,
   removeOrdinaryTabs,
+  restoreHostWorkspace,
   restoreHostWorkspaceWithoutMigration,
   type FocusRequest,
   type OrdinaryFileTab,
@@ -106,6 +110,7 @@ const RIGHT_DIFF_ITEM: PanelItem<"diff"> = { key: "diff", label: "Diff", icon: <
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
   const auth = useAuth();
+  const fileWorkspacePref = useUserPreference<unknown>("fileWorkspace", { enabled: auth.isLoggedIn });
   const {
     data: uiArtifactsResponse,
     isLoading: uiArtifactsLoading,
@@ -328,8 +333,87 @@ export default function App() {
   activeFileRef.current = activeFile;
   const fileTabsRef = useRef(fileTabs);
   fileTabsRef.current = fileTabs;
+  const workspaceTouchedRef = useRef(false);
+  const workspaceReconciledRef = useRef(false);
+  const workspaceModeKeyRef = useRef<string | null>(null);
+  const workspaceModeSettledRef = useRef(false);
+  const [workspaceModeSettled, setWorkspaceModeSettled] = useState(false);
+  const workspaceModeKey = `${uiArtifactsLoading}:${contextualFileTabs}`;
+  if (workspaceModeKeyRef.current !== workspaceModeKey) {
+    workspaceModeKeyRef.current = workspaceModeKey;
+    workspaceModeSettledRef.current = false;
+  }
+  const lastWorkspacePayloadRef = useRef<string | null>(null);
+  const touchWorkspace = useCallback(() => {
+    workspaceTouchedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!auth.isLoggedIn) {
+      workspaceTouchedRef.current = false;
+      workspaceReconciledRef.current = false;
+      setWorkspaceModeSettled(false);
+      lastWorkspacePayloadRef.current = null;
+    }
+  }, [auth.isLoggedIn]);
+
+  // Reconcile only after the authenticated preference GET and file-module mode
+  // are known. A local action during the GET wins over its stale response.
+  useEffect(() => {
+    if (!auth.isLoggedIn || uiArtifactsLoading || !workspaceModeSettledRef.current || !workspaceModeSettled || !fileWorkspacePref.loaded || workspaceReconciledRef.current) return;
+    const result = reconcileFileWorkspace(
+      {
+        openTabs: openFilesRef.current,
+        active: activeFileRef.current,
+        preview: previewFileRef.current,
+        files: fileTabsRef.current,
+      },
+      fileWorkspacePref.serverValue,
+      workspaceTouchedRef.current,
+      (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
+      isPersistableTab,
+    );
+    workspaceReconciledRef.current = true;
+    const payload = serializeFileWorkspace(
+      result.snapshot,
+      (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
+      isPersistableTab,
+    );
+    lastWorkspacePayloadRef.current = JSON.stringify(payload);
+    if (result.source === "server") {
+      persistHostWorkspace(localStorage, result.snapshot, false);
+      setOpenFiles(result.snapshot.openTabs);
+      setActiveFile(result.snapshot.active);
+      setPreviewFile(result.snapshot.preview);
+      setFileTabs(result.snapshot.files);
+    } else if (result.shouldPersist) {
+      fileWorkspacePref.setValue(payload);
+    }
+  }, [auth.isLoggedIn, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading, workspaceModeSettled]);
+
+  // Persist complete normalized snapshots after bootstrap. This deliberately has
+  // last-successful-write-wins behavior, matching activity-bar preferences.
+  useEffect(() => {
+    if (!auth.isLoggedIn || !workspaceReconciledRef.current) return;
+    const snapshot = {
+      openTabs: openFiles,
+      active: activeFile,
+      preview: previewFile,
+      files: fileTabs,
+    };
+    const payload = serializeFileWorkspace(
+      snapshot,
+      (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
+      isPersistableTab,
+    );
+    const serialized = JSON.stringify(payload);
+    if (serialized === lastWorkspacePayloadRef.current) return;
+    lastWorkspacePayloadRef.current = serialized;
+    fileWorkspacePref.setValue(payload);
+  }, [auth.isLoggedIn, openFiles, activeFile, previewFile, fileTabs, fileWorkspacePref.setValue]);
 
   const openHostWorkspaceTab = useCallback((path: string) => {
+    touchWorkspace();
     const p = path.replace(/^\.\//, "");
     // Aggregate file mode still needs ui:file; contextual mode never reopens it.
     if (p === FILE_AGGREGATE_TAB && contextualFileTabsRef.current) return;
@@ -339,7 +423,7 @@ export default function App() {
     setPreviewFile((current) => current === p ? null : current);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
+  }, [touchWorkspace]);
 
   const applyOrdinaryOpen = useCallback((
     path: string,
@@ -348,6 +432,7 @@ export default function App() {
     preview: boolean,
     line?: number,
   ) => {
+    touchWorkspace();
     if (!contextualFileTabsRef.current) {
       openHostWorkspaceTab(FILE_AGGREGATE_TAB);
       // Single publish for the aggregate module; callers must not re-publish.
@@ -378,7 +463,7 @@ export default function App() {
       setSidebarOpen(false);
       setChatListOpen(false);
     }
-  }, [openHostWorkspaceTab]);
+  }, [openHostWorkspaceTab, touchWorkspace]);
 
   const openOrdinaryFile = useCallback((
     path: string,
@@ -409,6 +494,7 @@ export default function App() {
   // untouched as the module's rollback source.
   useEffect(() => {
     if (uiArtifactsLoading) return;
+    setWorkspaceModeSettled(false);
     // Prefer the live strip (still holds ui:file while collapsed). Stored openFiles
     // may already have been rewritten by the earlier persistence effect on the same
     // render when contextualFileTabs flipped true (round-12).
@@ -434,9 +520,17 @@ export default function App() {
       isHostSpecialTab: (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
       isPersistable: isPersistableTab,
     });
-    if (transition.type === "none") return;
+    if (transition.type === "none") {
+      workspaceModeSettledRef.current = true;
+      setWorkspaceModeSettled(true);
+      return;
+    }
     if (transition.type === "migrate" || transition.type === "remigrate") {
-      if (!persistHostWorkspace(localStorage, transition.snapshot, true)) return;
+      if (!persistHostWorkspace(localStorage, transition.snapshot, true)) {
+        workspaceModeSettledRef.current = true;
+        setWorkspaceModeSettled(true);
+        return;
+      }
       try { localStorage.removeItem(HOST_FILE_TABS_COLLAPSED_KEY); } catch { /* ignore */ }
     } else if (transition.type === "collapse") {
       // Rewrite live host tabs only. Keep migration marker + descriptors +
@@ -458,6 +552,8 @@ export default function App() {
       setFileFocus({});
       setFileSearchOpen(false);
     }
+    workspaceModeSettledRef.current = true;
+    setWorkspaceModeSettled(true);
   }, [contextualFileTabs, uiArtifactsLoading]);
 
   // Contract v3 (plan sub-task S0, pages/plan-2979-calendar-dynamic-ui.md
@@ -521,6 +617,7 @@ export default function App() {
     vmName: string | null = selectedVM,
     workDir: string | null = effectiveWorkDir ?? null,
   ) => {
+    touchWorkspace();
     const p = path.replace(/^\.\//, "");
     if (isOrdinaryFilePath(p)) {
       // Panel/link opens retain preview semantics (plan decision 5).
@@ -576,11 +673,12 @@ export default function App() {
     setActiveFile(p);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [openOrdinaryFile, selectedVM, effectiveWorkDir]);
+  }, [openOrdinaryFile, selectedVM, effectiveWorkDir, touchWorkspace]);
 
   const handlePinFile = useCallback((path: string) => {
+    touchWorkspace();
     setPreviewFile((current) => current === path ? null : current);
-  }, []);
+  }, [touchWorkspace]);
 
   const handleOpenDiffFile = useCallback((path: string) => {
     const diffPath = `diff:${path}`;
@@ -589,6 +687,7 @@ export default function App() {
   }, [handlePreviewFile]);
 
   const handleOpenArtifact = useCallback((type: ArtifactType, spec: string) => {
+    touchWorkspace();
     const id = Math.random().toString(36).slice(2, 10);
     const path = `artifact:${id}.${type}`;
     setArtifactTabs((prev) => ({ ...prev, [path]: { type, spec } }));
@@ -597,9 +696,10 @@ export default function App() {
     setPreviewFile(null);
     setChatHide(true);
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, []);
+  }, [touchWorkspace]);
 
   const handleCloseFile = useCallback((path: string) => {
+    touchWorkspace();
     if (fileTabsRef.current[path]) {
       const next = closeWorkspaceTabKey(
         {
@@ -645,16 +745,38 @@ export default function App() {
     if (path.startsWith("artifact:")) {
       setArtifactTabs((prev) => { const next = { ...prev }; delete next[path]; return next; });
     }
-  }, []);
+  }, [touchWorkspace]);
 
   const handleCloseAllFiles = useCallback(() => {
+    touchWorkspace();
     setOpenFiles([]);
     setActiveFile(null);
     setPreviewFile(null);
     setFileTabs({});
     setFileDirty({});
     setFileFocus({});
-  }, []);
+  }, [touchWorkspace]);
+
+  const handleSelectFile = useCallback((path: string) => {
+    touchWorkspace();
+    setActiveFile(path);
+  }, [touchWorkspace]);
+
+  const handleReorderFiles = useCallback((openTabs: string[]) => {
+    touchWorkspace();
+    const next = restoreHostWorkspace(
+      openTabs,
+      activeFileRef.current,
+      previewFileRef.current,
+      fileTabsRef.current,
+      (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
+      isPersistableTab,
+    );
+    setOpenFiles(next.openTabs);
+    setActiveFile(next.active);
+    setPreviewFile(next.preview);
+    setFileTabs(next.files);
+  }, [touchWorkspace]);
 
   const handleRemapOrdinaryFiles = useCallback((
     oldPath: string,
@@ -662,6 +784,7 @@ export default function App() {
     vmName?: string | null,
     workDir?: string | null,
   ) => {
+    touchWorkspace();
     const next = remapOrdinaryTabs(
       {
         openTabs: openFilesRef.current,
@@ -678,13 +801,14 @@ export default function App() {
     setActiveFile(next.active);
     setPreviewFile(next.preview);
     setFileTabs(next.files);
-  }, []);
+  }, [touchWorkspace]);
 
   const handleRemoveOrdinaryFiles = useCallback((
     path: string,
     vmName?: string | null,
     workDir?: string | null,
   ) => {
+    touchWorkspace();
     const next = removeOrdinaryTabs(
       {
         openTabs: openFilesRef.current,
@@ -700,7 +824,7 @@ export default function App() {
     setActiveFile(next.active);
     setPreviewFile(next.preview);
     setFileTabs(next.files);
-  }, []);
+  }, [touchWorkspace]);
 
   // C1: publish retained per-location VM/work-directory context for the
   // Files module panel — left uses default VM + currentVmWorkDir, right uses
@@ -884,7 +1008,7 @@ export default function App() {
           e.preventDefault();
           const n = Number(e.key);
           const idx = n === 9 ? files.length - 1 : n - 1;
-          if (idx < files.length) setActiveFile(files[idx]);
+          if (idx < files.length) handleSelectFile(files[idx]);
           return;
         }
       }
@@ -929,7 +1053,7 @@ export default function App() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("message", onPreviewKeydown);
     };
-  }, [handleCloseFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+  }, [handleCloseFile, handleSelectFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
 
   useEffect(() => {
     localStorage.setItem("sidebarWidth", String(sidebarWidth));
@@ -1523,7 +1647,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={setActiveFile} onCloseFile={handleCloseFile} onReorderFiles={setOpenFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={fileTabs} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={openFiles} activeFile={activeFile} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={fileTabs} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={previewFile} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

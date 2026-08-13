@@ -40,6 +40,20 @@ export interface HostWorkspaceSnapshot {
   files: Record<string, OrdinaryFileTab>;
 }
 
+export interface FileWorkspacePayload {
+  version: 1;
+  openTabs: string[];
+  active: string | null;
+  preview: string | null;
+  files: OrdinaryFileTab[];
+}
+
+export interface FileWorkspaceReconciliation {
+  snapshot: HostWorkspaceSnapshot;
+  source: "server" | "local";
+  shouldPersist: boolean;
+}
+
 export interface FocusRequest {
   line: number;
   nonce: number;
@@ -93,6 +107,61 @@ export function sanitizeModuleWorkspace(value: unknown): ModuleWorkspaceState | 
 
 export function filesFromTabs(tabs: OrdinaryFileTab[]): Record<string, OrdinaryFileTab> {
   return Object.fromEntries(tabs.map((tab) => [tab.id, tab]));
+}
+
+export function serializeFileWorkspace(
+  snapshot: HostWorkspaceSnapshot,
+  isHostSpecialTab?: (path: string) => boolean,
+  isPersistable?: (path: string) => boolean,
+): FileWorkspacePayload {
+  const normalized = isHostSpecialTab && isPersistable
+    ? restoreHostWorkspace(
+      snapshot.openTabs,
+      snapshot.active,
+      snapshot.preview,
+      snapshot.files,
+      isHostSpecialTab,
+      isPersistable,
+    )
+    : snapshot;
+  return {
+    version: 1,
+    openTabs: normalized.openTabs,
+    active: normalized.active,
+    preview: normalized.preview,
+    files: Object.values(normalized.files),
+  };
+}
+
+/** Parse a backend workspace document through the same policy as local restore. */
+export function parseFileWorkspace(
+  value: unknown,
+  isHostSpecialTab: (path: string) => boolean,
+  isPersistable: (path: string) => boolean,
+): HostWorkspaceSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<FileWorkspacePayload>;
+  if (raw.version !== 1 || !Array.isArray(raw.openTabs) || !Array.isArray(raw.files)) return null;
+  if (!raw.openTabs.every((key) => typeof key === "string")) return null;
+  if (raw.active !== null && typeof raw.active !== "string") return null;
+  if (raw.preview !== null && typeof raw.preview !== "string") return null;
+  const tabs = raw.files.map(ordinaryFileTabFromUnknown);
+  if (tabs.some((tab) => !tab)) return null;
+  const files = filesFromTabs(tabs as OrdinaryFileTab[]);
+  return restoreHostWorkspace(raw.openTabs, raw.active ?? null, raw.preview ?? null, files, isHostSpecialTab, isPersistable);
+}
+
+/** Choose a valid server snapshot unless a local action raced the initial GET. */
+export function reconcileFileWorkspace(
+  local: HostWorkspaceSnapshot,
+  serverValue: unknown,
+  userTouched: boolean,
+  isHostSpecialTab: (path: string) => boolean,
+  isPersistable: (path: string) => boolean,
+): FileWorkspaceReconciliation {
+  const server = parseFileWorkspace(serverValue, isHostSpecialTab, isPersistable);
+  if (server && !userTouched) return { snapshot: server, source: "server", shouldPersist: false };
+  return { snapshot: local, source: "local", shouldPersist: true };
 }
 
 export function readStoredDescriptors(storage: Pick<Storage, "getItem">): Record<string, OrdinaryFileTab> {
