@@ -22,9 +22,6 @@ class ChatEntity(Base, BaseEntity):
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
     status = Column(String, nullable=False, server_default="idle")
     unread = Column(Boolean, nullable=False, server_default=text("false"))
-    # Blocked-on-Roy signal, set explicitly by a running session (`y chat attention`)
-    # rather than inferred. Outranks `unread` in list precedence; see chat-core PRD.
-    needs_attention = Column(Boolean, nullable=False, server_default=text("false"))
     share_password_hash = Column(String, nullable=True)
 
     __table_args__ = (

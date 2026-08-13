@@ -72,11 +72,9 @@ control-plane capability (todo 3042) bumps it from 2 to 3. The file control-plan
 capability (todo 3068) extends VM execution with work_dir and stdin and adds
 note_list_at_path, bumping it from 3 to 4. The note control-plane capability
 (todo 3071) adds the eleven owner-bound note_* functions and bumps it from 4
-to 5. The three-state chat attention UX (todo 3137) adds `needs_attention` to
-`chat_list` row dicts, a surface addition to the existing v3 chat capability,
-bumping it from 5 to 6. Modules declare the minimum version they use and an
-older host rejects their bundle. Every later addition to the surface above
-bumps the version and, for modules that need it, `min_backend_version`.
+to 5. Modules declare the minimum version they use and an older host rejects
+their bundle. Every later addition to the surface above bumps the version and,
+for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -92,7 +90,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 6
+BACKEND_CONTRACT_VERSION = 5
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -426,7 +424,6 @@ async def chat_list(
             "tier": chat.tier,
             "status": chat.status,
             "unread": chat.unread,
-            "needs_attention": chat.needs_attention,
         }
         for chat in chats
     ]

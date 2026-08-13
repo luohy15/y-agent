@@ -237,7 +237,6 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
-    chat_service.clear_attention_on_reply(user_id, req.chat_id)
 
     if not already_running:
         send_chat_message(req.chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks)
@@ -292,30 +291,6 @@ async def post_stop_chat(req: StopChatRequest):
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
     return {"ok": True}
-
-
-class AttentionRequest(BaseModel):
-    chat_id: str
-    clear: Optional[bool] = False
-
-
-@router.post("/attention")
-async def post_chat_attention(req: AttentionRequest, request: Request):
-    """Explicit blocked-on-Roy signal (`y chat attention`), owner-scoped like every
-    other per-chat mutation. A missing chat_id or a chat owned by another user
-    both 404 identically because the lookup itself is scoped to the
-    authenticated owner (no separate cross-owner check needed)."""
-    user_id = _get_user_id(request)
-    chat = await chat_service.get_chat(user_id, req.chat_id)
-    if chat is None:
-        raise HTTPException(status_code=404, detail="chat not found")
-
-    if req.clear:
-        chat_service.clear_chat_needs_attention(user_id, req.chat_id)
-    else:
-        chat_service.mark_chat_needs_attention(user_id, req.chat_id)
-
-    return {"ok": True, "needs_attention": not req.clear}
 
 
 class MarkReadRequest(BaseModel):
@@ -620,7 +595,6 @@ async def post_chat_notify(req: NotifyRequest, request: Request):
             # Set running immediately so frontend shows running state without waiting for worker
             updated_chat.running = True
         await chat_repo.save_chat_by_id(updated_chat)
-        chat_service.clear_attention_on_reply(user_id, chat_id)
     else:
         # create_chat mints + inserts with race retry; rebuild the message so
         # to_chat: matches the final id.
