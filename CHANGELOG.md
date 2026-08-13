@@ -17,6 +17,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   expose the relay's system-wide RPM/TPM. The API proxies the CRS admin dashboard
   directly with DB-stored `crs_admin` credentials, replacing the earlier on-request
   compute path and the short-lived VM-precomputed store path.
+- **Three-state chat attention model (3137)**: chats track `needs_attention` /
+  `unread` / `none` instead of a plain unread flag, with repository, service, API,
+  and CLI (`y chat attention`) support plus Telegram delivery wired to the new
+  states (host half; worker/UI consumption tracked separately).
 
 ### Changed
 - **Host UI control convergence (3115)**: host surfaces share a design-language
