@@ -58,9 +58,16 @@ mode (`-i`) serves a human at a terminal.
    message), timestamp, and badges for trace id, chat id, topic, skill, and
    routine, so that I can identify a chat's place in the session tree at a
    glance.
-4. As a web user, I want a running spinner, an interrupted icon, and an
-   unread dot on list rows, so that I can see which conversations need
-   attention without opening them.
+4. As a web user, I want a running spinner, an interrupted icon, and one
+   attention marker per row, so that I can see which conversations need
+   attention without opening them. The marker reflects one of three mutually
+   exclusive states, `needs_attention`, `unread`, or `none` (an orange marker
+   for the first, the existing blue dot for the second, nothing for the
+   third), and the list orders rows by that same precedence before recency:
+   `needs_attention` rows first, then `unread`, then everything else, each
+   bucket newest-first. Running and interrupted stay independent execution
+   statuses that render alongside the attention marker, not additional
+   attention states.
 5. As a web user, I want to filter the list through one compact `key:value`
    query input (GitHub/Lucene style: space-separated terms AND together, a
    repeated key overwrites the earlier one, an empty value like `todo:`
@@ -105,7 +112,10 @@ mode (`-i`) serves a human at a terminal.
    address the chat from the CLI or a dispatch message.
 9. As a web user, I want opening a chat to clear its unread marker
    (optimistically in the list, persisted server-side), so that unread state
-   reflects what I have actually seen.
+   reflects what I have actually seen. Opening does not clear
+   `needs_attention`: merely reading a question a session is blocked on does
+   not unblock the session, so a `needs_attention` chat stays that way until I
+   actually reply.
 10. As a web user, I want the list to refresh when a chat I am watching
     completes, and a manual refresh button, so that statuses stay current.
 
@@ -265,6 +275,22 @@ mode (`-i`) serves a human at a terminal.
     stating the session's actual usage, so that the receiving session is
     nudged to wrap up and hand off per AGENTS.md rather than running
     unboundedly long.
+54. As a running agent session, I want an explicit built-in command
+    (`y chat attention [CHAT_ID]`, defaulting to `Y_CHAT_ID`, with `--clear`
+    to reverse it) that flips a chat's `needs_attention` signal, so that I can
+    announce I am blocked on Roy answering or confirming without the runtime
+    guessing it from my prose. This stays a built-in runtime command, like
+    dispatch and stop, so a missing chat module can never prevent a running
+    agent from signaling that it is waiting.
+55. As a user, I want a completed turn's unread marking to never downgrade an
+    already-`needs_attention` chat, so that a session's explicit blocked
+    signal survives its own completion hook rather than being silently
+    overwritten by the same turn's "mark unread" post-hook.
+56. As a user, I want any new user message accepted into an existing chat
+    (web/CLI send, notify callback, Telegram routed message, Telegram
+    manager-steer, Telegram DM append) to clear both `needs_attention` and
+    `unread`, so that replying always resolves whatever the chat was waiting
+    on or announcing.
 
 ## Implementation Decisions
 
@@ -273,6 +299,55 @@ mode (`-i`) serves a human at a terminal.
   messages into it as the backend emits them; every surface reads the same
   row. There is no separate streaming channel with its own state: the web SSE
   endpoint and the CLI `--wait` loop are both pollers over the persisted chat.
+- **Three-state attention model (todo 3137).** Every chat carries two
+  booleans, `unread` (existing) and `needs_attention` (additive: `chat`
+  gained a `needs_attention BOOLEAN NOT NULL DEFAULT false` column). The
+  projected state a reader sees is `needs_attention` > `unread` > `none`, in
+  that precedence: `needs_attention` wins even if legacy or racing writes
+  temporarily leave both booleans true. `needs_attention` is never inferred
+  from turn content or punctuation — the runtime cannot reliably classify
+  whether a successful assistant turn is a completed result or a question, so
+  the state has one explicit producer: `POST /api/chat/attention` /
+  `y chat attention [CHAT_ID] [--clear]`, owner-scoped like every other
+  per-chat mutation (a missing or cross-owner chat both 404 identically
+  because the lookup itself is scoped to the authenticated owner). All
+  attention/unread writes go through raw-SQL repository setters
+  (`set_chat_attention`, `clear_attention_and_unread`,
+  `mark_completion_unread`) that never touch `updated_at`, so toggling either
+  flag never bumps a chat to the top of the recency-ordered list on its own.
+  These three take `user_id` alongside `chat_id` and filter on both in the
+  SQL predicate, not `chat_id` alone: `(user_id, chat_id)` is the unique key
+  on `chat` (see identity allocation below), so a public chat id is only
+  unique per user and a `chat_id`-only predicate could mutate a different
+  user's same-id row. Every caller threads its already-known owner through:
+  the API endpoint and the four other inbound-reply write sites use the
+  authenticated request's `user_id`, the three worker completion sites use
+  the `user_id` already carried on their process/proc record. This is a
+  correction from the review round that first caught the gap; the pre-existing
+  `set_chat_unread` (unread-only, not part of this delivery) still has the
+  narrower `chat_id`-only predicate and is a candidate for the same fix as a
+  separate follow-up. Three transition rules compose the lifecycle:
+  - **Completion preserves a stronger state**: successful completion marks
+    `unread` only when `needs_attention` is false (`mark_completion_unread`),
+    so a turn that called the attention command mid-run is not immediately
+    downgraded by its own completion hook.
+  - **Opening clears only `unread`**: inspecting a chat's content does not
+    resolve what it is blocked on.
+  - **Accepting a new user message clears both flags** (`clear_attention_on_reply`
+    / `clear_attention_and_unread`), wired at all five existing-chat inbound
+    write sites (the same five as the handoff-reminder mechanism below): a
+    reply resolves whatever the chat was waiting on or announcing, whether it
+    lands on an idle chat or steers a running one.
+  - Ordinary list queries (`storage.repository.chat.list_chats`) order by
+    `needs_attention DESC, unread DESC, updated_at_unix DESC` before
+    offset/limit, because a row outside the fetched page can never be
+    promoted by a client-side sort. This is server-side precedence, not a
+    display-only marker.
+  - The module contract (`agent.module_host.chat_list`) exposes
+    `needs_attention` alongside the existing `unread`, bumping
+    `BACKEND_CONTRACT_VERSION` from 5 to 6; the `chat` module's UI (marker
+    rendering, `min_backend_version`) is that module's surface, documented in
+    `code/y-module/chat/README.md`.
 - **Synchronous accept, asynchronous run.** Every send path (create, message,
   notify) persists the user message and sets `running` before returning, then
   enqueues a queue task (SQS in production, Celery filesystem broker in dev)
@@ -428,6 +503,21 @@ mode (`-i`) serves a human at a terminal.
   extraction, identity-field immutability, and the opposite rule for the
   routing fields (a new bot name / tier is written, an unset one never
   clears the stored value).
+- Attention/unread transitions (todo 3137) are repository-level, table-driven
+  against an in-memory SQLite chat table: `needs_attention -> completion`
+  stays `needs_attention` (unread stays false), `unread -> open` becomes
+  `none`, `needs_attention -> open` stays `needs_attention`, and
+  `needs_attention -> user reply` becomes `none`; plus a projection-ordering
+  test (`needs_attention`, `unread`, and neutral rows ordered by state then
+  recency, including a limit-1 case) and a no-timestamp-bump assertion for
+  every attention-only write. Owner scoping across the three setters has its
+  own repository-level fixture: two rows sharing one `chat_id` under
+  different `user_id`s, asserting a mutation on one owner's row never touches
+  the other's (the review-round-1 blocking finding). The `POST
+  /api/chat/attention` producer endpoint gets its own owner-scoped API test
+  (default id via CLI `Y_CHAT_ID`, explicit id, `--clear`, missing id,
+  unknown chat, cross-owner rejection, and that the authenticated `user_id`
+  is the one threaded into the mutation call).
 - Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
 
@@ -485,3 +575,4 @@ mode (`-i`) serves a human at a terminal.
 | 3072 | Persist the chat panel query input in localStorage with distinct keys per panel location (`chatListQueryLeft` / `chatListQueryRight`), preserving the compact query input from 3064/3070 | - | - | - | `pages/review-3072-chat-query-persistence.md` | reviewed; shared publish coordinated by 3070 |
 | 3103 | Linkify tightly validated absolute `/...` and home-relative `~/...` file paths only inside inline-code spans; resolve `~/...` from the selected VM's runtime `HOME`, preserve relative-path opening, and avoid free-prose or URL false positives | - | - | - | `pages/review-3103-chat-path-links.md` | shipped in chat v17 |
 | 3131 | Make chat_id allocation collision-safe: shared `generate_unique_id` allocator, insert-only chat creation (`ChatIdCollision` on pre-check or unique constraint), 409 on caller-supplied id conflicts, loud worker mismatch warnings when dispatch identity differs from the persisted row, and a damage-scan script for historical overwrites. Identity-repair SQL for known victims is maintainer-only and not auto-run | - | `pages/plan-3131-chat-id-collision.md` | - | `pages/review-3131-chat-id-collision.md` | reviewed; local commit `a4c87ba`, not deployed |
+| 3137 | Add the three-state `needs_attention` / `unread` / `none` chat attention model: additive `chat.needs_attention` column + raw-SQL semantic setters that never bump `updated_at`, explicit producer (`POST /api/chat/attention`, `y chat attention [CHAT_ID] [--clear]`), completion-preserves-stronger-state and clear-on-reply transitions wired at the worker and all five existing-chat inbound write sites, server-side list-ordering precedence, and `agent.module_host.BACKEND_CONTRACT_VERSION` 5→6. Delivered as two halves: the host half (storage/worker/API/CLI/agent contract, migration SQL generated but not applied) and the `chat` module's marker UI + `min_backend_version` 6 bump, see `code/y-module/chat/README.md`. All attention mutations are owner-scoped on `(user_id, chat_id)`, since a public `chat_id` is only unique per user | - | `pages/plan-3137-chat-attention-states.md` | - | `pages/review-3137-chat-attention-host.md` (host), `pages/review-3137-chat-module-attention-ui.md` (module UI) | both halves reviewed and approved, committed; release sequence (migration → backend deploy → module publish) pending user approval |

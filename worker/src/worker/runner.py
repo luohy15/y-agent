@@ -372,7 +372,6 @@ async def _run_perplexity_inline(chat, chat_id: str, user_id: int, bot_config,
                                  topic: str = None) -> None:
     from agent.perplexity import run_perplexity
     from storage.repository import chat as chat_repo
-    from storage.repository.chat import set_chat_unread
 
     messages = _build_perplexity_messages(chat)
     if not messages or messages[-1]["role"] != "user":
@@ -401,7 +400,7 @@ async def _run_perplexity_inline(chat, chat_id: str, user_id: int, bot_config,
         return
 
     if not fresh.interrupted:
-        set_chat_unread(chat_id, True)
+        chat_service.mark_chat_completion_unread(user_id, chat_id)
         try:
             if _send_telegram_reply(fresh, user_id, trace_id):
                 await chat_repo.save_chat_by_id(fresh)
@@ -417,7 +416,6 @@ async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
                              topic: str = None) -> None:
     from agent.openai_chat import run_openai
     from storage.repository import chat as chat_repo
-    from storage.repository.chat import set_chat_unread
 
     messages = _build_openai_messages(chat)
     if not messages or messages[-1]["role"] != "user":
@@ -446,7 +444,7 @@ async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
         return
 
     if not fresh.interrupted:
-        set_chat_unread(chat_id, True)
+        chat_service.mark_chat_completion_unread(user_id, chat_id)
         try:
             if _send_telegram_reply(fresh, user_id, trace_id):
                 await chat_repo.save_chat_by_id(fresh)

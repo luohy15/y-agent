@@ -364,6 +364,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     if not already_running:
         target_chat.running = True
     await chat_repo.save_chat_by_id(target_chat)
+    chat_service.clear_attention_on_reply(user.id, target_chat_id)
 
     # If the chat is already running, the running worker picks up the new
     # message via steer polling — don't enqueue a duplicate task.
@@ -436,6 +437,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         chat.interrupted = False
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat_by_id(chat)
+        chat_service.clear_attention_on_reply(user.id, chat.id)
         return {"ok": True}
 
     if chat:
@@ -457,6 +459,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         chat.running = True
         from storage.repository import chat as chat_repo
         await chat_repo.save_chat_by_id(chat)
+        chat_service.clear_attention_on_reply(user.id, chat.id)
         chat_id = chat.id
     else:
         # Create new chat (allocate+insert with race retry)

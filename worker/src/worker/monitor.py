@@ -273,10 +273,11 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             complete_process(chat_id, status=result["status"])
 
-            # Mark as unread on successful completion
+            # Mark as unread on successful completion, unless the turn already
+            # signaled needs_attention (a stronger state a completion hook must
+            # not downgrade).
             if not fresh.interrupted and result["status"] != "error":
-                from storage.repository.chat import set_chat_unread
-                set_chat_unread(chat_id, True)
+                chat_service.mark_chat_completion_unread(user_id, chat_id)
 
             # Telegram reply + post hooks
             if not fresh.interrupted and result["status"] != "error":
