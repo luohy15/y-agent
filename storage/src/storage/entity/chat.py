@@ -23,7 +23,8 @@ class ChatEntity(Base, BaseEntity):
     status = Column(String, nullable=False, server_default="idle")
     unread = Column(Boolean, nullable=False, server_default=text("false"))
     # Blocked-on-Roy signal, set explicitly by a running session (`y chat attention`)
-    # rather than inferred. Outranks `unread` in list precedence; see chat-core PRD.
+    # rather than inferred. Display-only marker; does not influence list order
+    # (todo 3141). See chat-core PRD.
     needs_attention = Column(Boolean, nullable=False, server_default=text("false"))
     share_password_hash = Column(String, nullable=True)
 

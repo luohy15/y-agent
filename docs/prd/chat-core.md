@@ -63,11 +63,11 @@ mode (`-i`) serves a human at a terminal.
    attention without opening them. The marker reflects one of three mutually
    exclusive states, `needs_attention`, `unread`, or `none` (an orange marker
    for the first, the existing blue dot for the second, nothing for the
-   third), and the list orders rows by that same precedence before recency:
-   `needs_attention` rows first, then `unread`, then everything else, each
-   bucket newest-first. Running and interrupted stay independent execution
-   statuses that render alongside the attention marker, not additional
-   attention states.
+   third). The marker is display-only: the list itself is ordered by recency
+   (`updated_at` descending, with a deterministic internal-id tiebreaker), so
+   opening a chat or flipping an attention flag never repositions its row.
+   Running and interrupted stay independent execution statuses that render
+   alongside the attention marker, not additional attention states.
 5. As a web user, I want to filter the list through one compact `key:value`
    query input (GitHub/Lucene style: space-separated terms AND together, a
    repeated key overwrites the earlier one, an empty value like `todo:`
@@ -339,10 +339,10 @@ mode (`-i`) serves a human at a terminal.
     reply resolves whatever the chat was waiting on or announcing, whether it
     lands on an idle chat or steers a running one.
   - Ordinary list queries (`storage.repository.chat.list_chats`) order by
-    `needs_attention DESC, unread DESC, updated_at_unix DESC` before
-    offset/limit, because a row outside the fetched page can never be
-    promoted by a client-side sort. This is server-side precedence, not a
-    display-only marker.
+    pure recency: `updated_at_unix DESC, id DESC` before offset/limit
+    (todo 3141). Attention flags are display-only markers and never influence
+    row order, so opening a chat or flipping an attention flag never
+    repositions a row, and `limit=1` pin fetches remain "newest".
   - The module contract (`agent.module_host.chat_list`) exposes
     `needs_attention` alongside the existing `unread`, bumping
     `BACKEND_CONTRACT_VERSION` from 5 to 6; the `chat` module's UI (marker
@@ -507,17 +507,19 @@ mode (`-i`) serves a human at a terminal.
   against an in-memory SQLite chat table: `needs_attention -> completion`
   stays `needs_attention` (unread stays false), `unread -> open` becomes
   `none`, `needs_attention -> open` stays `needs_attention`, and
-  `needs_attention -> user reply` becomes `none`; plus a projection-ordering
-  test (`needs_attention`, `unread`, and neutral rows ordered by state then
-  recency, including a limit-1 case) and a no-timestamp-bump assertion for
-  every attention-only write. Owner scoping across the three setters has its
-  own repository-level fixture: two rows sharing one `chat_id` under
-  different `user_id`s, asserting a mutation on one owner's row never touches
-  the other's (the review-round-1 blocking finding). The `POST
-  /api/chat/attention` producer endpoint gets its own owner-scoped API test
-  (default id via CLI `Y_CHAT_ID`, explicit id, `--clear`, missing id,
-  unknown chat, cross-owner rejection, and that the authenticated `user_id`
-  is the one threaded into the mutation call).
+  `needs_attention -> user reply` becomes `none`; plus a no-timestamp-bump
+  assertion for every attention-only write. List ordering (todo 3141) is a
+  separate repository-level recency test: `needs_attention`, `unread`, and
+  neutral rows still sort newest-first regardless of flags (including
+  `limit=1`), equal `updated_at_unix` ties break on internal `id` DESC, and
+  paginated pages together return each chat_id exactly once. Owner scoping
+  across the three setters has its own repository-level fixture: two rows
+  sharing one `chat_id` under different `user_id`s, asserting a mutation on
+  one owner's row never touches the other's (the review-round-1 blocking
+  finding). The `POST /api/chat/attention` producer endpoint gets its own
+  owner-scoped API test (default id via CLI `Y_CHAT_ID`, explicit id,
+  `--clear`, missing id, unknown chat, cross-owner rejection, and that the
+  authenticated `user_id` is the one threaded into the mutation call).
 - Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
 
@@ -575,4 +577,5 @@ mode (`-i`) serves a human at a terminal.
 | 3072 | Persist the chat panel query input in localStorage with distinct keys per panel location (`chatListQueryLeft` / `chatListQueryRight`), preserving the compact query input from 3064/3070 | - | - | - | `pages/review-3072-chat-query-persistence.md` | reviewed; shared publish coordinated by 3070 |
 | 3103 | Linkify tightly validated absolute `/...` and home-relative `~/...` file paths only inside inline-code spans; resolve `~/...` from the selected VM's runtime `HOME`, preserve relative-path opening, and avoid free-prose or URL false positives | - | - | - | `pages/review-3103-chat-path-links.md` | shipped in chat v17 |
 | 3131 | Make chat_id allocation collision-safe: shared `generate_unique_id` allocator, insert-only chat creation (`ChatIdCollision` on pre-check or unique constraint), 409 on caller-supplied id conflicts, loud worker mismatch warnings when dispatch identity differs from the persisted row, and a damage-scan script for historical overwrites. Identity-repair SQL for known victims is maintainer-only and not auto-run | - | `pages/plan-3131-chat-id-collision.md` | - | `pages/review-3131-chat-id-collision.md` | reviewed; local commit `a4c87ba`, not deployed |
-| 3137 | Add the three-state `needs_attention` / `unread` / `none` chat attention model: additive `chat.needs_attention` column + raw-SQL semantic setters that never bump `updated_at`, explicit producer (`POST /api/chat/attention`, `y chat attention [CHAT_ID] [--clear]`), completion-preserves-stronger-state and clear-on-reply transitions wired at the worker and all five existing-chat inbound write sites, server-side list-ordering precedence, and `agent.module_host.BACKEND_CONTRACT_VERSION` 5→6. Delivered as two halves: the host half (storage/worker/API/CLI/agent contract, migration SQL generated but not applied) and the `chat` module's marker UI + `min_backend_version` 6 bump, see `code/y-module/chat/README.md`. All attention mutations are owner-scoped on `(user_id, chat_id)`, since a public `chat_id` is only unique per user | - | `pages/plan-3137-chat-attention-states.md` | - | `pages/review-3137-chat-attention-host.md` (host), `pages/review-3137-chat-module-attention-ui.md` (module UI) | both halves reviewed and approved, committed; release sequence (migration → backend deploy → module publish) pending user approval |
+| 3137 | Add the three-state `needs_attention` / `unread` / `none` chat attention model: additive `chat.needs_attention` column + raw-SQL semantic setters that never bump `updated_at`, explicit producer (`POST /api/chat/attention`, `y chat attention [CHAT_ID] [--clear]`), completion-preserves-stronger-state and clear-on-reply transitions wired at the worker and all five existing-chat inbound write sites, and `agent.module_host.BACKEND_CONTRACT_VERSION` 5→6. The original delivery also ordered the list by attention precedence before recency; todo 3141 reverts that ordering to pure recency while keeping the marker display-only. Delivered as two halves: the host half (storage/worker/API/CLI/agent contract, migration SQL generated but not applied) and the `chat` module's marker UI + `min_backend_version` 6 bump, see `code/y-module/chat/README.md`. All attention mutations are owner-scoped on `(user_id, chat_id)`, since a public `chat_id` is only unique per user | - | `pages/plan-3137-chat-attention-states.md` | - | `pages/review-3137-chat-attention-host.md` (host), `pages/review-3137-chat-module-attention-ui.md` (module UI) | both halves reviewed and approved, committed; release sequence (migration → backend deploy → module publish) pending user approval |
+| 3141 | Restore pure recency ordering in the chat list (`updated_at_unix DESC, id DESC`), keep attention markers display-only, fix module live list refresh so a completed turn repositions its row without a host `chat.refreshList` command, and update chat-core / chat-module docs | - | `pages/plan-3141-chat-list-recency-order.md` | - | `pages/review-3141-chat-list-recency-order.md`, `pages/review-3141-chat-list-live-refresh.md` | reviewed; commit, deploy, and module publish pending |

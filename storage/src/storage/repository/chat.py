@@ -153,14 +153,12 @@ async def list_chats(
         q = apply_time_filter(q, ChatEntity.updated_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, ChatEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, ChatEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
-        # Attention precedence before recency: needs_attention rows first, then
-        # unread, then neutral rows, each bucket ordered by recency. A row
-        # outside the fetched page can never be promoted by a client-side sort,
-        # so this has to happen before offset/limit.
+        # Pure recency: newest updated_at_unix first. Internal id DESC is the
+        # deterministic tiebreaker for equal-millisecond rows so pagination stays
+        # stable. Attention flags are display-only and never influence order.
         rows = (q.order_by(
-                    ChatEntity.needs_attention.desc(),
-                    ChatEntity.unread.desc(),
                     ChatEntity.updated_at_unix.desc(),
+                    ChatEntity.id.desc(),
                 )
                  .offset(offset)
                  .limit(limit)

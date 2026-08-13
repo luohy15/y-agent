@@ -1130,14 +1130,14 @@ export default function App() {
     setSelectedChatId(chatId);
   }, []);
 
-  // D-B (pages/decision-3042-chat-shell-host-seam.md): the six D1b host
-  // commands code/y-module/chat v2 emits (chat/ui/host-commands.ts) that had no
-  // registerHostCommand wiring yet — `chat.open` / `chat.refreshList` /
-  // `chat.setTraceFilter` are already registered above. Each mirrors the
-  // equivalent built-in ChatView prop/callback so the module shell drives the
-  // same host state. Kept in its own effect (below handlePreviewFile /
-  // handleOpenArtifact / handleChatCreated) since those are declared after the
-  // control-plane effect above.
+  // D-B (pages/decision-3042-chat-shell-host-seam.md): host commands the chat
+  // module shell emits that had no registerHostCommand wiring yet. `chat.open`
+  // / `chat.setTraceFilter` are already registered above; list refresh is
+  // module-local (todo 3141), not a host command. Each remaining handler
+  // mirrors the equivalent built-in ChatView prop/callback so the module shell
+  // drives the same host state. Kept in its own effect (below handlePreviewFile
+  // / handleOpenArtifact / handleChatCreated) since those are declared after
+  // the control-plane effect above.
   useEffect(() => {
     const unregisterChatCreated = registerHostCommand("chat.created", (payload) => {
       const chatId = chatIdFromPayload(payload);

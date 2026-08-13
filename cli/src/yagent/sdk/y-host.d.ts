@@ -287,7 +287,7 @@ declare module "@y/host" {
   // commands.ts — artifact->host named command channel (contract v4). An
   // unregistered name is a silent no-op. Registration is host-internal and
   // not exported here (same partition as setArtifactIntent).
-  /** Ask the host to run a named command (e.g. "todo.open", "chat.refreshList"). */
+  /** Ask the host to run a named command (e.g. "todo.open", "chat.open"). */
   export function runHostCommand(name: string, payload?: unknown): void;
 
   // optimisticMutate.ts — shared optimistic list patcher (contract v4).
