@@ -41,13 +41,18 @@ web/public/docs-content/
 # One-off backfill scripts (run manually, not part of app)
 backfill_*.py
 
-# Tests are kept local-only
-agent/tests/
-api/tests/
-cli/tests/
-storage/tests/
-worker/tests/
-web/e2e/
+# Tests are kept local-only.
+# Patterns with no trailing slash match both the real dir (main repo) and
+# symlink (worktrees; see worktree/post-create.sh). A trailing slash would
+# match directories only and leave mode-120000 test symlinks untracked, so
+# `y dev commit` stage-all could commit them and later replace the real
+# suites in the main checkout with dead self-links.
+agent/tests
+api/tests
+cli/tests
+storage/tests
+worker/tests
+web/e2e
 web/src/**/*.test.ts
 web/src/**/*.test.tsx
 .pytest_cache/
