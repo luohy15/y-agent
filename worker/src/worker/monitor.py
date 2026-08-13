@@ -224,12 +224,33 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         session_id=updated_session_id,
         consumed_steer_ids=all_consumed_steer_ids,
         updates_offset=result.get("updates_offset"),
+        has_usable_output=result.get("has_usable_output"),
     )
 
     if result["is_done"]:
-        # Mark chat as no longer running
         from storage.repository import chat as chat_repo
         fresh = await chat_service.get_chat_by_id(chat_id)
+        if _should_resume_5xx(result, proc) and updated_session_id and fresh and not fresh.interrupted:
+            logger.warning(
+                "resume-on-5xx: chat_id={} session_id={} retrying same Claude Code session",
+                chat_id, updated_session_id,
+            )
+            await _apply_completion_metadata(
+                fresh=fresh,
+                result={**result, "status": "completed"},
+                result_data=result.get("result_data"),
+                proc=proc,
+                chat_id=chat_id,
+            )
+            await chat_repo.save_chat_by_id(fresh)
+            complete_process(chat_id, status=result["status"])
+            await _relaunch_claude_code_turn(
+                chat_id, user_id, proc, backend=backend_type,
+                resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)) + 1,
+            )
+            return
+
+        # Mark chat as no longer running
         if fresh:
             fresh.running = False
             await chat_repo.save_chat_by_id(fresh)
@@ -317,6 +338,21 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+def _should_resume_5xx(result: dict, proc: dict) -> bool:
+    if result.get("status") != "error" or result.get("resume_refused"):
+        return False
+    if int(proc.get("resume_5xx_retries", 0)) >= 1:
+        return False
+    if proc.get("has_usable_output") or result.get("has_usable_output"):
+        return False
+
+    result_data = result.get("result_data")
+    if not isinstance(result_data, dict) or not result_data.get("is_error"):
+        return False
+    from agent.claude_code import _is_api_5xx_error_text
+    return _is_api_5xx_error_text(result_data.get("result"))
 
 
 async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
@@ -432,7 +468,8 @@ def _int_value(value):
         return 0
 
 
-async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code") -> None:
+async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code",
+                                     resume_5xx_retries: int = 0) -> None:
     """Re-invoke the normal launch path for a leftover trailing user message
     that the steer race failed to deliver, instead of finalizing the turn as
     done (safety net, see plan-2662-steer-race.md, plan-2704-steer-prd-gap.md).
@@ -460,6 +497,7 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
         trace_id=proc.get("trace_id"),
         topic=proc.get("topic"),
         backend=backend,
+        resume_5xx_retries=resume_5xx_retries,
     )
 
 

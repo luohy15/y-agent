@@ -38,6 +38,13 @@ _SSH_EXEC_TIMEOUT_SECONDS = 60
 # Stream-json message converters
 # ---------------------------------------------------------------------------
 
+_API_5XX_RESULT_RE = re.compile(r"^API Error:\s*5\d\d(?:\b|\s|$)", re.IGNORECASE)
+
+
+def _is_api_5xx_error_text(value) -> bool:
+    return isinstance(value, str) and bool(_API_5XX_RESULT_RE.match(value.strip()))
+
+
 def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Optional[Message]:
     """Convert a stream-json assistant object to a y-agent Message."""
     message = obj.get("message", {})
@@ -350,6 +357,7 @@ class StreamConverter:
     def __init__(self, last_message_id: Optional[str] = None):
         self.tool_use_index: Dict[str, Dict] = {}
         self.last_message_id = last_message_id
+        self.has_usable_output = False
 
     def process_line(self, line: str) -> List[Message]:
         obj = parse_stream_line(line)
@@ -363,14 +371,19 @@ class StreamConverter:
             msg = _convert_assistant(obj, self.tool_use_index)
             if not msg:
                 return []
+            if _is_api_5xx_error_text(msg.content):
+                return []
             msg.parent_id = self.last_message_id
             self.last_message_id = msg.id
+            self.has_usable_output = True
             messages.append(msg)
         elif msg_type == "user":
             msgs = _convert_user_tool_results(obj, self.tool_use_index)
             for msg in msgs:
                 msg.parent_id = self.last_message_id
                 self.last_message_id = msg.id
+            if msgs:
+                self.has_usable_output = True
             messages.extend(msgs)
 
         return messages
@@ -1054,6 +1067,7 @@ async def tail_ssh_output(
                 "result_data": None,
                 "status": "monitoring",
                 "consumed_steer_ids": consumed_steer_ids,
+                "has_usable_output": converter.has_usable_output,
             }
 
         poll.stop()
@@ -1093,6 +1107,7 @@ async def tail_ssh_output(
                 "result_data": None,
                 "status": "interrupted",
                 "consumed_steer_ids": consumed_steer_ids,
+                "has_usable_output": converter.has_usable_output,
             }
 
         if exit_reason == "deadline":
@@ -1104,6 +1119,7 @@ async def tail_ssh_output(
                 "result_data": None,
                 "status": "monitoring",
                 "consumed_steer_ids": consumed_steer_ids,
+                "has_usable_output": converter.has_usable_output,
             }
 
         # Process finished normally
@@ -1125,6 +1141,7 @@ async def tail_ssh_output(
                     "result_data": None,
                     "status": "monitoring",
                     "consumed_steer_ids": consumed_steer_ids,
+                    "has_usable_output": converter.has_usable_output,
                 }
             if no_result_session_alive:
                 # The tail stream ended without a `result` event but the tmux
@@ -1143,6 +1160,7 @@ async def tail_ssh_output(
                     "result_data": None,
                     "status": "monitoring",
                     "consumed_steer_ids": consumed_steer_ids,
+                    "has_usable_output": converter.has_usable_output,
                 }
             # tmux session exited without ever emitting a stream-json `result`
             # event: a startup failure that died before the CLI could report one
@@ -1186,6 +1204,7 @@ async def tail_ssh_output(
             "result_data": result_data,
             "status": status,
             "consumed_steer_ids": consumed_steer_ids,
+            "has_usable_output": converter.has_usable_output,
             # True only where Claude Code itself named the session id as the
             # cause — in the error result event's `errors` list, or in this run's
             # stderr on the no-result branch. The worker drops the handle on this
@@ -1208,4 +1227,5 @@ async def tail_ssh_output(
             "result_data": None,
             "status": "error",
             "consumed_steer_ids": consumed_steer_ids,
+            "has_usable_output": converter.has_usable_output,
         }

@@ -46,7 +46,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      topic: str = None, post_hooks: list = None,
                      work_dir: str = None, session_id: str = None,
                      backend_type: str = None,
-                     initial_msg_count: int = None) -> None:
+                     initial_msg_count: int = None,
+                     resume_5xx_retries: int = 0) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -78,6 +79,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["backend_type"] = {"S": backend_type}
     if initial_msg_count is not None:
         item["initial_msg_count"] = {"N": str(initial_msg_count)}
+    if resume_5xx_retries:
+        item["resume_5xx_retries"] = {"N": str(resume_5xx_retries)}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 
@@ -142,7 +145,8 @@ def renew_lease(chat_id: str, owner_id: str, lease_duration: int = 900) -> None:
 
 def update_process_offset(chat_id: str, offset: int, last_message_id: str = None,
                           session_id: str = None, consumed_steer_ids: list = None,
-                          updates_offset: int = None) -> None:
+                          updates_offset: int = None,
+                          has_usable_output: bool = None) -> None:
     """Update the read offset for a process."""
     expr_parts = ["stdout_offset = :offset"]
     values = {":offset": {"N": str(offset)}}
@@ -158,6 +162,9 @@ def update_process_offset(chat_id: str, offset: int, last_message_id: str = None
     if updates_offset is not None:
         expr_parts.append("updates_offset = :uoffset")
         values[":uoffset"] = {"N": str(updates_offset)}
+    if has_usable_output:
+        expr_parts.append("has_usable_output = :usable")
+        values[":usable"] = {"BOOL": True}
 
     _get_dynamodb().update_item(
         TableName=TABLE_NAME,

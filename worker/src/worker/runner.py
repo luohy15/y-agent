@@ -533,7 +533,7 @@ def _stamp_dispatch_identity(chat, *, chat_id: str, trace_id: str = None, topic:
     return topic
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0) -> str:
     """Execute a chat round. Perplexity runs inline; claude_code detaches to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -660,7 +660,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             return "done"
         await _start_detached(chat, chat_id, user_id, bot_config,
                                vm_name=vm_name, work_dir=work_dir,
-                               post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+                               post_hooks=post_hooks, trace_id=trace_id, topic=topic,
+                               resume_5xx_retries=resume_5xx_retries)
         return "detached"
     except Exception as e:
         logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
@@ -762,7 +763,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
-                           topic: str = None) -> None:
+                           topic: str = None, resume_5xx_retries: int = 0) -> None:
     """Start claude-code as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -820,6 +821,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
             backend_type=effective_backend,
             initial_msg_count=len(chat.messages),
+            resume_5xx_retries=resume_5xx_retries,
         )
     except Exception as e:
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
