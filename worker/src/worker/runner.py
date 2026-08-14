@@ -527,7 +527,8 @@ def _stamp_dispatch_identity(chat, *, chat_id: str, trace_id: str = None, topic:
     if skill and not chat.skill:
         chat.skill = skill
     # Default skill = topic for non-root topics. Covers chats created outside
-    # /api/chat/notify (e.g. Telegram forum-topic chats) where skill wasn't supplied.
+    # the dispatch-shaped /api/chat/message path (e.g. Telegram forum-topic
+    # chats) where skill wasn't supplied.
     if not chat.skill and chat.topic and chat.topic != "manager":
         chat.skill = chat.topic
     return topic

@@ -326,10 +326,11 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
 
     Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
     to the bound user (so a stranger's chat id resolves as 'not found'), then
-    appends the message and queues the worker — same append-or-steer semantics
-    as the /api/chat/notify path. The target chat receives the message but
-    does not reply to Telegram: only top-level chats with a tg_topic / DM
-    binding emit replies, and child chats addressed by id stay silent.
+    delivers via `deliver_user_message` — same append-or-steer semantics as
+    the dispatch-shaped `/api/chat/message` path. The target chat receives the
+    message but does not reply to Telegram: only top-level chats with a
+    tg_topic / DM binding emit replies, and child chats addressed by id stay
+    silent.
     """
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
@@ -347,41 +348,16 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
         return {"ok": True}
 
     from storage.service import chat as chat_service
-    msg_dict = {
-        "role": "user",
-        "content": chat_service.maybe_append_handoff_reminder(target_chat, text),
-        "timestamp": get_utc_iso8601_timestamp(),
-        "unix_timestamp": get_unix_timestamp(),
-        "id": generate_message_id(),
-        "source": "telegram",
-    }
-    if images:
-        msg_dict["images"] = images
-    user_msg = Message.from_dict(msg_dict)
-    target_chat.messages.append(user_msg)
-    target_chat.interrupted = False
-    already_running = target_chat.running
-    if not already_running:
-        target_chat.running = True
-    await chat_repo.save_chat_by_id(target_chat)
-    chat_service.clear_attention_on_reply(user.id, target_chat_id)
-
-    # If the chat is already running, the running worker picks up the new
-    # message via steer polling — don't enqueue a duplicate task.
-    if not already_running:
-        try:
-            from storage.service.chat import send_chat_message
-            send_chat_message(
-                target_chat_id,
-                user_id=user.id,
-                topic=target_chat.topic,
-                trace_id=target_chat.trace_id,
-                skill=target_chat.skill,
-                backend=target_chat.backend,
-                work_dir=target_chat.work_dir,
-            )
-        except Exception as e:
-            logger.exception("_handle_routed_message: failed to queue: {}", e)
+    try:
+        await chat_service.deliver_user_message(
+            user.id, target_chat, text,
+            images=images, source="telegram",
+            trace_id=target_chat.trace_id, topic=target_chat.topic,
+            skill=target_chat.skill, backend=target_chat.backend,
+            work_dir=target_chat.work_dir,
+        )
+    except Exception as e:
+        logger.exception("_handle_routed_message: failed to deliver: {}", e)
     return {"ok": True}
 
 
@@ -414,97 +390,67 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     chat = find_latest_chat_by_topic(user.id, topic)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
 
-    # Root-topic steer: a root chat is a long-lived inbox, so when one is already
-    # mid-turn we steer the new message into the running chat instead of spawning
-    # a parallel overflow chat, mirroring chat.py's post_send_message
-    # already_running path. Only applies to root topics (today: 'manager');
-    # non-root topics serialize naturally because they're scoped to a single task.
-    if topic == 'manager' and chat and chat.running:
-        logger.info("_handle_message: manager chat {} is busy, steering message into running chat", chat.id)
+    if chat:
+        # Append to an existing chat — deliver_user_message steers (append,
+        # no enqueue) when the chat is already mid-turn, and enqueues when
+        # idle, uniformly across every topic including root ('manager'). Same
+        # catch-all as _handle_routed_message: an uncaught failure here would
+        # escape the webhook handler and make Telegram retry the update,
+        # appending a duplicate user message on top of the one already saved.
         from storage.service import chat as chat_service
-        msg_dict = {
-            "role": "user",
-            "content": chat_service.maybe_append_handoff_reminder(chat, text),
-            "timestamp": get_utc_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-            "source": "telegram",
-        }
-        if images:
-            msg_dict["images"] = images
-        user_msg = Message.from_dict(msg_dict)
-        chat.messages.append(user_msg)
-        chat.interrupted = False
-        from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(chat)
-        chat_service.clear_attention_on_reply(user.id, chat.id)
+        try:
+            await chat_service.deliver_user_message(
+                user.id, chat, text,
+                images=images, source="telegram",
+                topic=topic, work_dir=chat.work_dir,
+            )
+        except Exception as e:
+            logger.exception("_handle_message: failed to deliver: {}", e)
         return {"ok": True}
 
-    if chat:
-        # Append message to existing chat
-        from storage.service import chat as chat_service
-        msg_dict = {
-            "role": "user",
-            "content": chat_service.maybe_append_handoff_reminder(chat, text),
-            "timestamp": get_utc_iso8601_timestamp(),
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-            "source": "telegram",
-        }
-        if images:
-            msg_dict["images"] = images
-        user_msg = Message.from_dict(msg_dict)
-        chat.messages.append(user_msg)
-        chat.interrupted = False
-        chat.running = True
-        from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(chat)
-        chat_service.clear_attention_on_reply(user.id, chat.id)
-        chat_id = chat.id
-    else:
-        # Create new chat (allocate+insert with race retry)
-        from storage.service import chat as chat_service
-        from storage.dto.chat import Chat as ChatDTO
-        from storage.repository import chat as chat_repo
-        timestamp = get_utc_iso8601_timestamp()
-        msg_dict = {
-            "role": "user",
-            "content": text,
-            "timestamp": timestamp,
-            "unix_timestamp": get_unix_timestamp(),
-            "id": generate_message_id(),
-            "source": "telegram",
-        }
-        if images:
-            msg_dict["images"] = images
-        user_msg = Message.from_dict(msg_dict)
+    # Create new chat (allocate+insert with race retry)
+    from storage.service import chat as chat_service
+    from storage.dto.chat import Chat as ChatDTO
+    from storage.repository import chat as chat_repo
+    timestamp = get_utc_iso8601_timestamp()
+    msg_dict = {
+        "role": "user",
+        "content": text,
+        "timestamp": timestamp,
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+        "source": "telegram",
+    }
+    if images:
+        msg_dict["images"] = images
+    user_msg = Message.from_dict(msg_dict)
 
-        def build(chat_id: str):
-            return ChatDTO(
-                id=chat_id,
-                create_time=timestamp,
-                update_time=timestamp,
-                messages=[user_msg],
-                topic=topic,
-                running=True,
-            )
+    def build(chat_id: str):
+        return ChatDTO(
+            id=chat_id,
+            create_time=timestamp,
+            update_time=timestamp,
+            messages=[user_msg],
+            topic=topic,
+            running=True,
+        )
 
-        chat = await chat_service.insert_generated_chat(user.id, build)
-        chat_id = chat.id
+    chat = await chat_service.insert_generated_chat(user.id, build)
+    chat_id = chat.id
 
-        # Singleton root topic: a Telegram DM creates a fresh root chat (no trace),
-        # so release any prior holder of the same topic. Normally a no-op because
-        # this branch only runs when find_latest_chat_by_topic returned None, but
-        # the call hardens the invariant against future code changes.
-        released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
-        if released:
-            logger.info("Released topic '{}' from {} previous chat(s) on Telegram new chat by user {}", topic, released, user.id)
+    # Singleton root topic: a Telegram DM creates a fresh root chat (no trace),
+    # so release any prior holder of the same topic. Normally a no-op because
+    # this branch only runs when find_latest_chat_by_topic returned None, but
+    # the call hardens the invariant against future code changes.
+    released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
+    if released:
+        logger.info("Released topic '{}' from {} previous chat(s) on Telegram new chat by user {}", topic, released, user.id)
 
     # Queue for processing — pass topic so runner knows where to route replies.
     # work_dir is forwarded so the worker resumes the existing claude-code
-    # session under the same cwd it was created in (fresh chats from /clear or
-    # the else-branch above stay with work_dir=None, which lets the runner
-    # assign the default VM cwd on first run).
+    # session under the same cwd it was created in (fresh chats from /clear
+    # stay with work_dir=None, which lets the runner assign the default VM
+    # cwd on first run).
     try:
         from storage.service.chat import send_chat_message
         send_chat_message(

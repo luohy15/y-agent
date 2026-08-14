@@ -154,7 +154,7 @@ def _fire_and_forget(
     wait: bool = False,
     wait_timeout: int = 300,
 ):
-    """POST a message to /api/chat/notify and print the resulting chat_id.
+    """POST a message to /api/chat/message and print the resulting chat_id.
 
     With ``wait`` set, block until the assistant reply is ready and print its
     content instead of just the chat_id.
@@ -163,7 +163,7 @@ def _fire_and_forget(
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
     payload = {
-        "message": message,
+        "prompt": message,
         "force_new": force_new,
         "from_topic": from_topic,
     }
@@ -188,7 +188,7 @@ def _fire_and_forget(
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
     try:
-        resp = api_request("POST", "/api/chat/notify", json=payload)
+        resp = api_request("POST", "/api/chat/message", json=payload)
         data = resp.json()
         if wait:
             _wait_for_reply(data["chat_id"], wait_timeout)

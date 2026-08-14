@@ -247,6 +247,80 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
+async def deliver_user_message(
+    user_id: int,
+    chat: Chat,
+    content: str,
+    *,
+    images: Optional[List[str]] = None,
+    reasoning_effort: Optional[str] = None,
+    source: Optional[str] = None,
+    bot_name: Optional[str] = None,
+    bot_tier: Optional[str] = None,
+    vm_name: Optional[str] = None,
+    work_dir: Optional[str] = None,
+    post_hooks: Optional[list] = None,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    skill: Optional[str] = None,
+    backend: Optional[str] = None,
+) -> Chat:
+    """Append `content` as a user message into `chat` and ensure it gets run.
+
+    The single accept-body primitive shared by every existing-chat inbound
+    write site (API send/message, Telegram routed message / DM steer / DM
+    append): builds the message (with the handoff reminder folded in), saves
+    the chat exactly once, clears attention, and enqueues the worker only when
+    the chat wasn't already running (a running worker picks up the append via
+    its own steer polling instead). `reasoning_effort` must already be
+    validated/normalized by the caller; this raises no HTTP-shaped errors.
+    """
+    msg_content = maybe_append_handoff_reminder(chat, content)
+    msg_dict = {
+        "role": "user",
+        "content": msg_content,
+        "timestamp": get_utc_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": generate_message_id(),
+    }
+    if images:
+        msg_dict["images"] = images
+    if reasoning_effort is not None:
+        msg_dict["reasoning_effort"] = reasoning_effort
+    if source is not None:
+        msg_dict["source"] = source
+    user_msg = Message.from_dict(msg_dict)
+
+    chat.messages.append(user_msg)
+    chat.interrupted = False
+
+    # If the chat is already running, don't queue a new task — the running
+    # worker picks up the new message via steer polling.
+    already_running = chat.running
+    if not already_running:
+        chat.running = True
+
+    await chat_repo.save_chat_by_id(chat)
+    clear_attention_on_reply(user_id, chat.id)
+
+    if not already_running:
+        send_chat_message(
+            chat.id,
+            bot_name=bot_name,
+            bot_tier=bot_tier,
+            user_id=user_id,
+            vm_name=vm_name,
+            work_dir=work_dir,
+            post_hooks=post_hooks,
+            trace_id=trace_id,
+            topic=topic,
+            skill=skill,
+            backend=backend,
+        )
+
+    return chat
+
+
 async def create_share(user_id: int, chat_id: str, message_id: str = None, password_hash: Optional[str] = None) -> str:
     """Create a shared copy of a chat under the default user.
 

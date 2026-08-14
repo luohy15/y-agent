@@ -300,10 +300,9 @@ mode (`-i`) serves a human at a terminal.
     signal survives its own completion hook rather than being silently
     overwritten by the same turn's "mark unread" post-hook.
 56. As a user, I want any new user message accepted into an existing chat
-    (web/CLI send, notify callback, Telegram routed message, Telegram
-    manager-steer, Telegram DM append) to clear both `needs_attention` and
-    `unread`, so that replying always resolves whatever the chat was waiting
-    on or announcing.
+    (web/CLI send, dispatch, Telegram routed message, Telegram DM append) to
+    clear both `needs_attention` and `unread`, so that replying always
+    resolves whatever the chat was waiting on or announcing.
 
 ## Implementation Decisions
 
@@ -374,24 +373,59 @@ mode (`-i`) serves a human at a terminal.
     sort controls with a fixed default order on the right drawer,
     `min_backend_version`) is that module's surface, documented in
     `code/y-module/chat/README.md`.
-- **Synchronous accept, asynchronous run.** Every send path (create, message,
-  notify) persists the user message and sets `running` before returning, then
+- **Synchronous accept, asynchronous run.** Every send path (create, message)
+  persists the user message and sets `running` before returning, then
   enqueues a queue task (SQS in production, Celery filesystem broker in dev)
   carrying the chat id plus routing hints. If the chat is already running, no
   task is enqueued; the running worker's steer polling picks the message up
   (mechanics owned by the chat-steer PRD).
-- **Notify target resolution order:** explicit chat id (404 if missing, 400 on
-  topic mismatch) > topic + trace lookup (resume the trace's existing chat for
-  that topic unless `--new`) > create a new chat. Skill defaults to the topic
-  for non-root topics; explicit `--skill` overrides. A new chat claiming a
-  topic without a trace id is a root claim and releases the topic from any
-  previous holder (singleton root topic).
+- **One accept-body primitive, one authoritative route (todo 3167).**
+  `storage.service.chat.deliver_user_message` is the single place that builds
+  the user `Message` (handoff reminder folded in), appends it, saves the chat
+  exactly once, clears attention, and enqueues the worker only when the chat
+  wasn't already running. It is shared by every existing-chat inbound write
+  site: `POST /api/chat/message`'s dispatch-shaped and non-dispatch arms, and
+  both Telegram sites (routed message, DM append). The DM-append site absorbs
+  the former manager-only "steer a busy root chat" special case: since the
+  primitive's already-running check is topic-agnostic, a busy chat on *any*
+  topic now steers instead of enqueueing a parallel run, not just `manager`
+  (a deliberate behavior change, not just a refactor). The prior duplication
+  (`/message` and `/notify` each re-implementing this body, plus three more
+  copies in `telegram.py`) collapsed to one primitive; the former `/notify`'s
+  existing-chat arm additionally did a redundant second DB write
+  (`append_message` read+save, then a second save) that this removes. The
+  primitive raises domain errors only, never `HTTPException`; HTTP-shaped
+  target resolution (404/400/409) stays in the controller.
+- **A request is dispatch-shaped iff it carries any of `trace_id` /
+  `from_topic` / `from_chat_id` / `topic` / `skill` / `force_new`.** Only
+  dispatch-shaped requests to `POST /api/chat/message` get the
+  `[trace:… to_chat:…]` prefix, root-topic rejection, topic/skill stamping on
+  a fresh chat, and may create a chat without an explicit `chat_id`.
+  Non-dispatch requests (web send, `y chat -i`) require `chat_id` and behave
+  exactly as the pre-unification `/message` route always did. The CLI always
+  sends `from_topic` (default `manager`), so every `y chat` dispatch stays
+  dispatch-shaped. Dispatch-shaped target resolution order: explicit chat id
+  (404 if missing, 400 on topic mismatch, owner-scoped lookup so a chat owned
+  by someone else 404s identically to a missing one — closing a pre-3167 gap
+  where the explicit-`chat_id` arm used an unscoped lookup) > topic + trace
+  lookup (resume the trace's existing chat for that topic unless `--new`) >
+  create a new chat. Skill defaults to the topic for non-root topics; explicit
+  `--skill` overrides. A new chat claiming a topic without a trace id is a
+  root claim and releases the topic from any previous holder (singleton root
+  topic).
+- **`POST /api/chat/notify` was removed outright, not kept as an alias**: Roy
+  confirmed every CLI install upgrades in lockstep with the API deploy (no
+  out-of-band PyPI consumer to protect), so the CLI's `_fire_and_forget` was
+  repointed at `/api/chat/message` (field renamed `message` → `prompt` to
+  match) in the same change that deleted the route, rather than staging a
+  deprecation window.
 - **Root-topic callback rejection** is enforced at the API on the resolved
   target chat's topic, with the `--new` escape hatch only for starting a fresh
   root session. The root topic set is currently the single hard-coded name
   `manager`.
-- **Trace metadata rides in-band**: the notify endpoint prefixes the message
-  with `[trace:<id> from:<topic> to:<topic> from_chat:<id> to_chat:<id>]`
+- **Trace metadata rides in-band**: a dispatch-shaped `/api/chat/message`
+  request prefixes the message with
+  `[trace:<id> from:<topic> to:<topic> from_chat:<id> to_chat:<id>]`
   (omitting absent parts) rather than using a side channel, so any backend
   sees the routing context as plain text. The same context is exported to the
   subprocess as environment variables.
@@ -487,9 +521,10 @@ mode (`-i`) serves a human at a terminal.
 - **Post-turn hooks** (Telegram reply delivery, unread marking, plan-to-todo
   extraction, trace registration) run in the worker after completion, keyed
   off the same chat record.
-- **Handoff reminder is appended at write time, in-band** (plan-2951): each
-  of the five existing-chat inbound write sites (web/CLI send, notify
-  existing-chat, Telegram routed/steer/DM) appends the handoff reminder to the
+- **Handoff reminder is appended at write time, in-band** (plan-2951, folded
+  into `deliver_user_message` by todo 3167): every existing-chat inbound write
+  site (`/api/chat/message`'s dispatch and non-dispatch arms, Telegram routed
+  message, Telegram DM append/steer) appends the handoff reminder to the
   persisted message content itself rather than at prompt-assembly time,
   so steer (which forwards `msg.content` verbatim into the live stdin pipe)
   and Lambda-handoff turn relaunches (which reread already-persisted
@@ -511,10 +546,12 @@ mode (`-i`) serves a human at a terminal.
 
 ## Testing Decisions
 
-- Test external behavior at the seams, not the internals: the notify
-  resolution matrix (chat id vs topic+trace vs new, `--new`, topic mismatch,
-  root-topic rejection, work-dir mismatch) via API-level tests with a stubbed
-  queue — prior art exists as an API test suite for notify.
+- Test external behavior at the seams, not the internals: the dispatch-shaped
+  `/api/chat/message` resolution matrix (chat id vs topic+trace vs new,
+  `--new`, topic mismatch, root-topic rejection, work-dir mismatch) via
+  API-level tests with a stubbed queue — prior art exists as an API test
+  suite for the former `/notify` route (todo 3167 repoints it at the unified
+  handler).
 - The completion predicate deserves table-driven tests (message tail shapes ×
   running/interrupted flags) since three consumers depend on it agreeing.
 - CLI `--wait` behavior (reply ready, interrupted, timeout: what is printed,
@@ -606,3 +643,4 @@ mode (`-i`) serves a human at a terminal.
 | 3137 | Add the three-state `needs_attention` / `unread` / `none` chat attention model: additive `chat.needs_attention` column + raw-SQL semantic setters that never bump `updated_at`, explicit producer (`POST /api/chat/attention`, `y chat attention [CHAT_ID] [--clear]`), completion-preserves-stronger-state and clear-on-reply transitions wired at the worker and all five existing-chat inbound write sites, and `agent.module_host.BACKEND_CONTRACT_VERSION` 5→6. The original delivery also ordered the list by attention precedence before recency; todo 3141 reverts that ordering to pure recency while keeping the marker display-only. Delivered as two halves: the host half (storage/worker/API/CLI/agent contract, migration SQL generated but not applied) and the `chat` module's marker UI + `min_backend_version` 6 bump, see `code/y-module/chat/README.md`. All attention mutations are owner-scoped on `(user_id, chat_id)`, since a public `chat_id` is only unique per user | - | `pages/plan-3137-chat-attention-states.md` | - | `pages/review-3137-chat-attention-host.md` (host), `pages/review-3137-chat-module-attention-ui.md` (module UI) | both halves reviewed and approved, committed; release sequence (migration → backend deploy → module publish) pending user approval |
 | 3141 | Restore pure recency ordering in the chat list (`updated_at_unix DESC, id DESC`), keep attention markers display-only, fix module live list refresh so a completed turn repositions its row without a host `chat.refreshList` command, and update chat-core / chat-module docs | - | `pages/plan-3141-chat-list-recency-order.md` | - | `pages/review-3141-chat-list-recency-order.md`, `pages/review-3141-chat-list-live-refresh.md` | reviewed and committed; backend deploy and chat module publish pending approval |
 | 3152 | Add server-side chat-list sorting by updated/created time ascending or descending via separate closed `sort_by` / `sort_order` parameters on host `list_chats` and `chat_list` (backend contract 6→7); chat module API/UI request the selected order and stop sorting loaded pages locally. Round-2 host fix: `created_at` order uses `NULLS LAST` so historical NULL `created_at_unix` rows sink instead of leading "Created ↓". Round-4 correction: sort controls live only in the left activity-bar panel; the right drawer always requests `updated_at`/`desc` and ignores any earlier drawer-local sort keys | - | `pages/plan-3152-chat-list-backend-sorting.md` | - | `pages/review-3152-chat-list-sort-controls.md` | host + module implemented in worktrees; left-only UI correction and chat-core docs update; deploy host first then publish chat (not yet authorized from this chat) |
+| 3167 | Collapse the duplicated "accept a user message into a chat" body (five existing-chat write sites) behind one primitive, `storage.service.chat.deliver_user_message`, and one authoritative route, `POST /api/chat/message`, with a dispatch-shape predicate (`trace_id`/`from_topic`/`from_chat_id`/`topic`/`skill`/`force_new`) gating the prefix/root-topic/create-without-chat_id behavior formerly unique to `/notify`. Per Roy's confirmed decision, `POST /api/chat/notify` was deleted outright (no deprecation alias) since every CLI install upgrades in lockstep with the API; the CLI's `_fire_and_forget` now posts `prompt` to `/api/chat/message`. Closes an authorization gap (explicit-`chat_id` arm now owner-scoped) and a double-write bug in the former notify existing-chat arm. Telegram's DM steer and DM append sites merged into one call site; the primitive's own running check now steers a busy chat on any topic, not just `manager` (deliberate behavior change). Upload prefix unified to `chat-upload` (drops `chat-notify-upload`) | - | `pages/plan-3167-chat-message-notify-unification.md` | - | - | implemented in worktree, not yet committed |

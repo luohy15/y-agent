@@ -51,12 +51,18 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Trace** — every notify / chat / worker step carries a `trace_id` and optional
   `from_chat` / `from_topic`. Participants are registered in `run_chat`; TraceView renders
   the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
-- **Notify (cross-skill)** — `/api/chat/notify` and `y chat -m "..."` (fire-and-forget,
-  default top-level mode) dispatch a message to a topic (skill). Default target is
-  the DM (manager). Trace/from meta is attached on send; short-circuited callbacks
-  back to root topics never invoke the LLM.
+- **Notify (cross-skill)** — `y chat -m "..."` (fire-and-forget, default top-level
+  mode) dispatches a message to a topic (skill) via the single union route
+  `POST /api/chat/message`. A request is dispatch-shaped when it carries any of
+  `trace_id` / `from_topic` / `from_chat_id` / `topic` / `skill` / `force_new`;
+  only dispatch-shaped requests get the `[trace:… to_chat:…]` prefix, root-topic
+  rejection, and may create a chat without `chat_id`. Default target is the DM
+  (manager). Trace/from meta is attached on send; short-circuited callbacks back
+  to root topics never invoke the LLM. `POST /api/chat/notify` was removed
+  outright (todo 3167): every CLI install upgrades in lockstep with the API, so
+  no compatibility alias was kept.
 - **Topic** — every chat has an optional `topic` (named persistent address). The
-  conventional root topic is `manager`; the API rejects notify callbacks aimed at
+  conventional root topic is `manager`; the API rejects dispatch callbacks aimed at
   root topics (they are conversations, not function calls).
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
@@ -204,10 +210,11 @@ exceptions noted):
 Grouped by feature area:
 
 - **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (create + SSE streaming +
-  stop + steer + trace read-state + public share read + cross-skill notify dispatch +
-  host `GET /api/chat/bot-options`; browse `list` / `content` and share *creation*
-  are module-owned), `trace.py` (listing, share, lookup by chat_id), `git.py`
-  (status/diff/discard, VM execution via `agent.vm_command`), `terminal.py` (shell exec)
+  stop + steer + trace read-state + public share read + the union send/dispatch
+  route `POST /api/chat/message` + host `GET /api/chat/bot-options`; browse
+  `list` / `content` and share *creation* are module-owned), `trace.py`
+  (listing, share, lookup by chat_id), `git.py` (status/diff/discard, VM
+  execution via `agent.vm_command`), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
