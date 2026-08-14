@@ -40,18 +40,3 @@ export async function jsonFetcher(url: string, opts: { signal?: AbortSignal } = 
   }
   return res.json();
 }
-
-// GET /api/tag/list — alphabetically sorted vocabulary with exact-tag usage counts.
-export interface TagVocabularyEntry {
-  tag: string;
-  count: number;
-}
-
-// One row of a GET /api/tag drill-down result, grouped by entity_type.
-export interface TagResultItem {
-  id: string;
-  title?: string;
-}
-
-// GET /api/tag response shape: entity_type -> hydrated items.
-export type TagResults = Record<string, TagResultItem[]>;

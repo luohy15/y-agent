@@ -13,6 +13,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Tag module cutover (3164)**: Tags now ship as the authenticated `tag` module:
+  `/api/module/tag/*`, lazy `y tag`, and the `artifact:tag` panel replace the
+  built-in controller, CLI group, and panel. The host retains the `entity_tag`
+  projection, normalization, carrier synchronization and cleanup, resolver
+  hydration, exact-tag filtering, and the `tag.open` navigation adapter.
 - **Live relay run rate (3111, 3121)**: `y usage rate` and `GET /api/usage/rate`
   expose the relay's system-wide RPM/TPM. The API proxies the CRS admin dashboard
   directly with DB-stored `crs_admin` credentials, replacing the earlier on-request

@@ -117,9 +117,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v8**. Per-module ownership,
-  routes, CLI, and rollback hazards: `code/y-module/<slug>/README.md`. Contract:
-  `docs/prd/module-system.md`.
+  Backend host contract (`agent.module_host`) is **v8**. The tag module owns
+  `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
+  host retains the `entity_tag` projection, normalization, carrier sync and
+  cleanup, resolver hydration, exact-tag filters, and the `tag.open` navigation
+  adapter. Per-module ownership, routes, CLI, and rollback hazards:
+  `code/y-module/<slug>/README.md`. Contract: `docs/prd/module-system.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`

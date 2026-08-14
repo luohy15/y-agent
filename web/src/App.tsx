@@ -16,9 +16,7 @@ import LinkList from "./components/LinkList";
 import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
-import TagList from "./components/TagList";
-import type { TagResultItem } from "./api";
-import { navigateTag, openTodo } from "./utils/tagNavigate";
+import { navigateTag, openTodo, type TagResultItem } from "./utils/tagNavigate";
 import {
   chatIdFromPayload,
   openChat,
@@ -209,8 +207,7 @@ export default function App() {
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const raw = localStorage.getItem("sidebarPanel");
     // C1 / todo 3164: migrate retired fixed entries onto their module panel keys.
-    // `tags` becomes `artifact:tag`; if the module is not mountable yet the
-    // artifacts-loaded effect below falls back to the built-in Tags panel.
+    // `tags` becomes `artifact:tag`.
     const saved = (
       raw === "files" ? "artifact:file"
         : raw === "notes" ? "artifact:note"
@@ -627,16 +624,7 @@ export default function App() {
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
-    // Prefer the tag module panel when mountable; keep built-in Tags as fallback.
-    if (sidebarPanel === "tags" && uiArtifactBySlug.has("tag")) {
-      setSidebarPanel("artifact:tag");
-      return;
-    }
     const slug = artifactSlugFromPanel(sidebarPanel);
-    if (slug === "tag" && !uiArtifactBySlug.has("tag")) {
-      setSidebarPanel("tags");
-      return;
-    }
     if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("artifact:todo");
   }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
@@ -1226,11 +1214,10 @@ export default function App() {
     setSelectedFeedLabel(null);
   }, []);
 
-  // Tags panel click-to-navigate: one type-dispatch callback covering all 10
-  // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts (unit
-  // tested there against a mocked authFetch); this just supplies the bound
-  // setters and closes the mobile sidebar drawer after navigating. The same
-  // deps feed the host `tag.open` command used by the future tag module.
+  // Tag module click-to-navigate: one type-dispatch callback covering all 10
+  // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts; this
+  // supplies bound setters and closes the mobile sidebar drawer after navigating.
+  // The same dependencies feed the host `tag.open` command.
   const handleTagNavigate = useCallback((entityType: string, item: TagResultItem) => {
     navigateTag(entityType, item, {
       requestSelectTraceId,
@@ -1581,8 +1568,6 @@ export default function App() {
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
               ) : sidebarPanel === "entity" ? (
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
-              ) : sidebarPanel === "tags" ? (
-                <TagList isLoggedIn={auth.isLoggedIn} onNavigate={handleTagNavigate} />
               ) : sidebarPanel === "reminder" ? (
                 <ReminderList isLoggedIn={auth.isLoggedIn} />
               ) : sidebarPanel === "routine" ? (

@@ -1,12 +1,14 @@
-// Tags panel click-to-navigate dispatch (App.tsx's `handleTagNavigate`), lifted
-// out of the component so the 10-way carrier dispatch — the part of the diff
-// that depends on external contracts it doesn't own (resolver id semantics,
-// DTO field names, endpoint URLs) — can be unit-tested with a mocked
-// `authFetch` instead of only through the TagList component boundary.
-import { API, authFetch, type TagResultItem } from "../api";
+// Tag module click-to-navigate dispatch, lifted out of App.tsx so the 10-way
+// carrier dispatch can be unit-tested with a mocked `authFetch`.
+import { API, authFetch } from "../api";
 import type { SidebarPanel } from "../components/ActivityBar";
 import { artifactPanelKey, artifactTabKey } from "../host/artifacts";
 import { setArtifactIntent } from "../host/intents";
+
+export interface TagResultItem {
+  id: string;
+  title?: string;
+}
 
 export interface OpenTodoDeps {
   requestSelectTraceId: (id: string | null) => void;
@@ -16,9 +18,8 @@ export interface OpenTodoDeps {
   handleOpenFile: (path: string) => void;
 }
 
-// Shared by the Todo artifact's host command and the Tags panel's todo
-// navigation: select the todo's trace, then either land on its latest chat or
-// open trace.md.
+// Shared by the Todo artifact's host command and tag-module navigation: select
+// the todo's trace, then either land on its latest chat or open trace.md.
 export function openTodo(todoId: string, deps: OpenTodoDeps): void {
   deps.requestSelectTraceId(todoId);
   deps.setChatListTraceId(todoId);
