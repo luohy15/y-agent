@@ -7,9 +7,10 @@ sync_tags() to reconcile the projection; the 7 direct carriers (chat,
 calendar_event, reminder, routine, link, email, rss_feed) write here directly
 via add_tag/remove_tag.
 
-Write-time normalization (todo 3159 P1): every tag write path lowercases and
-trims. Underscore is intentionally NOT rewritten to hyphen (repo-dir project
-slugs under code/ use underscores). No auto-singularize.
+Write-time normalization (todo 3159 P1): every tag write path lowercases,
+trims, and maps underscore to hyphen. Project tags always use the hyphen form
+even when the repo directory under code/ uses underscores (e.g.
+code/alpha_vantage_mcp → alpha-vantage-mcp). No auto-singularize.
 """
 
 from typing import Iterable, List, Optional, Tuple, Union
@@ -20,15 +21,15 @@ from storage.database.base import get_db
 
 
 def normalize_tag(tag: str) -> Optional[str]:
-    """Lowercase + trim one tag. Empty after trim becomes None. No _→- rewrite."""
+    """Lowercase + trim + map `_`→`-`. Empty after trim becomes None."""
     if not isinstance(tag, str):
         return None
-    t = tag.strip().lower()
+    t = tag.strip().lower().replace("_", "-")
     return t if t else None
 
 
 def normalize_tags(tags: Optional[Union[str, Iterable]]) -> List[str]:
-    """Normalize a tags payload to a deduped lowercase list (order-preserving)."""
+    """Normalize a tags payload to a deduped lowercase/hyphen list (order-preserving)."""
     if not tags:
         return []
     if isinstance(tags, str):

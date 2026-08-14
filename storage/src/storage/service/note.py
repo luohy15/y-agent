@@ -11,7 +11,7 @@ from storage.util import generate_id
 
 
 def _with_normalized_tags(front_matter: Optional[Dict]) -> Optional[Dict]:
-    """Return a copy of front_matter with tags lowercased+trimmed when present."""
+    """Return a copy of front_matter with tags normalized (lower+trim+_→-) when present."""
     if not isinstance(front_matter, dict) or "tags" not in front_matter:
         return front_matter
     fm = dict(front_matter)
