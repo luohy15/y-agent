@@ -52,12 +52,21 @@ Defaults work for most cases, but you can override per chat:
 
 Most of y-agent's value lives in four panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
 
+Three of them have **public interactive demos** you can open without signing in. Each demo mounts the same production module UI against fixed fictional data:
+
+- **No sign-in.** The routes are unauthenticated.
+- **Fictional data only.** Records are sample fixtures shipped with the module UI, not real chats, todos, notes, or accounts.
+- **Read-only boundary.** Nothing is saved, sent, or written to durable storage. Central gestures (for example a temporary status/pin change) may simulate in memory and reset on reload; actions that would hit a real backend stay disabled.
+
+Link still uses a static screenshot for now; its interactive demo is deferred. When it ships, it will follow the same launch-link pattern as the three demos below.
+
 ### Chat
 
 Every task is a conversation, and the **Chat** panel is where you watch it happen. Assistant turns stream in real time with inline, collapsible tool calls, and assistant prose can carry **inline artifacts** — charts, diagrams, and sanitized SVG render directly in the thread instead of as plain code blocks. Select any messages to export them as a phone-friendly PNG, or share the whole chat as a read-only link.
 
-<!-- SCREENSHOT: chat -->
-![Chat](https://cdn.luohy15.com/y-agent/docs/chat.png)
+**[Open the Chat demo](/demo/chat)** — no account required.
+
+What to try: expand a collapsible tool-call block, inspect an inline artifact, select messages for a local PNG export, and notice that live send / steer / stop stay disabled.
 
 ### Todo & Trace
 
@@ -68,27 +77,27 @@ Todos are first-class. The agent reads, creates, and updates them via the `y tod
 - **Pin** — a star icon on each card; pinned todos float to the top.
 - **History** — every status change is logged so you can see when you started / finished.
 
-<!-- SCREENSHOT: todo -->
-![Todo kanban](https://cdn.luohy15.com/y-agent/docs/todo.png)
-
 The todo's **public ID is its `trace_id`**. Every chat dispatched under that todo carries the same trace_id, and the **TraceView** stitches them into a tree — the trace icon next to a chat opens the waterfall, where every cross-skill `y chat` call shows up as a row. Share the trace as a public read-only URL (optional password) to walk someone through a debugging session. See [a real one](https://yovy.app/t/6fc5c4).
 
-<!-- SCREENSHOT: trace -->
-![TraceView waterfall](https://cdn.luohy15.com/y-agent/docs/trace.png)
-
 Todos can also be linked to **notes** (plan / requirement / decision context) and **links** (web pages, articles, X / Bilibili / WeChat).
+
+**[Open the Todo & Trace demo](/demo/todo)** — no account required.
+
+What to try: switch list / kanban, filter or open a sample todo, toggle pin or status (local simulation only; resets on reload), and open the fictional multi-chat trace waterfall.
 
 ### Note
 
 The **Notes** panel holds Journals (daily log), Pages (topic state), and structured notes. A note is a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos — so a plan / requirement / decision attaches to the task it belongs to. Import with `y note import pages/plan-foo.md`, or write one from chat and `y assoc note ... --todo <id>`.
 
-<!-- SCREENSHOT: note -->
-![Notes panel](https://cdn.luohy15.com/y-agent/docs/note.png)
+**[Open the Note demo](/demo/note)** — no account required.
+
+What to try: switch Journals / Pages / structured notes, filter or select a sample record, and read the fictional markdown in the preview pane. Create, touch, edit, and real file-open stay disabled.
 
 ### Link
 
 The **Links** panel is a browsable archive. `y link sync-chrome` pulls in browser history; `y link fetch <url>` renders Twitter / X, Bilibili, WeChat, and generic pages into markdown; `y link tldr <id>` produces a summary. Click any link to preview its markdown in the main area.
 
+<!-- DEMO: link — deferred; keep screenshot until /demo/link ships. Swap this block for a launch link + "what to try" using the same pattern as Chat/Todo/Note. -->
 <!-- SCREENSHOT: link -->
 ![Links panel](https://cdn.luohy15.com/y-agent/docs/link.png)
 

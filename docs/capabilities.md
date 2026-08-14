@@ -10,12 +10,12 @@ order: 2
 
 ## Showcased capabilities
 
-These four are the ones worth seeing first — each has a dedicated walkthrough (and a screenshot) in [getting-started.md](getting-started.md).
+These four are the ones worth seeing first. Three have unauthenticated interactive demos (fictional data, read-only, no sign-in); Link still uses a static screenshot in [getting-started.md](getting-started.md) until its demo ships.
 
-- **Chat** — the core agent surface: every task is a conversation that streams in real time with inline, collapsible tool calls. Assistant prose can carry **inline artifacts** (charts / diagrams / SVG that render directly in the thread), and any messages can be exported to a phone-friendly PNG or the whole chat shared as a read-only link.
-- **Todo & Trace** — first-class todos (full-stack CRUD, kanban, pagination, pin, search, status history) where the todo's public ID *is* the `trace_id`. Every chat dispatched under a todo carries that id, and the **TraceView** waterfall stitches the whole cross-skill call chain into one tree. Traces are shareable as a public read-only page (optionally password-protected).
-- **Note** — structured notes with a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos. Journals (daily log), Pages (topic state), and plan / requirement / decision context all live here.
-- **Link** — a browsable link archive: Chrome history / bookmark sync, on-demand fetch of Twitter / X, Bilibili, WeChat, and generic pages into markdown, TLDR summaries, and in-app markdown preview.
+- **Chat** — the core agent surface: every task is a conversation that streams in real time with inline, collapsible tool calls. Assistant prose can carry **inline artifacts** (charts / diagrams / SVG that render directly in the thread), and any messages can be exported to a phone-friendly PNG or the whole chat shared as a read-only link. Interactive demo: [/demo/chat](/demo/chat).
+- **Todo & Trace** — first-class todos (full-stack CRUD, kanban, pagination, pin, search, status history) where the todo's public ID *is* the `trace_id`. Every chat dispatched under a todo carries that id, and the **TraceView** waterfall stitches the whole cross-skill call chain into one tree. Traces are shareable as a public read-only page (optionally password-protected). Interactive demo: [/demo/todo](/demo/todo).
+- **Note** — structured notes with a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos. Journals (daily log), Pages (topic state), and plan / requirement / decision context all live here. Interactive demo: [/demo/note](/demo/note).
+- **Link** — a browsable link archive: Chrome history / bookmark sync, on-demand fetch of Twitter / X, Bilibili, WeChat, and generic pages into markdown, TLDR summaries, and in-app markdown preview. (Interactive demo deferred; screenshot in Getting Started for now.)
 
 ## Sidebar panels
 

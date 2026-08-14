@@ -59,7 +59,7 @@ Two paths, split by whether you run the server or just use one. Each page opens 
 
 **Client — use a hosted instance** (`y login` against `yovy.app` and go; no infra needed):
 
-- [docs/getting-started.md](docs/getting-started.md) — the web GUI after sign-in, built around the four showcased capabilities (todo & trace, note, link, finance).
+- [docs/getting-started.md](docs/getting-started.md) — the web GUI after sign-in, built around the four showcased capabilities (chat, todo & trace, note, link).
 - [docs/cli.md](docs/cli.md) — install the CLI, sign in, every command group.
 - [docs/capabilities.md](docs/capabilities.md) — client + server reference: what a running deployment ships.
 
