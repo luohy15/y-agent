@@ -6,18 +6,47 @@ authoring surface (e.g. note.front_matter.tags, todo.tags) and calls
 sync_tags() to reconcile the projection; the 7 direct carriers (chat,
 calendar_event, reminder, routine, link, email, rss_feed) write here directly
 via add_tag/remove_tag.
+
+Write-time normalization (todo 3159 P1): every tag write path lowercases and
+trims. Underscore is intentionally NOT rewritten to hyphen (repo-dir project
+slugs under code/ use underscores). No auto-singularize.
 """
 
-from typing import List, Tuple
+from typing import Iterable, List, Optional, Tuple, Union
 
 from sqlalchemy import func
 from storage.entity.entity_tag import EntityTagEntity
 from storage.database.base import get_db
 
 
+def normalize_tag(tag: str) -> Optional[str]:
+    """Lowercase + trim one tag. Empty after trim becomes None. No _→- rewrite."""
+    if not isinstance(tag, str):
+        return None
+    t = tag.strip().lower()
+    return t if t else None
+
+
+def normalize_tags(tags: Optional[Union[str, Iterable]]) -> List[str]:
+    """Normalize a tags payload to a deduped lowercase list (order-preserving)."""
+    if not tags:
+        return []
+    if isinstance(tags, str):
+        t = normalize_tag(tags)
+        return [t] if t else []
+    out: List[str] = []
+    seen = set()
+    for item in tags:
+        t = normalize_tag(item) if isinstance(item, str) else None
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -> None:
     """Reconcile entity_tag rows for (entity_type, entity_id) to exactly `tags`."""
-    wanted = set(tags)
+    wanted = set(normalize_tags(tags))
     with get_db() as session:
         existing = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id
@@ -32,6 +61,9 @@ def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -
 
 def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
     """Add a single tag. Returns True if created, False if already present."""
+    tag = normalize_tag(tag)
+    if not tag:
+        return False
     with get_db() as session:
         exists = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
@@ -44,6 +76,9 @@ def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
 
 def remove_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
     """Remove a single tag. Returns True if deleted, False if not found."""
+    tag = normalize_tag(tag)
+    if not tag:
+        return False
     with get_db() as session:
         row = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag

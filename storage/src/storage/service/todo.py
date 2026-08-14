@@ -5,6 +5,7 @@ from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
+from storage.repository.entity_tag import normalize_tags
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 _CHANGED_NOTE_PREFIX = "changed: "
@@ -74,6 +75,9 @@ def create_todo(
     while next_id in used:
         next_id += 1
 
+    if tags is not None:
+        tags = normalize_tags(tags)
+
     todo = Todo(
         todo_id=str(next_id),
         name=name,
@@ -133,6 +137,8 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     todo = todo_repo.get_todo(user_id, todo_id)
     if not todo:
         return None
+    if "tags" in fields and fields["tags"] is not None:
+        fields["tags"] = normalize_tags(fields["tags"])
     changed = []
     for key, value in fields.items():
         if hasattr(todo, key) and getattr(todo, key) != value:

@@ -4,7 +4,17 @@ from typing import Dict, List, Optional
 from storage.dto.entity import Entity
 from storage.repository import entity as entity_repo
 from storage.repository import entity_tag as tag_repo
+from storage.repository.entity_tag import normalize_tags
 from storage.util import generate_id
+
+
+def _with_normalized_tags(front_matter: Optional[Dict]) -> Optional[Dict]:
+    """Return a copy of front_matter with tags lowercased+trimmed when present."""
+    if not isinstance(front_matter, dict) or "tags" not in front_matter:
+        return front_matter
+    fm = dict(front_matter)
+    fm["tags"] = normalize_tags(fm.get("tags"))
+    return fm
 
 
 def create_entity(
@@ -18,7 +28,7 @@ def create_entity(
         entity_id=entity_id,
         name=name,
         type=type,
-        front_matter=front_matter,
+        front_matter=_with_normalized_tags(front_matter),
     )
     return entity_repo.save_entity(user_id, entity)
 
@@ -38,6 +48,7 @@ def update_entity(
     if type is not None:
         existing.type = type
     if front_matter is not None:
+        front_matter = _with_normalized_tags(front_matter)
         existing.front_matter = front_matter
     entity = entity_repo.save_entity(user_id, existing)
     if front_matter is not None:
@@ -52,6 +63,8 @@ def import_entity(
     front_matter: Optional[Dict] = None,
 ) -> Entity:
     """Upsert entity by (name, type). If one already exists for this user, update front_matter; else create."""
+    if front_matter is not None:
+        front_matter = _with_normalized_tags(front_matter)
     existing = entity_repo.get_entity_by_name_type(user_id, name, type)
     if existing:
         if front_matter is not None:

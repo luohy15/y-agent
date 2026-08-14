@@ -6,12 +6,22 @@ from storage.repository import note as note_repo
 from storage.repository import note_todo_relation as note_todo_repo
 from storage.repository import entity_note_relation as entity_note_repo
 from storage.repository import entity_tag as tag_repo
+from storage.repository.entity_tag import normalize_tags
 from storage.util import generate_id
+
+
+def _with_normalized_tags(front_matter: Optional[Dict]) -> Optional[Dict]:
+    """Return a copy of front_matter with tags lowercased+trimmed when present."""
+    if not isinstance(front_matter, dict) or "tags" not in front_matter:
+        return front_matter
+    fm = dict(front_matter)
+    fm["tags"] = normalize_tags(fm.get("tags"))
+    return fm
 
 
 def create_note(user_id: int, content_key: str, front_matter: Optional[Dict] = None) -> Note:
     note_id = generate_id()
-    note = Note(note_id=note_id, content_key=content_key, front_matter=front_matter)
+    note = Note(note_id=note_id, content_key=content_key, front_matter=_with_normalized_tags(front_matter))
     return note_repo.save_note(user_id, note)
 
 
@@ -22,6 +32,7 @@ def update_note(user_id: int, note_id: str, content_key: Optional[str] = None, f
     if content_key is not None:
         existing.content_key = content_key
     if front_matter is not None:
+        front_matter = _with_normalized_tags(front_matter)
         existing.front_matter = front_matter
     note = note_repo.save_note(user_id, existing)
     if front_matter is not None:
@@ -30,6 +41,8 @@ def update_note(user_id: int, note_id: str, content_key: Optional[str] = None, f
 
 
 def import_note(user_id: int, content_key: str, front_matter: Optional[Dict] = None) -> Note:
+    if front_matter is not None:
+        front_matter = _with_normalized_tags(front_matter)
     existing = note_repo.get_note_by_content_key(user_id, content_key)
     if existing:
         if front_matter is not None:

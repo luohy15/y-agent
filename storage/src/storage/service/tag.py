@@ -16,6 +16,9 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
 from storage.repository import entity_tag as tag_repo
+# Re-export write-time normalizers so carriers can keep authoring surfaces
+# (todo.tags / front_matter.tags) in the same canonical form as entity_tag.
+from storage.repository.entity_tag import normalize_tag, normalize_tags  # noqa: F401
 from storage.service import entity as entity_service
 from storage.service import note as note_service
 from storage.service import todo as todo_service
@@ -114,28 +117,10 @@ _BACKFILL_TYPES = ("note", "entity", "todo")
 _PAGE_SIZE = 200
 
 
-def _normalize_tags(raw) -> List[str]:
-    """Coerce front_matter.tags / todo.tags into a clean string list."""
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        t = raw.strip()
-        return [t] if t else []
-    if isinstance(raw, list):
-        out: List[str] = []
-        for item in raw:
-            if isinstance(item, str):
-                t = item.strip()
-                if t:
-                    out.append(t)
-        return out
-    return []
-
-
 def _tags_from_front_matter(front_matter: Optional[Dict]) -> List[str]:
     if not isinstance(front_matter, dict):
         return []
-    return _normalize_tags(front_matter.get("tags"))
+    return normalize_tags(front_matter.get("tags"))
 
 
 def _iter_notes(user_id: int):
@@ -244,7 +229,7 @@ def backfill_tags(
         stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0}
         for todo in _iter_todos(user_id):
             stats["scanned"] += 1
-            tags = _normalize_tags(todo.tags)
+            tags = normalize_tags(todo.tags)
             if not tags:
                 continue
             stats["with_tags"] += 1
