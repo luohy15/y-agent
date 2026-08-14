@@ -441,7 +441,7 @@ code was written for and a republish must re-state it:
 |---|---|---|
 | `dispatch_scope` | `maintainer` (default) / `authenticated` | Who may reach `/api/module/<slug>/*` and see the module in `GET /api/module/list`. |
 | `ui_surfaces` | comma list drawn from `panel` / `detail` / `shell` (default `panel`) | Which host slots this version **claims**. |
-| `ui_public` | boolean (default `false`) | Reserved for anonymous delivery of UI bytes. Inert today. |
+| `ui_public` | boolean (default `false`) | Opt-in for anonymous delivery of UI bytes (public demo lookup and public bundle). Never opens backend dispatch. |
 
 **`dispatch_scope` widens the caller, never the owner.** The dispatcher still
 resolves and loads the *maintainer's* active version — one owner, one code
@@ -470,11 +470,11 @@ declaring `shell` alone still gets a sidebar entry. The column's name promises
 more than it delivers; treat it as a claim on host slots, not as a manifest of
 the bundle.
 
-**`ui_public` is published but unconsumed.** It exists so that the anonymous path
-is a version-level decision when it is built (Option B of
+**`ui_public` gates anonymous UI-byte delivery.** It is the version-level opt-in
+for public demo lookup and public bundle routes (Option B of
 `pages/decision-3042-public-dispatch-scope.md`: anonymous *UI bytes only*, never
-anonymous backend dispatch). Nothing reads it yet, public pages stay
-host-rendered, and *Unauthenticated module routes* remains out of scope.
+anonymous backend dispatch). Host public-demo routes consume it; *Unauthenticated
+module routes* (backend dispatch) remain out of scope.
 
 ### The host surface: a kernel, not a data layer
 
@@ -784,7 +784,7 @@ module_version
   icon
   min_host_version     browser contract floor
   ui_surfaces          claimed host slots: comma list of panel/detail/shell
-  ui_public            reserved: anonymous UI-byte delivery (inert today)
+  ui_public            opt-in: anonymous UI-byte delivery (public demo/bundle; never backend dispatch)
   -- API part (nullable: a UI-only module has none)
   api_sha256
   api_storage_key
@@ -1169,9 +1169,9 @@ hook, both of which cost more than the single-user failure mode justifies.
   model must be revisited.
 - **Sharing modules between users, or a module marketplace.**
 - **Unauthenticated module routes.** The public-route allowlist stays host-owned.
-  `module_version.ui_public` reserves an anonymous *UI-bytes* path for a later
-  decision; nothing consumes it, and anonymous backend dispatch is not on the
-  table (`pages/decision-3042-public-dispatch-scope.md`).
+  `module_version.ui_public` is the live opt-in for anonymous *UI-bytes* delivery
+  (public demo lookup and public bundle); anonymous backend dispatch is not on
+  the table (`pages/decision-3042-public-dispatch-scope.md`).
 - **Automatic rollback on failure.** Failure surfaces an explicit error; it does
   not silently change what is live.
 - **Migrating domains other than finance.** Existing UI-only artifacts are
