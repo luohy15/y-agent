@@ -1,11 +1,12 @@
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
 
 from agent import usage_limits as limits_service
 from storage.service import model_usage_daily as usage_service
+from storage.service import model_usage_hourly as hourly_service
 from storage.service import usage_rate as rate_service
 from storage.service.model_usage_daily import _local_today
 from storage.service.time_range import parse_time_range
@@ -15,6 +16,12 @@ router = APIRouter(prefix="/usage")
 # Internal-only fields stripped before returning rows to the API layer
 # (per the ID convention: never expose integer id / user_id).
 _INTERNAL_FIELDS = ("id", "user_id")
+
+
+def _local_now():
+    """Current local datetime in Y_AGENT_TIMEZONE (shared with local_today)."""
+    from storage.util import _time_filter_tz
+    return datetime.now(_time_filter_tz())
 
 
 @router.get("/model-daily")
@@ -54,6 +61,49 @@ async def list_model_daily(
         {k: v for k, v in row.to_dict().items() if k not in _INTERNAL_FIELDS}
         for row in rows
     ]
+
+
+@router.get("/model-hourly")
+async def list_model_hourly(
+    request: Request,
+    source: Optional[str] = Query("crs"),
+    time: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    limit: int = Query(100000),
+):
+    """Per-model hourly usage rows. Defaults to source='crs' and today's date
+    when no range is given (same raw-grain convention as model-daily). Marks
+    `partial: true` on rows whose (usage_date, usage_hour) equals the server's
+    current configured-timezone hour; the browser clock never decides this
+    (todo 3165)."""
+    user_id = request.state.user_id
+    if time is not None:
+        start, end = parse_time_range(time)
+        from_date = start.isoformat() if start else None
+        to_date = (end - timedelta(days=1)).isoformat() if end else None
+    else:
+        today = _local_today()
+        from_date = from_date or today
+        to_date = to_date or today
+    rows = hourly_service.list_for(
+        user_id,
+        source=source,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+    )
+    now = _local_now()
+    partial_date = now.date().isoformat()
+    partial_hour = now.hour
+    out = []
+    for row in rows:
+        d = {k: v for k, v in row.to_dict().items() if k not in _INTERNAL_FIELDS}
+        d["partial"] = (
+            d.get("usage_date") == partial_date and int(d.get("usage_hour", -1)) == partial_hour
+        )
+        out.append(d)
+    return out
 
 
 @router.get("/daily-totals")

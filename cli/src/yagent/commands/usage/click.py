@@ -10,7 +10,7 @@ from .sync import sync
 
 @click.group("usage")
 def usage_group():
-    """Provider usage: daily token/cost ingestion (sync/backfill) plus
+    """Provider usage: daily + hourly token/cost ingestion (sync/backfill) plus
     direct-from-provider subscription limit-window reads (credentials/
     limits), and the direct Relay run-rate path (rate / crs-creds)."""
 

@@ -366,9 +366,19 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
 # --- orchestration ----------------------------------------------------------
 
 def sync(user_id: int, source: str | None = None) -> dict:
-    """Run the enabled source pulls. `source` filters to one of crs."""
+    """Run the enabled source pulls. `source` filters to one of crs.
+
+    When CRS is enabled, also pulls hourly for [yesterday, today] into
+    model_usage_hourly (todo 3165). Daily-only filtering is still available
+    via the same `source` switch — there is no separate hourly source value.
+    """
     synced_at = get_utc_iso8601_timestamp()
     results = []
     if source in (None, "crs"):
         results.append(sync_crs(user_id, synced_at))
+        # Hourly runs in the same envelope so CLI/API/worker all report both
+        # grains from one call. Import lazily to avoid a circular import at
+        # module load (hourly imports daily helpers for key/basis).
+        from storage.service import model_usage_hourly as hourly_service
+        results.append(hourly_service.sync_crs_hourly(user_id, synced_at=synced_at))
     return {"status": "ok", "results": results}

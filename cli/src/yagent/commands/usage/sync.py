@@ -11,7 +11,11 @@ from storage.service.user import get_cli_user_id
 @click.option("--user-id", type=int, default=None, help="Internal user id (default: CLI user)")
 @click.option("--json", "as_json", is_flag=True, help="Emit the raw result envelope")
 def sync(source: str | None, user_id: int | None, as_json: bool):
-    """Pull daily LLM token/cost usage into model_usage_daily (idempotent upsert)."""
+    """Pull daily + hourly LLM token/cost usage (idempotent upsert).
+
+    The envelope carries one result per grain: source='crs' (daily) and
+    source='crs-hourly' (hourly over yesterday+today).
+    """
     target_user_id = user_id or get_cli_user_id()
     result = usage_service.sync(target_user_id, source=source)
     if as_json:
@@ -22,4 +26,7 @@ def sync(source: str | None, user_id: int | None, as_json: bool):
         reason = r.get("reason")
         if reason:
             line += f" - {reason}"
+        dates = r.get("dates")
+        if dates:
+            line += f" dates={','.join(dates)}"
         click.echo(line)

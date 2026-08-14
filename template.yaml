@@ -348,11 +348,12 @@ Resources:
             Schedule: rate(15 minutes)
             Input: '{"action": "check_claude_status"}'
         SyncModelUsageSchedule:
-          # 15:50 UTC = 23:50 UTC+8: capture the near-complete CRS day (today-only,
-          # rolls at the CRS app-TZ midnight).
+          # Minute 50 every hour (UTC): keeps the last local Asia/Shanghai run of
+          # a day at 23:50 while also refreshing the current hour. Daily + hourly
+          # grains share this schedule (todo 3165).
           Type: Schedule
           Properties:
-            Schedule: cron(50 15 * * ? *)
+            Schedule: cron(50 * * * ? *)
             Input: '{"action": "sync_model_usage"}'
 
   # -----------------------------------------------------------------------

@@ -85,6 +85,7 @@ def init_tables():
     import storage.entity.english_correction  # noqa: F401
     import storage.entity.user_cookies  # noqa: F401
     import storage.entity.model_usage_daily  # noqa: F401
+    import storage.entity.model_usage_hourly  # noqa: F401
     import storage.entity.module  # noqa: F401
     import storage.entity.module_version  # noqa: F401
 

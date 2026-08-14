@@ -1,12 +1,13 @@
-"""Scheduled action: pull daily LLM token/cost usage into model_usage_daily.
+"""Scheduled action: pull LLM token/cost usage into model_usage_daily + hourly.
 
-Runs daily on an EventBridge cron. CRS usage is per-user (each user's sync
-enumerates all distinct cr_ relay keys in their bot_configs and sums per model
-into the global per-model aggregate), so it iterates users.
+Runs hourly on an EventBridge cron (minute 50). CRS usage is per-user (each
+user's sync enumerates all distinct cr_ relay keys in their bot_configs and
+sums per model into the global per-model aggregate), so it iterates users.
 
-The pull is an idempotent upsert keyed on (user, date, source, scope_id, model),
-which matches CRS's ~30-day retention window: re-pulling the in-progress day
-overwrites, a finalized past day is a no-op.
+Daily upserts key on (user, date, source, scope_id, model); hourly adds
+usage_hour. Re-pulling the in-progress day/hour overwrites; finalized past
+rows are no-ops. Hourly covers [yesterday, today] so the previous day's final
+hour is repaired after midnight (todo 3165).
 """
 
 from loguru import logger
@@ -27,9 +28,13 @@ async def handle_sync_model_usage() -> dict:
     try:
         results = []
         for user in list_users():
-            results.append(usage_service.sync_crs(user.id))
+            # Full sync envelope: daily + hourly (crs-hourly) results.
+            results.append(usage_service.sync(user.id))
 
-        total_rows = sum(r.get("rows", 0) for r in results)
+        total_rows = 0
+        for envelope in results:
+            for r in envelope.get("results") or []:
+                total_rows += r.get("rows", 0)
         logger.info("sync_model_usage: {} pulls, {} rows total", len(results), total_rows)
         return {"status": "ok", "action": LOCK_NAME, "rows": total_rows, "results": results}
     finally:

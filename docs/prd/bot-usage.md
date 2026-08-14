@@ -211,6 +211,34 @@ expired-login card tells the user to run.
     reading to keep its original observation time, so that a 60-second poll
     does not spawn a terminal session every minute and freshness never lies.
 
+### Hourly grain
+
+37a. As a user, I want each model's hourly token counts, request count, and
+    real USD cost persisted in y-agent's database for the recoverable window
+    (about 7 days, matching the relay's hourly Redis TTL), so that today's
+    activity can be charted by hour and, for every complete local day after
+    the zero-cost authority ships, hourly totals reconcile with the daily
+    aggregate for that Asia/Shanghai date.
+37b. As a user, I want the same go-forward sync that refreshes today's daily
+    rows to also pull hourly counters for yesterday and today across every
+    distinct relay key, so that the previous day's final hour is repaired
+    after midnight and the in-progress hour converges without a separate job.
+37c. As a user, I want the scheduled sync to run every hour at minute 50 local
+    (preserving the last run of a local day at 23:50), so that both grains
+    stay fresh without me remembering to trigger them.
+37d. As a user, I want a one-shot hourly backfill limited to at most 7 local
+    days (the relay's hourly TTL), so that the recoverable window can be
+    seeded without pretending older hours exist.
+37e. As an API consumer, I want per-model hourly rows filtered by source and
+    date range, defaulting to today, with a server-computed `partial` flag on
+    the row whose (date, hour) equals the server's current configured-timezone
+    hour, so that the Live "today by hour" strip can mark the in-progress bar
+    without trusting the browser clock.
+37f. As a web user, I want Live to show a "Today by hour" bar strip above the
+    donut driven by the shared metric toggle, and Over-time to offer an `H`
+    granularity clamped to 7 days, so that short-horizon activity is visible
+    without changing daily / weekly / monthly views.
+
 ### Usage API
 
 37. As an API consumer, I want per-model daily rows filtered by source and date
@@ -353,10 +381,19 @@ expired-login card tells the user to run.
 
 ### Storage
 
-- **One generic table, one grain.** A single daily-keyed table holds the usage
-  time series. Each row is unique on `(user, usage_date, source, scope_id,
-  model)`; writes are idempotent upserts on that key (the same pattern as the
-  finance price table). Token counters use 64-bit integers.
+- **Two tables, two grains.** A daily-keyed table holds the durable usage time
+  series; a separate hourly-keyed table holds the short-horizon series. Mixing
+  grains in one table is the double-count hazard already rejected for the
+  lifetime anchor. Token counters use 64-bit integers in both.
+- **Daily grain.** Each daily row is unique on `(user, usage_date, source,
+  scope_id, model)`; writes are idempotent upserts on that key (the same
+  pattern as the finance price table).
+- **Hourly grain (todo 3165).** Each hourly row is unique on
+  `(user, usage_date, usage_hour, source, scope_id, model)`. The local
+  wall-clock pair (DATE + SMALLINT 0–23) is stored rather than a UTC instant so
+  `SUM(hourly WHERE usage_date=d)` compares directly to the daily row for `d`
+  with no timezone conversion. Asia/Shanghai has no DST, so wall-clock hours
+  are unambiguous under the current configured zone.
 - **Row dimensions.** `source` is the spend pipe (currently only `crs`);
   `provider` is the model vendor derived from the model id (bare
   `claude-*`/`gpt-*`/`gemini-*`... prefixes, or the `vendor/` prefix of
@@ -414,11 +451,13 @@ expired-login card tells the user to run.
   (default Asia/Shanghai), mirroring the relay's timezone-stamped Redis day
   buckets, so both systems agree on day boundaries.
 - **Triggers.** Three, all through the same service function: a scheduled
-  worker-Lambda action on a daily cron at 23:50 local (just before the day
-  rolls, since the relay's per-key daily endpoint only ever exposes today); a
+  worker-Lambda action on an hourly cron at minute 50 (so the last local run of
+  a day remains 23:50 Asia/Shanghai while also refreshing the current hour); a
   CLI sync command; and an authenticated API sync endpoint used by the web
   refresh button, which returns the sync result envelope so the panel can
-  revalidate afterward.
+  revalidate afterward. Each run pulls daily for today and hourly for
+  `[yesterday, today]`; the envelope reports both grains (`crs` and
+  `crs-hourly`).
 - **Streaming caveat.** The relay records usage for non-streaming
   chat-completions only, and all in-scope bots are non-streaming. If a bot ever
   switches to streaming, the relay's streaming usage parser must be extended
@@ -442,14 +481,58 @@ expired-login card tells the user to run.
   Session tokens minted during a backfill are not the durable store; the
   durable admin credential row is the intentional todo-3121 exception (see
   user story 14 and Realtime run rate), not a silent leak into logs.
-- **Yesterday cap.** The backfill never writes today, so the recurring sync
-  owns the in-progress day and the two paths cannot fight.
+- **Yesterday cap.** The daily backfill never writes today, so the recurring
+  sync owns the in-progress day and the two paths cannot fight.
+- **Hourly backfill is the per-key path, capped at 7 days.** Hourly history
+  lives only on the per-key counters (TTL ~7 days), not the admin dated window,
+  so `y usage backfill --hourly-days N` replays the same go-forward hourly
+  endpoint for the last `min(N, 7)` local days including today. Wider requests
+  are silently clamped; history older than the TTL is unrecoverable.
 - **Lifetime anchor rejected.** A design for storing the relay's all-time
   cumulative total as a sentinel row (distinct scope, epoch date) was cut
   before implementation: a cumulative lump and an additive daily series in one
   table create a standing double-count hazard for every consumer, and the
   dated window covers the actual charting need. History older than the relay's
   retention is acknowledged as unrecoverable.
+
+### Hourly grain decisions (todo 3165)
+
+- **Extend the per-key endpoint, not the admin one.** CRS already writes
+  `usage:{keyId}:model:hourly:{model}:{date}:{HH}` with real-cost counters.
+  y-agent consumes `POST /apiStats/api/user-model-stats` with `period=hourly`
+  and optional `date=YYYY-MM-DD`, reusing the same counters the daily sync
+  already consumes. No admin credentials and no second aggregation authority.
+  Per-request usage records are never read (the "no sensitive request data"
+  requirement).
+- **Stored real cost is authoritative (including zero).** CRS must write
+  `realCostMicro` / `ratedCostMicro` on both daily and hourly model counters
+  whenever a request is recorded, **including when the cost is zero**. The
+  reader prefers those stored micro fields for `costs.real` / `costs.rated`.
+  The list-price `CostCalculator` fallback (`isLegacy: true`) remains only as a
+  compatibility path for Redis rows written before this authority ships; it is
+  not the go-forward source of truth. y-agent does **not** persist `isLegacy`
+  (or any other legacy marker): post-deploy rows carry stored real cost, and a
+  transient `isLegacy` flag on the wire is not a durable grain dimension.
+- **Reconciliation acceptance and the legacy-window caveat.** Tokens and
+  requests always reconcile across grains because both are incremented from the
+  same per-request pipeline. Exact cost reconciliation
+  (`SUM(hourly WHERE usage_date=d) == daily(d)` within float display precision)
+  is required starting with the **first complete Asia/Shanghai day after the
+  zero-cost write authority is deployed**. Days that still contain pre-deploy
+  Redis counters may mix stored-micro and list-price fallback rows and are
+  **not** the acceptance bar; that legacy window is temporary and ends when
+  those Redis keys expire or are overwritten by post-deploy traffic. Sub-task
+  14's live check is therefore scoped to a post-deploy complete local day, not
+  to the partial overlap window.
+- **Separate table, local wall-clock key.** See Storage. Incomplete current
+  hour is a server-computed per-row `partial` flag on
+  `GET /api/usage/model-hourly`, never a browser-clock decision.
+- **One sync, hourly cadence.** Daily and hourly share the minute-50 EventBridge
+  schedule and the same CLI/API entry points; the result envelope carries both.
+- **Presentation.** Live gains a "Today by hour" strip above the donut; Over-time
+  gains an `H` granularity that fetches `model-hourly` and clamps the range to
+  7 days. Active-hours analytics, an hourly heatmap, and per-key/per-bot hourly
+  attribution stay out of scope.
 
 ### Subscription limit-window status
 
@@ -862,6 +945,13 @@ expired-login card tells the user to run.
   relay keys configured, the sync queries each distinct key once (shared keys
   deduplicated) and per-model sums match the relay dashboard's totals for the
   same day; a failing key aborts the run with no rows written.
+- **Hourly↔daily reconciliation (todo 3165 acceptance bar):** after one full
+  Asia/Shanghai day of post-deploy hourly sync (the first complete local day
+  after CRS writes zero-cost micro fields on daily and hourly counters),
+  per-model `SUM(model_usage_hourly)` must match `model_usage_daily` on tokens
+  and requests exactly, and on cost within float display precision. Days that
+  still contain pre-deploy Redis counters (legacy list-price fallback) are
+  excluded from that bar; no `isLegacy` column is stored to diagnose them.
 - **Time grammar behavior is verified at the mapping level:** a table of
   representative inputs (bare year, month, quarter, specific date, explicit
   range, all/empty, day/today aliases) asserting the resolved inclusive date
@@ -967,6 +1057,7 @@ expired-login card tells the user to run.
 | 3111 | Live Usage run-rate strip backed by CRS's five-minute dashboard RPM/TPM through a VM-only admin CLI and SSH API; unavailable, historical, stale, and VM-asleep states stay explicit | - | `pages/plan-3111-usage-run-rate.md` | this PRD | `pages/review-3111-bot-usage-run-rate-ui.md`, `pages/review-3111-usage-run-rate-backend.md` | shipped (`da3289a` backend, bot artifact v17, `ab050ed3a956…`; live VM response verified) |
 | 3121 | `GET /api/usage/rate` under 1s via a direct Relay proxy: store CRS admin credentials in `user_preference` key `crs_admin`, share `storage.service.usage_rate.read_rate` between the API and `y usage rate`, cache the admin session token (~23h, re-login on 401), retire the VM precompute path (`--store`, `scripts/usage-rate-store.sh`, `usage_rate_latest`, `stale` / `vm_unreachable`). UI contract changes add `auth_failed` and drop VM wording | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | `pages/review-3121-usage-rate-latency.md` | shipped (`86afe27` backend; bot artifact v20, `cbb0450b400b…`; production latency 0.283 / 0.578 / 0.702s; cron absent; orphan rows removed) |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
+| 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" strip and Over-time `H` granularity; stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md` | in progress |
 
 ## Out of Scope
 
@@ -997,6 +1088,20 @@ expired-login card tells the user to run.
   side does have one, `y usage limits`, because the backend is built on it.
 - **Rated / list-price cost reporting** (only real billed cost is stored and
   shown).
+- **Active-hours analytics and an hourly contribution heatmap.** The daily
+  heatmap stays daily; hour-of-day analytics are explicitly excluded by todo
+  3165.
+- **Hourly history older than the relay's ~7-day hourly TTL** (expired in Redis,
+  unrecoverable) and Postgres-side hourly retention/pruning (row volume does not
+  justify a policy yet).
+- **Persisting `isLegacy` (or any other legacy-cost marker) on usage rows.**
+  Stored real cost is the authority after the zero-cost write ships; the
+  temporary pre-deploy Redis window is accepted as non-reconciling for cost
+  without a durable flag (todo 3165).
+- **Exact cost reconciliation against days that still contain pre-deploy
+  Redis counters.** Those mixed legacy/list-price windows are outside the
+  acceptance bar; the bar starts at the first complete Asia/Shanghai day after
+  CRS writes zero-cost micro fields on daily and hourly counters.
 - **Historical limit-window analytics, alerts, or forecasting.** The feature
   retains the latest successful snapshot for display; notification thresholds
   remain owned by specialized monitoring skills, and predicting exhaustion is
