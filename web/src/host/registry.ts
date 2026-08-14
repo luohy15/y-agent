@@ -8,7 +8,10 @@
  * instance" (plan assumption 1, confirmed in the spike via a host-provided
  * React context resolving inside the blob module).
  *
- * Side-effect module: import it once, before the app renders (see main.tsx).
+ * Call `installHostRegistry()` once, before the app renders (see main.tsx).
+ * The public demo page installs the same externals with a restricted
+ * `@y/host` instead (todo 3158 H3, web/src/demo/runtime.ts), which is why the
+ * SDK object is a parameter rather than a hardwired import.
  */
 import * as React from "react";
 import * as ReactDOM from "react-dom";
@@ -46,7 +49,10 @@ function asModule(ns: Record<string, unknown>): Record<string, unknown> {
   return { ...ns, __esModule: true, default: ns.default ?? ns };
 }
 
-const modules: Record<string, unknown> = {
+// Every external except `@y/host`: rendering libraries are identical in both
+// environments (a demo must render through the same React instance as any
+// other mount), so only the host SDK differs.
+const renderingExternals: Record<string, unknown> = {
   react: asModule(React as unknown as Record<string, unknown>),
   "react-dom": asModule(ReactDOM as unknown as Record<string, unknown>),
   "react-dom/client": asModule(ReactDOMClient as unknown as Record<string, unknown>),
@@ -57,14 +63,23 @@ const modules: Record<string, unknown> = {
   "lightweight-charts": asModule(LightweightCharts as unknown as Record<string, unknown>),
   "react-markdown": asModule(ReactMarkdown as unknown as Record<string, unknown>),
   "remark-gfm": asModule(RemarkGfm as unknown as Record<string, unknown>),
-  "@y/host": { ...hostSdk, __esModule: true, default: hostSdk },
 };
 
-// Guards against `web/sdk/contract.json` drifting from what is actually
-// registered below (e.g. a new external added to one but not the other).
-const missing = EXTERNALS.filter((specifier) => !(specifier in modules));
-if (missing.length) {
-  throw new Error(`[host-registry] no module registered for externals: ${missing.join(", ")}`);
-}
+/** Publish the externals into `globalThis.__Y_HOST__`. `sdk` is what an
+ * artifact receives as `@y/host`: the full authenticated surface in the app,
+ * the restricted demo surface on a `/demo/*` page. */
+export function installHostRegistry(sdk: object = hostSdk): void {
+  const modules: Record<string, unknown> = {
+    ...renderingExternals,
+    "@y/host": { ...sdk, __esModule: true, default: sdk },
+  };
 
-globalThis.__Y_HOST__ = { version: HOST_CONTRACT_VERSION, modules };
+  // Guards against `contract.json` drifting from what is actually registered
+  // above (e.g. a new external added to one but not the other).
+  const missing = EXTERNALS.filter((specifier) => !(specifier in modules));
+  if (missing.length) {
+    throw new Error(`[host-registry] no module registered for externals: ${missing.join(", ")}`);
+  }
+
+  globalThis.__Y_HOST__ = { version: HOST_CONTRACT_VERSION, modules };
+}

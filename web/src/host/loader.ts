@@ -51,6 +51,16 @@ export class ArtifactLoadError extends Error {
   }
 }
 
+// Public-delivery fetch seam (todo 3158 H3): the demo runtime denies global
+// `fetch` before any module bytes are imported, so it captures the origin
+// fetch first and pins it here (web/src/demo/runtime.ts). The default keeps a
+// plain host — one that never installs a demo runtime — working unchanged.
+export const publicBundleFetcher = {
+  fetch(url: string): Promise<Response> {
+    return fetch(url, { credentials: "omit" });
+  },
+};
+
 // Indirection so tests can substitute a fake dynamic import: a `blob:` URL
 // import() only resolves in a real browser, not under vitest/jsdom.
 export const artifactImporter = {
@@ -139,7 +149,7 @@ async function fetchBundle(url: string, delivery: BundleDelivery): Promise<Respo
   if (delivery === "public") {
     // Never attach Authorization: public demos must not leak ambient identity
     // into the origin request, even if a JWT happens to sit in localStorage.
-    return fetch(url, { credentials: "omit" });
+    return publicBundleFetcher.fetch(url);
   }
   return authFetch(url);
 }

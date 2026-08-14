@@ -45,6 +45,25 @@ async function waitForArtifacts(root: HTMLElement, timeoutMs = 4000): Promise<vo
   }
 }
 
+// Decode the encoder's `data:` URL into a Blob without a network primitive.
+// `fetch(dataUrl)` used to do this, which made local PNG export depend on the
+// global fetch — and therefore fail outright in the public demo runtime, where
+// every global fetch is denied (todo 3158 H3). A data URL carries its own
+// bytes, so no request was ever needed.
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const header = /^data:([^;,]*)((?:;[^,]*)*),/.exec(dataUrl);
+  if (!header) throw new Error("Expected a data: URL from the PNG encoder.");
+  const type = header[1] || "image/png";
+  const body = dataUrl.slice(header[0].length);
+  if (!header[2].split(";").includes("base64")) {
+    return new Blob([decodeURIComponent(body)], { type });
+  }
+  const binary = atob(body);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
 // Render an element into an offscreen container and capture it as a PNG.
 // Returns both a blob (for download / clipboard / share) and the data URL.
 export async function exportElementToPng(
@@ -76,8 +95,7 @@ export async function exportElementToPng(
       .getPropertyValue("--color-sol-base03")
       .trim();
     const dataUrl = await domToPng(target, { scale: opts.scale ?? 2, backgroundColor });
-    const blob = await (await fetch(dataUrl)).blob();
-    return { blob, dataUrl };
+    return { blob: dataUrlToBlob(dataUrl), dataUrl };
   } finally {
     root.unmount();
     host.remove();
