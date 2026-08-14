@@ -29,6 +29,22 @@ interface ActivityBarProps {
   onLogout?: () => void;
   artifacts?: Module[];
   artifactsLoaded?: boolean;
+  /**
+   * Keys rendered dimmed, inert, and grouped after a divider (design-3158).
+   * Default empty: authenticated app keeps its existing ordering/selection.
+   * When set, these keys are excluded from the live reorderable group and
+   * rendered after a divider with `data-unavailable`.
+   */
+  unavailableKeys?: readonly string[];
+  /** Optional title override for an unavailable key (defaults to label + " — not part of the demo"). */
+  unavailableTitles?: Partial<Record<string, string>>;
+  /** Optional click handler for unavailable items (e.g. demo toast). Default: no-op. */
+  onUnavailableSelect?: (key: string) => void;
+  /**
+   * Optional explicit ordering for the live (available) group. When omitted,
+   * the authenticated reorderable order is used. Demo passes a fixed order.
+   */
+  availableOrder?: readonly string[];
 }
 
 export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
@@ -249,7 +265,7 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, unavailableKeys = [], unavailableTitles, onUnavailableSelect, availableOrder }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
@@ -488,22 +504,45 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     );
   };
 
-  const panelButtons = order.map((key) => {
+  const unavailableSet = useMemo(() => new Set(unavailableKeys), [unavailableKeys]);
+  const liveOrder = useMemo(() => {
+    if (availableOrder && availableOrder.length > 0) {
+      return availableOrder.filter((key) => panelByKey.has(key as SidebarPanel) && !unavailableSet.has(key)) as SidebarPanel[];
+    }
+    return order.filter((key) => !unavailableSet.has(key));
+  }, [availableOrder, order, panelByKey, unavailableSet]);
+  const unavailableOrdered = useMemo(() => {
+    if (unavailableKeys.length === 0) return [] as SidebarPanel[];
+    // Preserve caller order; fall back to any remaining unavailable keys present in the catalog.
+    const seen = new Set<string>();
+    const result: SidebarPanel[] = [];
+    for (const key of unavailableKeys) {
+      if (seen.has(key)) continue;
+      if (!panelByKey.has(key as SidebarPanel)) continue;
+      seen.add(key);
+      result.push(key as SidebarPanel);
+    }
+    return result;
+  }, [unavailableKeys, panelByKey]);
+
+  const panelButtons = liveOrder.map((key) => {
     const p = panelByKey.get(key);
     if (!p) return null;
     const isDragged = !!(drag && drag.key === p.key);
     const active = sidebarOpen && activePanel === p.key;
+    // Drag reorder stays signed-in-only; demo fixed order disables drag via mobile-like path when availableOrder is set.
+    const canDrag = dragEnabled && !availableOrder;
     return (
       <div
         key={`panel:${p.key}`}
         className={wrapperClass()}
-        draggable={dragEnabled}
-        onDragStart={onItemDragStart(p.key)}
-        onDragOver={onItemDragOver(p.key)}
-        onDrop={onItemDrop(p.key)}
-        onDragEnd={onItemDragEnd}
+        draggable={canDrag}
+        onDragStart={canDrag ? onItemDragStart(p.key) : undefined}
+        onDragOver={canDrag ? onItemDragOver(p.key) : undefined}
+        onDrop={canDrag ? onItemDrop(p.key) : undefined}
+        onDragEnd={canDrag ? onItemDragEnd : undefined}
       >
-        {indicator(p.key, "before")}
+        {canDrag && indicator(p.key, "before")}
         <button
           data-sidebar-panel={p.key}
           onClick={() => handlePanelClick(p.key)}
@@ -513,7 +552,33 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           {p.icon}
           {mobile && <span>{p.label}</span>}
         </button>
-        {indicator(p.key, "after")}
+        {canDrag && indicator(p.key, "after")}
+      </div>
+    );
+  });
+
+  const unavailableButtons = unavailableOrdered.map((key) => {
+    const p = panelByKey.get(key);
+    if (!p) return null;
+    const title = unavailableTitles?.[key] ?? `${p.label} — not part of the demo`;
+    const base = mobile
+      ? "w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01/40 cursor-not-allowed"
+      : "w-8 h-8 flex items-center justify-center rounded text-sol-base01/40 cursor-not-allowed";
+    return (
+      <div key={`unavailable:${p.key}`} className={wrapperClass()}>
+        <button
+          type="button"
+          data-sidebar-panel={p.key}
+          data-unavailable={p.label}
+          disabled={!onUnavailableSelect}
+          onClick={() => onUnavailableSelect?.(p.key)}
+          className={base}
+          title={title}
+          aria-disabled="true"
+        >
+          {p.icon}
+          {mobile && <span>{p.label}</span>}
+        </button>
       </div>
     );
   });
@@ -522,6 +587,12 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2"}>
       <div className={mobile ? "flex-1 flex flex-col items-start gap-1 w-full min-h-0 overflow-y-auto" : "flex-1 flex flex-col items-center gap-1 w-full min-h-0 overflow-y-auto pb-1"}>
         {panelButtons}
+        {unavailableButtons.length > 0 && (
+          <>
+            <div className={mobile ? "w-full h-px bg-sol-base02 my-1" : "w-5 h-px bg-sol-base02 my-1"} data-unavailable-divider />
+            {unavailableButtons}
+          </>
+        )}
       </div>
       {/* Bottom: GitHub + Auth */}
       <a

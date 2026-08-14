@@ -10,6 +10,8 @@ import FileViewer from "./components/FileViewer";
 import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
 import { buildChatPanelItem, buildFilePanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
+import DesktopHeaderBar from "./components/shell/DesktopHeaderBar";
+import CentreModeTabs from "./components/shell/CentreModeTabs";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
@@ -1295,9 +1297,6 @@ export default function App() {
     },
   ], [handleCloseAllFiles]);
 
-  const rightPanelBtnClass = (active: boolean) =>
-    `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;
-
   const renderRightPanel = (mobile = false) => {
     const artifactSlug = artifactSlugFromPanel(rightPanel);
     const artifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
@@ -1365,118 +1364,86 @@ export default function App() {
       )}
       {/* Desktop-only header bar */}
       {auth.isLoggedIn && (
-        <div className="hidden md:flex items-center px-2 py-1 bg-sol-base03 border-b border-sol-base02 shrink-0">
-          {/* Center: trace ID, VM, workdir */}
-          <div className="flex-1 flex justify-center items-center gap-2 text-sol-base01 font-mono text-xs">
-            {chatListTraceId && (
-              <button
-                onClick={() => { requestSelectTraceId(chatListTraceId); handleOpenFile("trace.md"); }}
-                className="text-sol-base01 hover:text-sol-base1 text-xs font-mono cursor-pointer"
-              >
-                #{chatListTraceId.slice(0, 8)}
-              </button>
-            )}
-            <div className="relative shrink-0" ref={vmDropdownRef}>
-              <button
-                onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
-                className={`p-0 bg-transparent border-0 ${selectedChatId ? "cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
-                title={`VM: ${selectedVM || "default"}`}
-              >
-                {selectedVM || "default"}
-              </button>
-              {vmDropdownOpen && (
-                <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[140px]">
-                  <button
-                    onClick={() => { setSelectedVM(null); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}
-                    className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                  >
-                    default
-                  </button>
-                  {vmList.filter((vm) => vm.name !== "default").map((vm) => (
-                    <button
-                      key={vm.name}
-                      onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
-                    >
-                      {vm.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {botListError && <span className="text-sol-red" title={botListError}>bot options unavailable</span>}
-            {botList.length > 1 && (
-              <div className="relative shrink-0" ref={botDropdownRef}>
+        <DesktopHeaderBar
+          leftOpen={desktopSidebarOpen}
+          bottomOpen={!bottomPanelCollapsed}
+          rightOpen={!rightPanelCollapsed}
+          onToggleLeft={() => setDesktopSidebarOpen(v => !v)}
+          onToggleBottom={() => setBottomPanelCollapsed(v => !v)}
+          onToggleRight={() => setRightPanelCollapsed(v => !v)}
+          meta={
+            <>
+              {chatListTraceId && (
                 <button
-                  onClick={() => setBotDropdownOpen((v) => !v)}
-                  className={`p-0 bg-transparent border-0 ${botDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
-                  title={selectedChatId ? `Bot: ${selectedBot || chatBotName || "default"} (pick another to switch this chat on its next run)` : `Bot: ${selectedBot || "default"}`}
+                  onClick={() => { requestSelectTraceId(chatListTraceId); handleOpenFile("trace.md"); }}
+                  className="text-sol-base01 hover:text-sol-base1 text-xs font-mono cursor-pointer"
                 >
-                  {selectedBot || (selectedChatId ? chatBotName : null) || "default"}
+                  #{chatListTraceId.slice(0, 8)}
                 </button>
-                {botDropdownOpen && (
+              )}
+              <div className="relative shrink-0" ref={vmDropdownRef}>
+                <button
+                  onClick={() => { if (!selectedChatId) setVmDropdownOpen((v) => !v); }}
+                  className={`p-0 bg-transparent border-0 ${selectedChatId ? "cursor-default" : vmDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
+                  title={`VM: ${selectedVM || "default"}`}
+                >
+                  {selectedVM || "default"}
+                </button>
+                {vmDropdownOpen && (
                   <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[140px]">
                     <button
-                      onClick={() => { setSelectedBot(null); setBotDropdownOpen(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedBot ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                      onClick={() => { setSelectedVM(null); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedVM ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
                     >
                       default
                     </button>
-                    {botList.filter((b) => b.name !== "default").map((b) => (
+                    {vmList.filter((vm) => vm.name !== "default").map((vm) => (
                       <button
-                        key={b.name}
-                        onClick={() => { setSelectedBot(b.name); setBotDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedBot === b.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                        key={vm.name}
+                        onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedVM === vm.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
                       >
-                        {b.name}
+                        {vm.name}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-            )}
-            <span>{effectiveWorkDir}</span>
-          </div>
-          {/* Right: panel toggle buttons */}
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Left sidebar toggle */}
-            <button
-              onClick={() => setDesktopSidebarOpen(v => !v)}
-              className={`p-1 rounded cursor-pointer ${desktopSidebarOpen ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
-              title={desktopSidebarOpen ? "Hide left sidebar" : "Show left sidebar"}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="1" y="1" width="14" height="14" rx="1" />
-                <line x1="5" y1="1" x2="5" y2="15" />
-                {desktopSidebarOpen && <rect x="1" y="1" width="4" height="14" rx="1" fill="currentColor" stroke="none" />}
-              </svg>
-            </button>
-            {/* Bottom panel toggle */}
-            <button
-              onClick={() => setBottomPanelCollapsed(v => !v)}
-              className={`p-1 rounded cursor-pointer ${!bottomPanelCollapsed ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
-              title={bottomPanelCollapsed ? "Show bottom panel" : "Hide bottom panel"}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="1" y="1" width="14" height="14" rx="1" />
-                <line x1="1" y1="11" x2="15" y2="11" />
-                {!bottomPanelCollapsed && <rect x="1" y="11" width="14" height="4" rx="1" fill="currentColor" stroke="none" />}
-              </svg>
-            </button>
-            {/* Right panel toggle */}
-            <button
-              onClick={() => setRightPanelCollapsed(v => !v)}
-              className={`p-1 rounded cursor-pointer ${!rightPanelCollapsed ? "text-sol-base1" : "text-sol-base01 hover:text-sol-base1"}`}
-              title={rightPanelCollapsed ? "Show right panel" : "Hide right panel"}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="1" y="1" width="14" height="14" rx="1" />
-                <line x1="11" y1="1" x2="11" y2="15" />
-                {!rightPanelCollapsed && <rect x="11" y="1" width="4" height="14" rx="1" fill="currentColor" stroke="none" />}
-              </svg>
-            </button>
-          </div>
-        </div>
+              {botListError && <span className="text-sol-red" title={botListError}>bot options unavailable</span>}
+              {botList.length > 1 && (
+                <div className="relative shrink-0" ref={botDropdownRef}>
+                  <button
+                    onClick={() => setBotDropdownOpen((v) => !v)}
+                    className={`p-0 bg-transparent border-0 ${botDropdownOpen ? "text-sol-blue cursor-pointer" : "hover:text-sol-base0 cursor-pointer"}`}
+                    title={selectedChatId ? `Bot: ${selectedBot || chatBotName || "default"} (pick another to switch this chat on its next run)` : `Bot: ${selectedBot || "default"}`}
+                  >
+                    {selectedBot || (selectedChatId ? chatBotName : null) || "default"}
+                  </button>
+                  {botDropdownOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-50 bg-sol-base02 border border-sol-base01 rounded shadow-float py-1 min-w-[140px]">
+                      <button
+                        onClick={() => { setSelectedBot(null); setBotDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${!selectedBot ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                      >
+                        default
+                      </button>
+                      {botList.filter((b) => b.name !== "default").map((b) => (
+                        <button
+                          key={b.name}
+                          onClick={() => { setSelectedBot(b.name); setBotDropdownOpen(false); }}
+                          className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 ${selectedBot === b.name ? "text-sol-blue font-semibold" : "text-sol-base1"}`}
+                        >
+                          {b.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <span>{effectiveWorkDir}</span>
+            </>
+          }
+        />
       )}
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
@@ -1640,37 +1607,11 @@ export default function App() {
           {/* Center column */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Center mode switcher header */}
-            <div className="flex items-center gap-1 px-2 py-2 bg-sol-base03 shrink-0">
-              <button
-                onClick={() => setChatHide(true)}
-                className={rightPanelBtnClass(chatHide)}
-                title="Notes (Ctrl+`)"
-              >
-                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setChatHide(false)}
-                className={rightPanelBtnClass(!chatHide)}
-                title="Chat"
-              >
-                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
-                </svg>
-              </button>
-              <div className="w-px h-4 bg-sol-base02 mx-0.5" />
-              <button
-                onClick={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineName(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
-                className="p-1.5 sm:p-1 text-sol-base01 hover:text-sol-base1 bg-sol-base02 rounded cursor-pointer"
-                title="New chat"
-              >
-                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <line x1="7" y1="2" x2="7" y2="12" />
-                  <line x1="2" y1="7" x2="12" y2="7" />
-                </svg>
-              </button>
-            </div>
+            <CentreModeTabs
+              mode={chatHide ? "files" : "chat"}
+              onModeChange={(mode) => setChatHide(mode === "files")}
+              onNew={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineName(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
+            />
             {/* Center top: FileViewer / ChatView */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
               {/* FileViewer (shown when chat hidden) */}

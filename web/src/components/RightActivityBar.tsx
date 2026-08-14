@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { PanelItem } from "./panelCatalog";
 
 interface RightActivityBarProps<Key extends string> {
@@ -7,6 +8,17 @@ interface RightActivityBarProps<Key extends string> {
   onRefresh: () => void;
   onClose: () => void;
   refreshing?: boolean;
+  /**
+   * Keys rendered dimmed and inert after the live items (design-3158).
+   * Default empty: authenticated app keeps its existing selection behavior.
+   * Unavailable keys may appear in `items` (for icon/label) or only here with
+   * a matching entry still required in `items` so the icon can render.
+   */
+  unavailableKeys?: readonly Key[];
+  /** Optional title override for an unavailable key. */
+  unavailableTitles?: Partial<Record<Key, string>>;
+  /** Optional click handler for unavailable items (e.g. demo toast). Default: no-op. */
+  onUnavailableSelect?: (key: Key) => void;
 }
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R2/R3): a single horizontal
@@ -15,14 +27,34 @@ interface RightActivityBarProps<Key extends string> {
 // only — clicking the active category no longer collapses the drawer, that
 // is now solely `onClose`'s job (desktop Close / mobile Close, both wired by
 // the caller). Desktop and mobile render the identical shape.
-export default function RightActivityBar<Key extends string>({ items, activePanel, onSelectPanel, onRefresh, onClose, refreshing }: RightActivityBarProps<Key>) {
+export default function RightActivityBar<Key extends string>({ items, activePanel, onSelectPanel, onRefresh, onClose, refreshing, unavailableKeys = [], unavailableTitles, onUnavailableSelect }: RightActivityBarProps<Key>) {
+  const unavailableSet = useMemo(() => new Set(unavailableKeys), [unavailableKeys]);
+  const liveItems = useMemo(
+    () => items.filter((item) => !unavailableSet.has(item.key)),
+    [items, unavailableSet],
+  );
+  const unavailableItems = useMemo(() => {
+    if (unavailableKeys.length === 0) return [] as PanelItem<Key>[];
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    const result: PanelItem<Key>[] = [];
+    const seen = new Set<Key>();
+    for (const key of unavailableKeys) {
+      if (seen.has(key)) continue;
+      const item = byKey.get(key);
+      if (!item) continue;
+      seen.add(key);
+      result.push(item);
+    }
+    return result;
+  }, [unavailableKeys, items]);
+
   const btnClass = (active: boolean) =>
     `h-8 w-8 flex items-center justify-center rounded cursor-pointer shrink-0 ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"}`;
 
   return (
     <div className="flex items-center justify-between gap-1 px-2 py-0.5 border-b border-sol-base02 shrink-0">
       <div className="flex items-center gap-1 overflow-x-auto">
-        {items.map((item) => (
+        {liveItems.map((item) => (
           <button
             key={item.key}
             data-right-panel={item.key}
@@ -33,6 +65,24 @@ export default function RightActivityBar<Key extends string>({ items, activePane
             {item.icon}
           </button>
         ))}
+        {unavailableItems.map((item) => {
+          const title = unavailableTitles?.[item.key] ?? `${item.label} — not part of the demo`;
+          return (
+            <button
+              key={`unavailable:${item.key}`}
+              type="button"
+              data-right-panel={item.key}
+              data-unavailable={item.label}
+              disabled={!onUnavailableSelect}
+              onClick={() => onUnavailableSelect?.(item.key)}
+              className="h-8 w-8 flex items-center justify-center rounded shrink-0 text-sol-base01/40 cursor-not-allowed"
+              title={title}
+              aria-disabled="true"
+            >
+              {item.icon}
+            </button>
+          );
+        })}
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <button
