@@ -235,14 +235,14 @@ expired-login card tells the user to run.
     hour, so that the Live "today by hour" strip can mark the in-progress bar
     without trusting the browser clock.
 37f. As a web user, I want the Live cards above the per-model table, on a wide
-    panel, to place the donut on the right beside a left stack of Subscription
-    limits, Run rate, and a "Today by hour" bar strip (shared metric toggle),
-    and on a narrow panel to stack Subscription limits → Run rate → Today by
-    hour → donut (the narrow order is intentional and supersedes the earlier
-    below-donut placement), and Over-time to offer an `H` granularity clamped
-    to 7 days, so that short-horizon activity is visible without scrolling the
-    four Live cards off screen and without changing daily / weekly / monthly
-    views.
+    panel, to lay out as a balanced 2x2 grid (left column Subscription limits
+    then Run rate, right column the donut then a "Today by hour" bar strip,
+    shared metric toggle), and on a narrow panel to stack Subscription
+    limits → Run rate → Today by hour → donut (the narrow order is
+    intentional and supersedes the earlier below-donut placement), and
+    Over-time to offer an `H` granularity clamped to 7 days, so that
+    short-horizon activity is visible without scrolling the four Live cards
+    off screen and without changing daily / weekly / monthly views.
 
 ### Usage API
 
@@ -534,13 +534,13 @@ expired-login card tells the user to run.
   `GET /api/usage/model-hourly`, never a browser-clock decision.
 - **One sync, hourly cadence.** Daily and hourly share the minute-50 EventBridge
   schedule and the same CLI/API entry points; the result envelope carries both.
-- **Presentation.** Live's wide layout is a two-column dashboard: left stack of
-  Subscription limits → Run rate → "Today by hour"; donut on the right (shared
-  metric toggle). Narrow panels stack Subscription limits → Run rate → Today
-  by hour → donut; that single-column order is intentional and supersedes the
-  earlier below-donut placement from bot v24. Over-time gains an `H`
-  granularity that fetches `model-hourly` and clamps the range to 7 days.
-  Active-hours analytics, an hourly heatmap, and per-key/per-bot hourly
+- **Presentation.** Live's wide layout is a balanced 2x2 grid: left column
+  Subscription limits then Run rate; right column the donut then "Today by
+  hour" (shared metric toggle). Narrow panels stack Subscription limits → Run
+  rate → Today by hour → donut; that single-column order is intentional and
+  supersedes the earlier below-donut placement from bot v24. Over-time gains
+  an `H` granularity that fetches `model-hourly` and clamps the range to 7
+  days. Active-hours analytics, an hourly heatmap, and per-key/per-bot hourly
   attribution stay out of scope.
 
 ### Subscription limit-window status
@@ -1066,7 +1066,7 @@ expired-login card tells the user to run.
 | 3111 | Live Usage run-rate strip backed by CRS's five-minute dashboard RPM/TPM through a VM-only admin CLI and SSH API; unavailable, historical, stale, and VM-asleep states stay explicit | - | `pages/plan-3111-usage-run-rate.md` | this PRD | `pages/review-3111-bot-usage-run-rate-ui.md`, `pages/review-3111-usage-run-rate-backend.md` | shipped (`da3289a` backend, bot artifact v17, `ab050ed3a956…`; live VM response verified) |
 | 3121 | `GET /api/usage/rate` under 1s via a direct Relay proxy: store CRS admin credentials in `user_preference` key `crs_admin`, share `storage.service.usage_rate.read_rate` between the API and `y usage rate`, cache the admin session token (~23h, re-login on 401), retire the VM precompute path (`--store`, `scripts/usage-rate-store.sh`, `usage_rate_latest`, `stale` / `vm_unreachable`). UI contract changes add `auth_failed` and drop VM wording | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | `pages/review-3121-usage-rate-latency.md` | shipped (`86afe27` backend; bot artifact v20, `cbb0450b400b…`; production latency 0.283 / 0.578 / 0.702s; cron absent; orphan rows removed) |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
-| 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" and Over-time `H` granularity; approved Live layout is wide left stack Subscription limits → Run rate → Today by hour with donut on the right, narrow stack Subscription limits → Run rate → Today by hour → donut (narrow order intentional, supersedes v24 below-donut); stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md`, `pages/review-3165-bot-usage-prd-live-layout.md` | shipped (`23974833` CRS, `3bea917` backend, bot v24 `b347bf4bba37…`; left-stack Live layout PRD-approved and supersedes v24 below-donut on narrow panels, UI fix in flight); first complete post-deploy-day reconciliation pending |
+| 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" and Over-time `H` granularity; approved Live layout is a wide balanced 2x2 grid (left column Subscription limits → Run rate, right column donut → Today by hour), narrow stack Subscription limits → Run rate → Today by hour → donut (narrow order intentional, supersedes v24 below-donut); stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md`, `pages/review-3165-bot-usage-prd-live-layout.md` | shipped (`23974833` CRS, `3bea917` backend, bot v25 `be13b62233ee…`, which supersedes v24's below-donut narrow order with the wide left-stack/right-donut layout and the correct narrow order); the further wide balanced 2x2 grid documented above is PRD-approved but not yet published (in flight, uncommitted); first complete post-deploy-day reconciliation pending |
 
 ## Out of Scope
 
