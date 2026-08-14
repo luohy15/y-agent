@@ -21,6 +21,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   `unread` / `none` instead of a plain unread flag, with repository, service, API,
   and CLI (`y chat attention`) support plus Telegram delivery wired to the new
   states (host half; worker/UI consumption tracked separately).
+- **Server-side chat list sorting (3152)**: chat list accepts closed `sort_by`
+  (`updated_at` / `created_at`) and `sort_order` (`asc` / `desc`) on the
+  repository, service, and host-contract `chat_list` path, defaulting to
+  latest-updated-first.
 
 ### Changed
 - **Host UI control convergence (3115)**: host surfaces share a design-language
@@ -34,10 +38,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Chat ID collision overwrites**: creating a chat is insert-only and raises on
   `(user_id, chat_id)` collisions instead of silently overwriting an existing row
   via upsert, with callers and a scan script updated accordingly.
-- **Per-file workspace tabs (3084, browser contract v8)**: FileViewer restores a
-  host-managed tab strip for ordinary files, including close and switch actions,
-  persisted workspace state, path search, and module detail mounting scoped to the
-  selected file rather than a shared workspace tab.
+- **Per-file workspace tabs (3084, 3138, browser contract v8)**: FileViewer
+  restores a host-managed tab strip for ordinary files, including close and
+  switch actions, path search, and module detail mounting scoped to the selected
+  file. Open tabs now persist through a backend user preference and avoid a
+  stale-tab flash before workspace reconciliation.
+- **Chat list latest-updated-first ordering (3141)**: restore the default chat
+  list order after earlier attention work left listing unsorted / wrong order.
+- **Worker auto-resume on terminal API 5xx (3155)**: when a Claude Code session
+  ends on a terminal API 5xx, the worker auto-resumes once, and the retry
+  counter survives steer relaunch.
 
 ### Removed
 - **Non-Solarized themes**: the web app now ships only the Solarized light/dark
