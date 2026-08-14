@@ -23,6 +23,7 @@
     "file-text",
     "package",
     "box",
-    "message"
+    "message",
+    "tag"
   ]
 }
