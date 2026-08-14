@@ -78,10 +78,12 @@ bumping it from 5 to 6. Chat-list server-side sorting (todo 3152) adds optional
 closed `sort_by` / `sort_order` parameters to `chat_list`, bumping it from 6
 to 7. The tag control-plane capability (todo 3164) adds owner-bound
 `tag_list_vocabulary` / `tag_get` / `tag_add` / `tag_remove` / `tag_backfill`
-adapters over `storage.service.tag`, bumping it from 7 to 8. Modules declare
-the minimum version they use and an older host rejects their bundle. Every
-later addition to the surface above bumps the version and, for modules that
-need it, `min_backend_version`.
+adapters over `storage.service.tag`, bumping it from 7 to 8. Todo 3169
+enriches the existing `tag_get` todo row with `updated_at_unix` (the todo
+row's own timestamp) so presentation clients can sort without a second
+fetch, bumping it from 8 to 9. Modules declare the minimum version they use
+and an older host rejects their bundle. Every later addition to the surface
+above bumps the version and, for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -97,7 +99,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 8
+BACKEND_CONTRACT_VERSION = 9
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -701,12 +703,14 @@ def note_relations_by_note(user_id: int, note_id: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# v8 tag control-plane capability
+# v8 tag control-plane capability (v9 enriches tag_get todo rows)
 #
 # Request-bound vocabulary, lookup, generic projection writes, and authoring-
 # surface backfill over host-owned entity_tag state (plan-3164). The kernel
 # keeps normalization, resolvers, hydration, and carrier filters; modules only
 # receive plain JSON-safe dictionaries and never repositories or sessions.
+# v9 (todo 3169) adds `updated_at_unix` on hydrated todo rows from tag_get so
+# the tag module can sort by recency without imposing host display policy.
 # ---------------------------------------------------------------------------
 
 

@@ -123,11 +123,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v8**. The tag module owns
+  Backend host contract (`agent.module_host`) is **v9**. The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
-  cleanup, resolver hydration, exact-tag filters, and the `tag.open` navigation
-  adapter. Per-module ownership, routes, CLI, and rollback hazards:
+  cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
+  sorting), exact-tag filters, and the `tag.open` navigation adapter.
+  Per-module ownership, routes, CLI, and rollback hazards:
   `code/y-module/<slug>/README.md`. Contract: `docs/prd/module-system.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
@@ -232,11 +233,11 @@ Grouped by feature area:
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
 - `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 8`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 9`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, and
-  owner-bound `tag_*` capabilities)
+  owner-bound `tag_*` capabilities; `tag_get` todo rows include `updated_at_unix`)
 - `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
   import it directly

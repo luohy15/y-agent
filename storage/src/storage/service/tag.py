@@ -50,7 +50,15 @@ def delete_for_entity(user_id: int, entity_type: str, entity_id: str) -> int:
 
 def _resolve_todo(user_id: int, entity_id: str) -> Optional[Dict]:
     todo = todo_service.get_todo(user_id, entity_id)
-    return {"id": todo.todo_id, "title": todo.name} if todo else None
+    if not todo:
+        return None
+    # updated_at_unix is the todo row's own timestamp (not effective chat activity).
+    # Present so presentation clients (tag module) can sort without a second fetch.
+    return {
+        "id": todo.todo_id,
+        "title": todo.name,
+        "updated_at_unix": todo.updated_at_unix,
+    }
 
 
 def _resolve_note(user_id: int, entity_id: str) -> Optional[Dict]:
