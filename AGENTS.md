@@ -117,7 +117,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v7**. Per-module ownership,
+  Backend host contract (`agent.module_host`) is **v8**. Per-module ownership,
   routes, CLI, and rollback hazards: `code/y-module/<slug>/README.md`. Contract:
   `docs/prd/module-system.md`.
 - **Image transport** — API image ingestion stores bytes only under
@@ -222,11 +222,11 @@ Grouped by feature area:
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
 - `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 7`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 8`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
-  `sort_by`/`sort_order`, `note_list_at_path`, and owner-bound `note_*`
-  capabilities)
+  `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, and
+  owner-bound `tag_*` capabilities)
 - `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
   import it directly

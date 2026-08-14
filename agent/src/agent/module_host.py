@@ -76,9 +76,12 @@ to 5. The three-state chat attention UX (todo 3137) adds `needs_attention` to
 `chat_list` row dicts, a surface addition to the existing v3 chat capability,
 bumping it from 5 to 6. Chat-list server-side sorting (todo 3152) adds optional
 closed `sort_by` / `sort_order` parameters to `chat_list`, bumping it from 6
-to 7. Modules declare the minimum version they use and an older host rejects
-their bundle. Every later addition to the surface above bumps the version and,
-for modules that need it, `min_backend_version`.
+to 7. The tag control-plane capability (todo 3164) adds owner-bound
+`tag_list_vocabulary` / `tag_get` / `tag_add` / `tag_remove` / `tag_backfill`
+adapters over `storage.service.tag`, bumping it from 7 to 8. Modules declare
+the minimum version they use and an older host rejects their bundle. Every
+later addition to the surface above bumps the version and, for modules that
+need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -87,14 +90,14 @@ import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 7
+BACKEND_CONTRACT_VERSION = 8
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -695,3 +698,112 @@ def note_relations_by_note(user_id: int, note_id: str) -> list[str]:
     from storage.service import note_todo_relation as relation_service
 
     return list(relation_service.list_by_note(user_id, note_id))
+
+
+# ---------------------------------------------------------------------------
+# v8 tag control-plane capability
+#
+# Request-bound vocabulary, lookup, generic projection writes, and authoring-
+# surface backfill over host-owned entity_tag state (plan-3164). The kernel
+# keeps normalization, resolvers, hydration, and carrier filters; modules only
+# receive plain JSON-safe dictionaries and never repositories or sessions.
+# ---------------------------------------------------------------------------
+
+
+def _require_tag_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"tag operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); tag access is request-bound"
+        )
+
+
+def tag_list_vocabulary(user_id: int) -> list[dict[str, Any]]:
+    """Distinct owner-scoped tags with usage counts as plain dictionaries."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return [
+        {"tag": tag, "count": count}
+        for tag, count in tag_service.list_vocabulary(user_id)
+    ]
+
+
+def tag_get(
+    user_id: int,
+    tag: str,
+    *,
+    prefix: bool = False,
+) -> dict[str, list[dict[str, Any]]]:
+    """Hydrated owner-scoped tag lookup grouped by entity_type."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.get_by_tag(user_id, tag, prefix=prefix)
+
+
+def tag_add(
+    user_id: int,
+    entity_type: str,
+    entity_id: str,
+    tags: List[str],
+) -> dict[str, list[str]]:
+    """Add projection tags for one owner-scoped entity; returns newly added tags."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    added = [
+        tag
+        for tag in tags
+        if tag_service.add_tag(user_id, entity_type, entity_id, tag)
+    ]
+    return {"added": added}
+
+
+def tag_remove(
+    user_id: int,
+    entity_type: str,
+    entity_id: str,
+    tags: List[str],
+) -> dict[str, list[str]]:
+    """Remove projection tags for one owner-scoped entity; returns removed tags."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    removed = [
+        tag
+        for tag in tags
+        if tag_service.remove_tag(user_id, entity_type, entity_id, tag)
+    ]
+    return {"removed": removed}
+
+
+def tag_backfill(
+    user_id: int,
+    *,
+    dry_run: bool = False,
+    entity_types: Optional[List[str]] = None,
+    limit: Optional[int] = None,
+) -> dict[str, Any]:
+    """Project pre-existing note/entity/todo authoring tags into entity_tag.
+
+    The storage service envelope includes the internal integer user_id; strip it
+    so the capability (and any module API that forwards it) never exposes a
+    private DB identifier across the host boundary.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    result = tag_service.backfill_tags(
+        user_id,
+        dry_run=dry_run,
+        entity_types=entity_types,
+        limit=limit,
+    )
+    return {
+        "dry_run": result["dry_run"],
+        "by_type": result["by_type"],
+        "total_synced": result["total_synced"],
+        "total_tag_rows": result["total_tag_rows"],
+    }

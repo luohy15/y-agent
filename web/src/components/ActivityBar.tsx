@@ -81,7 +81,14 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
 ];
 
 export function buildActivityPanelItems(artifacts: Module[]): PanelItem<SidebarPanel>[] {
-  return [...BUILT_IN_PANEL_ITEMS, ...buildModulePanelItems(artifacts)];
+  const moduleItems = buildModulePanelItems(artifacts);
+  // Prefer the module Tags panel when mountable; keep the built-in entry only as
+  // a temporary fallback so cutover does not leave two Tags buttons.
+  const hasTagModule = moduleItems.some((item) => item.key === "artifact:tag");
+  const builtIns = hasTagModule
+    ? BUILT_IN_PANEL_ITEMS.filter((item) => item.key !== "tags")
+    : BUILT_IN_PANEL_ITEMS;
+  return [...builtIns, ...moduleItems];
 }
 
 const STORAGE_KEY = "activityBarOrder";
@@ -100,7 +107,16 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   // C1: fixed left module-backed entries become artifact panel keys.
   notes: "artifact:note",
   files: "artifact:file",
+  // Todo 3164: built-in Tags panel identity becomes the tag module panel key.
+  // When the module is not mountable, mergeWithDefaults drops artifact:tag and
+  // reinserts the built-in `tags` fallback at its default position.
+  tags: "artifact:tag",
 };
+
+/** Map a persisted activity-bar key through the one-shot APP_TO_PANEL renames. */
+export function migrateActivityPanelKey(key: string): SidebarPanel {
+  return (APP_TO_PANEL[key] ?? key) as SidebarPanel;
+}
 
 function mergeWithDefaults(parsed: unknown, defaults: SidebarPanel[]): SidebarPanel[] {
   const valid = new Set<SidebarPanel>(defaults);
@@ -208,7 +224,7 @@ function loadOrder(defaults: SidebarPanel[]): SidebarPanel[] {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.every(x => typeof x === "string")) {
-          const migrated = parsed.map((key) => APP_TO_PANEL[key] ?? key);
+          const migrated = parsed.map((key) => migrateActivityPanelKey(key));
           const merged = mergeWithDefaults(migrated, defaults);
           if (migrated.some((key, index) => key !== parsed[index])) saveOrder(merged);
           return merged;
@@ -292,7 +308,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     reconciledRef.current = true;
     if (pref.serverValue && Array.isArray(pref.serverValue)) {
       if (userTouchedRef.current) return;
-      const migrated = pref.serverValue.map((key) => APP_TO_PANEL[key] ?? key);
+      const migrated = pref.serverValue.map((key) => migrateActivityPanelKey(key));
       const merged = mergeWithDefaults(migrated, defaultOrder);
       setOrder(merged);
       saveOrder(merged);

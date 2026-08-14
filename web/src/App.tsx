@@ -208,8 +208,15 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const raw = localStorage.getItem("sidebarPanel");
-    // C1: migrate retired fixed entries onto their module panel keys.
-    const saved = (raw === "files" ? "artifact:file" : raw === "notes" ? "artifact:note" : raw) as SidebarPanel;
+    // C1 / todo 3164: migrate retired fixed entries onto their module panel keys.
+    // `tags` becomes `artifact:tag`; if the module is not mountable yet the
+    // artifacts-loaded effect below falls back to the built-in Tags panel.
+    const saved = (
+      raw === "files" ? "artifact:file"
+        : raw === "notes" ? "artifact:note"
+          : raw === "tags" ? "artifact:tag"
+            : raw
+    ) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
@@ -620,7 +627,16 @@ export default function App() {
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
+    // Prefer the tag module panel when mountable; keep built-in Tags as fallback.
+    if (sidebarPanel === "tags" && uiArtifactBySlug.has("tag")) {
+      setSidebarPanel("artifact:tag");
+      return;
+    }
     const slug = artifactSlugFromPanel(sidebarPanel);
+    if (slug === "tag" && !uiArtifactBySlug.has("tag")) {
+      setSidebarPanel("tags");
+      return;
+    }
     if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("artifact:todo");
   }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
@@ -1213,7 +1229,8 @@ export default function App() {
   // Tags panel click-to-navigate: one type-dispatch callback covering all 10
   // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts (unit
   // tested there against a mocked authFetch); this just supplies the bound
-  // setters and closes the mobile sidebar drawer after navigating.
+  // setters and closes the mobile sidebar drawer after navigating. The same
+  // deps feed the host `tag.open` command used by the future tag module.
   const handleTagNavigate = useCallback((entityType: string, item: TagResultItem) => {
     navigateTag(entityType, item, {
       requestSelectTraceId,
@@ -1234,6 +1251,20 @@ export default function App() {
     });
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [requestSelectTraceId, handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
+
+  useEffect(() => {
+    // Todo 3164: tag module result clicks open carrier viewers through the host.
+    return registerHostCommand("tag.open", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { entityType, item } = payload as { entityType?: unknown; item?: unknown };
+      if (typeof entityType !== "string" || !item || typeof item !== "object") return;
+      const id = (item as { id?: unknown }).id;
+      if (typeof id !== "string") return;
+      const title = (item as { title?: unknown }).title;
+      const resultItem: TagResultItem = typeof title === "string" ? { id, title } : { id };
+      handleTagNavigate(entityType, resultItem);
+    });
+  }, [handleTagNavigate]);
 
   const handleExternalLinkClick = useCallback(async (url: string) => {
     try {
