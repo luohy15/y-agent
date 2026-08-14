@@ -29,10 +29,14 @@ export function isDemoPath(pathname: string): boolean {
 }
 
 /** The allowlisted route for a path, or null. Exact match only — no prefix
- * matching, no trailing-segment tolerance. */
+ * matching, no trailing-segment tolerance (a trailing slash is rejected). Bare
+ * `/demo` is handled by the page shell (defaults to chat) and is not a named
+ * route here. */
 export function demoRouteFor(pathname: string): DemoRoute | null {
   if (!pathname.startsWith(DEMO_PATH_PREFIX)) return null;
   const key = pathname.slice(DEMO_PATH_PREFIX.length);
+  // Exact key only: reject empty (bare prefix) and any slash segment.
+  if (!key || key.includes("/")) return null;
   return DEMO_ROUTES.find((route) => route.key === key) ?? null;
 }
 
