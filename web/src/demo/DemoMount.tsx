@@ -6,8 +6,10 @@
 //  - every failure renders one generic state with no version, slug, message,
 //    rollback action, management call, or sign-in path;
 //  - it refuses to load at all unless the restricted runtime is installed.
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { loadDemoArtifact, type ArtifactVersionRef, type LoadedArtifact } from "../host/loader";
+import { DetailContextProvider } from "../host/detailContext";
+import { PanelLocationProvider } from "../host/panelLocation";
 import { isPublicDemoRuntimeInstalled } from "./runtime";
 import { DemoUnavailable } from "./DemoStates";
 
@@ -41,7 +43,21 @@ class RenderBoundary extends Component<RenderBoundaryProps, { hasError: boolean 
   }
 }
 
-export default function DemoMount({ slug, version }: { slug: string; version: ArtifactVersionRef }) {
+export interface DemoMountProps {
+  slug: string;
+  version: ArtifactVersionRef;
+  surface?: "panel" | "detail" | "shell";
+  panelLocation?: "left" | "right";
+  detailContext?: unknown;
+}
+
+export default function DemoMount({
+  slug,
+  version,
+  surface = "panel",
+  panelLocation,
+  detailContext,
+}: DemoMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
 
   useEffect(() => {
@@ -51,6 +67,13 @@ export default function DemoMount({ slug, version }: { slug: string; version: Ar
       // Belt-and-braces: module bytes must never be imported into a page that
       // still has authenticated fetch, durable storage, and the full SDK.
       console.error("[y-demo] refusing to load a bundle without the restricted runtime");
+      setState({ status: "failed" });
+      return;
+    }
+    if (version.min_host_version < 9) {
+      // A v8 public bundle only knows the standalone demo leaf. Shell slots
+      // must never fall back to it because that would bypass the data/source
+      // seam added with contract v9.
       setState({ status: "failed" });
       return;
     }
@@ -91,12 +114,23 @@ export default function DemoMount({ slug, version }: { slug: string; version: Ar
     return <DemoUnavailable />;
   }
 
-  const Demo = state.artifact.Demo!;
-  return (
-    <div data-y-artifact={slug} data-y-artifact-surface="demo" className="h-full">
+  const Demo = state.artifact.Demo! as unknown as ComponentType<{
+    surface: "panel" | "detail" | "shell";
+    panelLocation?: "left" | "right";
+    detailContext?: unknown;
+  }>;
+  const body = (
+    <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
       <RenderBoundary onError={() => setState({ status: "failed" })}>
-        <Demo />
+        <Demo surface={surface} panelLocation={panelLocation} detailContext={detailContext} />
       </RenderBoundary>
     </div>
   );
+  if (surface === "panel") {
+    return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
+  }
+  if (surface === "detail") {
+    return <DetailContextProvider value={detailContext ?? null}>{body}</DetailContextProvider>;
+  }
+  return body;
 }

@@ -40,6 +40,7 @@ import { hostSdk } from "../host/sdk";
 import { installHostRegistry } from "../host/registry";
 import { publicBundleFetcher } from "../host/loader";
 import { demoRouteFor, DEMO_ROUTES } from "./routes";
+import { openDemoArtifactDetail, runDemoHostCommand } from "./commands";
 
 const PUBLIC_DEMO_PREFIX = "/api/module/public-demo/";
 const PUBLIC_BUNDLE_PREFIX = "/api/module/public-bundle/";
@@ -260,11 +261,13 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "getTopicColor",
   "getTopicChartColors",
   "stripTracePrefix",
-  // intents.ts / panelLocation.ts / detailContext.ts — read-only host channels
-  // the demo page never writes, so they resolve to their neutral defaults.
+  // intents.ts / panelLocation.ts / detailContext.ts — host channels. The
+  // demo shell supplies only in-memory values and resets them on page reload.
   "useArtifactIntent",
   "usePanelLocation",
   "useDetailContext",
+  "runHostCommand",
+  "openArtifactDetail",
   // optimisticMutate.ts — patches the in-memory SWR cache only.
   "optimisticListMutate",
   // Host-owned presentational leaves.
@@ -303,11 +306,13 @@ export function buildDemoHostSdk(): Record<string, unknown> {
   for (const key of Object.keys(source)) {
     restricted[key] = DEMO_SAFE_KEYS.includes(key) ? source[key] : () => denied(key);
   }
-  // Explicit substitutions (the rest of the unsafe keys — authFetch,
-  // jsonFetcher, runHostCommand, openArtifactDetail — stay throwers).
+  // Explicit substitutions: identity and network keys remain throwers. The
+  // host-command endpoints route only to the demo shell's in-memory registry.
   restricted.API = DEMO_API_BASE;
-  restricted.getToken = () => null;
+  restricted.getToken = () => denied("getToken");
   restricted.navigateTo = demoNavigate;
+  restricted.runHostCommand = runDemoHostCommand;
+  restricted.openArtifactDetail = openDemoArtifactDetail;
   return restricted;
 }
 

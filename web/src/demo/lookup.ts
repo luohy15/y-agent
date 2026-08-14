@@ -43,3 +43,19 @@ export async function fetchPublicDemo(key: string): Promise<PublicDemoRef> {
     min_host_version: body.min_host_version,
   };
 }
+
+/** Resolve all showcase slots concurrently. A failed projection is isolated to
+ * its own key so the shell can keep every other eligible surface interactive. */
+export async function fetchPublicDemos(keys: readonly string[]): Promise<Map<string, PublicDemoRef | null>> {
+  const resolved = await Promise.all(
+    keys.map(async (key) => {
+      try {
+        return [key, await fetchPublicDemo(key)] as const;
+      } catch (err) {
+        console.error("[y-demo] lookup failed", err);
+        return [key, null] as const;
+      }
+    }),
+  );
+  return new Map(resolved);
+}
