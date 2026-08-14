@@ -92,6 +92,8 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 RESERVED_SLUGS = {
     "create", "list", "versions", "publish", "rollback", "activate",
     "enable", "disable", "delete", "bundle", "schema-sql",
+    # Anonymous UI-byte delivery (todo 3158); host routes, never module slugs.
+    "public-demo", "public-bundle",
 }
 
 
@@ -573,4 +575,44 @@ async def get_bundle(version_id: str, request: Request):
         content=content,
         media_type="text/javascript",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@router.get("/public-demo/{demo_key}")
+async def get_public_demo(demo_key: str):
+    """Anonymous projection of one allowlisted public demo (todo 3158).
+
+    No auth, no request owner. Every ineligible case is an indistinguishable 404
+    so callers cannot probe inventory, ownership, or private versions.
+    """
+    owner_id = default_owner_user_id()
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Demo not found")
+    projection = module_service.get_public_demo(owner_id, demo_key)
+    if projection is None:
+        raise HTTPException(status_code=404, detail="Demo not found")
+    return projection
+
+
+@router.get("/public-bundle/{version_id}")
+async def get_public_bundle(version_id: str):
+    """Anonymous UI-byte delivery for an eligible public version (todo 3158).
+
+    Eligibility is re-checked on every origin fetch (enabled + currently active
+    + ui_public + UI bytes). Does not open module backend dispatch.
+    """
+    owner_id = default_owner_user_id()
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    version = module_service.get_public_bundle_version(owner_id, version_id)
+    if version is None or not version.ui_storage_key or not version.ui_sha256:
+        raise HTTPException(status_code=404, detail="Version not found")
+    content = _read_bundle(version.ui_storage_key)
+    return Response(
+        content=content,
+        media_type="text/javascript",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-SHA256": version.ui_sha256,
+        },
     )

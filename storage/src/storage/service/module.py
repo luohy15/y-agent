@@ -8,12 +8,22 @@ Versions are never mutated after insert.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
 from storage.repository import module as module_repo
 from storage.repository import module_version as version_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
+
+
+# Canonical public demo keys (todo 3158). Route key -> production module slug.
+# Deliberately fixed: anonymous callers may not probe arbitrary installed modules.
+PUBLIC_DEMO_SLUGS: Dict[str, str] = {
+    "chat": "chat",
+    "todo": "todo",
+    "note": "note",
+    "link": "link",
+}
 
 
 @dataclass
@@ -70,6 +80,64 @@ def list_versions(user_id: int, module_id: str) -> List[ModuleVersion]:
 
 def get_version(user_id: int, version_id: str) -> Optional[ModuleVersion]:
     return version_repo.get_version(user_id, version_id)
+
+
+def get_public_demo(owner_id: int, demo_key: str) -> Optional[Dict]:
+    """Minimal projection of an eligible public demo for anonymous lookup.
+
+    Eligibility is fail-closed: the demo_key must be allowlisted, the maintainer
+    module must be enabled with an active version, and that version must be
+    `ui_public` with UI bytes (sha + storage key). Returns only the fields the
+    public browser needs to integrity-check the bundle; never inventory,
+    ownership, storage keys, API metadata, or dispatch scope.
+    """
+    slug = PUBLIC_DEMO_SLUGS.get(demo_key)
+    if not slug:
+        return None
+    module = module_repo.get_module_by_slug(owner_id, slug)
+    if not module or not module.enabled or not module.active_version_id:
+        return None
+    version = version_repo.get_version(owner_id, module.active_version_id)
+    if (
+        not version
+        or not version.ui_public
+        or not version.ui_sha256
+        or not version.ui_storage_key
+    ):
+        return None
+    return {
+        "demo_key": demo_key,
+        "slug": slug,
+        "version_id": version.version_id,
+        "version_no": version.version_no,
+        "ui_sha256": version.ui_sha256,
+        "min_host_version": version.min_host_version,
+    }
+
+
+def get_public_bundle_version(owner_id: int, version_id: str) -> Optional[ModuleVersion]:
+    """Resolve a version that is still eligible for anonymous UI-byte delivery.
+
+    Same gate as get_public_demo's active version: enabled module, currently
+    active, ui_public, and UI bytes present. Historical or demoted versions 404
+    even if their immutable row still says ui_public.
+    """
+    version = version_repo.get_version(owner_id, version_id)
+    if (
+        not version
+        or not version.ui_public
+        or not version.ui_sha256
+        or not version.ui_storage_key
+    ):
+        return None
+    module = module_repo.get_module(owner_id, version.module_id)
+    if (
+        not module
+        or not module.enabled
+        or module.active_version_id != version.version_id
+    ):
+        return None
+    return version
 
 
 def publish(

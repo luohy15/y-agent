@@ -5,10 +5,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from storage.service.module import PUBLIC_DEMO_SLUGS
+
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
 PUBLIC_PREFIXES = ("/api/auth", "/api/telegram/webhook", "/api/health", "/docs", "/openapi.json")
+
+# Single-segment path after these prefixes; keys come from PUBLIC_DEMO_SLUGS so
+# middleware and the service share one allowlist authority (todo 3158).
+_PUBLIC_DEMO_PREFIX = "/api/module/public-demo/"
+_PUBLIC_BUNDLE_PREFIX = "/api/module/public-bundle/"
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -29,6 +37,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if path == "/api/note/share" and request.method == "GET":
             return await call_next(request)
+
+        # Public module demo UI delivery (todo 3158): exact allowlisted demo keys
+        # plus a single-segment public-bundle path. Never open /api/module as a
+        # PUBLIC_PREFIXES entry (that would also expose management + dispatch).
+        if request.method == "GET" and path.startswith(_PUBLIC_DEMO_PREFIX):
+            demo_key = path[len(_PUBLIC_DEMO_PREFIX) :]
+            if demo_key in PUBLIC_DEMO_SLUGS:
+                return await call_next(request)
+        if request.method == "GET" and path.startswith(_PUBLIC_BUNDLE_PREFIX):
+            rest = path[len(_PUBLIC_BUNDLE_PREFIX) :]
+            if rest and "/" not in rest:
+                return await call_next(request)
 
         # Protected routes require JWT (header or query param for SSE)
         auth_header = request.headers.get("Authorization", "")
