@@ -52,21 +52,21 @@ Defaults work for most cases, but you can override per chat:
 
 Most of y-agent's value lives in four panels. Each is fully usable from the GUI and mirrored by the `y` CLI, so you and the agent operate on the same rows.
 
-Three of them have **public interactive demos** you can open without signing in. Each demo mounts the same production module UI against fixed fictional data:
+Three of them deep-link into one **public interactive demo app** at [`/demo`](/demo) (no sign-in). The app reuses the signed-in information architecture — activity bar, left panel, centre column, right drawer — and mounts the same production module UI against fixed fictional data. Capability URLs only set the initial selection; in-shell navigation stays inside that one app.
 
-- **No sign-in.** The routes are unauthenticated.
+- **No sign-in.** `/demo` and its deep links are unauthenticated.
 - **Fictional data only.** Records are sample fixtures shipped with the module UI, not real chats, todos, notes, or accounts.
-- **Read-only boundary.** Nothing is saved, sent, or written to durable storage. Central gestures (for example a temporary status/pin change) may simulate in memory and reset on reload; actions that would hit a real backend stay disabled.
+- **Read-only boundary.** Demo records and simulated changes are not saved, sent, or written to durable storage. Central gestures (for example a temporary status/pin change) may simulate in memory and reset on reload; actions that would hit a real backend stay disabled.
 
-Link still uses a static screenshot for now; its interactive demo is deferred. When it ships, it will follow the same launch-link pattern as the three demos below.
+Link still uses a static screenshot for now; its surface is deferred. When it ships, it will join the same demo app as `/demo/link`.
 
 ### Chat
 
 Every task is a conversation, and the **Chat** panel is where you watch it happen. Assistant turns stream in real time with inline, collapsible tool calls, and assistant prose can carry **inline artifacts** — charts, diagrams, and sanitized SVG render directly in the thread instead of as plain code blocks. Select any messages to export them as a phone-friendly PNG, or share the whole chat as a read-only link.
 
-**[Open the Chat demo](/demo/chat)** — no account required.
+**[Open Chat in the demo](/demo/chat)** — full shell with Chat selected; no account required.
 
-What to try: expand a collapsible tool-call block, inspect an inline artifact, select messages for a local PNG export, and notice that live send / steer / stop stay disabled.
+What to try: expand a collapsible tool-call block, inspect an inline artifact, select messages for a local PNG export, and notice that live send / steer / stop stay disabled. Use the activity bar to switch to Todo or Note without leaving the demo.
 
 ### Todo & Trace
 
@@ -81,7 +81,7 @@ The todo's **public ID is its `trace_id`**. Every chat dispatched under that tod
 
 Todos can also be linked to **notes** (plan / requirement / decision context) and **links** (web pages, articles, X / Bilibili / WeChat).
 
-**[Open the Todo & Trace demo](/demo/todo)** — no account required.
+**[Open Todo & Trace in the demo](/demo/todo)** — full shell with Todo selected; no account required.
 
 What to try: switch list / kanban, filter or open a sample todo, toggle pin or status (local simulation only; resets on reload), and open the fictional multi-chat trace waterfall.
 
@@ -89,7 +89,7 @@ What to try: switch list / kanban, filter or open a sample todo, toggle pin or s
 
 The **Notes** panel holds Journals (daily log), Pages (topic state), and structured notes. A note is a `content_key` file pointer plus JSON front-matter, linked many-to-many to todos — so a plan / requirement / decision attaches to the task it belongs to. Import with `y note import pages/plan-foo.md`, or write one from chat and `y assoc note ... --todo <id>`.
 
-**[Open the Note demo](/demo/note)** — no account required.
+**[Open Note in the demo](/demo/note)** — full shell with Note selected; no account required.
 
 What to try: switch Journals / Pages / structured notes, filter or select a sample record, and read the fictional markdown in the preview pane. Create, touch, edit, and real file-open stay disabled.
 
@@ -97,7 +97,7 @@ What to try: switch Journals / Pages / structured notes, filter or select a samp
 
 The **Links** panel is a browsable archive. `y link sync-chrome` pulls in browser history; `y link fetch <url>` renders Twitter / X, Bilibili, WeChat, and generic pages into markdown; `y link tldr <id>` produces a summary. Click any link to preview its markdown in the main area.
 
-<!-- DEMO: link — deferred; keep screenshot until /demo/link ships. Swap this block for a launch link + "what to try" using the same pattern as Chat/Todo/Note. -->
+<!-- DEMO: link — deferred; keep screenshot until /demo/link ships. Swap this block for a deep link into the same full-shell demo app as Chat/Todo/Note. -->
 <!-- SCREENSHOT: link -->
 ![Links panel](https://cdn.luohy15.com/y-agent/docs/link.png)
 

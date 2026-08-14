@@ -67,12 +67,12 @@ export default function Landing() {
           >
             GitHub
           </a>
-          <a
-            href="/t/6fc5c4"
+          <Link
+            to="/demo"
             className="px-5 py-2.5 text-sm font-semibold text-sol-base1 hover:text-sol-cyan"
           >
             See a demo trace →
-          </a>
+          </Link>
         </div>
 
         <div className="mt-12 rounded overflow-hidden border border-sol-base02 bg-sol-base02">
