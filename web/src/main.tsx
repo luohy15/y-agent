@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router";
 import { SWRConfig } from "swr";
@@ -16,9 +16,6 @@ import { applyPrefs, loadPrefs } from "./utils/theme";
 import { API } from "./api";
 import { isDemoPath } from "./demo/routes";
 import { installHostRegistry } from "./host/registry";
-
-// Lazy, unauthenticated route used only by the doc-screenshot pipeline.
-const ScreenshotShowcase = lazy(() => import("./components/ScreenshotShowcase"));
 
 function RootGate() {
   const { isLoggedIn } = useAuth();
@@ -63,7 +60,6 @@ if (isDemoPath(window.location.pathname)) {
           <Route path="/share/:shareId" element={<ShareView />} />
           <Route path="/t/:shareId" element={<PublicTraceApp />} />
           <Route path="/n/:shareId" element={<ShareNoteView />} />
-          <Route path="/showcase" element={<Suspense fallback={null}><ScreenshotShowcase /></Suspense>} />
           <Route path="/trace/:traceId" element={<App />} />
           <Route path="/ui/*" element={<Navigate to="/" replace />} />
           <Route path="/*" element={<App />} />
