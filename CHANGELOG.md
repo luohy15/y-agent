@@ -18,6 +18,12 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   built-in controller, CLI group, and panel. The host retains the `entity_tag`
   projection, normalization, carrier synchronization and cleanup, resolver
   hydration, exact-tag filtering, and the `tag.open` navigation adapter.
+- **Todo recency for modules (3169)**: host-contract `tag_get` todo rows now
+  include `updated_at_unix` so module UIs can sort todos by client-side recency.
+- **Public demo shared shell (3158)**: public demos compose modules inside the
+  shared app shell chrome (header, activity bars, centre tabs, file strip), with
+  a full-shell module surface contract and public entry paths pointed at the
+  shared shell.
 - **Live relay run rate (3111, 3121)**: `y usage rate` and `GET /api/usage/rate`
   expose the relay's system-wide RPM/TPM. The API proxies the CRS admin dashboard
   directly with DB-stored `crs_admin` credentials, replacing the earlier on-request
@@ -32,6 +38,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   latest-updated-first.
 
 ### Changed
+- **Unified chat message delivery API (3167)**: `POST /api/chat/notify` is
+  removed; send and dispatch both go through the single union route
+  `POST /api/chat/message`. Dispatch-shaped requests (any of `trace_id` /
+  `from_topic` / `from_chat_id` / `topic` / `skill` / `force_new`) get the
+  `[trace:… to_chat:…]` prefix, root-topic rejection, and may create a chat
+  without `chat_id`. CLI installs upgrade in lockstep, so no compatibility
+  alias was kept.
 - **Host UI control convergence (3115)**: host surfaces share a design-language
   control kit (`--radius`, Solarized-aware `shadow-float`, host-owned
   `.y-check` / `.y-field`), with radii and floating elevation normalized across
@@ -40,6 +53,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   CI, with local discovery documented as the verification path.
 
 ### Fixed
+- **Tag module icon glyph (3164)**: restore the tag glyph in the host module
+  icon registry after the built-in panel cutover.
 - **Chat ID collision overwrites**: creating a chat is insert-only and raises on
   `(user_id, chat_id)` collisions instead of silently overwriting an existing row
   via upsert, with callers and a scan script updated accordingly.
