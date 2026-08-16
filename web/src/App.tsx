@@ -18,7 +18,13 @@ import LinkList from "./components/LinkList";
 import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
-import { navigateTag, openTodo, type TagResultItem } from "./utils/tagNavigate";
+import { openCalendarFocusDate } from "./utils/calendarNavigate";
+import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
+import {
+  applyTodoDeepLink,
+  applyTodoHeaderChip,
+  registerTodoDetailEntryPoints,
+} from "./utils/todoDetailEntryPoints";
 import {
   chatIdFromPayload,
   openChat,
@@ -242,19 +248,13 @@ export default function App() {
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const defaultWorkDir = vmList.find(v => v.name === "default")?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(urlTraceId || localStorage.getItem("selectedTraceId") || null);
-  const selectedTraceIdRef = useRef(selectedTraceId);
-  selectedTraceIdRef.current = selectedTraceId;
-  // TraceTodoDetail patch-buffer dirty flag; used to guard navigation away from a
-  // todo with unsaved edits.
+  // selectedTraceId / dirty plumbing still feed the authenticated trace.md tab
+  // until H3 retires it. H2 entry points must not seed or write this state —
+  // selection authority is the Todo module intent only. Init from the legacy
+  // persistence key so a still-open tab keeps its previous selection.
+  const [selectedTraceId] = useState<string | null>(() => localStorage.getItem("selectedTraceId") || null);
   const traceTodoDirtyRef = useRef(false);
   const setTraceTodoDirty = useCallback((dirty: boolean) => { traceTodoDirtyRef.current = dirty; }, []);
-  const requestSelectTraceId = useCallback((id: string | null) => {
-    if (id === selectedTraceIdRef.current) { setSelectedTraceId(id); return; }
-    if (traceTodoDirtyRef.current && !window.confirm("Discard unsaved changes?")) return;
-    traceTodoDirtyRef.current = false;
-    setSelectedTraceId(id);
-  }, []);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
   const [chatListRoutineName, setChatListRoutineName] = useState<string | null>(localStorage.getItem("chatListRoutineName") || null);
   const [chatListRoutineOnly, setChatListRoutineOnly] = useState<boolean>(() => localStorage.getItem("chatListRoutineOnly") === "true");
@@ -581,22 +581,14 @@ export default function App() {
   useEffect(() => registerArtifactDetailOpener((slug) => handleOpenFile(artifactTabKey(slug))), [handleOpenFile]);
 
   useEffect(() => {
-    const todoIdFromPayload = (payload: unknown) => {
-      if (!payload || typeof payload !== "object") return null;
-      const { todoId } = payload as { todoId?: unknown };
-      return typeof todoId === "string" ? todoId : null;
-    };
-    const unregisterOpen = registerHostCommand("todo.open", (payload) => {
-      const todoId = todoIdFromPayload(payload);
-      if (!todoId) return;
-      openTodo(todoId, { requestSelectTraceId, setChatListTraceId, setSelectedChatId, setChatHide, handleOpenFile });
-      setSidebarOpen(false);
-    });
-    const unregisterOpenTrace = registerHostCommand("todo.openTrace", (payload) => {
-      const todoId = todoIdFromPayload(payload);
-      if (!todoId) return;
-      requestSelectTraceId(todoId);
-      handleOpenFile("trace.md");
+    // H2: todo.open / todo.openTrace / chat.openTrace share one registration
+    // seam so payload ids flow into ui:todo without host selectedTraceId writes.
+    const unregisterTodoDetail = registerTodoDetailEntryPoints({
+      handleOpenFile,
+      setChatListTraceId,
+      setSelectedChatId,
+      setChatHide,
+      onAfterTodoOpen: () => setSidebarOpen(false),
     });
     // Plan P2 (pages/plan-3042-control-plane.md): chat control-plane host
     // commands for the code/y-module/chat UI.
@@ -632,8 +624,7 @@ export default function App() {
       if (!payload || typeof payload !== "object") return;
       const { date } = payload as { date?: unknown };
       if (typeof date !== "string") return;
-      setArtifactIntent("calendar", { kind: "focus-date", date, nonce: Date.now() });
-      handleOpenFile(artifactTabKey("calendar"));
+      openCalendarFocusDate(date, handleOpenFile);
     });
     const unregisterTraceClearRoute = registerHostCommand("trace.clearRoute", () => {
       if (!window.location.pathname.startsWith("/trace/")) return;
@@ -641,15 +632,14 @@ export default function App() {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     return () => {
-      unregisterOpen();
-      unregisterOpenTrace();
+      unregisterTodoDetail();
       unregisterChatOpen();
       unregisterChatSetTraceFilter();
       unregisterLinkOpen();
       unregisterCalendarFocus();
       unregisterTraceClearRoute();
     };
-  }, [handleOpenFile, requestSelectTraceId, selectedChatId]);
+  }, [handleOpenFile, selectedChatId]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
@@ -1016,13 +1006,13 @@ export default function App() {
     refreshBotList();
   }, [auth.isLoggedIn, refreshBotList]);
 
-  // URL /trace/:traceId → open trace as file
+  // URL /trace/:traceId → open the Todo module's in-place detail (H2). Selection
+  // authority is the retained todo intent only; do not write host selectedTraceId.
   useEffect(() => {
-    if (urlTraceId) {
-      setSelectedTraceId(urlTraceId);
-      handleOpenFile("trace.md");
-      setSidebarPanel("artifact:todo");
-    }
+    applyTodoDeepLink(urlTraceId, {
+      handleOpenFile,
+      setSidebarPanel: (panel) => setSidebarPanel(panel),
+    });
   }, [urlTraceId, handleOpenFile]);
 
   // URL ?entity_id=... → open entity.md
@@ -1216,21 +1206,16 @@ export default function App() {
       if (typeof type !== "string" || typeof spec !== "string") return;
       handleOpenArtifact(type as ArtifactType, spec);
     });
-    const unregisterOpenTrace = registerHostCommand("chat.openTrace", (payload) => {
-      const traceId = traceIdFromPayload(payload);
-      if (!traceId) return;
-      requestSelectTraceId(traceId);
-      handleOpenFile("trace.md");
-    });
+    // chat.openTrace is registered with todo.open / todo.openTrace in
+    // registerTodoDetailEntryPoints (H2 seam); do not re-register here.
     return () => {
       unregisterChatCreated();
       unregisterChatCleared();
       unregisterWorkDirChanged();
       unregisterOpenFile();
       unregisterOpenArtifact();
-      unregisterOpenTrace();
     };
-  }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile, requestSelectTraceId]);
+  }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile]);
 
   const handleSelectFeed = useCallback((feedId: string, label: string) => {
     setSelectedFeedId(feedId);
@@ -1249,7 +1234,6 @@ export default function App() {
   // The same dependencies feed the host `tag.open` command.
   const handleTagNavigate = useCallback((entityType: string, item: TagResultItem) => {
     navigateTag(entityType, item, {
-      requestSelectTraceId,
       setChatListTraceId,
       setSelectedChatId,
       setChatHide,
@@ -1266,7 +1250,7 @@ export default function App() {
       setSidebarPanel,
     });
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [requestSelectTraceId, handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
+  }, [handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
 
   useEffect(() => {
     // Todo 3164: tag module result clicks open carrier viewers through the host.
@@ -1402,7 +1386,7 @@ export default function App() {
             <>
               {chatListTraceId && (
                 <button
-                  onClick={() => { requestSelectTraceId(chatListTraceId); handleOpenFile("trace.md"); }}
+                  onClick={() => applyTodoHeaderChip(chatListTraceId, { handleOpenFile })}
                   className="text-sol-base01 hover:text-sol-base1 text-xs font-mono cursor-pointer"
                 >
                   #{chatListTraceId.slice(0, 8)}
@@ -1644,7 +1628,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => { setArtifactIntent("calendar", { kind: "focus-date", date: startTime, nonce: Date.now() }); handleOpenFile(artifactTabKey("calendar")); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => openCalendarFocusDate(startTime, handleOpenFile)} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

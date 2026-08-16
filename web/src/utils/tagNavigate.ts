@@ -2,8 +2,9 @@
 // carrier dispatch can be unit-tested with a mocked `authFetch`.
 import { API, authFetch } from "../api";
 import type { SidebarPanel } from "../components/ActivityBar";
-import { artifactPanelKey, artifactTabKey } from "../host/artifacts";
-import { setArtifactIntent } from "../host/intents";
+import { artifactPanelKey } from "../host/artifacts";
+import { openCalendarFocusDate } from "./calendarNavigate";
+import { openTodoDetail } from "./todoDetailNavigate";
 
 export interface TagResultItem {
   id: string;
@@ -11,23 +12,22 @@ export interface TagResultItem {
 }
 
 export interface OpenTodoDeps {
-  requestSelectTraceId: (id: string | null) => void;
   setChatListTraceId: (id: string | null) => void;
   setSelectedChatId: (id: string | null) => void;
   setChatHide: (hide: boolean) => void;
   handleOpenFile: (path: string) => void;
 }
 
-// Shared by the Todo artifact's host command and tag-module navigation: select
-// the todo's trace, then either land on its latest chat or open trace.md.
+// Shared by the Todo artifact's host command and tag-module navigation: filter
+// the chat list by the todo, then either land on its latest chat or open the
+// Todo module's in-place detail (`ui:todo`).
 export function openTodo(todoId: string, deps: OpenTodoDeps): void {
-  deps.requestSelectTraceId(todoId);
   deps.setChatListTraceId(todoId);
   authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`)
     .then((r) => r.json())
     .then((d) => {
       if (d.chat_id) { deps.setSelectedChatId(d.chat_id); deps.setChatHide(false); }
-      else deps.handleOpenFile("trace.md");
+      else openTodoDetail(todoId, deps.handleOpenFile);
     })
     .catch(() => {});
 }
@@ -81,10 +81,8 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
       authFetch(`${API}/api/calendar/detail?event_id=${encodeURIComponent(item.id)}`)
         .then((r) => r.json())
         .then((d) => {
-          if (d.start_time) {
-            setArtifactIntent("calendar", { kind: "focus-date", date: d.start_time, nonce: Date.now() });
-            deps.handleOpenFile(artifactTabKey("calendar"));
-          } else deps.setSidebarPanel(artifactPanelKey("calendar"));
+          if (d.start_time) openCalendarFocusDate(d.start_time, deps.handleOpenFile);
+          else deps.setSidebarPanel(artifactPanelKey("calendar"));
         })
         .catch(() => { deps.setSidebarPanel(artifactPanelKey("calendar")); });
       break;
