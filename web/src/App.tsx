@@ -616,11 +616,38 @@ export default function App() {
       if (traceId === undefined) return;
       setChatTraceFilter(traceId, setChatListTraceId);
     });
+    // Todo 3179 H1: narrow adapters for the exported TraceView module leaf.
+    // chat.open / file.open already cover chat + note/file callbacks; these three
+    // fill the remaining link / calendar / deep-link-back gaps without aliases.
+    const unregisterLinkOpen = registerHostCommand("link.open", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { activityId, contentKey } = payload as { activityId?: unknown; contentKey?: unknown };
+      if (typeof activityId !== "string") return;
+      setSelectedLinkId(activityId);
+      setSelectedLinkLinkId(null);
+      setSelectedLinkContentKey(typeof contentKey === "string" ? contentKey : null);
+      handleOpenFile("link.md");
+    });
+    const unregisterCalendarFocus = registerHostCommand("calendar.focusDate", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { date } = payload as { date?: unknown };
+      if (typeof date !== "string") return;
+      setArtifactIntent("calendar", { kind: "focus-date", date, nonce: Date.now() });
+      handleOpenFile(artifactTabKey("calendar"));
+    });
+    const unregisterTraceClearRoute = registerHostCommand("trace.clearRoute", () => {
+      if (!window.location.pathname.startsWith("/trace/")) return;
+      window.history.replaceState(null, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
     return () => {
       unregisterOpen();
       unregisterOpenTrace();
       unregisterChatOpen();
       unregisterChatSetTraceFilter();
+      unregisterLinkOpen();
+      unregisterCalendarFocus();
+      unregisterTraceClearRoute();
     };
   }, [handleOpenFile, requestSelectTraceId, selectedChatId]);
 

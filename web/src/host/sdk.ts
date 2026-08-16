@@ -28,6 +28,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import ImageLightbox from "../components/ImageLightbox";
+import TraceView from "../components/TraceView";
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain, citationHostname } from "../components/citationDomain";
@@ -104,6 +105,12 @@ export const hostSdk = {
   // call crosses the boundary.
   CodeEditor,
 
+  // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
+  // detail / public-trace leaf. Modules mount the same physical implementation
+  // used by the reserved trace.md tab and /t/:shareId; heavy waterfall + share
+  // code stays in the host bundle.
+  TraceView,
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.
@@ -134,3 +141,13 @@ export const hostSdk = {
 
 export type { ThemeColors } from "./theme";
 export type { ArtifactType, ArtifactMode } from "../components/ArtifactView";
+export type {
+  TraceViewProps,
+  TraceChatsResponse,
+  TraceLink,
+  TraceNote,
+  TraceCalendarEvent,
+  TraceChat,
+  TodoInfo,
+  TodoPatch,
+} from "../components/TraceView";

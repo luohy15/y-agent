@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
@@ -6,7 +6,10 @@ import { topicBadgeClass, statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
 
-interface TraceViewProps {
+export type { TraceChat } from "./WaterfallChart";
+export type { TodoInfo, TodoPatch } from "./TraceTodoDetail";
+
+export interface TraceViewProps {
   isLoggedIn: boolean;
   selectedTraceId: string | null;
   defaultWorkDir?: string;
@@ -21,6 +24,20 @@ interface TraceViewProps {
   // note clicks call `onOpenNote` (open as a public FileViewer tab) instead of `onOpenFile`.
   injectedData?: TraceChatsResponse | null;
   onOpenNote?: (note: TraceNote) => void;
+  /** Always-visible back affordance for in-place module detail (todo 3179). */
+  onBack?: () => void;
+  /**
+   * When true, a successful authenticated payload without a valid `todo` is treated
+   * as unavailable (stale/deleted selection) rather than an empty detail. Public
+   * injected mode ignores this flag.
+   */
+  requireTodo?: boolean;
+  /**
+   * Fired when `requireTodo` resolves the selection as missing/malformed.
+   * Latched once per `selectedTraceId` while unavailable holds; callers should
+   * still treat the callback as idempotent (todo 3179 M3).
+   */
+  onUnavailable?: () => void;
 }
 
 export interface TraceLink {
@@ -59,6 +76,53 @@ export interface TraceChatsResponse {
   links?: TraceLink[];
   notes?: TraceNote[];
   calendar_events?: TraceCalendarEvent[];
+}
+
+// Stable empty fallback so normalizeTraceData failures do not mint a new chats
+// identity on every parent render (WaterfallChart memos on `chats`).
+const EMPTY_TRACE: TraceChatsResponse = {
+  chats: [],
+  todo_name: null,
+  todo_status: null,
+  todo: null,
+  links: [],
+  notes: [],
+  calendar_events: [],
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** Normalize a trace payload so malformed fields cannot throw during render. */
+export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
+  const obj = asRecord(raw);
+  if (!obj) return null;
+  const todoRaw = asRecord(obj.todo);
+  const todoId = todoRaw && typeof todoRaw.todo_id === "string" ? todoRaw.todo_id : null;
+  const todo: TodoInfo | null = todoRaw && todoId
+    ? {
+        ...(todoRaw as unknown as TodoInfo),
+        todo_id: todoId,
+        name: typeof todoRaw.name === "string" ? todoRaw.name : todoId,
+        status: typeof todoRaw.status === "string" ? todoRaw.status : "pending",
+      }
+    : null;
+  return {
+    chats: asArray<TraceChat>(obj.chats),
+    todo_name: typeof obj.todo_name === "string" ? obj.todo_name : null,
+    todo_status: typeof obj.todo_status === "string" ? obj.todo_status : null,
+    todo,
+    links: asArray<TraceLink>(obj.links),
+    notes: asArray<TraceNote>(obj.notes),
+    calendar_events: asArray<TraceCalendarEvent>(obj.calendar_events),
+  };
 }
 
 function getDomain(url: string): string {
@@ -117,14 +181,39 @@ function NoteShareButton({ noteId, existingShare, mutateTrace }: { noteId: strin
   );
 }
 
-export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir, onSelectChat, onPreviewLink, onSelectCalendarEvent, onOpenFile, onTraceTodoDirtyChange, injectedData, onOpenNote }: TraceViewProps) {
+export default function TraceView({
+  isLoggedIn,
+  selectedTraceId,
+  defaultWorkDir,
+  onSelectChat,
+  onPreviewLink,
+  onSelectCalendarEvent,
+  onOpenFile,
+  onTraceTodoDirtyChange,
+  injectedData,
+  onOpenNote,
+  onBack,
+  requireTodo = false,
+  onUnavailable,
+}: TraceViewProps) {
   // Public projection: render read-only from the injected payload, skip all JWT fetches.
-  const publicMode = !!injectedData;
+  const publicMode = injectedData != null;
 
   // Fetch chats for selected trace (authed only; skipped when data is injected)
   const traceChatsKey = selectedTraceId && isLoggedIn && !publicMode ? `${API}/api/trace/chats?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
-  const { data: fetchedTraceData, mutate: mutateTrace } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher, { revalidateOnFocus: false });
-  const traceData = injectedData ?? fetchedTraceData;
+  const {
+    data: fetchedTraceData,
+    error: fetchError,
+    mutate: mutateTrace,
+  } = useSWR<TraceChatsResponse>(traceChatsKey, fetcher, { revalidateOnFocus: false });
+  // Injected public payloads stay as-provided for the existing projection;
+  // authenticated fetches are normalized so a malformed field cannot throw.
+  // Memoized on the fetched payload so chats/links/notes keep stable identity
+  // across parent re-renders (WaterfallChart memos on `chats`).
+  const authedTraceData = useMemo(() => {
+    if (publicMode || fetchedTraceData === undefined) return undefined;
+    return normalizeTraceData(fetchedTraceData) ?? EMPTY_TRACE;
+  }, [publicMode, fetchedTraceData]);
 
   // Fetch current share (if any) for this trace
   const myShareKey = selectedTraceId && isLoggedIn && !publicMode ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
@@ -140,13 +229,18 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
     { revalidateOnFocus: false },
   );
 
-  const traceChats = traceData?.chats;
-  const todoName = traceData?.todo_name;
-  const todoStatus = traceData?.todo_status;
-  const todoInfo = traceData?.todo;
-  const traceLinks = traceData?.links;
-  const traceNotes = traceData?.notes;
-  const traceEvents = traceData?.calendar_events;
+  const loaded = publicMode ? injectedData != null : fetchedTraceData !== undefined;
+  const fetchFailed = !publicMode && !!fetchError && !loaded;
+  const traceChats = publicMode ? injectedData?.chats : authedTraceData?.chats;
+  const todoName = publicMode ? injectedData?.todo_name : (authedTraceData?.todo_name ?? null);
+  const todoStatus = publicMode ? injectedData?.todo_status : (authedTraceData?.todo_status ?? null);
+  const todoInfo = publicMode ? (injectedData?.todo ?? null) : (authedTraceData?.todo ?? null);
+  const traceLinks = publicMode ? injectedData?.links : (authedTraceData?.links ?? []);
+  const traceNotes = publicMode ? injectedData?.notes : (authedTraceData?.notes ?? []);
+  const traceEvents = publicMode ? injectedData?.calendar_events : (authedTraceData?.calendar_events ?? []);
+  const hasValidTodo = !!(todoInfo && typeof todoInfo.todo_id === "string" && todoInfo.todo_id);
+  const unavailable = !publicMode && requireTodo && loaded && !fetchFailed && !hasValidTodo;
+
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
   const [linksOpen, setLinksOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
@@ -154,8 +248,24 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   const [historyOpen, setHistoryOpen] = useState(false);
   // Notes deselected from the batch-share picker (default: none → all selected).
   const [deselectedNoteIds, setDeselectedNoteIds] = useState<Set<string>>(new Set());
+  // Latch onUnavailable once per selectedTraceId while unavailable holds, so an
+  // inline module closure identity change cannot re-fire it every render.
+  const unavailableNotifiedForRef = useRef<string | null>(null);
   // Reset the batch-share selection when switching traces.
   useEffect(() => { setDeselectedNoteIds(new Set()); }, [selectedTraceId]);
+
+  // Module detail: a required todo that resolved missing/malformed is unavailable.
+  // Transient fetch failures never fire this (parent keeps the selection for retry).
+  useEffect(() => {
+    if (!unavailable) {
+      unavailableNotifiedForRef.current = null;
+      return;
+    }
+    if (unavailableNotifiedForRef.current === selectedTraceId) return;
+    unavailableNotifiedForRef.current = selectedTraceId;
+    onUnavailable?.();
+  }, [unavailable, onUnavailable, selectedTraceId]);
+
   const createTraceShare = async (opts: { password?: string; generate_password?: boolean }) => {
     if (!selectedTraceId) throw new Error("no trace");
     // Batch-share selected assoc'd notes server-side in one request: the backend
@@ -193,11 +303,51 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
   };
   const buildTraceShareUrl = (shareId: string) => `${window.location.origin}/t/${shareId}`;
 
+  const headerBack = onBack ? (
+    <button
+      type="button"
+      onClick={onBack}
+      className="inline-flex items-center gap-1 text-[0.7rem] text-sol-base01 hover:text-sol-base0 cursor-pointer shrink-0"
+      data-testid="trace-back"
+    >
+      <span aria-hidden="true">←</span>
+      <span>Back</span>
+    </button>
+  ) : null;
+
   return (
     <div className="h-full overflow-y-auto bg-sol-base03 p-3">
       {!selectedTraceId && !publicMode ? (
-        <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
-          Select a todo to view details
+        <div className="flex flex-col items-center justify-center h-full gap-2 text-sol-base01 italic text-sm">
+          {headerBack}
+          <span>Select a todo to view details</span>
+        </div>
+      ) : fetchFailed ? (
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-sm" data-testid="trace-error">
+          {headerBack}
+          <span className="text-sol-base01">Failed to load todo detail</span>
+          <button
+            type="button"
+            onClick={() => { void mutateTrace(); }}
+            className="text-[0.75rem] font-mono px-2 py-1 rounded cursor-pointer bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+            data-testid="trace-retry"
+          >
+            Retry
+          </button>
+        </div>
+      ) : unavailable ? (
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-sm" data-testid="trace-unavailable">
+          {headerBack}
+          <span className="text-sol-base01">This todo is unavailable</span>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-[0.75rem] font-mono px-2 py-1 rounded cursor-pointer bg-sol-base02 text-sol-base0 hover:text-sol-base1"
+            >
+              Back to list
+            </button>
+          )}
         </div>
       ) : !traceChats ? (
         <div className="flex items-center justify-center h-full text-sol-base01 italic text-sm">
@@ -208,6 +358,7 @@ export default function TraceView({ isLoggedIn, selectedTraceId, defaultWorkDir,
           {/* Header */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-1 pt-1">
+              {headerBack}
               <span className="text-sol-base1 text-sm font-medium">
                 {todoName || selectedTraceId}
               </span>

@@ -292,7 +292,12 @@ declare module "@y/host" {
   // commands.ts — artifact->host named command channel (contract v4). An
   // unregistered name is a silent no-op. Registration is host-internal and
   // not exported here (same partition as setArtifactIntent).
-  /** Ask the host to run a named command (e.g. "todo.open", "chat.open"). */
+  /**
+   * Ask the host to run a named command. Known names include:
+   * `todo.open`, `todo.openTrace`, `chat.open`, `chat.setTraceFilter`,
+   * `file.open`, `link.open` (`{ activityId, contentKey? }`),
+   * `calendar.focusDate` (`{ date }`), `trace.clearRoute` (replace `/trace/:id`).
+   */
   export function runHostCommand(name: string, payload?: unknown): void;
 
   // optimisticMutate.ts — shared optimistic list patcher (contract v4).
@@ -348,6 +353,107 @@ declare module "@y/host" {
     initialLine?: number;
     onInitialLineApplied?: () => void;
   }): any;
+
+  // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
+  // detail / public-trace leaf. One physical implementation; modules mount it
+  // rather than copying waterfall / share / todo-detail code.
+  export interface TraceChat {
+    chat_id: string;
+    title: string;
+    topic: string;
+    skill?: string;
+    backend?: string;
+    bot_name?: string;
+    segments: Array<{ start_unix: number; end_unix: number }>;
+    messages?: unknown[];
+  }
+  export interface TodoHistoryEntry {
+    timestamp: string;
+    action: string;
+    note?: string;
+  }
+  export interface TodoNoteInfo {
+    note_id: string;
+    content_key: string;
+    front_matter?: Record<string, unknown> | null;
+    share_id?: string;
+    has_password?: boolean;
+  }
+  export interface TodoInfo {
+    todo_id: string;
+    name: string;
+    status: string;
+    desc?: string;
+    tags?: string[];
+    priority?: string;
+    due_date?: string;
+    progress?: string;
+    completed_at?: string;
+    created_at?: string;
+    updated_at?: string;
+    history?: TodoHistoryEntry[];
+    notes?: TodoNoteInfo[];
+  }
+  export interface TodoPatch {
+    name?: string;
+    status?: string;
+    desc?: string | null;
+    tags?: string[] | null;
+    priority?: string | null;
+    due_date?: string | null;
+    progress?: string | null;
+  }
+  export interface TraceLink {
+    link_id: string;
+    base_url: string;
+    title?: string;
+    download_status?: string | null;
+    activity_id?: string;
+  }
+  export interface TraceNote {
+    note_id: string;
+    content_key: string;
+    front_matter?: Record<string, any> | null;
+    created_at?: string;
+    share_id?: string;
+    has_password?: boolean;
+  }
+  export interface TraceCalendarEvent {
+    event_id: string;
+    summary: string;
+    start_time: string;
+    end_time?: string;
+    description?: string;
+    all_day: boolean;
+    status: string;
+    source?: string;
+  }
+  export interface TraceChatsResponse {
+    chats: TraceChat[];
+    todo_name: string | null;
+    todo_status: string | null;
+    todo: TodoInfo | null;
+    links?: TraceLink[];
+    notes?: TraceNote[];
+    calendar_events?: TraceCalendarEvent[];
+  }
+  export interface TraceViewProps {
+    isLoggedIn: boolean;
+    selectedTraceId: string | null;
+    defaultWorkDir?: string;
+    onSelectChat?: (chatId: string) => void;
+    onPreviewLink?: (activityId: string) => void;
+    onSelectCalendarEvent?: (startTime: string) => void;
+    onOpenFile?: (path: string) => void;
+    onTraceTodoDirtyChange?: (dirty: boolean) => void;
+    injectedData?: TraceChatsResponse | null;
+    onOpenNote?: (note: TraceNote) => void;
+    onBack?: () => void;
+    requireTodo?: boolean;
+    /** Latched once per selectedTraceId while unavailable; treat as idempotent. */
+    onUnavailable?: () => void;
+  }
+  export function TraceView(props: TraceViewProps): any;
 
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
