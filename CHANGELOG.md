@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.25] - 2026-08-16
+
+### Added
 - **Tag module cutover (3164)**: Tags now ship as the authenticated `tag` module:
   `/api/module/tag/*`, lazy `y tag`, and the `artifact:tag` panel replace the
   built-in controller, CLI group, and panel. The host retains the `entity_tag`
@@ -36,6 +46,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   (`updated_at` / `created_at`) and `sort_order` (`asc` / `desc`) on the
   repository, service, and host-contract `chat_list` path, defaulting to
   latest-updated-first.
+- **TraceView host leaf (3179, browser contract v10)**: host exports `TraceView`
+  as a reusable browser-contract leaf so module UIs can mount the trace waterfall
+  without bundling host internals; includes the todo-detail-view feature home.
 
 ### Changed
 - **Unified chat message delivery API (3167)**: `POST /api/chat/notify` is
