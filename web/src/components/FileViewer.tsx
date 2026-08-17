@@ -35,7 +35,6 @@ interface FileViewerProps {
   uiArtifactsLoaded?: boolean;
   onUiArtifactRolledBack?: () => void;
   isLoggedIn?: boolean;
-  selectedTraceId?: string | null;
   selectedLinkId?: string | null;
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
@@ -47,17 +46,16 @@ interface FileViewerProps {
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
   onSelectChat?: (chatId: string) => void;
-  onSelectCalendarEvent?: (startTime: string) => void;
   onPreviewLink?: (activityId: string) => void;
   onPreviewLinkFull?: (activityId: string, contentKey: string | null) => void;
   onExternalLinkClick?: (url: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   onPreviewFile?: (path: string, line?: number) => void;
-  onTraceTodoDirtyChange?: (dirty: boolean) => void;
   // Public trace projection: render note tabs keyed by note `share_id`, with content
   // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
-  // The reserved `trace.md` tab renders <TraceView> in injected mode from `traceData`.
+  // Public mode only: the reserved `trace.md` tab renders <TraceView> in injected mode from `traceData`.
+  // Authenticated `trace.md` is retired (todo 3179 H3); do not reintroduce it here.
   mode?: "public";
   noteMeta?: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
   traceData?: TraceChatsResponse | null;
@@ -609,7 +607,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedTraceId, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onSelectCalendarEvent, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, onTraceTodoDirtyChange, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -619,13 +617,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isUiArtifact = !!activeFile?.startsWith("ui:");
-  const isTrace = !isDiff && !isArtifact && !isUiArtifact && activeFileName === "trace.md";
-  const isLinkPreview = !isDiff && !isTrace && activeFileName === "link.md";
-  const isLinksMd = !isDiff && !isTrace && activeFileName === "links.md";
-  const isEntityPreview = !isDiff && !isTrace && activeFileName === "entity.md";
-  const isEnglishPreview = !isDiff && !isTrace && activeFileName === "english.md";
-  const isEmail = !isDiff && !isTrace && activeFileName === "email.md";
-  const isDev = !isDiff && !isTrace && activeFileName.endsWith("dev.md");
+  const isLinkPreview = !isDiff && activeFileName === "link.md";
+  const isLinksMd = !isDiff && activeFileName === "links.md";
+  const isEntityPreview = !isDiff && activeFileName === "entity.md";
+  const isEnglishPreview = !isDiff && activeFileName === "english.md";
+  const isEmail = !isDiff && activeFileName === "email.md";
+  const isDev = !isDiff && activeFileName.endsWith("dev.md");
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
   // Clean up blob URLs and cache for closed files (link previews still use cache).
@@ -655,10 +652,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const handleRefresh = useCallback(() => {
     if (!activeFile) return;
-    if (isTrace) {
-      mutate((key) => typeof key === "string" && key.includes("/api/trace/"));
-      return;
-    }
     if (isLinkPreview) {
       setCache((prev) => {
         const next = { ...prev };
@@ -689,7 +682,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
       return;
     }
-  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, isTrace, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
 
   if (mode === "public") {
     return (
@@ -838,18 +831,17 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             ? uiArtifacts.find((artifact) => artifact.slug === "file")
             : undefined;
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileTrace = !fileDiff && !fileArtifact && !fileUiArtifactSlug && !ordinaryTab && fileName === "trace.md";
-          const fileLinkPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "link.md";
-          const fileLinksMd = !fileDiff && !fileTrace && !ordinaryTab && fileName === "links.md";
-          const fileEntityPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "entity.md";
-          const fileEnglishPreview = !fileDiff && !fileTrace && !ordinaryTab && fileName === "english.md";
-          const fileEmail = !fileDiff && !fileTrace && !ordinaryTab && fileName === "email.md";
-          const fileDev = !fileDiff && !fileTrace && !ordinaryTab && fileName.endsWith("dev.md");
+          const fileLinkPreview = !fileDiff && !ordinaryTab && fileName === "link.md";
+          const fileLinksMd = !fileDiff && !ordinaryTab && fileName === "links.md";
+          const fileEntityPreview = !fileDiff && !ordinaryTab && fileName === "entity.md";
+          const fileEnglishPreview = !fileDiff && !ordinaryTab && fileName === "english.md";
+          const fileEmail = !fileDiff && !ordinaryTab && fileName === "email.md";
+          const fileDev = !fileDiff && !ordinaryTab && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileTrace || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -896,8 +888,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   onModeChange={(mode) => setMdPreview((prev) => ({ ...prev, [filePath]: mode === "preview" }))}
                   variant="tab"
                 />
-              ) : fileTrace ? (
-                <TraceView isLoggedIn={!!isLoggedIn} selectedTraceId={selectedTraceId || ""} defaultWorkDir={defaultWorkDir} onSelectChat={onSelectChat} onPreviewLink={onPreviewLink ? (activityId: string) => onPreviewLink(activityId) : undefined} onSelectCalendarEvent={onSelectCalendarEvent} onOpenFile={onPreviewFile} onTraceTodoDirtyChange={onTraceTodoDirtyChange} />
               ) : fileLinkPreview ? (
                 <LinkContentView activityId={selectedLinkId || null} linkId={selectedLinkLinkId || null} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} onExternalLinkClick={onExternalLinkClick} />
               ) : fileLinksMd ? (

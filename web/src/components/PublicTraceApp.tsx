@@ -11,8 +11,9 @@ import { type TraceChat } from "./WaterfallChart";
 import { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
 import { topicBadgeClass, statusBadgeClass } from "./badges";
 
-// Reserved special-view tab for the trace.md (todo detail + waterfall + related
-// links/notes), mirroring the authed app's FileViewer trace.md tab.
+// Reserved special-view tab for the public trace page (todo detail + waterfall +
+// related links/notes). Authenticated host FileViewer no longer has this tab
+// (todo 3179 H3); this permanent public tab is intentionally unchanged.
 const TRACE_TAB = "trace.md";
 
 // Per-share localStorage key so the projection's opened files / active tab /

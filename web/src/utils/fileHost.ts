@@ -167,9 +167,10 @@ export function isHostWorkspaceTab(path: string): boolean {
   // Ordinary host tab ids are JSON.stringify([vm, workDir, path]).
   if (path.startsWith("[")) return false;
   const name = path.replace(/^\.\//, "");
+  // Authenticated `trace.md` is retired (todo 3179 H3); public FileViewer keeps
+  // its own permanent tab and never uses this host classification helper.
   return (
-    name === "trace.md"
-    || name === "link.md"
+    name === "link.md"
     || name === "links.md"
     || name === "entity.md"
     || name === "english.md"

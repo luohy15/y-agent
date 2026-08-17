@@ -103,7 +103,10 @@ interface BotConfigItem {
 // Tabs for panels that migrated to a dynamic-load UI artifact and no longer
 // exist as a host file path. A browser holding one of these in its restored
 // tab state would otherwise fetch a nonexistent file.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md"]);
+// `trace.md` is the authenticated host special retired by todo 3179 H3
+// (selection now lives in the Todo module detail). Public `/t/:shareId`
+// keeps its own permanent tab and is not in this set.
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md"]);
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
 // four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
@@ -248,13 +251,6 @@ export default function App() {
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const defaultWorkDir = vmList.find(v => v.name === "default")?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
-  // selectedTraceId / dirty plumbing still feed the authenticated trace.md tab
-  // until H3 retires it. H2 entry points must not seed or write this state —
-  // selection authority is the Todo module intent only. Init from the legacy
-  // persistence key so a still-open tab keeps its previous selection.
-  const [selectedTraceId] = useState<string | null>(() => localStorage.getItem("selectedTraceId") || null);
-  const traceTodoDirtyRef = useRef(false);
-  const setTraceTodoDirty = useCallback((dirty: boolean) => { traceTodoDirtyRef.current = dirty; }, []);
   const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
   const [chatListRoutineName, setChatListRoutineName] = useState<string | null>(localStorage.getItem("chatListRoutineName") || null);
   const [chatListRoutineOnly, setChatListRoutineOnly] = useState<boolean>(() => localStorage.getItem("chatListRoutineOnly") === "true");
@@ -582,7 +578,7 @@ export default function App() {
 
   useEffect(() => {
     // H2: todo.open / todo.openTrace / chat.openTrace share one registration
-    // seam so payload ids flow into ui:todo without host selectedTraceId writes.
+    // seam so payload ids flow into ui:todo.
     const unregisterTodoDetail = registerTodoDetailEntryPoints({
       handleOpenFile,
       setChatListTraceId,
@@ -943,7 +939,8 @@ export default function App() {
   // Plan H2 (pages/plan-3071-note-module.md decision 7): publish the note
   // trace-scope intent and per-location VM/work-directory context.
   usePublishNoteIntent(chatListTraceId, selectedVM, defaultWorkDir ?? null, selectedVM, defaultWorkDir ?? null);
-  useEffect(() => { if (selectedTraceId) localStorage.setItem("selectedTraceId", selectedTraceId); else localStorage.removeItem("selectedTraceId"); }, [selectedTraceId]);
+  // Drop the pre-H3 selectedTraceId key; selection authority is the Todo module.
+  useEffect(() => { localStorage.removeItem("selectedTraceId"); }, []);
   useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
   useEffect(() => { localStorage.setItem("chatListRoutineOnly", String(chatListRoutineOnly)); }, [chatListRoutineOnly]);
@@ -1006,8 +1003,7 @@ export default function App() {
     refreshBotList();
   }, [auth.isLoggedIn, refreshBotList]);
 
-  // URL /trace/:traceId → open the Todo module's in-place detail (H2). Selection
-  // authority is the retained todo intent only; do not write host selectedTraceId.
+  // URL /trace/:traceId → open the Todo module's in-place detail (H2).
   useEffect(() => {
     applyTodoDeepLink(urlTraceId, {
       handleOpenFile,
@@ -1628,7 +1624,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedTraceId={selectedTraceId} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onSelectCalendarEvent={(startTime) => openCalendarFocusDate(startTime, handleOpenFile)} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} onTraceTodoDirtyChange={setTraceTodoDirty} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

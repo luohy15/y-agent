@@ -107,8 +107,9 @@ export const hostSdk = {
 
   // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
   // detail / public-trace leaf. Modules mount the same physical implementation
-  // used by the reserved trace.md tab and /t/:shareId; heavy waterfall + share
-  // code stays in the host bundle.
+  // used by the public reserved trace.md tab on /t/:shareId; heavy waterfall +
+  // share code stays in the host bundle. Authenticated host FileViewer no longer
+  // mounts this tab (todo 3179 H3).
   TraceView,
 
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
