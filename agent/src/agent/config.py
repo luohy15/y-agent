@@ -92,8 +92,8 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
 
     Filters combine with AND, not precedence: bot_name, backend, and tier
     each narrow the pool further when given. The tier filter additionally
-    excludes model-type bots and perplexity (web-search bot is pin-only, not
-    a pool member).
+    excludes model-type bots (the inline query bots are pin-only, not pool
+    members).
     """
     result = universe
     if bot_name:
@@ -105,7 +105,6 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
             cfg for cfg in result
             if tier_of(cfg) == tier
             and (getattr(cfg, "type", None) or "agent") != "model"
-            and _effective_backend(cfg) != "perplexity"
         ]
     return result
 

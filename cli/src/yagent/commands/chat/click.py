@@ -82,7 +82,7 @@ def _message_text(msg: dict) -> str:
 
 
 def _references_block(msg: dict) -> str:
-    """Render a References list when the assistant message carries links (px citations)."""
+    """Render a References list when the assistant message carries links (search-backend citations)."""
     links = msg.get("links")
     if not links:
         return ""

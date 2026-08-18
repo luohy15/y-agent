@@ -14,8 +14,8 @@ import agent.config as agent_config
 from agent.ec2_wake import ensure_and_touch_vm
 
 
-PERPLEXITY_ALLOWED_ROLES = {"system", "user", "assistant"}
-OPENAI_ALLOWED_ROLES = {"system", "user", "assistant"}
+# Roles an inline (non-agentic) backend accepts in its request body.
+INLINE_ALLOWED_ROLES = {"system", "user", "assistant"}
 
 # Fixed built-in tool subset for the `claude -p` launch.
 CLAUDE_TOOLS_ALLOWLIST = "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,Write"
@@ -339,10 +339,10 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
     return False
 
 
-def _build_perplexity_messages(chat) -> list[dict]:
+def _build_inline_messages(chat) -> list[dict]:
     messages = []
     for msg in chat.messages:
-        if msg.role not in PERPLEXITY_ALLOWED_ROLES:
+        if msg.role not in INLINE_ALLOWED_ROLES:
             continue
         if not isinstance(msg.content, str):
             continue
@@ -353,35 +353,51 @@ def _build_perplexity_messages(chat) -> list[dict]:
     return messages
 
 
-def _build_openai_messages(chat) -> list[dict]:
-    messages = []
-    for msg in chat.messages:
-        if msg.role not in OPENAI_ALLOWED_ROLES:
-            continue
-        if not isinstance(msg.content, str):
-            continue
-        content = msg.content.strip()
-        if not content:
-            continue
-        messages.append({"role": msg.role, "content": content})
-    return messages
+def _inline_runner(backend: str):
+    """Return the inline (non-agentic) runner for a backend value, or None.
+
+    Imports stay lazy so a claude_code turn never pulls an HTTP backend in.
+    """
+    if not backend:
+        return None
+    if backend == "perplexity":
+        from agent.perplexity import run_perplexity
+        return run_perplexity
+    if backend == "openai":
+        from agent.openai_chat import run_openai
+        return run_openai
+    if backend.startswith("xai_"):
+        from agent.xai_search import SEARCH_TOOLS, run_xai_search
+        if backend in SEARCH_TOOLS:
+            return run_xai_search
+    return None
 
 
-async def _run_perplexity_inline(chat, chat_id: str, user_id: int, bot_config,
-                                 post_hooks: list = None, trace_id: str = None,
-                                 topic: str = None) -> None:
-    from agent.perplexity import run_perplexity
+async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str,
+                      post_hooks: list = None, trace_id: str = None,
+                      topic: str = None) -> None:
+    """Run one turn on an inline backend and close the chat out.
+
+    perplexity, openai and the xai_* search backends differ only in the
+    callable, so message shaping, the running flag, the telegram reply and the
+    post-hooks live here once.
+    """
     from storage.repository import chat as chat_repo
 
-    messages = _build_perplexity_messages(chat)
+    run_backend = _inline_runner(backend)
+    if not run_backend:
+        raise ValueError(f"No inline runner for backend '{backend}'")
+
+    messages = _build_inline_messages(chat)
     if not messages or messages[-1]["role"] != "user":
-        logger.error("No latest user message found for Perplexity chat {}", chat_id)
+        logger.error("No latest user message found for inline backend {} chat {}", backend, chat_id)
         chat.running = False
         await chat_repo.save_chat_by_id(chat)
         return
 
+    error_message = None
     try:
-        await run_perplexity(
+        await run_backend(
             messages,
             bot_config,
             lambda msg: message_callback(chat_id, msg),
@@ -389,54 +405,27 @@ async def _run_perplexity_inline(chat, chat_id: str, user_id: int, bot_config,
             trace_id=trace_id,
             topic=topic,
         )
-    finally:
-        fresh = await chat_service.get_chat_by_id(chat_id)
-        if fresh:
-            fresh.running = False
-            await chat_repo.save_chat_by_id(fresh)
-
-    fresh = await chat_service.get_chat_by_id(chat_id)
-    if not fresh:
-        return
-
-    if not fresh.interrupted:
-        chat_service.mark_chat_completion_unread(user_id, chat_id)
-        try:
-            if _send_telegram_reply(fresh, user_id, trace_id):
-                await chat_repo.save_chat_by_id(fresh)
-        except Exception as e:
-            logger.exception("telegram reply failed: {}", e)
-
-        if post_hooks:
-            _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
-
-
-async def _run_openai_inline(chat, chat_id: str, user_id: int, bot_config,
-                             post_hooks: list = None, trace_id: str = None,
-                             topic: str = None) -> None:
-    from agent.openai_chat import run_openai
-    from storage.repository import chat as chat_repo
-
-    messages = _build_openai_messages(chat)
-    if not messages or messages[-1]["role"] != "user":
-        logger.error("No latest user message found for OpenAI chat {}", chat_id)
-        chat.running = False
-        await chat_repo.save_chat_by_id(chat)
-        return
-
-    try:
-        await run_openai(
-            messages,
-            bot_config,
-            lambda msg: message_callback(chat_id, msg),
-            chat_id=chat_id,
-            trace_id=trace_id,
-            topic=topic,
+    except Exception as e:
+        # run_chat's handler only appends its error message while the chat is
+        # still running, and the clause below clears that flag first, so an
+        # inline failure has to record its own message or the turn ends with no
+        # assistant reply at all (a --wait caller just blocks until timeout).
+        from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
+        logger.exception("Inline backend {} failed for chat {}: {}", backend, chat_id, e)
+        error_message = Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=f"Backend call failed: {type(e).__name__}: {str(e)}",
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
         )
+        raise
     finally:
         fresh = await chat_service.get_chat_by_id(chat_id)
         if fresh:
             fresh.running = False
+            if error_message is not None:
+                fresh.messages.append(error_message)
             await chat_repo.save_chat_by_id(fresh)
 
     fresh = await chat_service.get_chat_by_id(chat_id)
@@ -535,10 +524,11 @@ def _stamp_dispatch_identity(chat, *, chat_id: str, trace_id: str = None, topic:
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0) -> str:
-    """Execute a chat round. Perplexity runs inline; claude_code detaches to tmux.
+    """Execute a chat round. Inline backends run in-process; claude_code detaches to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing ('claude_code', 'perplexity', 'openai').
+    backend overrides bot_config.backend for routing ('claude_code', or one of the
+    inline backends: 'perplexity', 'openai', 'xai_web', 'xai_x').
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
 
@@ -580,9 +570,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # For claude_code the model and the relay credentials are per-invocation, so
     # the existing session (chat.external_id) resumes fine under a different
     # --model / relay key (smoke-tested in todo 2930). Two things are refused,
-    # both by keeping the chat's own bot: a cross-backend change (perplexity /
-    # openai are inline and have no session at all, so an agentic chat moved
-    # onto one would strand its session), and a request that does not resolve
+    # both by keeping the chat's own bot: a cross-backend change (the inline
+    # backends have no session at all, so an agentic chat moved onto one would
+    # strand its session), and a request that does not resolve
     # (see _resolve_rebot_target). Refusing is always safe here, because it is
     # exactly the pre-2930 behavior: the chat keeps its bot and runs on it.
     rebot = bool(chat.bot_name and bot_name and bot_name != chat.bot_name)
@@ -651,13 +641,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     effective_backend = bot_config.backend or bot_config.api_type
     try:
         resolve_reasoning_effort(list(chat.messages), effective_backend)
-        if effective_backend == "perplexity":
-            await _run_perplexity_inline(chat, chat_id, user_id, bot_config,
-                                         post_hooks=post_hooks, trace_id=trace_id, topic=topic)
-            return "done"
-        elif effective_backend == "openai":
-            await _run_openai_inline(chat, chat_id, user_id, bot_config,
-                                     post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+        if _inline_runner(effective_backend):
+            await _run_inline(chat, chat_id, user_id, bot_config, effective_backend,
+                              post_hooks=post_hooks, trace_id=trace_id, topic=topic)
             return "done"
         await _start_detached(chat, chat_id, user_id, bot_config,
                                vm_name=vm_name, work_dir=work_dir,

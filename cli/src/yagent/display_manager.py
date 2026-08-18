@@ -90,8 +90,8 @@ class DisplayManager:
             display_content = f"```markdown\n{message.reasoning_content}\n```\n"
         display_content += content
 
-        # Add Perplexity reference links if available
-        if message.role == "assistant" and message.links and message.provider and "perplexity" in message.provider.lower():
+        # Add search-backend reference links if available (perplexity, xai, ...)
+        if message.role == "assistant" and message.links:
             links_info = "\n\n**References:**\n"
             for i, link in enumerate(message.links, 1):
                 if isinstance(link, dict):

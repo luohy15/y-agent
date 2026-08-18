@@ -83,7 +83,7 @@ Worker chats run through a configured bot backend. `claude_code` is the only age
 y bot add opus --backend claude_code --model "$MODEL_ID" --base-url "$RELAY_URL" --api-key "$RELAY_KEY" --tier tier1 --yes
 ```
 
-Two non-agentic inline backends also exist, for one-shot request/response features rather than coding sessions: `perplexity` (web fact-check via `y chat --bot px --wait`) and `openai` (`POST /api/inline` artifact rewrites, `POST /api/link/tldr` summaries). They run inside the worker with no VM subprocess, no session, and no steer.
+Non-agentic inline backends also exist, for one-shot request/response features rather than coding sessions: `perplexity` (web fact-check via `y chat --bot px --wait`), `openai` (`POST /api/inline` artifact rewrites, `POST /api/link/tldr` summaries), and `xai_web` / `xai_x` (xAI Responses API search, via `y chat --bot grok-web --wait` / `--bot grok-x --wait`; needs an `xai-…` API key and `--base-url https://api.x.ai/v1`, since the search tools are not reachable through OpenRouter). They run inside the worker with no VM subprocess, no session, and no steer, and a failed call now reports itself as an assistant message instead of leaving the chat silent.
 
 Recurring jobs may pin the backend with `y routine add --backend claude_code ...` / `y routine update --backend claude_code ...`, though leaving it unset is equivalent.
 

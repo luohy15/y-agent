@@ -51,8 +51,8 @@ inspectable and editable through the bot CLI, never memorized in instructions.
    candidates to enabled configs with that effective backend, so that I can
    choose the runtime family without knowing config names. Since todo 2930 the
    only agentic backend is claude_code, so this filter is vestigial for agentic
-   bots and only meaningfully separates them from the inline perplexity /
-   openai query backends.
+   bots and only meaningfully separates them from the inline query backends
+   (`perplexity`, `openai`, `xai_web`, `xai_x`).
 4. As a user, I want a chat with no bot, backend, or tier specified to
    resolve as a tier2 request, so that unspecified dispatches land on a
    capable mid-range bot by default without any routing knowledge.
@@ -72,9 +72,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
     draw against weighted peers, so that adding a bot config never silently
     takes traffic from explicitly weighted bots.
 11. As an admin, I want disabled bots and pointer bots excluded from
-    candidacy, and model-type entries plus the web-search bot excluded from
-    tier-based candidacy, so that auto-routing only ever lands on a real,
-    runnable agent backend while explicit pins can reach inline models.
+    candidacy, and model-type entries excluded from tier-based candidacy, so
+    that auto-routing only ever lands on a real, runnable agent backend while
+    explicit pins can reach inline models.
 12. As a dispatching agent, I want skills never statically bound to tiers,
     so that tier choice reflects each dispatch's task shape instead of a
     stale per-skill label.
@@ -147,9 +147,11 @@ inspectable and editable through the bot CLI, never memorized in instructions.
      excluding pointer (ref) configs.
   2. The given filters (bot name, backend, tier) intersect over the
      universe. Tier-filter candidacy additionally excludes model-type
-     entries and the web-search bot, and matches with unset tier counting as
-     tier3. Explicit name and backend pins can therefore reach model-type
-     configs without allowing them into automatic routing pools.
+     entries, and matches with unset tier counting as tier3. Explicit name
+     and backend pins can therefore reach model-type configs without allowing
+     them into automatic routing pools. Type is the whole rule: no backend
+     value is special-cased, so every inline query bot is kept out of the
+     pools by being model-type.
   3. Exactly one candidate: used directly; weight is not consulted.
   4. Multiple candidates: weighted random selection by route weight.
   5. No filters given, or an empty intersection: resolve again as a tier2
@@ -201,9 +203,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   and tier are persisted and the rest of the conversation runs on it. The
   chat's `backend` stays fixed, so a bot whose effective backend differs is
   refused with a log and the chat keeps its current bot. The refusal exists
-  because `perplexity` and `openai` are inline query backends with no
-  session at all; among agentic bots it is trivially always true, since
-  claude_code is the only one left (todo 2930).
+  because the inline query backends (`perplexity`, `openai`, `xai_web`,
+  `xai_x`) have no session at all; among agentic bots it is trivially always
+  true, since claude_code is the only one left (todo 2930).
 - **A bot change takes effect on the chat's next run.** Bot resolution
   happens when a message enqueues a worker task, so a message sent into a
   chat that is already running steers the turn in flight instead
@@ -282,9 +284,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   config a (bot name, backend, tier) request resolves to. This is the
   external contract; do not assert on internal helper structure.
 - Candidate eligibility is the highest-value target: disabled and pointer
-  configs stay out of the universe; model-type and web-search configs stay
-  out of tier candidacy; explicit model-type name/backend pins resolve; and
-  unset tier counts as tier3.
+  configs stay out of the universe; model-type configs stay out of tier
+  candidacy regardless of backend; explicit model-type name/backend pins
+  resolve; and unset tier counts as tier3.
 - Test the filter model: single-candidate direct use (including a
   weightless sole candidate), filters intersecting (backend plus tier), a
   filter miss (unknown bot name, empty intersection) falling back to tier2,
@@ -332,6 +334,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - Cross-backend chat continuity: moving a chat between backends (transcript
   handoff or session translation) stays out. A bot change is honored only
   within the chat's own backend.
+- xAI web/X request construction, response parsing, citations, retries, and
+  inline worker lifecycle. Those belong to [xAI Inline Search Backends](xai-inline-search.md);
+  this feature owns only whether those model-type bots can be selected.
 - A context-window guard on re-bot: nothing stops re-botting a long chat
   onto a smaller-context model.
 
@@ -340,4 +345,4 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 2930 | Collapse the agentic backends to claude_code only, then lift the sticky-bot rule: naming a different bot on an existing chat re-bots it (bot_name + tier persisted, `external_id` kept so the Claude session resumes), while a cross-backend change is refused and the chat keeps its bot; surfaced via `y chat --chat-id ... --bot` and the web bot picker | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |
-| 3206 | Make model-type inline search bots explicitly pin-reachable while excluding them from tier routing, preparing px to be reclassified as `type=model` without disrupting `--bot px` or `--backend perplexity` | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` | reviewed (Deploy A) |
+| 3206 | Make model-type inline search bots explicitly pin-reachable while excluding them from tier routing (px reclassified to `type=model` without disrupting `--bot px` or `--backend perplexity`), then land the `xai_web` / `xai_x` search backends behind that rule and drop the now-dead perplexity tier clause, so bot type alone gates tier candidacy | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` (Deploy A routing), `pages/review-3206-deploy-b-inline-search.md` (Deploy B backends) | Deploy A shipped; Deploy B implemented, in review |

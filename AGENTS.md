@@ -165,10 +165,15 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Backends** — `claude_code` (`agent/src/agent/claude_code.py`) is the only agentic CLI
   backend. The other agentic backends (`codex`, `gemini_cli`, `grok_build`, `pi_cli`) were
   removed in todo 2930; `_start_detached` now rejects any backend other than `claude_code`
-  with a launch error instead of falling through. The two non-agentic inline backends stay:
-  `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check) and `openai`
-  (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`). The
-  chat's `backend` field is persisted and displayed.
+  with a launch error instead of falling through. The non-agentic inline backends stay:
+  `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`
+  (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`), and
+  the xAI search pair `xai_web` / `xai_x` (`agent/src/agent/xai_search.py`, the
+  `grok-web` / `grok-x` bots) which call xAI's native Responses API with the server-side
+  `web_search` / `x_search` tool and return `url_citation` sources as `Message.links`.
+  All of them run through one shared `_run_inline` in `worker/runner.py`; the search
+  mode is encoded in the backend value, not in a bot_config column. The chat's
+  `backend` field is persisted and displayed.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
   SSHes in, tails stdout, and streams JSON events back. `agent/ssh_pool.py` reuses SSH
   connections across monitor passes; `agent/ec2_wake.py` auto-wakes the instance.
@@ -237,7 +242,8 @@ Grouped by feature area:
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
-- `perplexity.py`, `openai_chat.py` — inline single-shot (non-agentic) backends
+- `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
+  backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
 - `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 10`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
@@ -310,7 +316,8 @@ and public share routes (`/api/chat/share/*`, `/api/trace/share/*`).
 2. API persists the user message, marks `chat.running=True`, and enqueues to SQS
    (Celery filesystem broker in dev).
 3. Worker `process_chat` → `run_chat` resolves the target backend
-   (`claude_code`, or the inline `perplexity` / `openai`), sets up trace participants,
+   (`claude_code`, or an inline backend: `perplexity` / `openai` / `xai_web` / `xai_x`),
+   sets up trace participants,
    and either:
    - starts a detached subprocess on EC2 (long tasks), or
    - runs the subprocess inline with streaming output.
