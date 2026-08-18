@@ -42,6 +42,9 @@ module cannot store a `../`-escaping key regardless of published bytes.
 The v10 surface adds fixed configured-maintainer-only API latency monitoring queries:
   - api_latency_summary / api_latency_routes / api_latency_events / api_latency_meta
 
+The v11 surface adds owner-bound tag rename/merge planning and apply:
+  - tag_rename_plan / tag_rename_apply
+
 Every request-bound capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
@@ -86,9 +89,12 @@ enriches the existing `tag_get` todo row with `updated_at_unix` (the todo
 row's own timestamp) so presentation clients can sort without a second
 fetch, bumping it from 8 to 9. API latency monitoring (todo 3211) adds four
 fixed configured-maintainer-only query functions over host-owned telemetry state, bumping it
-from 9 to 10. Modules declare the minimum version they use and an older host
-rejects their bundle. Every later addition to the surface above bumps the
-version and, for modules that need it, `min_backend_version`.
+from 9 to 10. Tag rename/merge (todo 3219) adds owner-bound
+`tag_rename_plan` / `tag_rename_apply` over coordinated authoring + entity_tag
+rewrites, bumping it from 10 to 11. Modules declare the minimum version they
+use and an older host rejects their bundle. Every later addition to the
+surface above bumps the version and, for modules that need it,
+`min_backend_version`.
 """
 
 from __future__ import annotations
@@ -104,7 +110,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 10
+BACKEND_CONTRACT_VERSION = 11
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -816,6 +822,40 @@ def tag_backfill(
         "total_synced": result["total_synced"],
         "total_tag_rows": result["total_tag_rows"],
     }
+
+
+# ---------------------------------------------------------------------------
+# v11 tag rename/merge capability (todo 3219)
+#
+# Owner-bound plan + apply over coordinated authoring-field and entity_tag
+# rewrites. The host owns the DB half; the module CLI owns on-disk front matter
+# and confirmation. plan_hash is the fail-closed drift gate: the CLI echoes the
+# hash from plan, and apply refuses on mismatch (409).
+# ---------------------------------------------------------------------------
+
+
+def tag_rename_plan(user_id: int, source: str, target: str) -> dict[str, Any]:
+    """Compute an owner-scoped rename/merge plan; does not mutate."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.plan_rename(user_id, source, target)
+
+
+def tag_rename_apply(
+    user_id: int,
+    source: str,
+    target: str,
+    *,
+    plan_hash: str,
+) -> dict[str, Any]:
+    """Apply an owner-scoped rename/merge; refuses on plan_hash mismatch."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.apply_rename(
+        user_id, source, target, plan_hash=plan_hash
+    )
 
 
 # ---------------------------------------------------------------------------

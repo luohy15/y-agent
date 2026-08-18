@@ -9,12 +9,25 @@ register_resolver() from their own service module (do not edit the built-in
 _RESOLVERS dict from parallel batches). get_by_tag() lazy-imports
 storage.service.<entity_type> by convention so self-registration runs even
 when only the tag CLI/API was loaded.
+
+Todo 3219 adds plan_rename() / apply_rename(): a single-session coordinated
+rename/merge over authoring fields + entity_tag. Carriers are found through
+entity_tag (exact source value); the CLI owns on-disk front matter.
 """
 
+import hashlib
 import importlib
+import json
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
+from sqlalchemy.orm.attributes import flag_modified
+
+from storage.database.base import get_db
+from storage.entity.entity import EntityEntity
+from storage.entity.entity_tag import EntityTagEntity
+from storage.entity.note import NoteEntity
+from storage.entity.todo import TodoEntity
 from storage.repository import entity_tag as tag_repo
 # Re-export write-time normalizers so carriers can keep authoring surfaces
 # (todo.tags / front_matter.tags) in the same canonical form as entity_tag.
@@ -22,9 +35,29 @@ from storage.repository.entity_tag import normalize_tag, normalize_tags  # noqa:
 from storage.service import entity as entity_service
 from storage.service import note as note_service
 from storage.service import todo as todo_service
+from storage.util import get_unix_timestamp, get_utc_iso8601_timestamp
 
 # (user_id, entity_id) -> {"id": public_id, "title": display} | None
 Resolver = Callable[[int, str], Optional[Dict]]
+
+AUTHORING_TYPES = frozenset({"todo", "note", "entity"})
+DIRECT_TYPES = frozenset({
+    "chat",
+    "calendar_event",
+    "reminder",
+    "routine",
+    "link",
+    "email",
+    "rss_feed",
+})
+
+
+class TagRenameError(ValueError):
+    """Caller input failed for a tag rename/merge."""
+
+
+class TagRenameConflict(RuntimeError):
+    """Live state drifted from the planned rename/merge (map to HTTP 409)."""
 
 
 def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -> None:
@@ -258,3 +291,579 @@ def backfill_tags(
         "total_synced": total_synced,
         "total_tag_rows": total_tag_rows,
     }
+
+
+def _tags_of(value) -> List:
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def _apply_mapping(tags: List, mapping: Dict[str, List[str]]):
+    out, seen = [], set()
+    replaced, dropped = [], []
+    for tag in tags:
+        if not isinstance(tag, str):
+            out.append(tag)
+            continue
+        targets = mapping.get(tag)
+        if targets is None:
+            targets = [tag]
+        else:
+            replaced.append({"from": tag, "to": list(targets)})
+        for new in targets:
+            if new in seen:
+                dropped.append({"from": tag, "to": new})
+                continue
+            seen.add(new)
+            out.append(new)
+    return out, replaced, dropped
+
+
+def _validate_rename_args(source: str, target: str) -> List[str]:
+    if not isinstance(source, str) or not source:
+        raise TagRenameError("source must be a non-empty string")
+    if not isinstance(target, str) or not target:
+        raise TagRenameError("target must be a non-empty string")
+    if source == target:
+        raise TagRenameError("source and target must differ")
+    canonical = normalize_tag(target)
+    if canonical != target:
+        raise TagRenameError(
+            f"target must already be canonical (got {target!r}, expected {canonical!r})"
+        )
+    return [target]
+
+
+def _carrier_title(entity_type: str, row) -> str:
+    if entity_type == "todo":
+        return row.name
+    if entity_type == "note":
+        return row.content_key
+    if entity_type == "entity":
+        return row.name
+    return ""
+
+
+def _load_authoring_row(session, user_id: int, entity_type: str, entity_id: str):
+    if entity_type == "todo":
+        return session.query(TodoEntity).filter_by(user_id=user_id, todo_id=entity_id).one_or_none()
+    if entity_type == "note":
+        return session.query(NoteEntity).filter(
+            NoteEntity.user_id == user_id,
+            NoteEntity.note_id == entity_id,
+            NoteEntity.deleted_at.is_(None),
+        ).one_or_none()
+    if entity_type == "entity":
+        return session.query(EntityEntity).filter_by(
+            user_id=user_id, entity_id=entity_id
+        ).one_or_none()
+    return None
+
+
+def _authoring_tags(entity_type: str, row) -> List:
+    if entity_type == "todo":
+        return _tags_of(row.tags)
+    fm = row.front_matter if isinstance(row.front_matter, dict) else None
+    return _tags_of(fm.get("tags") if fm else None)
+
+
+def _public_projection_item(item: Dict) -> Dict:
+    """Strip internal row ids before a plan crosses the host boundary."""
+    out = {
+        "entity_type": item["entity_type"],
+        "entity_id": item["entity_id"],
+        "from": item["from"],
+        "to": item["to"],
+    }
+    return out
+
+
+def compute_plan_hash(plan: Dict) -> str:
+    """Stable hash over the semantic DB plan (files/blockers are CLI-local)."""
+    payload = {
+        "mode": plan["mode"],
+        "source": plan["source"],
+        "target": plan["target"],
+        "carriers": sorted(
+            [
+                {
+                    "entity_type": c["entity_type"],
+                    "entity_id": c["entity_id"],
+                    "tags_before": c["tags_before"],
+                    "tags_after": c["tags_after"],
+                    "content_key": c.get("content_key"),
+                }
+                for c in plan["carriers"]
+            ],
+            key=lambda c: (c["entity_type"], c["entity_id"]),
+        ),
+        "projection": {
+            "updates": sorted(
+                plan["projection"]["updates"],
+                key=lambda i: (i["entity_type"], i["entity_id"], i["from"], i["to"]),
+            ),
+            "deletes": sorted(
+                plan["projection"]["deletes"],
+                key=lambda i: (i["entity_type"], i["entity_id"], i["from"], i["to"]),
+            ),
+            "inserts": sorted(
+                plan["projection"]["inserts"],
+                key=lambda i: (i["entity_type"], i["entity_id"], i["to"]),
+            ),
+        },
+        "target_exists": plan["target_exists"],
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
+    targets = _validate_rename_args(source, target)
+    mapping = {source: targets}
+
+    source_pairs = (
+        session.query(EntityTagEntity.entity_type, EntityTagEntity.entity_id)
+        .filter_by(user_id=user_id, tag=source)
+        .all()
+    )
+    carrier_keys = sorted({(etype, eid) for etype, eid in source_pairs})
+
+    target_exists = (
+        session.query(EntityTagEntity.id)
+        .filter_by(user_id=user_id, tag=target)
+        .first()
+        is not None
+    )
+    mode = "merge" if target_exists else "rename"
+
+    # Prefetch projection tags only for the affected carriers.
+    existing_by_carrier: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+    if carrier_keys:
+        type_ids: Dict[str, List[str]] = defaultdict(list)
+        for etype, eid in carrier_keys:
+            type_ids[etype].append(eid)
+        for etype, eids in type_ids.items():
+            rows = (
+                session.query(EntityTagEntity)
+                .filter(
+                    EntityTagEntity.user_id == user_id,
+                    EntityTagEntity.entity_type == etype,
+                    EntityTagEntity.entity_id.in_(eids),
+                )
+                .all()
+            )
+            for row in rows:
+                existing_by_carrier[(row.entity_type, row.entity_id)].append(row.tag)
+        for key in existing_by_carrier:
+            existing_by_carrier[key] = sorted(existing_by_carrier[key])
+
+    carriers = []
+    blockers = []
+    for entity_type, entity_id in carrier_keys:
+        if entity_type in AUTHORING_TYPES:
+            row = _load_authoring_row(session, user_id, entity_type, entity_id)
+            if row is None:
+                blockers.append({
+                    "kind": "missing_authoring_carrier",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                })
+                continue
+            tags_before = _authoring_tags(entity_type, row)
+            if source not in tags_before:
+                blockers.append({
+                    "kind": "authoring_missing_source",
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "tags": tags_before,
+                })
+                continue
+            tags_after, replaced, dropped = _apply_mapping(tags_before, mapping)
+            entry = {
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "title": _carrier_title(entity_type, row),
+                "tags_before": tags_before,
+                "tags_after": tags_after,
+                "replaced": replaced,
+                "dropped": dropped,
+            }
+            if entity_type == "note":
+                entry["content_key"] = row.content_key
+            carriers.append(entry)
+        elif entity_type in DIRECT_TYPES:
+            tags_before = list(existing_by_carrier[(entity_type, entity_id)])
+            tags_after, replaced, dropped = _apply_mapping(tags_before, mapping)
+            carriers.append({
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "title": "",
+                "tags_before": tags_before,
+                "tags_after": tags_after,
+                "replaced": replaced,
+                "dropped": dropped,
+            })
+        else:
+            blockers.append({
+                "kind": "unknown_entity_type",
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+            })
+
+    # Projection: only rewrite rows that currently hold the exact source value.
+    # Carrier already has target -> delete source row; otherwise update in place.
+    # inserts stay in the structure so a later 1->N split can reuse it.
+    # Private ops keep the row id for the apply transaction; the public envelope
+    # returned to modules never includes internal integer PKs.
+    tag_rows = (
+        session.query(EntityTagEntity)
+        .filter_by(user_id=user_id, tag=source)
+        .order_by(EntityTagEntity.entity_type, EntityTagEntity.entity_id, EntityTagEntity.id)
+        .all()
+    )
+    existing_sets: Dict[Tuple[str, str], set] = {
+        key: set(values) for key, values in existing_by_carrier.items()
+    }
+    for row in tag_rows:
+        existing_sets.setdefault((row.entity_type, row.entity_id), set()).add(row.tag)
+
+    private_ops = {"updates": [], "deletes": [], "inserts": []}
+    for row in tag_rows:
+        key = (row.entity_type, row.entity_id)
+        pending = [t for t in targets if t not in existing_sets[key]]
+        if not pending:
+            private_ops["deletes"].append({
+                "id": row.id,
+                "entity_type": row.entity_type,
+                "entity_id": row.entity_id,
+                "from": row.tag,
+                "to": targets[0],
+            })
+        else:
+            private_ops["updates"].append({
+                "id": row.id,
+                "entity_type": row.entity_type,
+                "entity_id": row.entity_id,
+                "from": row.tag,
+                "to": pending[0],
+            })
+            for extra in pending[1:]:
+                private_ops["inserts"].append({
+                    "entity_type": row.entity_type,
+                    "entity_id": row.entity_id,
+                    "from": row.tag,
+                    "to": extra,
+                })
+            existing_sets[key].update(pending)
+        existing_sets[key].discard(row.tag)
+
+    projection = {
+        "updates": [_public_projection_item(i) for i in private_ops["updates"]],
+        "deletes": [_public_projection_item(i) for i in private_ops["deletes"]],
+        "inserts": [_public_projection_item(i) for i in private_ops["inserts"]],
+    }
+
+    files = [
+        {
+            "entity_type": "note",
+            "entity_id": c["entity_id"],
+            "content_key": c["content_key"],
+            "tags_before": c["tags_before"],
+            "tags_after": c["tags_after"],
+        }
+        for c in carriers
+        if c["entity_type"] == "note" and c.get("content_key")
+    ]
+
+    plan = {
+        "mode": mode,
+        "source": source,
+        "target": target,
+        "target_exists": target_exists,
+        "carriers": carriers,
+        "files": files,
+        "blockers": blockers,
+        "projection": projection,
+        "summary": {
+            "carriers_total": len(carriers),
+            "carriers_by_type": {
+                t: sum(1 for c in carriers if c["entity_type"] == t)
+                for t in sorted({c["entity_type"] for c in carriers})
+            },
+            "files": len(files),
+            "blockers": len(blockers),
+            "projection_updates": len(projection["updates"]),
+            "projection_deletes": len(projection["deletes"]),
+            "projection_inserts": len(projection["inserts"]),
+        },
+    }
+    plan["plan_hash"] = compute_plan_hash(plan)
+    # Transaction-private only; stripped before any host/module return.
+    plan["_projection_ops"] = private_ops
+    return plan
+
+
+def _public_plan(plan: Dict) -> Dict:
+    """Return the API/journal envelope without private transaction fields."""
+    return {
+        "mode": plan["mode"],
+        "source": plan["source"],
+        "target": plan["target"],
+        "target_exists": plan["target_exists"],
+        "carriers": plan["carriers"],
+        "files": plan["files"],
+        "blockers": plan["blockers"],
+        "projection": plan["projection"],
+        "summary": plan["summary"],
+        "plan_hash": plan["plan_hash"],
+    }
+
+
+def plan_rename(user_id: int, source: str, target: str) -> Dict:
+    """Compute a rename/merge plan from live entity_tag + authoring state.
+
+    Does not mutate. Returns mode/carriers/files/blockers/plan_hash. Files are
+    note content_keys only; the CLI computes the on-disk rewrite and blockers.
+    """
+    with get_db() as session:
+        return _public_plan(_build_rename_plan(session, user_id, source, target))
+
+
+def _lock_authoring_row(session, user_id: int, entity_type: str, entity_id: str):
+    """Lock one authoring carrier row; map a missing row to TagRenameConflict.
+
+    populate_existing is required because `_build_rename_plan` may already have
+    the same identity in this session: a plain FOR UPDATE would return the stale
+    cached object and the exact-value check would miss a concurrent commit.
+    """
+    from sqlalchemy.orm.exc import NoResultFound
+
+    try:
+        if entity_type == "todo":
+            return (
+                session.query(TodoEntity)
+                .filter_by(user_id=user_id, todo_id=entity_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+                .one()
+            )
+        if entity_type == "note":
+            return (
+                session.query(NoteEntity)
+                .filter(
+                    NoteEntity.user_id == user_id,
+                    NoteEntity.note_id == entity_id,
+                    NoteEntity.deleted_at.is_(None),
+                )
+                .execution_options(populate_existing=True)
+                .with_for_update()
+                .one()
+            )
+        if entity_type == "entity":
+            return (
+                session.query(EntityEntity)
+                .filter_by(user_id=user_id, entity_id=entity_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+                .one()
+            )
+    except NoResultFound as exc:
+        raise TagRenameConflict(
+            f"{entity_type} {entity_id} changed since the plan was built"
+        ) from exc
+    raise TagRenameConflict(f"unsupported authoring type {entity_type!r}")
+
+
+def _lock_projection_row(session, user_id: int, row_id: int, expected_from: str):
+    """Lock one entity_tag row and assert it still holds the planned source.
+
+    populate_existing refreshes attributes even when the row is already in this
+    session's identity map from plan construction.
+    """
+    from sqlalchemy.orm.exc import NoResultFound
+
+    try:
+        row = (
+            session.query(EntityTagEntity)
+            .filter_by(id=row_id, user_id=user_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+            .one()
+        )
+    except NoResultFound as exc:
+        raise TagRenameConflict(
+            f"entity_tag row for {expected_from!r} changed since the plan was built"
+        ) from exc
+    if row.tag != expected_from:
+        raise TagRenameConflict(
+            f"entity_tag for {row.entity_type}/{row.entity_id} changed since the plan was built"
+        )
+    return row
+
+
+def _verify_after_apply(session, user_id: int, plan: Dict) -> None:
+    source = plan["source"]
+    leftover = (
+        session.query(EntityTagEntity.id)
+        .filter_by(user_id=user_id, tag=source)
+        .all()
+    )
+    if leftover:
+        raise TagRenameConflict(
+            f"entity_tag still has source spelling {source!r} after apply"
+        )
+
+    projected = defaultdict(set)
+    carrier_keys = {(c["entity_type"], c["entity_id"]) for c in plan["carriers"]}
+    if carrier_keys:
+        type_ids: Dict[str, List[str]] = defaultdict(list)
+        for etype, eid in carrier_keys:
+            type_ids[etype].append(eid)
+        for etype, eids in type_ids.items():
+            for row in (
+                session.query(EntityTagEntity)
+                .filter(
+                    EntityTagEntity.user_id == user_id,
+                    EntityTagEntity.entity_type == etype,
+                    EntityTagEntity.entity_id.in_(eids),
+                )
+                .all()
+            ):
+                projected[(row.entity_type, row.entity_id)].add(row.tag)
+
+    for carrier in plan["carriers"]:
+        etype, eid = carrier["entity_type"], carrier["entity_id"]
+        if etype in AUTHORING_TYPES:
+            row = _load_authoring_row(session, user_id, etype, eid)
+            if row is None:
+                raise TagRenameConflict(f"{etype} {eid} missing after apply")
+            actual = _authoring_tags(etype, row)
+            if actual != carrier["tags_after"]:
+                raise TagRenameConflict(
+                    f"{etype} {eid}: authoring tags are {actual}, expected {carrier['tags_after']}"
+                )
+            extras = projected[(etype, eid)] - set(carrier["tags_after"])
+            if extras:
+                raise TagRenameConflict(
+                    f"{etype} {eid}: entity_tag has unexpected {sorted(extras)}"
+                )
+        missing = set(carrier["tags_after"]) - projected[(etype, eid)]
+        if missing:
+            raise TagRenameConflict(
+                f"{etype} {eid}: entity_tag missing {sorted(missing)}"
+            )
+
+
+def apply_rename(
+    user_id: int,
+    source: str,
+    target: str,
+    *,
+    plan_hash: str,
+) -> Dict:
+    """Apply a rename/merge inside one DB transaction.
+
+    Recomputes the plan, refuses on plan_hash mismatch or live drift, locks the
+    affected authoring and entity_tag rows, rewrites them, appends one
+    todo.history entry per touched todo, and post-verifies. Never deletes a
+    carrier or content.
+    """
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm.exc import NoResultFound
+
+    if not isinstance(plan_hash, str) or not plan_hash:
+        raise TagRenameError("plan_hash is required")
+
+    with get_db() as session:
+        try:
+            plan = _build_rename_plan(session, user_id, source, target)
+            if plan["blockers"]:
+                raise TagRenameConflict(f"rename blocked: {plan['blockers']}")
+            if plan["plan_hash"] != plan_hash:
+                raise TagRenameConflict(
+                    "plan_hash mismatch; re-run dry-run and apply the fresh plan"
+                )
+
+            by_type = defaultdict(dict)
+            for carrier in plan["carriers"]:
+                by_type[carrier["entity_type"]][carrier["entity_id"]] = carrier
+
+            now, now_unix = get_utc_iso8601_timestamp(), get_unix_timestamp()
+            private_ops = plan["_projection_ops"]
+
+            # Lock every affected authoring + projection row before mutating so a
+            # concurrent writer cannot slip a change past the exact-value check.
+            for todo_id, carrier in by_type["todo"].items():
+                row = _lock_authoring_row(session, user_id, "todo", todo_id)
+                if _tags_of(row.tags) != carrier["tags_before"]:
+                    raise TagRenameConflict(
+                        f"todo {todo_id} tags changed since the plan was built"
+                    )
+                row.tags = list(carrier["tags_after"])
+                history = list(row.history or [])
+                history.append({
+                    "timestamp": now,
+                    "unix_timestamp": now_unix,
+                    "action": "updated",
+                    "note": f"changed: tags={carrier['tags_after']!r}",
+                })
+                row.history = history
+                flag_modified(row, "history")
+                flag_modified(row, "tags")
+
+            for note_id, carrier in by_type["note"].items():
+                row = _lock_authoring_row(session, user_id, "note", note_id)
+                fm = dict(row.front_matter or {})
+                if _tags_of(fm.get("tags")) != carrier["tags_before"]:
+                    raise TagRenameConflict(
+                        f"note {note_id} front matter changed since the plan was built"
+                    )
+                fm["tags"] = list(carrier["tags_after"])
+                row.front_matter = fm
+                flag_modified(row, "front_matter")
+
+            for entity_id, carrier in by_type["entity"].items():
+                row = _lock_authoring_row(session, user_id, "entity", entity_id)
+                fm = dict(row.front_matter or {})
+                if _tags_of(fm.get("tags")) != carrier["tags_before"]:
+                    raise TagRenameConflict(
+                        f"entity {entity_id} front matter changed since the plan was built"
+                    )
+                fm["tags"] = list(carrier["tags_after"])
+                row.front_matter = fm
+                flag_modified(row, "front_matter")
+
+            for item in private_ops["deletes"]:
+                row = _lock_projection_row(session, user_id, item["id"], item["from"])
+                session.delete(row)
+            # Flush deletes before updates/inserts so the unique constraint cannot
+            # reject a carrier whose source row is being removed and re-added under
+            # another spelling in the same transaction.
+            session.flush()
+
+            for item in private_ops["updates"]:
+                row = _lock_projection_row(session, user_id, item["id"], item["from"])
+                row.tag = item["to"]
+            session.flush()
+
+            for item in private_ops["inserts"]:
+                session.add(EntityTagEntity(
+                    user_id=user_id,
+                    entity_type=item["entity_type"],
+                    entity_id=item["entity_id"],
+                    tag=item["to"],
+                ))
+            session.flush()
+
+            _verify_after_apply(session, user_id, plan)
+        except TagRenameConflict:
+            raise
+        except (NoResultFound, IntegrityError) as exc:
+            raise TagRenameConflict(
+                "tag rename conflicted with a concurrent change; re-run dry-run"
+            ) from exc
+
+        return _public_plan(plan)

@@ -629,6 +629,13 @@ or SQL access: the host keeps the authoritative ASGI capture boundary, scheduled
 rollup/retention, closed dimensions, and telemetry schema; Monitor owns query
 facades and presentation.
 
+Todo 3219 adds owner-bound tag rename/merge planning and apply
+(`tag_rename_plan` / `tag_rename_apply`) over coordinated authoring-field and
+`entity_tag` rewrites, bumping `BACKEND_CONTRACT_VERSION` from 10 to **11**.
+The tag module raises its floor to 11 when it publishes the rename route. The
+host owns the DB half and the fail-closed `plan_hash` gate; the module CLI owns
+on-disk front-matter rewrite, preview/confirm, and the apply journal.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module
