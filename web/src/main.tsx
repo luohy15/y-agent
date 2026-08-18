@@ -35,7 +35,13 @@ function ThemeRouteSync() {
 
 const rootEl = document.getElementById("root")!;
 
-if (isDemoPath(window.location.pathname)) {
+if (window.location.pathname.startsWith("/demo/") || window.location.pathname === "/demo/") {
+  // Legacy and unknown demo paths must normalize before any application
+  // bootstrap. Entering the normal app first would expose its persisted cache
+  // and unrestricted host registry before the isolated demo runtime replaces
+  // them.
+  window.location.replace(`/demo${window.location.search}${window.location.hash}`);
+} else if (isDemoPath(window.location.pathname)) {
   // Public demo pages (todo 3158) are a separate application root, chosen
   // before anything else runs: they get the restricted `@y/host`, a
   // memory-only cache, and denied network/storage globals, and they never

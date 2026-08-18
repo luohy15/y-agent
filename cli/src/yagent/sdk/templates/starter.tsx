@@ -16,7 +16,7 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  *            area). Unlike the other two it must be claimed in module.json
  *            (`"surfaces": ["panel", "shell"]`), only one module may hold it,
  *            and the host renders its own fallback when nobody does.
- *   `demo`   (optional in production; required for public /demo/* delivery)
+ *   `demo`   (optional in production; required for public /demo delivery)
  *            mounts the same production views over deterministic fixture data.
  * Delete the `detail` export for a sidebar-only artifact.
  *

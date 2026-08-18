@@ -12,7 +12,7 @@
  *     export const detail = MyDetail;  // optional — center / full-width view
  *     export const shell = MyShell;    // optional — persistent center column
  *     export const demo = MyDemo;      // optional in production; required for
- *                                      // public /demo/* delivery
+ *                                      // public /demo delivery
  *
  * A bare `export default MyPanel` is the shorthand for a panel-only artifact.
  * The host gives one sidebar entry per artifact; `detail`, when present, opens

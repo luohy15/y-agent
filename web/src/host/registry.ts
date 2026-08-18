@@ -67,7 +67,7 @@ const renderingExternals: Record<string, unknown> = {
 
 /** Publish the externals into `globalThis.__Y_HOST__`. `sdk` is what an
  * artifact receives as `@y/host`: the full authenticated surface in the app,
- * the restricted demo surface on a `/demo/*` page. */
+ * the restricted demo surface on the `/demo` page. */
 export function installHostRegistry(sdk: object = hostSdk): void {
   const modules: Record<string, unknown> = {
     ...renderingExternals,

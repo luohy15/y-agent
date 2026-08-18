@@ -32,14 +32,14 @@ values.
 
 A module UI declares up to three production surfaces, and `module.json`'s
 `surfaces` list is what the published version records as `ui_surfaces`. Public
-showcase modules also export a fourth entrypoint used only by `/demo/*`:
+showcase modules also export a fourth entrypoint used only by `/demo`:
 
 | Export | Slot | Notes |
 |--------|------|-------|
 | `panel` | ~280px sidebar column | Required. Introspected from the bundle; a module always gets a sidebar entry. |
 | `detail` | full-width centre tab, opened from the panel header | Optional. Introspected from the bundle; unmounted when the tab is closed. |
 | `shell` | the persistent centre column (the live chat area) | Optional. **Enforced from `ui_surfaces`**, because the host must pick the claimant before fetching any bundle. At most one module may claim it (lowest slug among enabled claimants wins); when nobody claims it the host renders its own fallback. |
-| `demo` | standalone public demo page (`/demo/<key>`) | Optional for ordinary production loading; **required** when the host loads the public bundle for a showcase demo. Introspected from the bundle; never substituted by `panel` / `detail` / `shell`. Publish `ui_public: true` separately to opt the version's UI bytes into anonymous delivery. |
+| `demo` | public `/demo` shell surface | Optional for ordinary production loading; **required** when the host loads the public bundle for a showcase demo. Introspected from the bundle; never substituted by `panel` / `detail` / `shell`. Publish `ui_public: true` separately to opt the version's UI bytes into anonymous delivery. |
 
 None of the four receives props. Host state reaches a surface through
 `useArtifactIntent`, and a surface asks the host to act through `runHostCommand`.

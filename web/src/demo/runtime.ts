@@ -1,7 +1,7 @@
 // The restricted public demo runtime (todo 3158 H3,
 // docs/prd/public-module-demos.md, pages/plan-3158-public-module-demos.md D5/D6).
 //
-// A `/demo/*` page loads the *production* module UI bundle and mounts its
+// The `/demo` page loads the *production* module UI bundle and mounts its
 // `demo` export. The only thing standing between that production component
 // tree and the authenticated origin is this file, so the install order is
 // load-bearing and every step is fail-closed:
@@ -39,7 +39,7 @@ import { API } from "../api";
 import { hostSdk } from "../host/sdk";
 import { installHostRegistry } from "../host/registry";
 import { publicBundleFetcher } from "../host/loader";
-import { demoRouteFor, DEMO_ROUTES } from "./routes";
+import { DEMO_MODULES } from "./routes";
 import { openDemoArtifactDetail, runDemoHostCommand } from "./commands";
 
 const PUBLIC_DEMO_PREFIX = "/api/module/public-demo/";
@@ -74,7 +74,7 @@ export function allowedDemoFetch(input: string, init?: RequestInit): Promise<Res
   let allowed = false;
   if (path.startsWith(PUBLIC_DEMO_PREFIX)) {
     const key = decodeURIComponent(path.slice(PUBLIC_DEMO_PREFIX.length));
-    allowed = DEMO_ROUTES.some((route) => route.key === key);
+    allowed = DEMO_MODULES.some((module) => module.key === key);
   } else if (path.startsWith(PUBLIC_BUNDLE_PREFIX)) {
     const rest = path.slice(PUBLIC_BUNDLE_PREFIX.length);
     allowed = rest.length > 0 && !rest.includes("/");
@@ -221,14 +221,14 @@ export function verifyRestrictions(): string[] {
   }).map((restriction) => restriction.name);
 }
 
-/** Local navigation allowlist: the four demo routes and the public docs. A
- * real page load (not history.pushState) is deliberate — leaving a demo must
+/** Local navigation allowlist: the canonical demo route and public docs. A
+ * real page load (not history.pushState) is deliberate — leaving the demo must
  * rebuild the runtime from scratch and reset every in-memory change. */
 export function demoNavigate(path: string): void {
   const target = new URL(path, window.location.href);
   if (
     target.origin === window.location.origin &&
-    (demoRouteFor(target.pathname) || /^\/docs(?:\/[^/]+)?$/.test(target.pathname))
+    (target.pathname === "/demo" || /^\/docs(?:\/[^/]+)?$/.test(target.pathname))
   ) {
     window.location.assign(`${target.pathname}${target.search}`);
     return;

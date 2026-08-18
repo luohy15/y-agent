@@ -50,11 +50,3 @@ export function showcaseKeyFromPanel(panel: string): DemoShowcaseKey | null {
 export function panelFromShowcaseKey(key: DemoShowcaseKey): `artifact:${DemoShowcaseKey}` {
   return `artifact:${key}`;
 }
-
-/** Map a deep-link route key to the initial left-rail panel. Link stays on chat
- * with the link key unavailable; unknown keys are handled by the page shell. */
-export function initialPanelForRoute(key: string | null): `artifact:${DemoShowcaseKey}` {
-  if (key === "todo") return "artifact:todo";
-  if (key === "note") return "artifact:note";
-  return "artifact:chat";
-}

@@ -6,8 +6,7 @@
 // unavailable affordance. Each showcase slot mounts the module's surface-aware
 // `demo` export through DemoMount; failures stay per-slot.
 //
-// Deep links select the initial left-rail surface; in-shell navigation is
-// local React state and resets on full page load.
+// In-shell navigation is local React state and resets on full page load.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import ActivityBar, {
   BUILT_IN_PANEL_ITEMS,
@@ -29,13 +28,12 @@ import {
   DEMO_RIGHT_LIVE,
   DEMO_RIGHT_UNAVAILABLE,
   DEMO_SHOWCASE_ORDER,
-  initialPanelForRoute,
   panelFromShowcaseKey,
   showcaseKeyFromPanel,
   type DemoShowcaseKey,
 } from "./chrome";
 import { fetchPublicDemos, type PublicDemoRef } from "./lookup";
-import { DEMO_ROUTES, type DemoRoute } from "./routes";
+import { DEMO_MODULES } from "./routes";
 import { buildDemoModules } from "./syntheticModules";
 
 type LookupState =
@@ -93,22 +91,12 @@ function SlotMount({
   );
 }
 
-export interface DemoShellProps {
-  /** Allowlisted deep-link route, or null when the page is bare `/demo`
-   * (defaults to chat). Unknown keys never reach this component. */
-  route: DemoRoute | null;
-}
-
-export default function DemoShell({ route }: DemoShellProps) {
+export default function DemoShell() {
   const host = useDemoHostState();
   const [lookup, setLookup] = useState<LookupState>({ status: "loading" });
-
-  const initialKey = route?.key ?? "chat";
-  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() =>
-    initialPanelForRoute(initialKey),
-  );
-  // Deep-link centre mode is seeded on DemoHostCommandProvider (DemoPage).
-  // Rail clicks reuse selectShowcase below so left + centre stay in lockstep.
+  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>("artifact:chat");
+  // `/demo` always starts with Chat selected. Rail clicks switch surfaces in
+  // memory so the public route remains stable and reload resets the baseline.
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [bottomOpen, setBottomOpen] = useState(false);
@@ -124,7 +112,7 @@ export default function DemoShell({ route }: DemoShellProps) {
   useEffect(() => {
     let cancelled = false;
     setLookup({ status: "loading" });
-    fetchPublicDemos(DEMO_ROUTES.map(({ key }) => key)).then((demos) => {
+    fetchPublicDemos(DEMO_MODULES.map(({ key }) => key)).then((demos) => {
       if (!cancelled) setLookup({ status: "ready", demos });
     });
     return () => {
@@ -133,10 +121,8 @@ export default function DemoShell({ route }: DemoShellProps) {
   }, []);
 
   useEffect(() => {
-    document.title = route
-      ? `${route.title} demo — y-agent`
-      : "Chat demo — y-agent";
-  }, [route]);
+    document.title = "y-agent demo";
+  }, []);
 
   const demos = lookup.status === "ready" ? lookup.demos : null;
   const modules = useMemo(
@@ -235,8 +221,8 @@ export default function DemoShell({ route }: DemoShellProps) {
   }, []);
 
   // Design selectSurface: chat → centre chat mode; todo/note → centre files mode
-  // with the matching detail tab (pages/design-3158.html:805-818). Deep links
-  // and rail clicks both go through this so left + centre stay in lockstep.
+  // with the matching detail tab (pages/design-3158.html:805-818). Rail clicks
+  // keep the left panel and centre column in lockstep.
   const selectShowcase = useCallback((key: DemoShowcaseKey) => {
     setSidebarPanel(panelFromShowcaseKey(key));
     if (key === "chat") {

@@ -69,9 +69,9 @@ function publishDemoChatIntent(
 
 export interface DemoHostCommandProviderProps {
   children: ReactNode;
-  /** Initial centre mode for deep links (`/demo/todo` → files). Default chat. */
+  /** Initial centre mode. The public demo starts in chat mode. */
   initialCentreMode?: DemoCentreMode;
-  /** Initial detail tab for deep links (`/demo/todo` → todo). Default null. */
+  /** Initial detail tab. The public demo starts without an open detail. */
   initialDetailTab?: "todo" | "trace" | null;
 }
 

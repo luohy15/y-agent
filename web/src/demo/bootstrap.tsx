@@ -1,4 +1,4 @@
-// Entry point for `/demo/*` (todo 3158 H3). Loaded lazily by main.tsx, which
+// Entry point for `/demo` (todo 3158 H3). Loaded lazily by main.tsx, which
 // routes on the pathname before rendering anything, so a public demo page
 // never mounts the authenticated app tree: no production host registry, no
 // persisted SWR provider, no warm-up ping, no auth hook, no ambient identity.
