@@ -51,6 +51,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   without bundling host internals; includes the todo-detail-view feature home.
 
 ### Changed
+- **Todo detail as trace entry point (3179)**: authenticated trace links and the
+  retired `trace.md` workspace tab now open the Todo detail view, consolidating
+  trace context with its task rather than splitting it across a separate file tab.
 - **Unified chat message delivery API (3167)**: `POST /api/chat/notify` is
   removed; send and dispatch both go through the single union route
   `POST /api/chat/message`. Dispatch-shaped requests (any of `trace_id` /
