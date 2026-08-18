@@ -201,11 +201,15 @@ def delete_rollup_batch(grain: str, before: datetime, limit: int) -> int:
         return len(ids)
 
 
+def earliest_event_at() -> datetime | None:
+    with get_db() as session:
+        return session.query(func.min(ApiLatencyEventEntity.started_at)).scalar()
+
+
 def storage_meta() -> dict:
     with get_db() as session:
         event_min = session.query(func.min(ApiLatencyEventEntity.started_at)).scalar()
         rollup_min = session.query(func.min(ApiLatencyRollupEntity.bucket_start)).scalar()
-        last_rollup = session.query(func.max(ApiLatencyRollupEntity.bucket_start)).scalar()
         event_routes = session.query(ApiLatencyEventEntity.route).distinct()
         rollup_routes = session.query(ApiLatencyRollupEntity.route).distinct()
         distinct_route_count = event_routes.union(rollup_routes).count()
@@ -216,5 +220,4 @@ def storage_meta() -> dict:
             "distinct_route_count": distinct_route_count,
             "event_min": event_min,
             "rollup_min": rollup_min,
-            "last_rollup": last_rollup,
         }

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from storage.repository import api_latency as repo
+from storage.service import pipeline_lock as pipeline_lock_service
 
 
 HIST_VERSION = 1
@@ -35,6 +36,7 @@ DAILY_RETENTION = timedelta(days=366)
 RETENTION_BATCH_SIZE = 1000
 HOT_WINDOW = timedelta(hours=3)
 MAX_DIRTY_HOURS_PER_RUN = 24
+MAINTENANCE_ACTION = "rollup_api_latency"
 
 
 def _utc_now() -> datetime:
@@ -316,6 +318,14 @@ def enforce_retention(now: datetime | None = None, batch_size: int = RETENTION_B
 
 
 def run_maintenance(now: datetime | None = None) -> dict:
+    event_min = repo.earliest_event_at()
+    if event_min is not None:
+        pipeline_lock_service.set_marker(
+            MAINTENANCE_ACTION,
+            "collection_start",
+            _as_utc(event_min),
+            overwrite=False,
+        )
     result = rollup(now)
     result["deleted"] = enforce_retention(now)
     return result
@@ -546,10 +556,16 @@ def events(
 
 def meta() -> dict:
     values = repo.storage_meta()
-    candidates = [value for value in (values.pop("event_min"), values.pop("rollup_min")) if value]
+    event_min = values.pop("event_min")
+    rollup_min = values.pop("rollup_min")
+    collection_start = pipeline_lock_service.get_marker(
+        MAINTENANCE_ACTION, "collection_start"
+    )
+    if collection_start is None:
+        collection_start = event_min or rollup_min
     return {
-        "collection_start": _iso(min(candidates)) if candidates else None,
-        "last_rollup": _iso(values.pop("last_rollup")),
+        "collection_start": _iso(collection_start),
+        "last_rollup": _iso(pipeline_lock_service.last_success_at(MAINTENANCE_ACTION)),
         **values,
         "raw_retention_days": RAW_RETENTION.days,
         "hourly_retention_days": HOURLY_RETENTION.days,

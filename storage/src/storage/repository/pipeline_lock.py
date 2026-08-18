@@ -55,6 +55,41 @@ def release_lock(action: str) -> None:
         pass
 
 
+def _marker_action(action: str, name: str) -> str:
+    return f"{action}:{name}"
+
+
+def set_marker(action: str, name: str, value: datetime, *, overwrite: bool = True) -> None:
+    """Persist a timestamp marker, optionally keeping its first value."""
+    marker_action = _marker_action(action, name)
+    value_iso = value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    with get_db() as session:
+        marker = session.query(PipelineLockEntity).filter_by(action=marker_action).first()
+        if marker is None:
+            session.add(PipelineLockEntity(action=marker_action, locked_at=value_iso))
+        elif overwrite:
+            marker.locked_at = value_iso
+
+
+def get_marker(action: str, name: str) -> Optional[datetime]:
+    with get_db() as session:
+        marker = session.query(PipelineLockEntity).filter_by(
+            action=_marker_action(action, name)
+        ).first()
+        return _parse_iso8601(marker.locked_at) if marker else None
+
+
+def record_success(action: str) -> None:
+    """Persist the completion time of a successful scheduled action."""
+    now = _parse_iso8601(get_utc_iso8601_timestamp())
+    if now is not None:
+        set_marker(action, "last_success", now)
+
+
+def last_success_at(action: str) -> Optional[datetime]:
+    return get_marker(action, "last_success")
+
+
 def is_locked(action: str, ttl_seconds: int = 840) -> bool:
     """Return True if a live (non-expired) lock exists for this action."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)

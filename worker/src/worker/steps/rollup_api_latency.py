@@ -6,7 +6,7 @@ from storage.service import api_latency as latency_service
 from storage.service import pipeline_lock as pipeline_lock_service
 
 
-LOCK_NAME = "rollup_api_latency"
+LOCK_NAME = latency_service.MAINTENANCE_ACTION
 
 
 async def handle_rollup_api_latency() -> dict:
@@ -16,13 +16,15 @@ async def handle_rollup_api_latency() -> dict:
 
     try:
         result = latency_service.run_maintenance()
+        pipeline_lock_service.record_success(LOCK_NAME)
         logger.info(
-            "rollup_api_latency: hourly={} daily={} hot_hours={} dirty_hours={} repaired_hours={} deleted={}",
+            "rollup_api_latency: hourly={} daily={} hot_hours={} dirty_hours={} repaired_hours={} reconciliation_complete={} deleted={}",
             result["hourly_rows"],
             result["daily_rows"],
             result["hot_hours"],
             result["dirty_hours"],
             result["repaired_hours"],
+            result["reconciliation_complete"],
             result["deleted"],
         )
         return {"status": "ok", "action": LOCK_NAME, **result}
