@@ -10,8 +10,13 @@ def get_preference(user_id: int, key: str) -> Optional[UserPreference]:
     return user_pref_repo.get_preference(user_id, key)
 
 
-def upsert_preference(user_id: int, key: str, value: Any) -> UserPreference:
-    return user_pref_repo.upsert_preference(user_id, key, value)
+def upsert_preference(
+    user_id: int,
+    key: str,
+    value: Any,
+    base_revision: Optional[int] = None,
+) -> UserPreference:
+    return user_pref_repo.upsert_preference(user_id, key, value, base_revision=base_revision)
 
 
 def delete_preference(user_id: int, key: str) -> bool:
