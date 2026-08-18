@@ -16,6 +16,7 @@ from agent.module_host import request_owner
 from api.controller.module import RESERVED_SLUGS, SLUG_RE, default_owner_user_id
 from api.module_runtime import loader
 from api.module_runtime.errors import ModuleRuntimeError
+from api.middleware.api_latency import MONITOR_SCOPE_KEY, UNMATCHED_ROUTE
 
 
 async def _send_json(send, status: int, body: dict) -> None:
@@ -146,6 +147,13 @@ class ModuleDispatcher:
             await _send_json(send, _status_for(err), err.detail())
             return
 
+        monitor = scope.get(MONITOR_SCOPE_KEY)
+        if isinstance(monitor, dict):
+            # Load succeeded for installed active module bytes. Record only that
+            # bounded slug; unresolvable or unloadable submitted slugs never do.
+            monitor["module_slug"] = slug
+            monitor["route"] = UNMATCHED_ROUTE
+
         # Forward the same scope (preserving state / request.state) with the
         # slug segment stripped so the module router sees `/ping` not `/finance/ping`.
         child_scope = dict(scope)
@@ -159,8 +167,18 @@ class ModuleDispatcher:
 
         # Bind the authenticated owner for handler tasks so the request-bound
         # run_vm_command capability cannot be steered at a caller-chosen user.
-        with request_owner(user_id):
-            await loaded.app(child_scope, receive, send)
+        try:
+            with request_owner(user_id):
+                await loaded.app(child_scope, receive, send)
+        finally:
+            if isinstance(monitor, dict):
+                child_route = child_scope.get("route")
+                template = getattr(child_route, "path", None)
+                monitor["route"] = (
+                    template
+                    if isinstance(template, str) and template.startswith("/")
+                    else UNMATCHED_ROUTE
+                )
 
 
 module_dispatcher = ModuleDispatcher()

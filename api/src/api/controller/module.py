@@ -68,13 +68,9 @@ def default_owner_user_id() -> Optional[int]:
     to a row. Callers must fail closed on None (deny), never treat it as
     "any user_id is fine".
     """
-    from storage.repository.user import get_user_by_user_id
+    from storage.service.user import get_module_maintainer_user_id
 
-    configured = os.environ.get("Y_AGENT_MODULE_MAINTAINER_USER_ID", "").strip()
-    if not configured:
-        return None
-    user = get_user_by_user_id(configured)
-    return user.id if user else None
+    return get_module_maintainer_user_id()
 
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")

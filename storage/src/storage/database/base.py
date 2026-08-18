@@ -86,6 +86,8 @@ def init_tables():
     import storage.entity.user_cookies  # noqa: F401
     import storage.entity.model_usage_daily  # noqa: F401
     import storage.entity.model_usage_hourly  # noqa: F401
+    import storage.entity.api_latency_event  # noqa: F401
+    import storage.entity.api_latency_rollup  # noqa: F401
     import storage.entity.module  # noqa: F401
     import storage.entity.module_version  # noqa: F401
 

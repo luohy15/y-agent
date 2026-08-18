@@ -39,7 +39,10 @@ note / note_todo_relation state (todo 3071):
 Functions that accept a content_key enforce the home-escape invariant so a
 module cannot store a `../`-escaping key regardless of published bytes.
 
-Every v2/v3/v4/v5 capability is bound to the authenticated request owner, like
+The v10 surface adds fixed configured-maintainer-only API latency monitoring queries:
+  - api_latency_summary / api_latency_routes / api_latency_events / api_latency_meta
+
+Every request-bound capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
 but no bound request owner, so it must use the module HTTP API instead.
@@ -81,9 +84,11 @@ to 7. The tag control-plane capability (todo 3164) adds owner-bound
 adapters over `storage.service.tag`, bumping it from 7 to 8. Todo 3169
 enriches the existing `tag_get` todo row with `updated_at_unix` (the todo
 row's own timestamp) so presentation clients can sort without a second
-fetch, bumping it from 8 to 9. Modules declare the minimum version they use
-and an older host rejects their bundle. Every later addition to the surface
-above bumps the version and, for modules that need it, `min_backend_version`.
+fetch, bumping it from 8 to 9. API latency monitoring (todo 3211) adds four
+fixed configured-maintainer-only query functions over host-owned telemetry state, bumping it
+from 9 to 10. Modules declare the minimum version they use and an older host
+rejects their bundle. Every later addition to the surface above bumps the
+version and, for modules that need it, `min_backend_version`.
 """
 
 from __future__ import annotations
@@ -99,7 +104,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 9
+BACKEND_CONTRACT_VERSION = 10
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -811,3 +816,105 @@ def tag_backfill(
         "total_synced": result["total_synced"],
         "total_tag_rows": result["total_tag_rows"],
     }
+
+
+# ---------------------------------------------------------------------------
+# v10 API latency monitoring capability
+#
+# The host owns request-bound capture and maintenance of its telemetry tables.
+# Monitor receives only these fixed JSON-safe queries, never a session or a
+# generic metrics/SQL interface.
+# ---------------------------------------------------------------------------
+
+
+def _api_latency_service(user_id: int):
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"API latency operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); monitoring is request-bound"
+        )
+    from storage.service.user import get_module_maintainer_user_id
+
+    maintainer_id = get_module_maintainer_user_id()
+    if maintainer_id is None or owner != maintainer_id:
+        raise ModuleHostAuthError(
+            "API latency monitoring is restricted to the configured module maintainer"
+        )
+    from storage.service import api_latency as latency_service
+
+    return latency_service
+
+
+def api_latency_summary(
+    user_id: int,
+    range_name: str = "24h",
+    *,
+    route: Optional[str] = None,
+    method: Optional[str] = None,
+    status_class: Optional[str] = None,
+    completion: Optional[str] = None,
+    module_slug: Optional[str] = None,
+) -> dict[str, Any]:
+    """Summary, exact/merged percentiles, and series for one closed range."""
+    return _api_latency_service(user_id).summary(
+        range_name,
+        route=route,
+        method=method,
+        status_class=status_class,
+        completion=completion,
+        module_slug=module_slug,
+    )
+
+
+def api_latency_routes(
+    user_id: int,
+    range_name: str = "24h",
+    *,
+    min_samples: int = 20,
+    limit: int = 50,
+    method: Optional[str] = None,
+    status_class: Optional[str] = None,
+    completion: Optional[str] = None,
+    module_slug: Optional[str] = None,
+) -> dict[str, Any]:
+    """Bounded route ranking for one closed range and allowlisted filters."""
+    return _api_latency_service(user_id).routes(
+        range_name,
+        min_samples=min_samples,
+        limit=limit,
+        method=method,
+        status_class=status_class,
+        completion=completion,
+        module_slug=module_slug,
+    )
+
+
+def api_latency_events(
+    user_id: int,
+    range_name: str = "24h",
+    *,
+    route: Optional[str] = None,
+    order: str = "recent",
+    limit: int = 100,
+    method: Optional[str] = None,
+    status_class: Optional[str] = None,
+    completion: Optional[str] = None,
+    module_slug: Optional[str] = None,
+) -> dict[str, Any]:
+    """At most 100 sparse raw rows, only for raw-backed ranges."""
+    return _api_latency_service(user_id).events(
+        range_name,
+        route=route,
+        order=order,
+        limit=limit,
+        method=method,
+        status_class=status_class,
+        completion=completion,
+        module_slug=module_slug,
+    )
+
+
+def api_latency_meta(user_id: int) -> dict[str, Any]:
+    """Collection bounds, row volume, route cardinality, and rollup freshness."""
+    return _api_latency_service(user_id).meta()

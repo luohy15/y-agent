@@ -355,6 +355,11 @@ Resources:
           Properties:
             Schedule: cron(50 * * * ? *)
             Input: '{"action": "sync_model_usage"}'
+        RollupApiLatencySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(10 minutes)
+            Input: '{"action": "rollup_api_latency"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations

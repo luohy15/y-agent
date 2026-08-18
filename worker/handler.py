@@ -39,6 +39,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "sync_model_usage":
         from worker.steps.sync_model_usage import handle_sync_model_usage
         return asyncio.run(handle_sync_model_usage())
+    if action == "rollup_api_latency":
+        from worker.steps.rollup_api_latency import handle_rollup_api_latency
+        return asyncio.run(handle_rollup_api_latency())
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 

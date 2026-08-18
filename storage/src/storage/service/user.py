@@ -18,3 +18,14 @@ def get_default_user_id() -> int:
     """Get the default user ID, creating a default user if necessary."""
     user = get_or_create_user("default")
     return user.id
+
+
+def get_module_maintainer_user_id():
+    """Resolve the configured module maintainer's public ID to its internal ID."""
+    configured = os.environ.get("Y_AGENT_MODULE_MAINTAINER_USER_ID", "").strip()
+    if not configured:
+        return None
+    from storage.repository.user import get_user_by_user_id
+
+    user = get_user_by_user_id(configured)
+    return user.id if user else None

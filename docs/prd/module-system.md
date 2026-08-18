@@ -487,7 +487,7 @@ model**.
 | Derived / business logic | **Module** | The code that changes weekly. The point of the feature. |
 | API route handlers | **Module** | Follows the logic it wraps. |
 | CLI commands and renderers | **Module** | Same. |
-| ORM entities and table definitions | **Module** | A table's shape is domain knowledge. Splitting the model from the queries over it puts one table's definition on two clocks. Narrow exception: `bot_config` / `bot_route_state` stay host tables because worker runtime code reads them; see *Bot as the second full-stack module*. |
+| ORM entities and table definitions | **Module** | A table's shape is domain knowledge. Splitting the model from the queries over it puts one table's definition on two clocks. Narrow exceptions: `bot_config` / `bot_route_state` stay host tables because worker runtime code reads them; `api_latency_event` / `api_latency_rollup` stay host tables because authoritative capture and maintenance run outside module requests. See *Bot as the second full-stack module* and *Monitor: a presentation module over API telemetry kernel state*. |
 | Repositories and queries | **Module** | A new query shape must not require a host change and a deploy; that ceiling was the main cost of the earlier boundary. |
 | Migration SQL | **Module** | Lives beside the models it changes, applied by hand by the owner. |
 | Database connection, session, transaction management | **Host** | Pooling and commit/rollback semantics are infrastructure, and one engine per process is not negotiable. |
@@ -619,6 +619,15 @@ a second fetch or host-imposed display policy. That surface-shape change bumps
 9 when it depends on the field. Other carrier row shapes are unchanged, and
 API/CLI lookup order stays incidental: presentation ordering remains a module
 concern.
+
+Todo 3211 adds the configured-maintainer-only API latency monitoring surface
+(`api_latency_summary` / `api_latency_routes` / `api_latency_events` /
+`api_latency_meta`) over host-owned capture and rollup tables, bumping
+`BACKEND_CONTRACT_VERSION` from 9 to **10**. The `monitor` module declares
+`min_backend_version: 10`. This is a fixed query capability, not generic metrics
+or SQL access: the host keeps the authoritative ASGI capture boundary, scheduled
+rollup/retention, closed dimensions, and telemetry schema; Monitor owns query
+facades and presentation.
 
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
@@ -1085,6 +1094,23 @@ alphabetical) is module-owned. Disabling or deleting the module removes tag
 browsing and command presentation only. Carrier authoring, projection
 maintenance, and filters keep working in the kernel. Instance inventory:
 `code/y-module/tag/README.md`.
+
+### Monitor: a presentation module over API telemetry kernel state
+
+Monitor is a presentation and query-control module over host-owned
+`api_latency_event` and `api_latency_rollup`. There is no maintenance cursor:
+scheduled maintenance reconciles complete, still-fully-retained raw per-hour counts
+against stored hourly counts and fully replaces at most 24 mismatched hours per run,
+leaving the raw-cutoff boundary hour's durable history intact, so late long-lived
+requests remain self-discovering without commit-order or watermark assumptions. The
+host's outer pure-ASGI middleware records one privacy-safe event per eligible inbound
+request, including resolved module slug and child route template, and scheduled worker
+maintenance builds hourly/daily histograms and enforces bounded retention. Monitor reaches
+that state only through the four configured-maintainer-only backend contract v10
+`api_latency_*` queries. Matching the request caller is insufficient because the
+telemetry is global; the capability itself also resolves and enforces the configured
+module maintainer. Disabling or rolling back Monitor removes the views,
+not collection or retention. Instance inventory: `code/y-module/monitor/README.md`.
 
 ### Note: a control-plane module over shared kernel state
 

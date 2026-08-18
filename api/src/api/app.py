@@ -46,6 +46,7 @@ from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
 from api.controller.module import router as module_router
 from api.middleware.auth import AuthMiddleware
+from api.middleware.api_latency import ApiLatencyMiddleware
 
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
 
@@ -95,6 +96,10 @@ app.include_router(api_router)
 from api.module_runtime.dispatcher import module_dispatcher  # noqa: E402
 
 app.mount("/api/module", module_dispatcher)
+
+# Added last so it is outermost, including auth failures and module dispatch.
+app.add_middleware(ApiLatencyMiddleware, routes=lambda: app.routes)
+
 
 def main():
     port = int(os.environ.get("API_PORT", 8001))
