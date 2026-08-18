@@ -67,15 +67,13 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
 
 
 def _universe(user_id: int) -> List[BotConfig]:
-    """Return the candidate pool a dispatch request is resolved against.
+    """Return enabled, non-pointer configs eligible for explicit filters.
 
     User's own configs, falling back to the system default user's configs
-    only when the user has none of their own. Ref/pointer bots and
-    type='model' bots are never routing candidates; disabled bots are out
-    (an explicit name pin to a disabled bot degrades to tier2, see
-    resolve_bot_config). Perplexity stays in the universe here (it is only
-    excluded from tier-filter candidacy) so backend=perplexity / name=px
-    pins still resolve.
+    only when the user has none of their own. Disabled and pointer bots are
+    out (an explicit name pin to a disabled bot degrades to tier2, see
+    resolve_bot_config). Model-type configs remain here so name and backend
+    pins can reach them. Tier candidacy excludes them in _candidates.
     """
     configs = bot_service.list_configs(user_id)
     if not configs:
@@ -86,7 +84,6 @@ def _universe(user_id: int) -> List[BotConfig]:
         cfg for cfg in configs
         if cfg.enabled
         and not cfg.ref_bot_name
-        and (getattr(cfg, "type", None) or "agent") != "model"
     ]
 
 
@@ -95,7 +92,8 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
 
     Filters combine with AND, not precedence: bot_name, backend, and tier
     each narrow the pool further when given. The tier filter additionally
-    excludes perplexity (web-search bot is pin-only, not a pool member).
+    excludes model-type bots and perplexity (web-search bot is pin-only, not
+    a pool member).
     """
     result = universe
     if bot_name:
@@ -103,7 +101,12 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     if backend:
         result = [cfg for cfg in result if _effective_backend(cfg) == backend]
     if tier:
-        result = [cfg for cfg in result if tier_of(cfg) == tier and _effective_backend(cfg) != "perplexity"]
+        result = [
+            cfg for cfg in result
+            if tier_of(cfg) == tier
+            and (getattr(cfg, "type", None) or "agent") != "model"
+            and _effective_backend(cfg) != "perplexity"
+        ]
     return result
 
 

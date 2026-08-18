@@ -71,10 +71,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 10. As an admin, I want a bot with no positive route weight to never win a
     draw against weighted peers, so that adding a bot config never silently
     takes traffic from explicitly weighted bots.
-11. As an admin, I want disabled bots, pointer bots, and model-type entries
-    excluded from candidacy, and the web-search bot excluded from
+11. As an admin, I want disabled bots and pointer bots excluded from
+    candidacy, and model-type entries plus the web-search bot excluded from
     tier-based candidacy, so that auto-routing only ever lands on a real,
-    runnable agent backend.
+    runnable agent backend while explicit pins can reach inline models.
 12. As a dispatching agent, I want skills never statically bound to tiers,
     so that tier choice reflects each dispatch's task shape instead of a
     stale per-skill label.
@@ -144,10 +144,12 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   possible logic. Resolution:
   1. Candidate universe: the user's enabled bot configs (a user with no
      configs of their own resolves against the system default user's),
-     excluding pointer (ref) configs and model-type entries.
+     excluding pointer (ref) configs.
   2. The given filters (bot name, backend, tier) intersect over the
-     universe. Tier-filter candidacy additionally excludes the web-search
-     bot and matches with unset tier counting as tier3.
+     universe. Tier-filter candidacy additionally excludes model-type
+     entries and the web-search bot, and matches with unset tier counting as
+     tier3. Explicit name and backend pins can therefore reach model-type
+     configs without allowing them into automatic routing pools.
   3. Exactly one candidate: used directly; weight is not consulted.
   4. Multiple candidates: weighted random selection by route weight.
   5. No filters given, or an empty intersection: resolve again as a tier2
@@ -279,9 +281,10 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 - Test at the resolution seam: given a set of bot configs, assert which
   config a (bot name, backend, tier) request resolves to. This is the
   external contract; do not assert on internal helper structure.
-- Candidate eligibility is the highest-value target, because the production
-  bug lived there: disabled, pointer, and model-type configs out of the
-  universe; web-search out of tier candidacy; unset tier counted as tier3.
+- Candidate eligibility is the highest-value target: disabled and pointer
+  configs stay out of the universe; model-type and web-search configs stay
+  out of tier candidacy; explicit model-type name/backend pins resolve; and
+  unset tier counts as tier3.
 - Test the filter model: single-candidate direct use (including a
   weightless sole candidate), filters intersecting (backend plus tier), a
   filter miss (unknown bot name, empty intersection) falling back to tier2,
@@ -337,3 +340,4 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 2930 | Collapse the agentic backends to claude_code only, then lift the sticky-bot rule: naming a different bot on an existing chat re-bots it (bot_name + tier persisted, `external_id` kept so the Claude session resumes), while a cross-backend change is refused and the chat keeps its bot; surfaced via `y chat --chat-id ... --bot` and the web bot picker | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |
+| 3206 | Make model-type inline search bots explicitly pin-reachable while excluding them from tier routing, preparing px to be reclassified as `type=model` without disrupting `--bot px` or `--backend perplexity` | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` | reviewed (Deploy A) |
