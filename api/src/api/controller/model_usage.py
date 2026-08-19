@@ -140,13 +140,17 @@ async def rate(request: Request):
 
 @router.get("/limits")
 async def limits(request: Request, refresh: bool = False):
-    """Live subscription limit-window status (Claude, Codex, Grok) read
-    directly from each provider via `y usage limits --json` over SSH on the
-    user's VM. Independent of the daily spend sync: no persistence, a fresh
-    read subject to a per-user poll-cost TTL memo, and manual retry /
-    automatic poll both call this same endpoint — pass `?refresh=true` for an
-    explicit user-initiated retry, which bypasses that memo (and the CLI's
-    own on-VM cache) instead of replaying a stale/failed snapshot."""
+    """Subscription limit-window status (Claude, Codex, Grok), read from the
+    persisted snapshot in `user_preference` key `usage_limits_latest`
+    (todo 3226). Ordinary polls never touch the VM/SSH/CLI path — a
+    five-minute worker sweep keeps that snapshot current, read here as a
+    preference lookup plus freshness normalization. Independent of the daily
+    spend sync. Pass `?refresh=true` for an explicit user-initiated retry:
+    it runs one bounded live CLI read on the user's VM through the same
+    refresh function the sweep uses and persists/returns the result; a
+    refresh already in flight for this user returns the stored snapshot
+    immediately with `refresh_in_progress` set rather than starting a second
+    overlapping CLI run."""
     user_id = request.state.user_id
     status = await limits_service.get_limit_status(user_id, refresh=refresh)
     return {

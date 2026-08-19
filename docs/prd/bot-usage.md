@@ -48,11 +48,16 @@ report rolling windows, `five_hour` / `one_week`; Grok reports its current
 billing period), with percent used, percent remaining, reset time, freshness,
 and explicit unavailable / stale / re-auth states. The three reads run in the
 `y` CLI **on the user's VM** (stable source IP, already known to these
-vendors), behind one `y usage limits --json` envelope; the API SSH-execs that
-command and normalizes the result, so no provider request originates from
-Lambda and no snapshot is persisted on the y-agent side. Refresh is independent from spend
-sync because the two datasets have different sources, cadence, and failure
-modes.
+vendors), behind one `y usage limits --json` envelope. A five-minute worker
+schedule SSH-execs that command per user, normalizes the result, and persists
+the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
+3226); ordinary `GET /api/usage/limits` polls read only that persisted
+snapshot and never touch VM, SSH, or CLI. No provider request originates from
+Lambda — the live read always runs on the VM, only the resulting envelope is
+persisted — and a manual `?refresh=true` still performs one bounded live read
+through the same refresh function the schedule uses. Refresh is independent
+from spend sync because the two datasets have different sources, cadence, and
+failure modes.
 
 Credentials are not y-agent's to own. For OpenAI and xAI the **vendor CLI's own
 credential file** (`~/.codex/auth.json`, `~/.grok/auth.json`) is the single
@@ -552,11 +557,21 @@ expired-login card tells the user to run.
 
 ### Subscription limit-window status
 
-- **Separate operational dataset, no persistence.** Subscription limit windows
-  are current provider-account status, not spend history. They do not share the
-  daily per-model table, relay sync, date filtering, or historical analytics,
-  and y-agent stores nothing: every read is live. Nothing is written to
-  PostgreSQL and this feature has no migration SQL.
+- **Separate operational dataset; one persisted latest snapshot (revised
+  todo 3226).** Subscription limit windows are current provider-account
+  status, not spend history: they do not share the daily per-model table,
+  relay sync, date filtering, or historical analytics, and there is still no
+  migration SQL. The original "every read is live, nothing is persisted"
+  design was replaced because `GET /api/usage/limits` was consistently one of
+  the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99
+  15.46s, VM/SSH/CLI on every request): a five-minute worker schedule now
+  writes the one latest normalized snapshot per user into the existing
+  `user_preference` table (key `usage_limits_latest`, no new table), and an
+  ordinary poll reads only that row. The live VM/SSH/CLI path still exists —
+  it moved from every poll's request path to the schedule (and to the
+  explicit manual retry) — so the underlying reads, their VM execution, and
+  their error vocabulary are unchanged; see "Persisted snapshot" below for
+  the read/refresh/failure/lock contract this introduced.
 - **Three providers, three readers, one envelope.** `claude_tui_usage` for
   anthropic (drive the `claude` CLI's own `/usage` view in an ephemeral tmux
   session and parse the rendered pane), `codex_usage_api` for openai/codex
@@ -600,26 +615,35 @@ expired-login card tells the user to run.
   view's `used`/`monthlyLimit` pair stayed populated (the reverse of the
   shape this reader originally shipped against, todo 2872).
 - **Execution on the VM, not in Lambda.** All provider HTTP and the scrape live
-  in `y usage limits [--json] [--refresh]`, which runs on the user's VM;
-  `GET /api/usage/limits` SSH-execs it and normalizes the returned envelope.
-  The reason is source IP: shared cloud egress already drew a rate-limit
-  response from one vendor on an unauthenticated probe and another vendor is
-  Cloudflare-fronted, while the VM's address is stable and already known to all
-  three. The CLI emits exactly the envelope shape the normalizer consumes, so
-  the envelope *is* the boundary contract, pinned from both sides.
-- **Layering: transport in `agent`, normalization in `storage`.** SSH
-  orchestration, the poll memo, and the VM-asleep guard live in the `agent`
-  package; `storage` keeps pure normalization behind one public
-  `normalize_envelope(raw, ttl_seconds, origin)`: dict in, dict out, no
-  transport vocabulary. Putting the SSH call in `storage` was infeasible rather
-  than merely inelegant: `storage` declares no dependency on `agent`, the
-  dependency runs the other way, and CI resolves each package's environment
-  separately, so a `storage` import of `agent` would fail its own test job.
+  in `y usage limits [--json] [--refresh]`, which runs on the user's VM. Two
+  callers SSH-exec it and normalize the returned envelope: the five-minute
+  worker schedule (`refresh_and_persist_snapshot`, unforced) and
+  `GET /api/usage/limits?refresh=true` (the same function, forced). The
+  reason for VM execution is source IP: shared cloud egress already drew a
+  rate-limit response from one vendor on an unauthenticated probe and another
+  vendor is Cloudflare-fronted, while the VM's address is stable and already
+  known to all three. The CLI emits exactly the envelope shape the normalizer
+  consumes, so the envelope *is* the boundary contract, pinned from both
+  sides.
+- **Layering: transport in `agent`, normalization and the persisted snapshot
+  in `storage`.** SSH orchestration, the per-user refresh lock, and the
+  VM-asleep guard live in `agent.usage_limits`; `storage.service.model_usage_
+  limits` keeps normalization (`normalize_envelope(raw, ttl_seconds,
+  origin)`, dict in, dict out, no transport vocabulary) plus the snapshot's
+  read/merge/persist functions (`read_snapshot`, `record_refresh_success`,
+  `record_refresh_failure`, `merge_providers`), all pure functions over a
+  `user_preference` row with no transport vocabulary either. Putting the SSH
+  call in `storage` was infeasible rather than merely inelegant: `storage`
+  declares no dependency on `agent`, the dependency runs the other way, and
+  CI resolves each package's environment separately, so a `storage` import of
+  `agent` would fail its own test job.
 - **Error vocabulary is a closed set of codes, never free text.** The CLI's
   provider-level codes are exactly `not_logged_in`, `reauth_required`,
   `parse_failed`, `transport_error`. The backend wrapper adds transport-level
   codes `vm_unreachable`, `cli_failed`, `bad_payload`, plus `malformed_item` at
-  envelope level. Availability is `available`, `unavailable`, or
+  envelope level, and the persisted snapshot adds one startup-only code,
+  `snapshot_unavailable` (todo 3226: no successful refresh has completed for
+  this user yet). Availability is `available`, `unavailable`, or
   `reauth_required`. Raw exception text (which can carry a private IP or
   hostname) reaches logs only, never a caller-visible field, and the web maps
   every code to human copy with a generic fallback for anything unmapped.
@@ -628,21 +652,47 @@ expired-login card tells the user to run.
   provider response shape becomes `parse_failed`. A vendor changing its schema
   must produce a dark card, never a fabricated 0%.
 - **Degradation rules.** Any non-`available` availability collapses to
-  `unavailable` freshness. A transient SSH/CLI failure degrades only rows that
-  were `available` into `stale` with their last percentages retained; it must
-  not overwrite an actionable per-row code such as a dead grant. A stopped EC2
-  instance answers `vm_unreachable` immediately and is never started to serve a
-  status poll; the last good snapshot returns intact on the next successful
-  read.
-- **Poll-cost guard, two layers.** A ~60s per-user in-process memo collapses a
-  burst of panel polls into one SSH round trip; the CLI separately owns a ~240s
-  on-VM cache for the scrape alone (a TUI spawn costs seconds; the two HTTP
-  reads are cheap and always run fresh). The scrape TTL sits under the 300s
-  freshness TTL so a cached reading never surfaces as stale, and a cache hit
-  keeps the **original** observation time, since restamping it would make
-  freshness lie. `--refresh` / `?refresh=true` bypasses both layers and is reachable only
-  by explicit user action: the periodic poll keys on the bare URL, and the
-  retry control is a one-shot fetch that seeds the cache without revalidating.
+  `unavailable` freshness. A stopped EC2 instance answers `vm_unreachable`
+  immediately and is never started to serve a refresh; the last good snapshot
+  is returned intact on the next successful read. Within one attempt, a
+  per-provider row whose *read* failed this run (CLI codes `parse_failed` /
+  `transport_error`) falls back to that backend's previous persisted row
+  rather than blanking it — see "Persisted snapshot" below for exactly which
+  codes fall back versus overwrite, and why a durable state like
+  `reauth_required` must always overwrite.
+- **Persisted snapshot: refresh cadence, locking, staleness, and startup
+  (todo 3226).** One normalized snapshot per user lives in `user_preference`
+  key `usage_limits_latest`: `providers` (merged per backend), the latest
+  attempt's `errors[]`, and `last_attempt_at` / `last_success_at` /
+  `last_attempt_status` / `last_attempt_error`. A worker schedule calls
+  `agent.usage_limits.refresh_and_persist_snapshot` every five minutes for
+  every user; `?refresh=true` calls the identical function, forced, so the
+  schedule and a manual retry share exactly one refresh path rather than two
+  implementations that could drift. Each call first acquires a per-user
+  pipeline lock (`refresh_usage_limits:<user_id>`); if the lock is already
+  held (the schedule still running, or a concurrent manual retry), the
+  schedule simply skips that user for this tick and a manual request returns
+  the stored snapshot immediately with `refresh_in_progress: true` rather
+  than queuing a second overlapping CLI run. A **failed** attempt (VM asleep,
+  SSH/CLI error, or a structurally invalid payload) only updates
+  `last_attempt_at` / `last_attempt_status` / `last_attempt_error` and never
+  discards the last successful `providers`; a **successful** attempt (a
+  structurally valid envelope, even one carrying isolated per-provider
+  errors) merges its providers with the previous snapshot one backend at a
+  time (`merge_providers`): a backend whose read failed *this* attempt keeps
+  its previous row, while a durable provider-reported state (`reauth_required`
+  / `not_logged_in`) or a normal available reading always overwrites, so a
+  real re-auth requirement can never be hidden behind stale good data
+  indefinitely. A backend **absent from the new attempt entirely** also keeps
+  its previous row unchanged (there is nothing new to overwrite it with).
+  `observed_at` is never restamped; freshness is instead
+  **recomputed on every read** from each row's own `observed_at` against a
+  ten-minute read TTL (`READ_FRESH_SECONDS`, wider than the five-minute
+  refresh cadence so ordinary scheduler jitter never flips a just-refreshed
+  snapshot to stale). Before the first successful refresh for a user, reads
+  return a bounded `{"providers": [], "errors": [{"origin": "snapshot",
+  "error": "snapshot_unavailable"}]}` envelope — startup is fail-fast and
+  never wakes or probes the VM from an ordinary poll.
 - **Never spend tokens for status.** The Anthropic reader launches its
   ephemeral session with no provider env vars, so it reads the subscription
   grant, runs no model turn, and cannot disturb concurrent relay-backed agent
@@ -994,12 +1044,34 @@ expired-login card tells the user to run.
   are asserted through a mocked command runner, and the normalizer is tested
   against envelopes in exactly the shape the CLI emits.
 - **Degradation paths are driven end to end, not read off the diff:** a
-  transient SSH/CLI failure degrades an available row to stale while leaving a
-  `reauth_required` row's actionable code intact; a stopped instance answers
-  `vm_unreachable` with no wake attempt (asserted by the command never being
-  run); valid-JSON-wrong-shape yields an explicit `bad_payload` rather than an
-  empty-looking success; a Grok-only row is available and fresh; malformed
-  percentages normalize to null.
+  stopped instance answers `vm_unreachable` with no wake attempt (asserted by
+  the command never being run); valid-JSON-wrong-shape yields an explicit
+  `bad_payload` failure rather than an empty-looking success; a Grok-only row
+  is available and fresh; malformed percentages normalize to null. (Pre-3226:
+  a transient SSH/CLI failure degraded an available row straight to `stale`
+  at write time; that per-row write-time degradation is superseded by the
+  persisted snapshot's read-time freshness recompute below, which leaves a
+  `reauth_required` row's actionable code intact the same way.)
+- **Persisted snapshot: refresh, merge, lock, and startup contracts (todo
+  3226) are asserted directly, not inferred from the API diff:** an ordinary
+  read never resolves the VM, probes EC2 asleep-state, or runs the CLI
+  (asserted by those calls raising if invoked); a failed attempt persists
+  failure metadata (`last_attempt_status`, `last_attempt_error`) while
+  leaving the previously persisted `providers` byte-identical; freshness is
+  recomputed from `observed_at` at read time (a row inside the ten-minute
+  read TTL reads fresh, the same row read again past it reads stale, with
+  `observed_at` itself never restamped); `merge_providers` falls back to the
+  previous row for a same-attempt read-failure code (`parse_failed` /
+  `transport_error`) and, separately, for a backend missing from the new
+  attempt entirely (there is nothing new to overwrite it with), while always
+  overwriting for a durable state or a normal reading; a lock already held
+  makes the sweep skip that user (asserted by the CLI never running) and
+  makes a manual retry return the stored snapshot with `refresh_in_progress`
+  instead of starting a second CLI run; the manual and scheduled paths are
+  asserted to call the identical `refresh_and_persist_snapshot` function with
+  only `force` differing; the CLI timeout stays the existing 30s bound; and a
+  user with no successful refresh yet reads a bounded `snapshot_unavailable`
+  envelope without any VM probe.
 - **Credential write safety is tested on the file, not the code path:** a
   failed refresh leaves the vendor file byte-identical (hash before/after); a
   successful refresh preserves every unrelated field, the file mode, and Grok's
@@ -1074,6 +1146,7 @@ expired-login card tells the user to run.
 | 3121 | `GET /api/usage/rate` under 1s via a direct Relay proxy: store CRS admin credentials in `user_preference` key `crs_admin`, share `storage.service.usage_rate.read_rate` between the API and `y usage rate`, cache the admin session token (~23h, re-login on 401), retire the VM precompute path (`--store`, `scripts/usage-rate-store.sh`, `usage_rate_latest`, `stale` / `vm_unreachable`). UI contract changes add `auth_failed` and drop VM wording | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | `pages/review-3121-usage-rate-latency.md` | shipped (`86afe27` backend; bot artifact v20, `cbb0450b400b…`; production latency 0.283 / 0.578 / 0.702s; cron absent; orphan rows removed) |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
 | 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" and Over-time `H` granularity; approved Live layout is a wide two-column stack (left Run rate → Subscription limits with a normal gap, right donut → Today by hour, both columns equal-height with the right column's bottom card pinned to the shared bottom edge), narrow stack Run rate → Subscription limits → Today by hour → donut (narrow order intentional, supersedes v24 below-donut); bot v29 dropped only the left column's distributed spacing and reordered it to lead with Run rate, it did not remove the shared-bottom-edge column alignment itself; stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md`, `pages/review-3165-bot-usage-prd-live-layout.md` | shipped (`23974833` CRS, `3bea917` backend; bot v29 `0066018dbe1a…` active, compact left stack, api unchanged since v24 (`208a45568b7c…`); v25-v28 were intermediate layout iterations, see review note for the version-by-version history); first complete post-deploy-day reconciliation pending |
+| 3226 | `GET /api/usage/limits` was one of the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99 15.46s, synchronous VM/SSH/CLI on every poll). Ordinary polls now read a persisted latest snapshot (`user_preference` key `usage_limits_latest`) instead: a five-minute worker schedule (`refresh_usage_limits` action, `worker/steps/refresh_usage_limits.py`) calls the new `agent.usage_limits.refresh_and_persist_snapshot`, the same function `?refresh=true` now calls forced, guarded by a per-user pipeline lock (`refresh_usage_limits:<user_id>`) so the schedule and a manual retry can never overlap. Failure retention: a failed attempt updates only attempt metadata and never discards the last successful providers; a successful attempt merges per backend (`storage.service.model_usage_limits.merge_providers`), falling back to the previous row for a same-attempt read failure (`parse_failed` / `transport_error`) or a backend absent from the new attempt, and always surfacing a durable state (`reauth_required` / `not_logged_in`) or a normal reading. Freshness is recomputed on every read from each row's own `observed_at` against a ten-minute read TTL, `observed_at` itself is never restamped, and a user with no successful refresh yet reads a bounded `snapshot_unavailable` envelope with no VM probe. The public route contract, provider row shape, and closed error vocabulary are unchanged (`snapshot_unavailable` and `refresh_in_progress` are additive). EventBridge schedule wiring (`template.yaml` `RefreshUsageLimitsSchedule`, `rate(5 minutes)`) is code-only in this delivery; it is not yet deployed or running in production — that is the separate approved deploy step (plan sub-task 7). Tag-route and monitor-route-detail work from the same plan ship under `code/y-module/tag/README.md` and this repo's `docs/prd/api-latency-monitoring.md` respectively, not here | - | `pages/plan-3226-slowest-api-routes.md` | this PRD | - | implemented (usage-limits scope only), pending review and the separate approved production deploy/verification step |
 
 ## Out of Scope
 

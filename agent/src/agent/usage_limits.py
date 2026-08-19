@@ -1,23 +1,25 @@
-"""Orchestrates a live subscription limit-window read: resolve the user's VM,
-SSH-exec `y usage limits --json` (mirroring worker/downloaders/ssh.py), and
-normalize the result via storage.service.model_usage_limits. Lives in `agent`
-(not `storage`) because it needs agent.config / agent.tool_base / agent.ec2_wake,
+"""Orchestrates the live subscription limit-window read (Claude, Codex, Grok)
+that backs the persisted snapshot: resolve the user's VM, SSH-exec
+`y usage limits --json` (mirroring worker/downloaders/ssh.py), and normalize
+the result via storage.service.model_usage_limits. Lives in `agent` (not
+`storage`) because it needs agent.config / agent.tool_base / agent.ec2_wake,
 and storage must not depend on agent (agent already depends on storage).
 
-A per-user in-process TTL memo (~60s) collapses a burst of 60s-cadence panel
-polls into one SSH round trip; a transient SSH/CLI failure serves the
-last-good snapshot as `stale` rather than blanking the card; a stopped EC2
-instance is never woken just to answer a poll — it answers `vm_unreachable`
-immediately. `refresh=True` (an explicit user retry, not the automatic poll)
-bypasses the memo and passes `--refresh` through to the CLI, which owns a
-longer-TTL on-VM cache for the scrape-backed Anthropic reader (todo 2515) that
-an in-process memo can't reach since the CLI is a fresh process per invocation.
+todo 3226: ordinary `GET /api/usage/limits` reads no longer land here at all
+— they read the persisted snapshot directly (storage.service.model_usage_
+limits.read_snapshot). This module now exists only to *produce* that
+snapshot: `refresh_and_persist_snapshot` is the one refresh function shared
+by the worker's five-minute scheduled sweep and the explicit `?refresh=true`
+API retry. Each call is guarded by a per-user pipeline lock
+(`refresh_usage_limits:<user_id>`) so the sweep and a manual retry — or two
+manual retries — can never launch overlapping CLI runs for the same user. A
+failed attempt (VM asleep, SSH/CLI error, malformed payload) never discards
+the last successful provider data; storage.read_snapshot re-derives freshness
+from each row's own observed_at on every read, so retained old data goes
+stale on its own rather than being force-marked at write time.
 """
 
 import json
-import os
-import time
-from dataclasses import dataclass
 
 from loguru import logger
 
@@ -25,14 +27,17 @@ from agent.config import resolve_vm_config
 from agent.ec2_wake import is_vm_asleep
 from agent.tool_base import Tool
 from storage.service import model_usage_limits as limits
-
-# Poll-cost guard: separate from limits.DEFAULT_TTL_SECONDS, which governs
-# fresh/stale freshness classification of a single reading. The CLI's own
-# on-VM cache (owned CLI-side) covers the slower scrape-backed reader with a
-# longer TTL; this memo only needs to cover the two cheap HTTP readers.
-POLL_TTL_SECONDS = int(os.getenv("USAGE_LIMIT_POLL_TTL_SECONDS", "60"))
+from storage.service import pipeline_lock as pipeline_lock_service
+from storage.util import get_utc_iso8601_timestamp
 
 _CLI_TIMEOUT_SECONDS = 30.0
+
+# The guarded work is bounded at ~_CLI_TIMEOUT_SECONDS; pipeline_lock's own
+# default (840s) would leave a user locked out of both the sweep and a manual
+# refresh for up to 14 minutes if a worker invocation died before `finally`
+# ran. 120s bounds that to one or two missed five-minute ticks instead, while
+# still comfortably covering the CLI timeout plus SSH/connect overhead.
+_LOCK_TTL_SECONDS = 120
 
 # Stable per-provider/errors[] error codes. Raw exception text is never
 # surfaced to a caller-facing field (BotViewer renders `error` verbatim); it
@@ -40,6 +45,10 @@ _CLI_TIMEOUT_SECONDS = 30.0
 _ERROR_VM_UNREACHABLE = "vm_unreachable"
 _ERROR_CLI_FAILED = "cli_failed"
 _ERROR_BAD_PAYLOAD = "bad_payload"
+
+
+def _lock_name(user_id: int) -> str:
+    return f"refresh_usage_limits:{user_id}"
 
 
 class _CmdRunner(Tool):
@@ -70,94 +79,66 @@ def _error_code(e: Exception) -> str:
     return _ERROR_CLI_FAILED
 
 
-@dataclass
-class _CacheEntry:
-    envelope: dict
-    fetched_at: float
-    last_good: dict | None
+async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dict | None:
+    """The one refresh function shared by the five-minute scheduled worker
+    sweep and the explicit `?refresh=true` API path. Acquires this user's
+    pipeline lock so the sweep and a manual retry (or two manual retries)
+    never overlap; returns None when the lock is already held, so the caller
+    decides how to react — skip for the sweep, serve the stored snapshot for
+    a manual request — instead of starting a second CLI run.
 
+    `force` maps to the CLI's own `--refresh` flag (bypass its on-VM cache):
+    True only for the explicit user retry, False for the scheduled sweep,
+    which runs slower than that cache's own TTL and does not need to force
+    it. A stopped EC2 instance is never woken to serve a refresh; it answers
+    `vm_unreachable` immediately, same as an ordinary SSH/CLI failure.
+    """
+    lock_name = _lock_name(user_id)
+    if not pipeline_lock_service.try_acquire_lock(lock_name, ttl_seconds=_LOCK_TTL_SECONDS):
+        return None
 
-_POLL_CACHE: dict[int, _CacheEntry] = {}
-
-
-def _vm_unreachable_envelope(last_good: dict | None) -> dict:
-    """The instance is stopped: never SSH (never wakes EC2). Reuses the last
-    known provider set so the card doesn't blank, marked unavailable."""
-    providers = [
-        {**p, "availability": "unavailable", "freshness": "unavailable", "error": _ERROR_VM_UNREACHABLE}
-        for p in (last_good or {}).get("providers", [])
-    ]
-    return {"providers": providers, "errors": [{"origin": "vm", "error": _ERROR_VM_UNREACHABLE}]}
-
-
-def _stale_envelope(last_good: dict, error_code: str) -> dict:
-    """A transient SSH/CLI failure: serve the last-good snapshot (with its
-    percentages) as stale rather than blanking the card. Only rows that were
-    actually `available` degrade to `stale` — a non-available row (e.g.
-    `reauth_required`) already carries the freshness `_freshness` requires
-    (`unavailable`) and its own actionable error code, and must be left
-    untouched so a dead grant keeps rendering as a "reauth required" card
-    instead of losing that state to a transport blip."""
-    providers = [
-        {**p, "freshness": "stale", "error": error_code} if p.get("availability") == "available" else p
-        for p in last_good.get("providers", [])
-    ]
-    return {"providers": providers, "errors": [{"origin": "vm", "error": error_code}]}
-
-
-async def get_limit_status(user_id: int, ttl_seconds: int | None = None, refresh: bool = False) -> dict:
-    """The user's live subscription limit-window status, read via `y usage
-    limits --json` over SSH on the user's VM. `refresh=True` is an explicit
-    user-initiated retry: it bypasses the poll-cost memo and asks the CLI to
-    bypass its own cache too, rather than returning a stale/failed snapshot
-    for up to POLL_TTL_SECONDS after the user asked to try again."""
-    now = time.monotonic()
-    cached = _POLL_CACHE.get(user_id)
-    if not refresh and cached is not None and now - cached.fetched_at <= POLL_TTL_SECONDS:
-        return cached.envelope
-
-    last_good = cached.last_good if cached else None
-
+    attempt_at = get_utc_iso8601_timestamp()
     try:
-        # resolve_vm_config / is_vm_asleep are inside the try too: a
-        # throttled or transient describe_instance_status must degrade the
-        # same way a failed SSH read does, not 500 a 60s-polled endpoint.
-        vm_config = resolve_vm_config(user_id)
+        try:
+            vm_config = resolve_vm_config(user_id)
+            if is_vm_asleep(vm_config):
+                return limits.record_refresh_failure(user_id, _ERROR_VM_UNREACHABLE, attempt_at)
+            output = await _run_usage_limits_cli(vm_config, refresh=force)
+            raw = json.loads(output.strip())
+        except Exception as e:
+            logger.warning("refresh_and_persist_snapshot: CLI read failed for user {}: {}", user_id, e)
+            return limits.record_refresh_failure(user_id, _error_code(e), attempt_at)
 
-        if is_vm_asleep(vm_config):
-            envelope = _vm_unreachable_envelope(last_good)
-            _POLL_CACHE[user_id] = _CacheEntry(envelope=envelope, fetched_at=now, last_good=last_good)
-            return envelope
+        envelope = limits.normalize_envelope(raw, limits.DEFAULT_TTL_SECONDS)
+        if not envelope["providers"] and envelope["errors"]:
+            # A well-formed-JSON-but-wrong-shape payload (or an envelope
+            # whose every item was malformed) is not a structurally valid
+            # attempt — treat it like a CLI exception rather than persisting
+            # a providers-less snapshot that would blank an otherwise-good
+            # card.
+            error_code = envelope["errors"][0].get("error") or _ERROR_BAD_PAYLOAD
+            return limits.record_refresh_failure(user_id, error_code, attempt_at)
 
-        output = await _run_usage_limits_cli(vm_config, refresh=refresh)
-        raw = json.loads(output.strip())
-        envelope = limits.normalize_envelope(raw, ttl_seconds)
-    except Exception as e:
-        logger.warning("get_limit_status: CLI read failed for user {}: {}", user_id, e)
-        error_code = _error_code(e)
-        envelope = (
-            {"providers": [], "errors": [{"origin": "vm", "error": error_code}]}
-            if last_good is None
-            else _stale_envelope(last_good, error_code)
-        )
-        _POLL_CACHE[user_id] = _CacheEntry(envelope=envelope, fetched_at=now, last_good=last_good)
-        return envelope
+        return limits.record_refresh_success(user_id, envelope, attempt_at)
+    finally:
+        pipeline_lock_service.release_lock(lock_name)
 
-    if not envelope["providers"] and envelope["errors"]:
-        # normalize_envelope reported a malformed/degraded read (e.g.
-        # bad_payload from a valid-JSON-wrong-shape response) rather than a
-        # genuinely empty account list. Treat it exactly like a CLI
-        # exception — serve last_good as stale instead of promoting this
-        # providers-less envelope to last_good, or a later transient failure
-        # would blank a card that still has real percentages one read ago.
-        error_code = envelope["errors"][0].get("error") or _ERROR_BAD_PAYLOAD
-        degraded = (
-            {"providers": [], "errors": envelope["errors"]}
-            if last_good is None
-            else _stale_envelope(last_good, error_code)
-        )
-        _POLL_CACHE[user_id] = _CacheEntry(envelope=degraded, fetched_at=now, last_good=last_good)
-        return degraded
 
-    _POLL_CACHE[user_id] = _CacheEntry(envelope=envelope, fetched_at=now, last_good=envelope)
-    return envelope
+async def get_limit_status(user_id: int, refresh: bool = False) -> dict:
+    """`GET /api/usage/limits` read path. An ordinary poll (`refresh=False`)
+    only reads the persisted snapshot: preference lookup plus freshness
+    normalization, never VM/SSH/CLI — the five-minute worker sweep is what
+    keeps it current. `refresh=True` is an explicit user-initiated retry: it
+    runs one bounded refresh through the same function the sweep uses and
+    returns the resulting snapshot; if another refresh already owns this
+    user's lock, it returns the stored snapshot immediately with
+    `refresh_in_progress` set instead of queuing a second overlapping CLI
+    run.
+    """
+    if not refresh:
+        return limits.read_snapshot(user_id)
+
+    result = await refresh_and_persist_snapshot(user_id, force=True)
+    if result is None:
+        return {**limits.read_snapshot(user_id), "refresh_in_progress": True}
+    return result

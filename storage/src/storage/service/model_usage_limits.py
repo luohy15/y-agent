@@ -1,14 +1,23 @@
-"""Normalization for live subscription limit-window status (Claude / Codex
-5h + 1w windows, Grok billing-period window).
+"""Normalization plus the persisted latest snapshot (todo 3226) for live
+subscription limit-window status (Claude / Codex 5h + 1w windows, Grok
+billing-period window).
 
-Separate operational dataset from `model_usage_daily`: no PostgreSQL table, no
-sync, no history. The actual provider read now happens in the `y` CLI on the
-user's VM (SSH'd into from `agent.usage_limits.get_limit_status`, which lives
-in the `agent` package since it needs `agent.config` / `agent.tool_base` and
-`storage` must not depend on `agent`, the reverse of the existing dependency
-direction). This module only normalizes the CLI's raw per-provider readings
-into a stable contract, computes derived fields (remaining percent,
-freshness), and selects one best account row per backend for the Usage cards.
+Separate operational dataset from `model_usage_daily`: no migration SQL, no
+sync, no history table. There *is* now one persisted row per user, though:
+the latest normalized snapshot lives in the existing `user_preference` table
+under key `usage_limits_latest` (see "persisted snapshot" below), so ordinary
+`GET /api/usage/limits` reads (`agent.usage_limits.get_limit_status`,
+`refresh=False`) are a plain preference lookup here and never touch the VM.
+The live provider read itself still happens in the `y` CLI on the user's VM
+and is still SSH'd into from the `agent` package (which needs `agent.config` /
+`agent.tool_base`, and `storage` must not depend on `agent`, the reverse of
+the existing dependency direction) — but only from
+`agent.usage_limits.refresh_and_persist_snapshot`, called by the five-minute
+worker sweep and by the explicit `?refresh=true` retry, not from every poll.
+This module normalizes the CLI's raw per-provider readings into a stable
+contract, computes derived fields (remaining percent, freshness), selects one
+best account row per backend for the Usage cards, and owns the persisted
+snapshot's read/merge/write functions.
 """
 
 import math
@@ -16,12 +25,44 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-# Provider reads are now direct, on-demand pulls (no upstream cache to
-# inherit a cadence from); a few-minute default just keeps the UI from
-# flagging a normal in-between-poll gap as stale.
+from storage.service import user_preference as user_pref_service
+
+# TTL passed to normalize_envelope for a single live CLI attempt (todo 3226:
+# still used at refresh time; no longer used to gate an ordinary read, see
+# READ_FRESH_SECONDS).
 DEFAULT_TTL_SECONDS = 300
 
 _WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
+
+# --- persisted snapshot (todo 3226) ---------------------------------------
+#
+# Ordinary `GET /api/usage/limits` reads no longer run the CLI: a five-minute
+# worker sweep (agent.usage_limits.refresh_and_persist_snapshot) is the only
+# writer, persisting one normalized snapshot per user under this
+# user_preference key. Reads only look up that row and recompute freshness
+# from each provider's own observed_at, never restamping it and never
+# touching VM/SSH/CLI.
+
+SNAPSHOT_PREFERENCE_KEY = "usage_limits_latest"
+
+# Fresh classification window for a *read* of the persisted snapshot. Wider
+# than DEFAULT_TTL_SECONDS's 5 minutes so the 5-minute refresh cadence's
+# ordinary scheduler jitter never flips a just-refreshed snapshot to stale.
+READ_FRESH_SECONDS = 600
+
+# Startup / never-refreshed state: no successful snapshot exists yet.
+_SNAPSHOT_UNAVAILABLE = "snapshot_unavailable"
+
+# Per-provider error codes meaning "this attempt's read of that one provider
+# failed" (transient transport/parse trouble), as distinct from a durable
+# state the provider genuinely reported (e.g. reauth_required, not_logged_in).
+# Only the former falls back to the previous successful row; a durable state
+# must surface over stale good data rather than being hidden behind it.
+# `malformed_item` is deliberately excluded: it is an envelope-level error
+# (normalize_envelope.errors[]) for an item too malformed to become a
+# provider row at all, so it can never appear as a row's own `error` field
+# here.
+_READ_FAILURE_CODES = {"parse_failed", "transport_error"}
 
 
 # --- normalization --------------------------------------------------------
@@ -196,3 +237,129 @@ def normalize_envelope(raw: dict, ttl_seconds: int | None = None, origin: str = 
         "providers": [candidates[backend] for backend in sorted(candidates)],
         "errors": errors,
     }
+
+
+# --- persisted snapshot: read / merge / record (todo 3226) ---------------
+
+def _empty_snapshot() -> dict:
+    return {
+        "providers": [],
+        "errors": [],
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "last_attempt_status": None,
+        "last_attempt_error": None,
+    }
+
+
+def merge_providers(old_providers: list, new_providers: list) -> list:
+    """Combine a fresh attempt's normalized providers with the previously
+    persisted snapshot's providers, one row per backend.
+
+    A backend whose new row failed to read *this attempt* (a transient
+    transport/parse code) keeps its previous row, so one bad run does not
+    blank a card that still has real percentages; its freshness degrades
+    naturally on the next read once it ages past READ_FRESH_SECONDS. Every
+    other backend takes the new row — including a durable state like
+    `reauth_required` or `not_logged_in`, which must surface over stale good
+    data rather than being permanently hidden behind it. A backend absent
+    from the new attempt entirely also keeps its previous row.
+    """
+    old_by_backend = {p.get("backend"): p for p in old_providers}
+    merged = []
+    seen = set()
+    for item in new_providers:
+        backend = item.get("backend")
+        seen.add(backend)
+        old = old_by_backend.get(backend)
+        if (
+            item.get("error") in _READ_FAILURE_CODES
+            and old
+            and _has_required_window(old.get("windows") or {})
+        ):
+            merged.append(old)
+        else:
+            merged.append(item)
+    for backend, old in old_by_backend.items():
+        if backend not in seen:
+            merged.append(old)
+    return merged
+
+
+def _with_read_freshness(providers: list) -> list:
+    """Recompute each row's freshness from its own observed_at at read time
+    (never restamped) against READ_FRESH_SECONDS, rather than trusting a
+    freshness value frozen at refresh time — the same row read nine minutes
+    after a five-minute-old refresh must not still claim `fresh`."""
+    return [
+        {
+            **p,
+            "freshness": _freshness(
+                p.get("availability") or "unavailable",
+                p.get("observed_at"),
+                p.get("windows") or {},
+                READ_FRESH_SECONDS,
+            ),
+        }
+        for p in providers
+    ]
+
+
+def read_snapshot(user_id: int) -> dict:
+    """Ordinary `GET /api/usage/limits` read: one preference lookup plus
+    freshness normalization, never VM/SSH/CLI. Returns a bounded
+    `snapshot_unavailable` envelope before the first successful refresh."""
+    pref = user_pref_service.get_preference(user_id, SNAPSHOT_PREFERENCE_KEY)
+    if pref is None or not pref.value:
+        snapshot = _empty_snapshot()
+        snapshot["errors"] = [{"origin": "snapshot", "error": _SNAPSHOT_UNAVAILABLE}]
+        return snapshot
+
+    stored = pref.value
+    return {
+        "providers": _with_read_freshness(stored.get("providers") or []),
+        "errors": stored.get("errors") or [],
+        "last_attempt_at": stored.get("last_attempt_at"),
+        "last_success_at": stored.get("last_success_at"),
+        "last_attempt_status": stored.get("last_attempt_status"),
+        "last_attempt_error": stored.get("last_attempt_error"),
+    }
+
+
+def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dict:
+    """Persist a structurally valid attempt (a well-formed envelope, even one
+    carrying isolated provider-level errors) as the new snapshot, merged with
+    whatever was previously stored so one bad provider row in an otherwise
+    good run never destroys good data for the others."""
+    pref = user_pref_service.get_preference(user_id, SNAPSHOT_PREFERENCE_KEY)
+    previous = pref.value if pref and pref.value else {}
+    merged_providers = merge_providers(previous.get("providers") or [], envelope.get("providers") or [])
+    stored = {
+        "providers": merged_providers,
+        "errors": envelope.get("errors") or [],
+        "last_attempt_at": attempt_at,
+        "last_success_at": attempt_at,
+        "last_attempt_status": "ok",
+        "last_attempt_error": None,
+    }
+    user_pref_service.upsert_preference(user_id, SNAPSHOT_PREFERENCE_KEY, stored)
+    return read_snapshot(user_id)
+
+
+def record_refresh_failure(user_id: int, error_code: str, attempt_at: str) -> dict:
+    """Persist failure metadata for a failed attempt (VM unreachable, SSH,
+    CLI, or transport/bad-payload level) without discarding the last
+    successful provider data; its freshness degrades naturally on read as it
+    ages past READ_FRESH_SECONDS."""
+    pref = user_pref_service.get_preference(user_id, SNAPSHOT_PREFERENCE_KEY)
+    previous = pref.value if pref and pref.value else {}
+    stored = {
+        "providers": previous.get("providers") or [],
+        "errors": [{"origin": "vm", "error": error_code}],
+        "last_attempt_at": attempt_at,
+        "last_success_at": previous.get("last_success_at"),
+        "last_attempt_status": "failed",
+        "last_attempt_error": error_code,
+    }
+    user_pref_service.upsert_preference(user_id, SNAPSHOT_PREFERENCE_KEY, stored)
+    return read_snapshot(user_id)

@@ -3,7 +3,8 @@
 - SQS records: two-phase (detached processes + monitor loop) for chats, inline
   for `trigger_batch_download` nudges.
 - Scheduled events (no `Records`, has `action`): route by action to the
-  corresponding step handler (`fetch_rss_links` / `batch_download_links`).
+  corresponding step handler (`fetch_rss_links` / `batch_download_links` /
+  `refresh_usage_limits` / ...).
 """
 
 import asyncio
@@ -42,6 +43,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "rollup_api_latency":
         from worker.steps.rollup_api_latency import handle_rollup_api_latency
         return asyncio.run(handle_rollup_api_latency())
+    if action == "refresh_usage_limits":
+        from worker.steps.refresh_usage_limits import handle_refresh_usage_limits
+        return asyncio.run(handle_refresh_usage_limits())
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 

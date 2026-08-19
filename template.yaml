@@ -360,6 +360,16 @@ Resources:
           Properties:
             Schedule: rate(10 minutes)
             Input: '{"action": "rollup_api_latency"}'
+        RefreshUsageLimitsSchedule:
+          # Keeps each user's persisted usage_limits_latest snapshot current
+          # so ordinary GET /api/usage/limits reads never touch VM/SSH/CLI
+          # (todo 3226). Per-user pipeline locks make this safe to run every
+          # five minutes without overlapping a still-running sweep or a
+          # concurrent manual ?refresh=true.
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Input: '{"action": "refresh_usage_limits"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations
