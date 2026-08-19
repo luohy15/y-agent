@@ -104,16 +104,16 @@ def list_reminders(
     )
 
 
-def _resolve_reminder_for_tag(user_id: int, entity_id: str):
-    """Hydration resolver for y tag get (public id + title)."""
-    reminder = reminder_repo.get_reminder(user_id, entity_id)
-    if not reminder:
-        return None
-    return {"id": reminder.reminder_id, "title": reminder.title or ""}
+def _resolve_reminders_for_tag(user_id: int, entity_ids: List[str]):
+    """Batch hydration resolver for y tag get (public id + title)."""
+    return {
+        reminder.reminder_id: {"id": reminder.reminder_id, "title": reminder.title or ""}
+        for reminder in reminder_repo.get_reminders_by_ids(user_id, entity_ids)
+    }
 
 
 from storage.service.tag import register_resolver  # noqa: E402
-register_resolver("reminder", _resolve_reminder_for_tag)
+register_resolver("reminder", _resolve_reminders_for_tag)
 
 
 def get_pending_reminders(before: Optional[str] = None) -> List[dict]:

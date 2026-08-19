@@ -97,6 +97,24 @@ def get_feed(user_id: int, rss_feed_id: str, include_deleted: bool = False) -> O
         return _entity_to_dto(row)
 
 
+def get_feeds_by_ids(
+    user_id: int,
+    rss_feed_ids: List[str],
+    include_deleted: bool = False,
+) -> List[RssFeed]:
+    """Owner-scoped IN lookup for tag hydration."""
+    if not rss_feed_ids:
+        return []
+    with get_db() as session:
+        query = session.query(RssFeedEntity).filter(
+            RssFeedEntity.user_id == user_id,
+            RssFeedEntity.rss_feed_id.in_(rss_feed_ids),
+        )
+        if not include_deleted:
+            query = query.filter(RssFeedEntity.deleted_at.is_(None))
+        return [_entity_to_dto(row) for row in query.all()]
+
+
 def get_feed_by_url(user_id: int, url: str, include_deleted: bool = False) -> Optional[RssFeed]:
     with get_db() as session:
         query = session.query(RssFeedEntity).filter_by(user_id=user_id, url=url)

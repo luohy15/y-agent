@@ -185,6 +185,23 @@ def get_link(user_id: int, activity_id: str) -> Optional[LinkActivity]:
         return _row_to_dto(row[0], row[1])
 
 
+def get_links_by_activity_ids(user_id: int, activity_ids: List[str]) -> List[LinkActivity]:
+    """Owner-scoped IN lookup for tag hydration (activity_id is the public carrier id)."""
+    if not activity_ids:
+        return []
+    with get_db() as session:
+        rows = (
+            session.query(LinkActivityEntity, LinkEntity)
+            .join(LinkEntity, LinkActivityEntity.link_id == LinkEntity.id)
+            .filter(
+                LinkActivityEntity.user_id == user_id,
+                LinkActivityEntity.activity_id.in_(activity_ids),
+            )
+            .all()
+        )
+        return [_row_to_dto(activity, link) for activity, link in rows]
+
+
 def _strip_query(url: str) -> str:
     """Return URL without query string and fragment."""
     idx = url.find('?')

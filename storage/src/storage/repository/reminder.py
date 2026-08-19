@@ -64,6 +64,22 @@ def get_reminder(user_id: int, reminder_id: str) -> Optional[Reminder]:
         return _entity_to_dto(row) if row else None
 
 
+def get_reminders_by_ids(user_id: int, reminder_ids: List[str]) -> List[Reminder]:
+    """Owner-scoped IN lookup for tag hydration."""
+    if not reminder_ids:
+        return []
+    with get_db() as session:
+        rows = (
+            session.query(ReminderEntity)
+            .filter(
+                ReminderEntity.user_id == user_id,
+                ReminderEntity.reminder_id.in_(reminder_ids),
+            )
+            .all()
+        )
+        return [_entity_to_dto(row) for row in rows]
+
+
 def save_reminder(user_id: int, reminder: Reminder) -> Reminder:
     with get_db() as session:
         entity = session.query(ReminderEntity).filter_by(user_id=user_id, reminder_id=reminder.reminder_id).first()

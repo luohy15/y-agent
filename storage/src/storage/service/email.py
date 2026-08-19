@@ -69,9 +69,11 @@ def get_emails_by_thread(user_id: int, thread_id: str, account: Optional[str] = 
     return email_repo.get_emails_by_thread(user_id, thread_id, account=account)
 
 
-def _resolve_tagged_email(user_id: int, email_id: str) -> Optional[dict]:
-    email = get_email(user_id, email_id)
-    return {"id": email.email_id, "title": email.subject or email.from_addr} if email else None
+def _resolve_tagged_emails(user_id: int, email_ids: List[str]) -> dict:
+    return {
+        email.email_id: {"id": email.email_id, "title": email.subject or email.from_addr}
+        for email in email_repo.get_emails_by_ids(user_id, email_ids)
+    }
 
 
-tag_service.register_resolver("email", _resolve_tagged_email)
+tag_service.register_resolver("email", _resolve_tagged_emails)

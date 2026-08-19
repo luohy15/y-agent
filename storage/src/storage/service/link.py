@@ -231,9 +231,11 @@ def trigger_batch_download() -> None:
     _get_celery_app().send_task("worker.tasks.trigger_batch_download")
 
 
-def _resolve_tagged_link(user_id: int, activity_id: str) -> Optional[dict]:
-    link = get_link(user_id, activity_id)
-    return {"id": link.activity_id, "title": link.title or link.base_url} if link else None
+def _resolve_tagged_links(user_id: int, activity_ids: List[str]) -> dict:
+    return {
+        link.activity_id: {"id": link.activity_id, "title": link.title or link.base_url}
+        for link in link_repo.get_links_by_activity_ids(user_id, activity_ids)
+    }
 
 
-tag_service.register_resolver("link", _resolve_tagged_link)
+tag_service.register_resolver("link", _resolve_tagged_links)

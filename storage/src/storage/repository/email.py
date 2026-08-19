@@ -198,6 +198,22 @@ def get_email(user_id: int, email_id: str) -> Optional[Email]:
         return _row_to_dto(entity)
 
 
+def get_emails_by_ids(user_id: int, email_ids: List[str]) -> List[Email]:
+    """Owner-scoped IN lookup for tag hydration."""
+    if not email_ids:
+        return []
+    with get_db() as session:
+        rows = (
+            session.query(EmailEntity)
+            .filter(
+                EmailEntity.user_id == user_id,
+                EmailEntity.email_id.in_(email_ids),
+            )
+            .all()
+        )
+        return [_row_to_dto(entity) for entity in rows]
+
+
 def get_emails_by_thread(user_id: int, thread_id: str, account: Optional[str] = None) -> List[Email]:
     """Return all emails of a thread, oldest->newest.
 

@@ -55,6 +55,11 @@ def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
     return todo_repo.get_todo(user_id, todo_id)
 
 
+def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
+    """Return {todo_id: Todo} for owner-scoped tag hydration."""
+    return todo_repo.find_todos_by_ids(user_id, todo_ids)
+
+
 def create_todo(
     user_id: int,
     name: str,

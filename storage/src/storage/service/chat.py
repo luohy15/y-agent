@@ -441,17 +441,16 @@ async def delete_chat(user_id: int, chat_id: str) -> bool:
     return deleted
 
 
-def _resolve_chat_for_tag(user_id: int, entity_id: str):
-    """Hydration resolver for y tag get (public id + title)."""
-    meta = chat_repo.get_chat_meta(user_id, entity_id)
-    if not meta:
-        return None
-    chat_id, title = meta
-    return {"id": chat_id, "title": title}
+def _resolve_chats_for_tag(user_id: int, entity_ids: List[str]):
+    """Batch hydration resolver for y tag get (public id + title)."""
+    return {
+        chat_id: {"id": chat_id, "title": title}
+        for chat_id, title in chat_repo.get_chat_metas(user_id, entity_ids).items()
+    }
 
 
 from storage.service.tag import register_resolver  # noqa: E402
-register_resolver("chat", _resolve_chat_for_tag)
+register_resolver("chat", _resolve_chats_for_tag)
 
 
 def mark_chat_read(chat_id: str) -> None:

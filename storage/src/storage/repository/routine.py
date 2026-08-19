@@ -73,6 +73,22 @@ def get_routine(user_id: int, routine_id: str) -> Optional[Routine]:
         return _entity_to_dto(row) if row else None
 
 
+def get_routines_by_ids(user_id: int, routine_ids: List[str]) -> List[Routine]:
+    """Owner-scoped IN lookup for tag hydration."""
+    if not routine_ids:
+        return []
+    with get_db() as session:
+        rows = (
+            session.query(RoutineEntity)
+            .filter(
+                RoutineEntity.user_id == user_id,
+                RoutineEntity.routine_id.in_(routine_ids),
+            )
+            .all()
+        )
+        return [_entity_to_dto(row) for row in rows]
+
+
 def save_routine(user_id: int, routine: Routine) -> Routine:
     with get_db() as session:
         entity = session.query(RoutineEntity).filter_by(user_id=user_id, routine_id=routine.routine_id).first()

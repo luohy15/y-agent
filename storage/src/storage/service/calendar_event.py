@@ -152,16 +152,18 @@ def list_events(
     )
 
 
-def _resolve_calendar_event_for_tag(user_id: int, entity_id: str):
-    """Hydration resolver for y tag get (public id + summary)."""
-    event = event_repo.get_event(user_id, entity_id, include_deleted=True)
-    if not event:
-        return None
-    return {"id": event.event_id, "title": event.summary or ""}
+def _resolve_calendar_events_for_tag(user_id: int, entity_ids: List[str]):
+    """Batch hydration resolver for y tag get (public id + summary)."""
+    return {
+        event.event_id: {"id": event.event_id, "title": event.summary or ""}
+        for event in event_repo.get_events_by_ids(
+            user_id, entity_ids, include_deleted=True
+        )
+    }
 
 
 from storage.service.tag import register_resolver  # noqa: E402
-register_resolver("calendar_event", _resolve_calendar_event_for_tag)
+register_resolver("calendar_event", _resolve_calendar_events_for_tag)
 
 
 def list_deleted_events(user_id: int, limit: int = 50) -> List[CalendarEvent]:

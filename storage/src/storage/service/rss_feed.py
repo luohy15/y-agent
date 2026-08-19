@@ -116,9 +116,11 @@ def list_deleted_feeds(user_id: int, limit: int = 50) -> List[RssFeed]:
     return rss_feed_repo.list_deleted_feeds(user_id, limit=limit)
 
 
-def _resolve_tagged_rss_feed(user_id: int, rss_feed_id: str) -> Optional[dict]:
-    feed = get_feed(user_id, rss_feed_id)
-    return {"id": feed.rss_feed_id, "title": feed.title or feed.url} if feed else None
+def _resolve_tagged_rss_feeds(user_id: int, rss_feed_ids: List[str]) -> dict:
+    return {
+        feed.rss_feed_id: {"id": feed.rss_feed_id, "title": feed.title or feed.url}
+        for feed in rss_feed_repo.get_feeds_by_ids(user_id, rss_feed_ids)
+    }
 
 
-tag_service.register_resolver("rss_feed", _resolve_tagged_rss_feed)
+tag_service.register_resolver("rss_feed", _resolve_tagged_rss_feeds)

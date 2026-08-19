@@ -76,6 +76,24 @@ def get_event(user_id: int, event_id: str, include_deleted: bool = False) -> Opt
         return _entity_to_dto(row) if row else None
 
 
+def get_events_by_ids(
+    user_id: int,
+    event_ids: List[str],
+    include_deleted: bool = False,
+) -> List[CalendarEvent]:
+    """Owner-scoped IN lookup for tag hydration."""
+    if not event_ids:
+        return []
+    with get_db() as session:
+        query = session.query(CalendarEventEntity).filter(
+            CalendarEventEntity.user_id == user_id,
+            CalendarEventEntity.event_id.in_(event_ids),
+        )
+        if not include_deleted:
+            query = query.filter(CalendarEventEntity.deleted_at.is_(None))
+        return [_entity_to_dto(row) for row in query.all()]
+
+
 def save_event(user_id: int, event: CalendarEvent) -> CalendarEvent:
     with get_db() as session:
         entity = session.query(CalendarEventEntity).filter_by(user_id=user_id, event_id=event.event_id).first()

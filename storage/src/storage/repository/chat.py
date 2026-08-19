@@ -338,15 +338,26 @@ async def delete_chat(user_id: int, chat_id: str) -> bool:
 
 def get_chat_meta(user_id: int, chat_id: str) -> Optional[tuple]:
     """Return (chat_id, title) for tag hydration, or None if missing."""
+    metas = get_chat_metas(user_id, [chat_id])
+    if chat_id not in metas:
+        return None
+    return (chat_id, metas[chat_id])
+
+
+def get_chat_metas(user_id: int, chat_ids: List[str]) -> dict:
+    """Return {chat_id: title} for owner-scoped tag hydration."""
+    if not chat_ids:
+        return {}
     with get_db() as session:
-        row = (
+        rows = (
             session.query(ChatEntity.chat_id, ChatEntity.title)
-            .filter_by(user_id=user_id, chat_id=chat_id)
-            .first()
+            .filter(
+                ChatEntity.user_id == user_id,
+                ChatEntity.chat_id.in_(chat_ids),
+            )
+            .all()
         )
-        if not row:
-            return None
-        return (row.chat_id, row.title or "")
+        return {row.chat_id: (row.title or "") for row in rows}
 
 
 def _extract_content_text(content) -> str:

@@ -179,16 +179,16 @@ def list_routines(
     )
 
 
-def _resolve_routine_for_tag(user_id: int, entity_id: str):
-    """Hydration resolver for y tag get (public id + name)."""
-    routine = routine_repo.get_routine(user_id, entity_id)
-    if not routine:
-        return None
-    return {"id": routine.routine_id, "title": routine.name or ""}
+def _resolve_routines_for_tag(user_id: int, entity_ids: List[str]):
+    """Batch hydration resolver for y tag get (public id + name)."""
+    return {
+        routine.routine_id: {"id": routine.routine_id, "title": routine.name or ""}
+        for routine in routine_repo.get_routines_by_ids(user_id, entity_ids)
+    }
 
 
 from storage.service.tag import register_resolver  # noqa: E402
-register_resolver("routine", _resolve_routine_for_tag)
+register_resolver("routine", _resolve_routines_for_tag)
 
 
 def list_due_routines(now: Optional[datetime] = None) -> List[dict]:

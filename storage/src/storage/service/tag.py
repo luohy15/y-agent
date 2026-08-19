@@ -4,11 +4,12 @@ sync_tags() is the shared projection helper carrier slices (note/entity/todo
 authoring surfaces, and the 7 direct entity_tag carriers) call to keep
 entity_tag in sync with their own tag source of truth.
 
-Phase-2 carrier modules register their hydration resolvers via
+Phase-2 carrier modules register their batch hydration resolvers via
 register_resolver() from their own service module (do not edit the built-in
 _RESOLVERS dict from parallel batches). get_by_tag() lazy-imports
 storage.service.<entity_type> by convention so self-registration runs even
-when only the tag CLI/API was loaded.
+when only the tag CLI/API was loaded. Lookup hydrates one batch per
+entity_type (todo 3226) so SQL work stays O(types), not O(rows).
 
 Todo 3219 adds plan_rename() / apply_rename(): a single-session coordinated
 rename/merge over authoring fields + entity_tag. Carriers are found through
@@ -37,8 +38,9 @@ from storage.service import note as note_service
 from storage.service import todo as todo_service
 from storage.util import get_unix_timestamp, get_utc_iso8601_timestamp
 
-# (user_id, entity_id) -> {"id": public_id, "title": display} | None
-Resolver = Callable[[int, str], Optional[Dict]]
+# (user_id, entity_ids) -> {entity_id: {"id": public_id, "title": display, ...}}
+# Missing ids are omitted; get_by_tag falls back to {"id": entity_id}.
+Resolver = Callable[[int, List[str]], Dict[str, Dict]]
 
 AUTHORING_TYPES = frozenset({"todo", "note", "entity"})
 DIRECT_TYPES = frozenset({
@@ -81,43 +83,54 @@ def delete_for_entity(user_id: int, entity_type: str, entity_id: str) -> int:
     return tag_repo.delete_for_entity(user_id, entity_type, entity_id)
 
 
-def _resolve_todo(user_id: int, entity_id: str) -> Optional[Dict]:
-    todo = todo_service.get_todo(user_id, entity_id)
-    if not todo:
-        return None
+def _resolve_todos(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
+    if not entity_ids:
+        return {}
     # updated_at_unix is the todo row's own timestamp (not effective chat activity).
     # Present so presentation clients (tag module) can sort without a second fetch.
     return {
-        "id": todo.todo_id,
-        "title": todo.name,
-        "updated_at_unix": todo.updated_at_unix,
+        todo_id: {
+            "id": todo.todo_id,
+            "title": todo.name,
+            "updated_at_unix": todo.updated_at_unix,
+        }
+        for todo_id, todo in todo_service.find_todos_by_ids(user_id, entity_ids).items()
     }
 
 
-def _resolve_note(user_id: int, entity_id: str) -> Optional[Dict]:
-    note = note_service.get_note(user_id, entity_id)
-    return {"id": note.note_id, "title": note.content_key} if note else None
+def _resolve_notes(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
+    if not entity_ids:
+        return {}
+    return {
+        note.note_id: {"id": note.note_id, "title": note.content_key}
+        for note in note_service.get_notes_by_ids(user_id, entity_ids)
+    }
 
 
-def _resolve_entity(user_id: int, entity_id: str) -> Optional[Dict]:
-    entity = entity_service.get_entity(user_id, entity_id)
-    return {"id": entity.entity_id, "title": entity.name} if entity else None
+def _resolve_entities(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
+    if not entity_ids:
+        return {}
+    return {
+        entity.entity_id: {"id": entity.entity_id, "title": entity.name}
+        for entity in entity_service.get_entities_by_ids(user_id, entity_ids)
+    }
 
 
 # Built-in resolvers for the three existing authoring-surface carriers (S0).
 # Phase-2 carriers register via register_resolver() from their own modules.
 _RESOLVERS: Dict[str, Resolver] = {
-    "todo": _resolve_todo,
-    "note": _resolve_note,
-    "entity": _resolve_entity,
+    "todo": _resolve_todos,
+    "note": _resolve_notes,
+    "entity": _resolve_entities,
 }
 
 
 def register_resolver(entity_type: str, resolver: Resolver) -> None:
-    """Register a hydration resolver for an entity_type (idempotent overwrite).
+    """Register a batch hydration resolver for an entity_type (idempotent overwrite).
 
     Call from the carrier's own service module at import time so parallel
-    phase-2 batches never need to edit this file's resolver dict.
+    phase-2 batches never need to edit this file's resolver dict. The resolver
+    receives (user_id, entity_ids) and returns {entity_id: hydrated_row}.
     """
     _RESOLVERS[entity_type] = resolver
 
@@ -137,13 +150,25 @@ def _get_resolver(entity_type: str) -> Optional[Resolver]:
 def get_by_tag(user_id: int, tag: str, prefix: bool = False) -> Dict[str, List[Dict]]:
     """Find everything tagged `tag`, grouped by entity_type and hydrated through
     each type's own service (public id + display title). entity_types without a
-    registered resolver fall back to {"id": entity_id}.
+    registered resolver fall back to {"id": entity_id}. Output order within each
+    type matches the projection query order.
     """
     pairs = tag_repo.find_by_tag(user_id, tag, prefix=prefix)
+    ids_by_type: Dict[str, List[str]] = defaultdict(list)
+    for entity_type, entity_id in pairs:
+        ids_by_type[entity_type].append(entity_id)
+
+    hydrated_by_type: Dict[str, Dict[str, Dict]] = {}
+    for entity_type, entity_ids in ids_by_type.items():
+        resolver = _get_resolver(entity_type)
+        if resolver is None:
+            hydrated_by_type[entity_type] = {}
+            continue
+        hydrated_by_type[entity_type] = resolver(user_id, entity_ids) or {}
+
     grouped: Dict[str, List[Dict]] = defaultdict(list)
     for entity_type, entity_id in pairs:
-        resolver = _get_resolver(entity_type)
-        item = resolver(user_id, entity_id) if resolver else None
+        item = hydrated_by_type.get(entity_type, {}).get(entity_id)
         grouped[entity_type].append(item if item is not None else {"id": entity_id})
     return dict(grouped)
 
