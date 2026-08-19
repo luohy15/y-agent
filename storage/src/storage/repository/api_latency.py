@@ -65,21 +65,31 @@ def create_event(values: dict) -> None:
         session.add(ApiLatencyEventEntity(**values))
 
 
-def _event_query(session, start: datetime, end: datetime, route: str | None, filters: dict):
+def _apply_dimension_filters(query, entity, route: str | None, filters: dict | None):
+    if route is not None:
+        query = query.filter(entity.route == route)
+    for field, value in (filters or {}).items():
+        query = query.filter(getattr(entity, field) == value)
+    return query
+
+
+def _event_query(session, start: datetime, end: datetime, route: str | None, filters: dict | None):
     query = session.query(ApiLatencyEventEntity).filter(
         ApiLatencyEventEntity.started_at >= start,
         ApiLatencyEventEntity.started_at < end,
     )
-    if route is not None:
-        query = query.filter(ApiLatencyEventEntity.route == route)
-    for field, value in filters.items():
-        query = query.filter(getattr(ApiLatencyEventEntity, field) == value)
-    return query
+    return _apply_dimension_filters(query, ApiLatencyEventEntity, route, filters)
 
 
-def list_events(start: datetime, end: datetime) -> list[ApiLatencyEventEntity]:
+def list_events(
+    start: datetime,
+    end: datetime,
+    *,
+    route: str | None = None,
+    filters: dict | None = None,
+) -> list[ApiLatencyEventEntity]:
     with get_db() as session:
-        return _event_query(session, start, end, None, {}).order_by(
+        return _event_query(session, start, end, route, filters).order_by(
             ApiLatencyEventEntity.started_at.asc()
         ).all()
 
@@ -103,46 +113,53 @@ def query_events(
         return query.order_by(order_column.desc(), ApiLatencyEventEntity.id.desc()).limit(limit).all()
 
 
-def list_rollups(grain: str, start: datetime, end: datetime) -> list[ApiLatencyRollupEntity]:
+def list_rollups(
+    grain: str,
+    start: datetime,
+    end: datetime,
+    *,
+    route: str | None = None,
+    filters: dict | None = None,
+) -> list[ApiLatencyRollupEntity]:
     with get_db() as session:
-        return (
-            session.query(ApiLatencyRollupEntity)
-            .filter(
-                ApiLatencyRollupEntity.grain == grain,
-                ApiLatencyRollupEntity.bucket_start >= start,
-                ApiLatencyRollupEntity.bucket_start < end,
-            )
-            .order_by(ApiLatencyRollupEntity.bucket_start.asc())
-            .all()
+        query = session.query(ApiLatencyRollupEntity).filter(
+            ApiLatencyRollupEntity.grain == grain,
+            ApiLatencyRollupEntity.bucket_start >= start,
+            ApiLatencyRollupEntity.bucket_start < end,
         )
+        query = _apply_dimension_filters(query, ApiLatencyRollupEntity, route, filters)
+        return query.order_by(ApiLatencyRollupEntity.bucket_start.asc()).all()
 
 
-def list_daily_source(start: datetime, end: datetime) -> list[ApiLatencyRollupEntity]:
+def list_daily_source(
+    start: datetime,
+    end: datetime,
+    *,
+    route: str | None = None,
+    filters: dict | None = None,
+) -> list[ApiLatencyRollupEntity]:
     """Use daily buckets, except current UTC day which comes from hourly rows."""
     with get_db() as session:
         current_day = end.replace(hour=0, minute=0, second=0, microsecond=0)
         current_hour_end = end.replace(minute=0, second=0, microsecond=0)
         if current_hour_end < end:
             current_hour_end += timedelta(hours=1)
-        return (
-            session.query(ApiLatencyRollupEntity)
-            .filter(
-                ApiLatencyRollupEntity.bucket_start >= start,
-                ApiLatencyRollupEntity.bucket_start < current_hour_end,
-                or_(
-                    and_(
-                        ApiLatencyRollupEntity.grain == "day",
-                        ApiLatencyRollupEntity.bucket_start < current_day,
-                    ),
-                    and_(
-                        ApiLatencyRollupEntity.grain == "hour",
-                        ApiLatencyRollupEntity.bucket_start >= current_day,
-                    ),
+        query = session.query(ApiLatencyRollupEntity).filter(
+            ApiLatencyRollupEntity.bucket_start >= start,
+            ApiLatencyRollupEntity.bucket_start < current_hour_end,
+            or_(
+                and_(
+                    ApiLatencyRollupEntity.grain == "day",
+                    ApiLatencyRollupEntity.bucket_start < current_day,
                 ),
-            )
-            .order_by(ApiLatencyRollupEntity.bucket_start.asc())
-            .all()
+                and_(
+                    ApiLatencyRollupEntity.grain == "hour",
+                    ApiLatencyRollupEntity.bucket_start >= current_day,
+                ),
+            ),
         )
+        query = _apply_dimension_filters(query, ApiLatencyRollupEntity, route, filters)
+        return query.order_by(ApiLatencyRollupEntity.bucket_start.asc()).all()
 
 
 def replace_rollup_window(grain: str, start: datetime, end: datetime, rows: list[dict]) -> int:

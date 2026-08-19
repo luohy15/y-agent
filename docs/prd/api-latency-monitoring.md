@@ -357,6 +357,17 @@ monitoring queries and UI evolution on the module publish loop.
 - Route detail accepts only the supported range and enumerated filters. It cannot
   accept arbitrary dimensions, SQL-like expressions, raw paths, or user/resource
   identifiers.
+- Summary, route-ranking, and route-detail queries push the closed route, method,
+  status-class, completion, and module-slug predicates into the raw and rollup
+  repository reads. Range selection and percentile semantics stay unchanged:
+  exact percentiles on raw seams, merge-derived percentiles on hourly/daily seams.
+  Add indexes only when a measured plan shows a filter-specific bottleneck beyond
+  the existing `(route, started_at)` / `(route, bucket_start)` indexes.
+- The latency query path itself (summary, routes, events, meta) only reads
+  storage: it does not call the monitor HTTP API, trigger maintenance, or invoke
+  capture. Ordinary outer-middleware capture still records one event for each
+  eligible monitor HTTP response after it completes, so reads remain visible
+  without recursive instrumentation from the query path.
 - Raw event endpoints are limited to the raw retention window and at most 100 rows
   per request, with server-owned ordering modes for recent and slowest. There is no
   unbounded export or free-text search.
@@ -456,3 +467,4 @@ monitoring queries and UI evolution on the module publish loop.
 |------|---------|--------|------|-----------|--------|--------|
 | 3211 | Establish the `monitor` module with privacy-safe API latency capture, bounded raw/hourly/daily retention, percentile and error aggregation, recent overview, and route-level drill-down | - | `pages/plan-3211-api-latency-monitoring.md` | `pages/decision-3211-retained-window-rollup.md` | `pages/review-3211-api-latency-monitoring-host.md` (approve, round 8), `pages/review-3211-monitor-module.md` (approve) | Shipped: host capture/rollup/capability deployed (y-agent `b2d5c5d`, durable `collection_start` marker `a82e658`); migration `3211_api_latency.sql` applied; E4 production baseline PASS (`pages/verification-3211-api-latency-baseline.md`); `monitor` module published as v1 from y-module `951f577` |
 | 3224 | Exclude the SSE chat stream `/api/chat/messages` from API latency capture and delete its raw/rollup history so global percentiles reflect request latency | - | `pages/plan-3224-exclude-sse-latency.md` | - | `pages/review-3224-exclude-sse-latency.md` (approve) | implemented; deploy and production cleanup pending |
+| 3226 | Push route/method/status/completion/module-slug predicates into raw and rollup repository queries for monitor route detail (and shared summary/routes seams), keep payloads and percentile semantics identical, and avoid instrumentation recursion | - | `pages/plan-3226-slowest-api-routes.md` | - | - | implementing |

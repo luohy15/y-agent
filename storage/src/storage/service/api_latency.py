@@ -365,31 +365,25 @@ def _validate_filters(
     }
 
 
-def _matches(row, route: str | None, filters: dict) -> bool:
-    if route is not None and row.route != route:
-        return False
-    return all(getattr(row, key) == value for key, value in filters.items())
-
-
 def _load_range(range_name: str, now: datetime | None, route: str | None, filters: dict):
     duration, source = _validate_range(range_name)
     end = (now or _utc_now()).astimezone(timezone.utc)
     start = end - duration
     if source == "raw":
         query_start = start
-        rows = repo.list_events(query_start, end)
+        rows = repo.list_events(query_start, end, route=route, filters=filters)
     else:
         # Aggregate ranges are explicitly bucket-aligned. Returned bounds match
         # the complete leading bucket that contributes counts and histograms.
         query_start = _floor(start, source)
         rows = (
-            repo.list_daily_source(query_start, end)
+            repo.list_daily_source(query_start, end, route=route, filters=filters)
             if source == "day"
-            else repo.list_rollups(source, query_start, _ceil(end, source))
+            else repo.list_rollups(
+                source, query_start, _ceil(end, source), route=route, filters=filters
+            )
         )
-    return query_start, end, source, [
-        row for row in rows if _matches(row, route, filters)
-    ]
+    return query_start, end, source, rows
 
 
 def _metrics(rows: list, source: str) -> dict:
