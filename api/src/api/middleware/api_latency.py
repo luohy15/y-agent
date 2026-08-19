@@ -22,7 +22,15 @@ ALLOWED_STATUS_CLASSES = frozenset({"2xx", "3xx", "4xx", "5xx", "unk"})
 ALLOWED_COMPLETIONS = frozenset(
     {"normal", "disconnect", "cancelled", "internal_failure"}
 )
-EXCLUDED_PATHS = frozenset({"/api/health", "/docs", "/openapi.json", "/redoc"})
+EXCLUDED_OPERATIONAL_PATHS = frozenset({
+    "/api/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+})
+# Long-lived server-push streams measure session lifetime, not API latency.
+EXCLUDED_STREAMING_PATHS = frozenset({"/api/chat/messages"})
+EXCLUDED_PATHS = EXCLUDED_OPERATIONAL_PATHS | EXCLUDED_STREAMING_PATHS
 _FALSE_VALUES = frozenset({"0", "false", "off", "no"})
 
 
