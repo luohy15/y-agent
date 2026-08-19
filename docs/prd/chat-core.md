@@ -609,6 +609,13 @@ mode (`-i`) serves a human at a terminal.
   kernel").
 - **Trace waterfall visualization and public trace shares**: the trace
   subsystem consumes chat records but has its own views and share flow.
+- **Recovery of a stalled session-tree branch** (persisted parent→child
+  dispatch edges, missing/misrouted callback detection, scheduled recovery and
+  escalation, callback quarantine): owned by the session-tree-recovery PRD. This
+  PRD keeps the notify contract itself — target resolution order, root-topic
+  callback rejection, in-band trace metadata, identity immutability — and that
+  feature adds edge creation plus two accept-time validation rules at the same
+  boundary without changing resolution.
 - **Context monitor auto-restart** (fresh-chat rollover at context/turn
   thresholds): a policy layered on top of chats, worth its own PRD if it
   changes. Distinct from the context-handoff reminder above: the reminder is

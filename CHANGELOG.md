@@ -13,10 +13,27 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **xAI web and X search bots (3206)**: `grok-web` and `grok-x` provide one-shot,
+  source-grounded searches through xAI's native Responses API, return URL citations
+  as message links, and can be explicitly selected like other model bots.
+- **API latency monitoring (3211)**: a privacy-safe outer ASGI middleware captures
+  bounded API-attempt telemetry, including streaming duration and resolved module
+  routes. Worker rollups retain hourly and daily aggregates for the maintainer-only
+  monitor module.
+- **Coordinated tag rename capability (3219)**: the host now offers plan-and-apply
+  rename operations that update supported tag carriers together while preserving
+  validation and collision handling.
+- **Preference compare-and-set (3200)**: user preferences support conditional writes
+  for concurrency-safe UI state updates.
 
 ### Changed
+- **Single public demo route (3158)**: demos now use one `/demo` full-shell route,
+  simplifying the public demo surface and its module integration contract.
 
 ### Fixed
+- **Durable API latency rollups (3211)**: collection start and last-run markers are
+  protected by a pipeline lock, avoiding duplicate work and preserving rollup progress
+  across worker runs.
 
 ### Removed
 

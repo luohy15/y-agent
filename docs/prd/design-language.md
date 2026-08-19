@@ -158,3 +158,4 @@ decisions and the additive host→module CSS contract.
 |------|---------|--------|------|-----------|--------|--------|
 | 3112 | Current UI design-language reference | `pages/design-3112.html` | - | - | - | approved |
 | 3115 | Converge host and module controls on the design language | `pages/design-3112.html` | `pages/plan-3115-design-language-convergence.md` | - | `pages/review-3115-host-design-language-convergence.md`, `pages/review-3115-module-design-language-convergence.md` | reviewed |
+| 3181 | Step chat and file reader body copy up one type-scale step at tablet widths (768–1023px) | - | `pages/plan-3181-tablet-reader-type.md` | - | `pages/review-3181-tablet-reader-type.md` | shipped (chat v26, file v16) |
