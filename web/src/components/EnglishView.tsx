@@ -178,7 +178,7 @@ export default function EnglishView({ correctionId }: EnglishViewProps) {
               (from original / corrected · not stored)
             </span>
           </div>
-          <div className="rounded bg-sol-base02 border border-sol-base01/40 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed font-mono whitespace-pre-wrap">
+          <div className="rounded bg-sol-base02 border border-sol-base01/40 px-3 py-2 text-[0.8rem] text-sol-base1 leading-relaxed whitespace-pre-wrap">
             {spans.map((s, i) =>
               s.type === "same" ? (
                 <span key={i}>{s.text}</span>

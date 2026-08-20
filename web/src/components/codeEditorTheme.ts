@@ -3,8 +3,8 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import type { Extension } from "@codemirror/state";
 
-const FONT_MONO =
-  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+/* Resolve through the host --font-mono token (todo 3236); do not diverge. */
+const FONT_MONO = "var(--font-mono)";
 
 export function isDark(theme?: string | null): boolean {
   const t =

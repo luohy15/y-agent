@@ -30,6 +30,20 @@ html {
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  /*
+   * Typography (todo 3236 strategy B). Human-facing UI inherits sans; mono is
+   * reserved for code / IDs / compact operational metadata. Explicit Windows
+   * CJK names stabilize Han selection; unavailable names are skipped on
+   * macOS/Linux so later platform fallbacks take over. Keep emoji faces.
+   */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Liberation Mono",
+    "Courier New", monospace;
   /* Absolute 4px (root font is 110%, so 0.25rem would be 4.4px). */
   --radius: 4px;
   /* Theme-aware floating elevation; resolves via --sol-shadow-float. */
@@ -57,6 +71,8 @@ html {
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
   --sol-shadow-float: 0 12px 28px rgb(7 54 66 / 16%);
+  /* @pierre/diffs patch chrome (todo 3236): prefer host mono over its Latin-only fallback. */
+  --diffs-font-family: var(--font-mono);
 }
 
 /* Exact previous app palette (Solarized Dark) */

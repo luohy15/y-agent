@@ -31,6 +31,19 @@
   --color-sol-blue: #268bd2;
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
+  /*
+   * Host-resolved at runtime (web/src/style.css). Values are fallbacks only so
+   * independently built module utilities stay valid if the host token is unset.
+   * Keep in lockstep with the host stacks (todo 3236).
+   */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Liberation Mono",
+    "Courier New", monospace;
   /* Host-resolved at runtime (web/src/style.css). Fallbacks keep builds green. */
   --radius: 4px;
   --shadow-float: var(--sol-shadow-float);

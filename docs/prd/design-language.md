@@ -98,10 +98,31 @@ decisions and the additive host→module CSS contract.
   long `color-mix(...)` utility string across dozens of sites, and exporting
   React primitives on `@y/host` (browser-contract bump plus republish for every
   tweak). **This is an additive host→module CSS contract**: the class names
-  `.y-check` and `.y-field`, plus theme keys `--radius` and `--shadow-float`,
-  are append-only and must never be renamed while older module versions stay
-  rollback-reachable. They are independent of the `@y/host` browser contract
-  version.
+  `.y-check` and `.y-field`, plus theme keys `--radius`, `--shadow-float`,
+  `--font-sans`, and `--font-mono`, are append-only and must never be renamed
+  while older module versions stay rollback-reachable. They are independent of
+  the `@y/host` browser contract version.
+- **Typography roles (D9 / todo 3236).** Ordinary app and module prose inherits
+  host `font-sans`. Explicit `font-mono` is reserved for code, tool output,
+  paths, IDs, timestamps, badges, compact operational metadata, and terminal-
+  like chrome. Do not pin long-form human reading or chat composition surfaces
+  to mono. Host `@theme` owns `--font-sans` / `--font-mono` with system UI Latin
+  faces first and an explicit Simplified Chinese fallback chain
+  (`Microsoft YaHei UI`, `Microsoft YaHei`, `PingFang SC`, `Hiragino Sans GB`,
+  `Noto Sans CJK SC`, `Noto Sans SC`, `Source Han Sans SC`) before the generic
+  family; emoji faces stay on the sans stack. SDK `theme.css` mirrors both
+  stacks under `@theme reference` so independently built module utilities keep
+  a valid fallback. CodeMirror consumes `var(--font-mono)` and must not keep a
+  divergent hard-coded family list. Host `:root` also sets
+  `--diffs-font-family: var(--font-mono)` so `@pierre/diffs` PatchDiff chrome
+  (DiffViewer / HostMessageView) prefers the host mono contract over the
+  package's Latin-only `--diffs-font-fallback`; keep that bridge on any
+  `@pierre/diffs` upgrade. Strategy: system fonts only (no `@font-face`,
+  no remote font CDN, no bundled CJK payload, no per-component Chinese overrides,
+  no runtime OS detection). `html lang="en"` stays; Windows intermediate weights
+  (500/600) may synthesize. Approved visual comparison:
+  `pages/design-3236.html`. Role audit detail:
+  `pages/decision-3236-typography-roles.md`.
 - **Checkbox (D6).** Spec for `.y-check`: `appearance:none`, 14px square,
   `border-radius:3px` (documented exception to the 4px radius token), 1px
   `color-mix(base01 40%)` border on a `base03` fill; hover raises the border to
@@ -121,9 +142,12 @@ decisions and the additive host→module CSS contract.
   `bg-sol-base02 border border-sol-base01 … focus:border-sol-blue` pattern.
 - **Delivery order (D8).** y-agent (host CSS + SDK `theme.css`) lands and merges
   first so the editable CLI install resolves the updated SDK; only then do
-  y-module source changes merge and modules republish. Every module is
-  republished when the SDK tokens change, including modules whose TSX is
-  unchanged, because the CSS every bundle emits depends on those tokens.
+  y-module source changes merge and modules republish when a module must pick up
+  a new inlined fallback or a TSX class change. For `--font-*` specifically,
+  published module CSS emits `font-family: var(--font-mono, <fallback>)` (and
+  the same pattern for sans), so a host token update retints live modules
+  without republish; republish only refreshes the unused fallback string or
+  ships role-audit class edits.
 
 ## Testing Decisions
 
@@ -159,3 +183,4 @@ decisions and the additive host→module CSS contract.
 | 3112 | Current UI design-language reference | `pages/design-3112.html` | - | - | - | approved |
 | 3115 | Converge host and module controls on the design language | `pages/design-3112.html` | `pages/plan-3115-design-language-convergence.md` | - | `pages/review-3115-host-design-language-convergence.md`, `pages/review-3115-module-design-language-convergence.md` | reviewed |
 | 3181 | Step chat and file reader body copy up one type-scale step at tablet widths (768–1023px) | - | `pages/plan-3181-tablet-reader-type.md` | - | `pages/review-3181-tablet-reader-type.md` | shipped (chat v26, file v16) |
+| 3236 | Windows CJK typography: system sans body + explicit SC fallbacks in host/SDK tokens | `pages/design-3236.html` | `pages/plan-3236-windows-cjk-typography.md` | `pages/decision-3236-typography-roles.md` | `pages/review-3236-windows-cjk-typography.md` | reviewed (host + chat module; awaiting publish/deploy) |
