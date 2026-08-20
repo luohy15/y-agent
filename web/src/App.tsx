@@ -64,7 +64,7 @@ import {
   type OrdinaryFileTab,
 } from "./utils/fileWorkspace";
 import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
-import { closeTabShortcutLabel } from "./utils/platform";
+import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
 import ReminderList from "./components/ReminderList";
@@ -1093,10 +1093,14 @@ export default function App() {
         setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
         setFileSearchOpen(true);
       }
-      // Alt+W closes the active in-app file tab. Match event.code so macOS Alt
-      // composition (key === "∑") still works, and never bind Ctrl/Cmd+W: those
-      // are browser-reserved and not reliably interceptable (todo 3237).
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyW") {
+      // Close active in-app file tab (todo 3237):
+      // - Apple: keep existing Cmd+W (metaKey).
+      // - Non-Apple: Alt+W via event.code (Alt mutates event.key on macOS, and
+      //   Ctrl+W is browser-reserved / not reliably interceptable).
+      const closeTab = isApplePlatform()
+        ? (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyW")
+        : (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyW");
+      if (closeTab) {
         const el = document.activeElement;
         if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
         e.preventDefault();

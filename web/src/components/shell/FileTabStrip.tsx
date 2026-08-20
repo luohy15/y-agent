@@ -19,7 +19,7 @@ export interface FileTabStripProps {
   onDoubleClick?: (key: string) => void;
   /** Optional breadcrumb row rendered under the tab strip. */
   breadcrumb?: ReactNode;
-  /** Platform shortcut label shown on the close control tooltip (e.g. Alt+W / ⌥W). */
+  /** Platform shortcut label shown on the close control tooltip (e.g. Alt+W / ⌘W). */
   closeHint?: string;
   className?: string;
 }
