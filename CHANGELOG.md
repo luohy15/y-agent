@@ -19,7 +19,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **API latency monitoring (3211)**: a privacy-safe outer ASGI middleware captures
   bounded API-attempt telemetry, including streaming duration and resolved module
   routes. Worker rollups retain hourly and daily aggregates for the maintainer-only
-  monitor module.
+  monitor module, which now has a distinct activity icon in the host panel catalog.
 - **Coordinated tag rename capability (3219)**: the host now offers plan-and-apply
   rename operations that update supported tag carriers together while preserving
   validation and collision handling.
@@ -27,10 +27,21 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   for concurrency-safe UI state updates.
 
 ### Changed
+- **Persisted usage-limit snapshot (3226)**: ordinary `GET /api/usage/limits` reads
+  now come from a worker-refreshed snapshot instead of an on-request SSH scrape,
+  with explicit `?refresh=true` retries sharing the same guarded refresh path.
+- **Monitor route filters in SQL (3226)**: API latency detail queries push route and
+  attribute filters into repository selects instead of filtering loaded rows in
+  Python.
+- **Batched tag carrier hydration (3226)**: tag lookup hydrates carriers in one
+  batch per entity type, removing the per-row resolver N+1.
 - **Single public demo route (3158)**: demos now use one `/demo` full-shell route,
   simplifying the public demo surface and its module integration contract.
 
 ### Fixed
+- **SSE streams skipped by latency telemetry (3224)**: long-lived chat SSE responses
+  are excluded from API latency capture so streaming duration does not inflate
+  monitor histograms.
 - **Durable API latency rollups (3211)**: collection start and last-run markers are
   protected by a pipeline lock, avoiding duplicate work and preserving rollup progress
   across worker runs.
