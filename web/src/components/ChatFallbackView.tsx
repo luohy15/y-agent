@@ -211,7 +211,7 @@ export default function ChatFallbackView({
             rows={1}
             disabled={sending}
             placeholder={chatId ? "Send a message…" : "Start a chat…"}
-            className="flex-1 min-w-0 bg-transparent text-sol-base1 text-sm sm:text-[0.775rem] outline-none resize-none leading-[1.4] placeholder:text-sol-base01/60 disabled:opacity-50"
+            className="flex-1 min-w-0 bg-transparent text-sol-base1 text-sm sm:text-[0.775rem] font-mono outline-none resize-none leading-[1.4] placeholder:text-sol-base01/60 disabled:opacity-50"
           />
           <button
             type="button"

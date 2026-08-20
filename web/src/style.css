@@ -31,19 +31,20 @@ html {
   --color-sol-cyan: #2aa198;
   --color-sol-green: #859900;
   /*
-   * Typography (todo 3236 strategy B). Human-facing UI inherits sans; mono is
-   * reserved for code / IDs / compact operational metadata. Explicit Windows
-   * CJK names stabilize Han selection; unavailable names are skipped on
-   * macOS/Linux so later platform fallbacks take over. Keep emoji faces.
+   * Typography (todo 3236 strategy A + local Source preference). Body inherits
+   * mono. Prefer locally installed Adobe Source faces when present, then the
+   * previous platform Latin / explicit SC chain. Missing names are skipped so
+   * the stack degrades silently. Keep emoji faces on sans.
    */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
-    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif,
+  --font-sans: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Source Han Sans SC",
+    "Source Han Sans CN", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", "Noto Sans SC", sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
-    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Liberation Mono",
-    "Courier New", monospace;
+  --font-mono: "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Source Han Sans SC", "Source Han Sans CN", "Microsoft YaHei UI",
+    "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
+    "Noto Sans SC", "Liberation Mono", "Courier New", monospace;
   /* Absolute 4px (root font is 110%, so 0.25rem would be 4.4px). */
   --radius: 4px;
   /* Theme-aware floating elevation; resolves via --sol-shadow-float. */
