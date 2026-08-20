@@ -485,6 +485,11 @@ function sameContext(tab: OrdinaryFileTab, vmName: string | null | undefined, wo
     && tab.workDir === (typeof dir === "string" || dir === null ? dir : tab.workDir);
 }
 
+export type RemapOrdinaryTabsResult = HostWorkspaceSnapshot & {
+  /** Old tab id -> new tab id for tabs whose path was remapped. */
+  idMap: Map<string, string>;
+};
+
 /** Remap matching ordinary tabs by path within an optional VM/workDir scope. */
 export function remapOrdinaryTabs(
   state: HostWorkspaceSnapshot,
@@ -492,7 +497,7 @@ export function remapOrdinaryTabs(
   newPath: string,
   vmName?: string | null,
   workDir?: string | null,
-): HostWorkspaceSnapshot {
+): RemapOrdinaryTabsResult {
   const normOld = oldPath.replace(/^\.\//, "");
   const normNew = newPath.replace(/^\.\//, "");
   const idMap = new Map<string, string>();
@@ -519,6 +524,7 @@ export function remapOrdinaryTabs(
     active: active && finalTabs.includes(active) ? active : finalTabs[0] ?? null,
     preview: preview && finalTabs.includes(preview) && files[preview] ? preview : null,
     files,
+    idMap,
   };
 }
 

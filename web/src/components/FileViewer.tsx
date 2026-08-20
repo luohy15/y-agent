@@ -13,6 +13,7 @@ import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactVi
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
 import { fileDetailContext, type FocusRequest, type OrdinaryFileTab } from "../utils/fileWorkspace";
+import { closeTabShortcutLabel } from "../utils/platform";
 import FileTabStrip, { FileBreadcrumb } from "./shell/FileTabStrip";
 import MarkdownPreview from "./shell/MarkdownPreview";
 
@@ -738,6 +739,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         onSelect={onSelectFile}
         onClose={onCloseFile}
         onReorder={onReorderFiles}
+        closeHint={closeTabShortcutLabel()}
         onDoubleClick={(filePath) => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
         breadcrumb={activeFile && !fileTabs[activeFile] ? (
           <FileBreadcrumb

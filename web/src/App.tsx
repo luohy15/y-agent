@@ -64,6 +64,7 @@ import {
   type OrdinaryFileTab,
 } from "./utils/fileWorkspace";
 import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
+import { closeTabShortcutLabel } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
 import ReminderList from "./components/ReminderList";
@@ -200,6 +201,8 @@ export default function App() {
   const [previewFile, setPreviewFile] = useState<string | null>(() => initialWorkspace.preview);
   const [fileTabs, setFileTabs] = useState<Record<string, OrdinaryFileTab>>(() => initialWorkspace.files);
   const [fileDirty, setFileDirty] = useState<Record<string, boolean>>({});
+  const fileDirtyRef = useRef(fileDirty);
+  fileDirtyRef.current = fileDirty;
   const [fileFocus, setFileFocus] = useState<Record<string, FocusRequest>>({});
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [fileSearchContext, setFileSearchContext] = useState<{ vmName: string | null; workDir: string | null }>({
@@ -731,6 +734,9 @@ export default function App() {
   }, [touchWorkspace]);
 
   const handleCloseFile = useCallback((path: string) => {
+    if (fileDirtyRef.current[path]) {
+      if (!window.confirm("Discard unsaved changes?")) return;
+    }
     touchWorkspace();
     if (fileTabsRef.current[path]) {
       const next = closeWorkspaceTabKey(
@@ -780,6 +786,9 @@ export default function App() {
   }, [touchWorkspace]);
 
   const handleCloseAllFiles = useCallback(() => {
+    if (Object.values(fileDirtyRef.current).some(Boolean)) {
+      if (!window.confirm("Discard unsaved changes in open editors?")) return;
+    }
     touchWorkspace();
     setOpenFiles([]);
     setActiveFile(null);
@@ -833,6 +842,19 @@ export default function App() {
     setActiveFile(next.active);
     setPreviewFile(next.preview);
     setFileTabs(next.files);
+    if (next.idMap.size > 0) {
+      setFileDirty((prev) => {
+        let changed = false;
+        const dirty = { ...prev };
+        for (const [from, to] of next.idMap) {
+          if (from === to || !(from in dirty)) continue;
+          dirty[to] = dirty[from];
+          delete dirty[from];
+          changed = true;
+        }
+        return changed ? dirty : prev;
+      });
+    }
   }, [touchWorkspace]);
 
   const handleRemoveOrdinaryFiles = useCallback((
@@ -841,12 +863,13 @@ export default function App() {
     workDir?: string | null,
   ) => {
     touchWorkspace();
+    const prevFiles = fileTabsRef.current;
     const next = removeOrdinaryTabs(
       {
         openTabs: openFilesRef.current,
         active: activeFileRef.current,
         preview: previewFileRef.current,
-        files: fileTabsRef.current,
+        files: prevFiles,
       },
       path,
       vmName,
@@ -856,6 +879,16 @@ export default function App() {
     setActiveFile(next.active);
     setPreviewFile(next.preview);
     setFileTabs(next.files);
+    setFileDirty((prev) => {
+      let changed = false;
+      const dirty = { ...prev };
+      for (const id of Object.keys(prevFiles)) {
+        if (id in next.files || !(id in dirty)) continue;
+        delete dirty[id];
+        changed = true;
+      }
+      return changed ? dirty : prev;
+    });
   }, [touchWorkspace]);
 
   // C1: publish retained per-location VM/work-directory context for the
@@ -1060,9 +1093,12 @@ export default function App() {
         setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
         setFileSearchOpen(true);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+      // Alt+W closes the active in-app file tab. Match event.code so macOS Alt
+      // composition (key === "∑") still works, and never bind Ctrl/Cmd+W: those
+      // are browser-reserved and not reliably interceptable (todo 3237).
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyW") {
         const el = document.activeElement;
-        if ((el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && !el.dataset.editor) return;
+        if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
         e.preventDefault();
         if (activeFileRef.current) handleCloseFile(activeFileRef.current);
       }
@@ -1086,6 +1122,17 @@ export default function App() {
       window.removeEventListener("message", onPreviewKeydown);
     };
   }, [handleCloseFile, handleSelectFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+
+  useEffect(() => {
+    const dirty = Object.values(fileDirty).some(Boolean);
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [fileDirty]);
 
   useEffect(() => {
     localStorage.setItem("sidebarWidth", String(sidebarWidth));
@@ -1296,13 +1343,22 @@ export default function App() {
     setTimeout(() => setRightPanelSpinning(false), 600);
   }, []);
 
+  const closeTabShortcut = useMemo(() => closeTabShortcutLabel(), []);
   const commandActions: CommandAction[] = useMemo(() => [
+    {
+      id: 'close-file-tab',
+      label: 'Close File Tab',
+      shortcut: closeTabShortcut,
+      execute: () => {
+        if (activeFileRef.current) handleCloseFile(activeFileRef.current);
+      },
+    },
     {
       id: 'close-all-editors',
       label: 'Close All Editors',
       execute: handleCloseAllFiles,
     },
-  ], [handleCloseAllFiles]);
+  ], [closeTabShortcut, handleCloseAllFiles, handleCloseFile]);
 
   const renderRightPanel = (mobile = false) => {
     const artifactSlug = artifactSlugFromPanel(rightPanel);

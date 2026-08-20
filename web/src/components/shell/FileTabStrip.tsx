@@ -19,6 +19,8 @@ export interface FileTabStripProps {
   onDoubleClick?: (key: string) => void;
   /** Optional breadcrumb row rendered under the tab strip. */
   breadcrumb?: ReactNode;
+  /** Platform shortcut label shown on the close control tooltip (e.g. Alt+W / ⌥W). */
+  closeHint?: string;
   className?: string;
 }
 
@@ -63,6 +65,7 @@ export default function FileTabStrip({
   onReorder,
   onDoubleClick,
   breadcrumb,
+  closeHint,
   className = "",
 }: FileTabStripProps) {
   const dragIdx = useRef<number | null>(null);
@@ -120,6 +123,9 @@ export default function FileTabStrip({
               <span className={`truncate max-w-[150px] ${tab.italic ? "italic" : ""}`}>{tab.label}</span>
               {closable && onClose && (
                 <button
+                  type="button"
+                  aria-label={`Close ${tab.label}`}
+                  title={closeHint ? `Close (${closeHint})` : `Close ${tab.label}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onClose(tab.key);
