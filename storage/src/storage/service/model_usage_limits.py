@@ -64,6 +64,23 @@ _SNAPSHOT_UNAVAILABLE = "snapshot_unavailable"
 # here.
 _READ_FAILURE_CODES = {"parse_failed", "transport_error"}
 
+# The whole closed error vocabulary, in one place, for callers that have to
+# validate a code coming back out of a snapshot before putting it somewhere
+# bounded (the worker sweep's per-user log line). Anything outside this set is
+# not a code this system produces and must be collapsed by the caller rather
+# than forwarded. See docs/prd/bot-usage.md "Error vocabulary is a closed set
+# of codes".
+ERROR_CODES = frozenset({
+    # provider-level, produced by the VM CLI
+    "not_logged_in", "reauth_required", "parse_failed", "transport_error",
+    # transport-level, produced by agent.usage_limits
+    "vm_unreachable", "cli_failed", "bad_payload", "no_usage_vm",
+    # envelope-level, produced by normalize_envelope
+    "malformed_item",
+    # snapshot-level, produced here
+    _SNAPSHOT_UNAVAILABLE,
+})
+
 
 # --- normalization --------------------------------------------------------
 

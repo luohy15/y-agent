@@ -641,12 +641,14 @@ expired-login card tells the user to run.
   provider-level codes are exactly `not_logged_in`, `reauth_required`,
   `parse_failed`, `transport_error`. The backend wrapper adds transport-level
   codes `vm_unreachable`, `cli_failed`, `bad_payload`, plus `malformed_item` at
-  envelope level, and the persisted snapshot adds one startup-only code,
+  envelope level, and the persisted snapshot adds two more: the startup-only
   `snapshot_unavailable` (todo 3226: no successful refresh has completed for
-  this user yet). Availability is `available`, `unavailable`, or
-  `reauth_required`. Raw exception text (which can carry a private IP or
-  hostname) reaches logs only, never a caller-visible field, and the web maps
-  every code to human copy with a generic fallback for anything unmapped.
+  this user yet) and `no_usage_vm` (this user owns no VM config, so there is
+  nowhere to run the read; see "Refresh is owner-scoped" below). Availability
+  is `available`, `unavailable`, or `reauth_required`. Raw exception text
+  (which can carry a private IP or hostname) reaches logs only, never a
+  caller-visible field, and the web maps every code to human copy with a
+  generic fallback for anything unmapped.
 - **Malformed data is never a number.** Missing, non-numeric, NaN, or infinite
   percentages normalize to null and render as unavailable; an unrecognized
   provider response shape becomes `parse_failed`. A vendor changing its schema
@@ -666,10 +668,11 @@ expired-login card tells the user to run.
   attempt's `errors[]`, and `last_attempt_at` / `last_success_at` /
   `last_attempt_status` / `last_attempt_error`. A worker schedule calls
   `agent.usage_limits.refresh_and_persist_snapshot` every five minutes for
-  every user; `?refresh=true` calls the identical function, forced, so the
-  schedule and a manual retry share exactly one refresh path rather than two
-  implementations that could drift. Each call first acquires a per-user
-  pipeline lock (`refresh_usage_limits:<user_id>`); if the lock is already
+  every *eligible* user (see "Refresh is owner-scoped" below); `?refresh=true`
+  calls the identical function, forced, so the schedule and a manual retry
+  share exactly one refresh path rather than two implementations that could
+  drift. Each call first acquires a per-user pipeline lock
+  (`refresh_usage_limits:<user_id>`); if the lock is already
   held (the schedule still running, or a concurrent manual retry), the
   schedule simply skips that user for this tick and a manual request returns
   the stored snapshot immediately with `refresh_in_progress: true` rather
@@ -693,6 +696,118 @@ expired-login card tells the user to run.
   return a bounded `{"providers": [], "errors": [{"origin": "snapshot",
   "error": "snapshot_unavailable"}]}` envelope — startup is fail-fast and
   never wakes or probes the VM from an ordinary poll.
+- **Refresh is owner-scoped, and the sweep is bounded (todo 3226 defect
+  fix).** A subscription-limit read reports the provider logins of whatever
+  machine it runs on, so it runs only on the user's *own* `default` VM config
+  (`agent.usage_limits.resolve_usage_vm_config`), never on the global default
+  user's VM that `agent.config.resolve_vm_config` would otherwise inherit for
+  interactive dispatch; a user with no config of their own answers
+  `no_usage_vm` immediately instead of reading someone else's subscription
+  status. The schedule's eligible set is exactly the owners of such a config
+  (`list_refresh_user_ids`, one query). This replaced a serial walk over every
+  active user, which in production spent ~15s per user on an SSH connect
+  timeout against the inherited dead host, never reached the one real user
+  (position 111 of 124) inside the 900s Lambda timeout, and therefore left
+  overlapping five-minute invocations that advanced no snapshot at all
+  (diagnosis: `pages/plan-3226-usage-limits-refresh-production-defect.md`).
+  Execution is bounded on three axes so one slow user can never starve another
+  and invocations can never accumulate: eligible users are attempted
+  concurrently up to a fixed ceiling, each attempt is capped well above the
+  CLI's own 30s timeout, and no attempt starts once less than one such cap
+  remains of the attempt budget, which together with the eligibility and
+  overhead allowances sits inside the run budget, which sits inside the
+  five-minute cadence.
+- **What the sweep does and does not guarantee about coverage (todo 3226).**
+  One run attempts *every* eligible user within the schedule interval as long
+  as the eligible set fits one run's guaranteed capacity — concurrency ceiling
+  × the number of full per-user caps that fit in the **attempt budget** (32
+  today, against two eligible users in production) — and that floor holds even
+  in the worst case where every attempt burns its whole cap. The attempt
+  budget is deliberately not the whole run budget: the eligibility allowance
+  and a conservative overhead allowance are charged up front, and the attempt
+  deadline is established after the eligibility query returns, so the
+  *handler's* total stays inside the run budget however long that query
+  actually took. Above that capacity
+  there is deliberately **no** same-interval guarantee: the run attempts as
+  many users as fit, reports the remainder with the `deadline` outcome, and
+  logs a warning that the guarantee no longer holds; the per-tick rotation of
+  the starting offset then makes coverage merely *eventual* (about
+  `ceil(N / capacity)` ticks). That regime is a signal to raise the capacity,
+  not a mode the sweep is designed to run in.
+- **The wall-clock bounds only hold because nothing blocks the event loop
+  (todo 3226).** `asyncio.wait_for` can cancel an attempt only when control
+  returns to the loop, so every synchronous dependency on the refresh path —
+  the owner lookup, the pipeline-lock acquire/release, the EC2 state probe,
+  snapshot persistence, `ssh_exec`'s own wake/touch prelude, and the sweep's
+  eligibility query — is dispatched to a thread, and the eligibility query
+  carries its own timeout because it runs before any per-user bound exists.
+  Otherwise a single stalled dependency would freeze every concurrent attempt
+  *and* the run deadline, and could reproduce the same 900s Lambda timeout by
+  a different route. The dispatch target is a module-owned executor, never
+  `asyncio.to_thread` / the loop's default one: `asyncio.run`'s teardown
+  awaits `loop.shutdown_default_executor()`, so a default-executor thread
+  would put its full runtime straight back onto the scheduled handler and
+  could hold the invocation to the 900s Lambda limit while the sweep reported
+  a tidy timeout.
+- **An executor is event-loop isolation, never a bound; the bound belongs to
+  each operation (todo 3226, review round 3).** A running thread cannot be
+  cancelled: a call whose awaiter timed out keeps going, still holding a
+  pooled DB connection and its transaction, an already-acquired lock, or a
+  socket, and a graceful interpreter exit still joins it
+  (`concurrent.futures.thread` joins non-daemon workers at exit; only killing
+  the process outright reclaims them). So the sweep does not rely on the pool for
+  liveness. Every operation those threads run ends by itself: libpq
+  `connect_timeout`, TCP keepalives and a bounded pool checkout in
+  `storage.database.base`, plus a `statement_timeout` the refresh path opts
+  into per call; botocore connect/read timeouts and capped retries in
+  `agent.ec2_wake`; paramiko connect/banner/auth and channel timeouts in
+  `ssh_exec`, whose client is force-closed both on its own timeout and when
+  its caller is cancelled. Every one of those bounds is well under one
+  schedule interval, so abandoned work drains between ticks instead of
+  accumulating across warm invocations. Waking a stopped instance is the one
+  operation with a much longer envelope, and it is deliberately left that way
+  for the interactive paths that need a cold boot to succeed: the sweep never
+  enters it, answering `vm_unreachable` on the sleep check instead.
+- **Statement duration is bounded per workload, not per engine (todo 3226,
+  review round 4).** The refresh path's DB calls run in threads nothing can
+  cancel, so they opt into `storage.database.base.statement_timeout`, which
+  applies `SET LOCAL statement_timeout` as each transaction begins: it
+  reverts at commit/rollback, so it can never leak to the next user of a
+  pooled connection, and it is re-applied per transaction, so a caller that
+  commits mid-session stays bounded. It is scoped to the caller's context
+  (the executor thread), and the claim it encodes is about these statements
+  only — single-row reads and writes keyed by user plus one indexed
+  eligibility query. It is deliberately *not* an engine-wide setting: that
+  would also cancel valid long work elsewhere (bulk writes, rollup window
+  replacement, `init_tables` DDL, a transaction waiting on a row lock), which
+  nothing here has measured. The engine-wide settings are limited to the two
+  that cannot cancel healthy work: `connect_timeout` and TCP keepalives. Two executors, not one:
+  the usage-limit bookkeeping pool is separate from `ssh_exec`'s, so a stuck
+  SSH session and the scheduled sweep's DB work cannot starve each other.
+  Callers therefore do not need a timeout of their own for the pools to stay
+  healthy, and none is claimed for them.
+- **Lock release is shielded and bounded (todo 3226).** Shielded so a
+  cancelled attempt still releases the user's lock instead of leaving it held
+  for the full TTL; bounded so the cancellation path cannot itself hold the
+  attempt (and the run) open — the per-user bound has to survive a slow
+  release, not depend on it. If that bound fires, the release is abandoned
+  and the lock's TTL, which is shorter than one schedule interval, is the
+  backstop.
+- **Sweep observability is bounded reason codes, never payloads (todo 3226).**
+  Each attempted user emits one log line with a closed outcome code — `ok`,
+  `partial` (attempt succeeded but a provider read failed), `failed`,
+  `locked`, `timeout`, `deadline`, `error` — plus a reason and a duration;
+  each run emits one completion summary with the eligible count, the run's
+  guaranteed capacity, and the per-outcome tally. The reason is validated
+  against the closed error vocabulary above (`ERROR_CODES`) at the logging
+  boundary rather than trusted: a snapshot's error strings arrive through
+  `normalize_envelope`, which copies the VM CLI's `errors[]` entries
+  unchanged, so anything unrecognized collapses to the single code
+  `unrecognized`. The scheduled per-user path logs no exception text at all
+  (the layer that raised keeps its own diagnostics), so no credential or
+  payload can reach an operational line. The run summary is what
+  distinguishes "no eligible users" from "reached everyone" from "ran out of
+  budget" from "the eligibility query itself timed out".
 - **Never spend tokens for status.** The Anthropic reader launches its
   ephemeral session with no provider env vars, so it reads the subscription
   grant, runs no model turn, and cannot disturb concurrent relay-backed agent

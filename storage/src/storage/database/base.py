@@ -10,7 +10,9 @@ from storage.global_config import load_global_config
 load_dotenv()
 load_global_config()
 
-from sqlalchemy import create_engine
+from contextvars import ContextVar
+
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from storage.entity.base import Base
@@ -18,6 +20,20 @@ from storage.entity.base import Base
 
 _engine: Optional[Engine] = None
 _SessionLocal: Optional[sessionmaker] = None
+
+
+# Connection-health bounds, so a DB call cannot hang on a socket that will
+# never answer (todo 3226). Both are about *reaching* the server, not about
+# how long its work may take: `connect_timeout` caps opening a connection, and
+# the TCP keepalives detect a peer that vanished mid-statement (nothing
+# server-side can fire when no packets get through). Neither can cancel valid
+# work on a healthy connection, so they are safe to apply engine-wide;
+# bounding statement duration is a per-workload decision and lives in
+# `statement_timeout()` below.
+_CONNECT_TIMEOUT_SECONDS = 10
+_KEEPALIVE_IDLE_SECONDS = 30
+_KEEPALIVE_INTERVAL_SECONDS = 10
+_KEEPALIVE_FAILED_PROBES = 3
 
 
 def _get_engine_kwargs(url: str) -> dict:
@@ -29,6 +45,13 @@ def _get_engine_kwargs(url: str) -> dict:
             "pool_recycle": 3600,
             "pool_timeout": 5,
             "echo": False,
+            "connect_args": {
+                "connect_timeout": _CONNECT_TIMEOUT_SECONDS,
+                "keepalives": 1,
+                "keepalives_idle": _KEEPALIVE_IDLE_SECONDS,
+                "keepalives_interval": _KEEPALIVE_INTERVAL_SECONDS,
+                "keepalives_count": _KEEPALIVE_FAILED_PROBES,
+            },
         }
     return {"echo": False}
 
@@ -129,3 +152,42 @@ def get_db() -> Session:
         raise
     finally:
         session.close()
+
+
+# Statement duration is bounded per workload, never engine-wide: a global
+# cutoff would also cancel valid long work elsewhere (bulk writes, rollup
+# window replacement, DDL from init_tables, transactions waiting on a row
+# lock). Only a caller that knows its own statements are short opts in.
+#
+# The one caller today is the usage-limit refresh path (todo 3226), whose DB
+# work runs in executor threads nothing can cancel: `asyncio.wait_for` frees
+# the awaiter, never the thread, so without a server-side bound a stalled
+# statement would keep a thread and its pooled connection indefinitely.
+_statement_timeout_ms: ContextVar[int | None] = ContextVar("statement_timeout_ms", default=None)
+
+
+@contextmanager
+def statement_timeout(seconds: float):
+    """Bound every statement issued inside this context (PostgreSQL only).
+
+    The value is applied with `SET LOCAL` on each transaction as it begins, so
+    it reverts at commit/rollback and can never leak to the next user of a
+    pooled connection — and, because it is re-applied per transaction rather
+    than once per session, a caller that commits mid-session stays bounded.
+
+    Scope is the current context (an executor thread has its own), not the
+    engine: opting in is the caller's statement about its own queries.
+    """
+    token = _statement_timeout_ms.set(int(seconds * 1000))
+    try:
+        yield
+    finally:
+        _statement_timeout_ms.reset(token)
+
+
+@event.listens_for(Session, "after_begin")
+def _apply_statement_timeout(session, transaction, connection):
+    timeout_ms = _statement_timeout_ms.get()
+    if timeout_ms is None or connection.dialect.name != "postgresql":
+        return
+    connection.exec_driver_sql(f"SET LOCAL statement_timeout = {timeout_ms}")

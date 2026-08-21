@@ -37,6 +37,17 @@ def list_configs(user_id: int) -> List[VmConfig]:
         return [_entity_to_dto(r) for r in rows]
 
 
+def list_user_ids_with_config(name: str = "default") -> List[int]:
+    """Internal user ids that own a VM config by this name, with no
+    default-user fallback. Owner-scoped callers (todo 3226's usage-limit
+    sweep) need the set of users who actually configured a VM, which
+    per-user `get_config` lookups cannot answer without one query each.
+    """
+    with get_db() as session:
+        rows = session.query(VmConfigEntity.user_id).filter_by(name=name).distinct().all()
+        return [row[0] for row in rows]
+
+
 def get_config(user_id: int, name: str = "default") -> Optional[VmConfig]:
     with get_db() as session:
         row = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).first()

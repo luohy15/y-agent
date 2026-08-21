@@ -6,6 +6,7 @@ import time
 
 import boto3
 import paramiko
+from botocore.config import Config as BotoConfig
 from loguru import logger
 
 from storage.entity.dto import VmConfig
@@ -14,6 +15,33 @@ from storage.service import vm_config as vm_service
 
 # If last_up is older than this, assume the VM may be stopped/hibernated.
 IDLE_THRESHOLD_SECONDS = 60
+
+# EC2 calls run in a thread their caller cannot cancel (ssh_exec's prelude,
+# the usage-limit sweep's sleep-state probe), so the transport carries its own
+# bound (todo 3226). botocore defaults to a 60s read timeout with up to five
+# attempts; capped here so one EC2 call ends in about half a minute instead of
+# several. This bounds a single API call only — how long a *wake* may take is
+# unchanged.
+_EC2_CLIENT_CONFIG = BotoConfig(
+    connect_timeout=5,
+    read_timeout=10,
+    retries={"max_attempts": 2, "mode": "standard"},
+)
+
+# How long a *single* readiness probe may hang. Deliberately only the
+# per-connection bound: the number of attempts and the interval between them
+# are the wake path's acceptance envelope for a legitimately slow cold boot
+# (interactive chat, terminal, image transfer and Telegram delivery all wake
+# VMs this way), not a transport bound, and are left as they were: a hung
+# probe now costs one attempt instead of most of the envelope, and the
+# envelope itself still accepts the same slow boots. The usage-limit sweep
+# never reaches here at all — it checks `is_vm_asleep` and reports
+# `vm_unreachable` instead of waking anything.
+_SSH_READY_CONNECT_TIMEOUT_SECONDS = 5
+
+
+def _ec2_client(region: str):
+    return boto3.client("ec2", region_name=region, config=_EC2_CLIENT_CONFIG)
 
 
 def _is_stale(last_up: int | None) -> bool:
@@ -26,7 +54,7 @@ def _is_stale(last_up: int | None) -> bool:
 def get_instance_state(instance_id: str, region: str) -> str:
     """Read-only EC2 instance state ('running', 'stopped', ...). Never starts
     the instance, unlike _start_and_wait / ensure_vm_running."""
-    ec2 = boto3.client("ec2", region_name=region)
+    ec2 = _ec2_client(region)
     resp = ec2.describe_instance_status(
         InstanceIds=[instance_id],
         IncludeAllInstances=True,
@@ -47,7 +75,7 @@ def is_vm_asleep(vm_config: VmConfig) -> bool:
 
 def _start_and_wait(instance_id: str, region: str) -> None:
     """Start an EC2 instance and wait until it's running."""
-    ec2 = boto3.client("ec2", region_name=region)
+    ec2 = _ec2_client(region)
 
     state = get_instance_state(instance_id, region)
 
@@ -87,7 +115,15 @@ def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 36, interval: float =
         try:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(host, port=port, username=user, pkey=key, timeout=5)
+            client.connect(
+                host, port=port, username=user, pkey=key,
+                timeout=_SSH_READY_CONNECT_TIMEOUT_SECONDS,
+                # Without these a host that accepts the TCP connection and then
+                # says nothing holds the probe for paramiko's own 15s/30s
+                # defaults, per attempt.
+                banner_timeout=_SSH_READY_CONNECT_TIMEOUT_SECONDS,
+                auth_timeout=_SSH_READY_CONNECT_TIMEOUT_SECONDS,
+            )
             client.close()
             logger.info("ec2_wake: SSH ready after {} attempt(s)", attempt)
             return

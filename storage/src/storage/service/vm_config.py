@@ -9,6 +9,10 @@ def list_configs(user_id: int) -> List[VmConfig]:
     return vm_repo.list_configs(user_id)
 
 
+def list_user_ids_with_config(name: str = "default") -> List[int]:
+    return vm_repo.list_user_ids_with_config(name)
+
+
 def get_config(user_id: int, name: str = "default") -> Optional[VmConfig]:
     return vm_repo.get_config(user_id, name)
 

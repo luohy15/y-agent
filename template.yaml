@@ -361,11 +361,14 @@ Resources:
             Schedule: rate(10 minutes)
             Input: '{"action": "rollup_api_latency"}'
         RefreshUsageLimitsSchedule:
-          # Keeps each user's persisted usage_limits_latest snapshot current
-          # so ordinary GET /api/usage/limits reads never touch VM/SSH/CLI
-          # (todo 3226). Per-user pipeline locks make this safe to run every
-          # five minutes without overlapping a still-running sweep or a
-          # concurrent manual ?refresh=true.
+          # Keeps each eligible user's persisted usage_limits_latest snapshot
+          # current so ordinary GET /api/usage/limits reads never touch
+          # VM/SSH/CLI (todo 3226). Per-user pipeline locks make this safe to
+          # run every five minutes without overlapping a still-running sweep
+          # or a concurrent manual ?refresh=true. The step also sizes its own
+          # run budget against this interval (_SCHEDULE_INTERVAL_SECONDS in
+          # worker/steps/refresh_usage_limits.py) so a tick always ends before
+          # the next one starts; change that constant alongside this rate.
           Type: Schedule
           Properties:
             Schedule: rate(5 minutes)
