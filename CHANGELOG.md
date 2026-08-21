@@ -27,6 +27,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   for concurrency-safe UI state updates.
 
 ### Changed
+- **Local Source typography (3236)**: the web app keeps a monospace body while
+  preferring locally installed Source Sans and Source Han Sans faces, with explicit
+  platform-appropriate fallbacks and matching SDK theme tokens.
 - **Persisted usage-limit snapshot (3226)**: ordinary `GET /api/usage/limits` reads
   now come from a worker-refreshed snapshot instead of an on-request SSH scrape,
   with explicit `?refresh=true` retries sharing the same guarded refresh path.
@@ -39,6 +42,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   simplifying the public demo surface and its module integration contract.
 
 ### Fixed
+- **Platform-aware file-tab closing shortcut (3237)**: file tabs now close with
+  `⌘W` on macOS or `Ctrl+W` elsewhere, without intercepting the browser's ordinary
+  close-window shortcut or a modifier-key repeat.
 - **SSE streams skipped by latency telemetry (3224)**: long-lived chat SSE responses
   are excluded from API latency capture so streaming duration does not inflate
   monitor histograms.
