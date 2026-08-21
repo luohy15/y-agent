@@ -1,5 +1,6 @@
 import click
 from yagent.api_client import api_request
+from yagent.tag_option import resolve_tags
 
 
 @click.command('update')
@@ -8,7 +9,9 @@ from yagent.api_client import api_request
 @click.option('--desc', '-d', default=None, help='New description')
 @click.option('--due', '-u', default=None, help='New due date (YYYY-MM-DD)')
 @click.option('--priority', '-p', default=None, type=click.Choice(['low', 'medium', 'high', 'none']), help='New priority')
-@click.option('--tags', '-t', default=None, help='New comma-separated tags')
+@click.option('--tags', '-t', 'tags', multiple=True,
+              help='New tags: repeat -t and/or comma-separate; replaces the whole set '
+                   '(e.g. -t cli -t "agent-config,tags"); -t "" clears all tags')
 @click.option('--progress', default=None, help='Progress note')
 def todo_update(todo_id, name, desc, due, priority, tags, progress):
     """Update a todo."""
@@ -21,8 +24,9 @@ def todo_update(todo_id, name, desc, due, priority, tags, progress):
         body["due_date"] = due
     if priority is not None:
         body["priority"] = priority
-    if tags is not None:
-        body["tags"] = [t.strip() for t in tags.split(',')]
+    resolved_tags = resolve_tags(tags)
+    if resolved_tags is not None:
+        body["tags"] = resolved_tags
     if progress is not None:
         body["progress"] = progress
 

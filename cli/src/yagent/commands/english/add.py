@@ -1,6 +1,7 @@
 import click
 
 from yagent.api_client import api_request
+from yagent.tag_option import resolve_tags
 
 
 @click.command("add")
@@ -12,8 +13,9 @@ from yagent.api_client import api_request
 @click.option("--corrected", "corrected_text", required=True, help="Minimally corrected text")
 @click.option(
     "--categories",
-    default="",
-    help="Comma-separated free-form error categories (e.g. tense,article)",
+    "categories",
+    multiple=True,
+    help="Free-form error categories: repeat --categories and/or comma-separate (e.g. tense,article)",
 )
 @click.option("--explanation", required=True, help="Short grammar explanation")
 def english_add(
@@ -27,7 +29,7 @@ def english_add(
     explanation,
 ):
     """Add a correction (idempotent on chat_id + message_id)."""
-    cats = [c.strip() for c in categories.split(",") if c.strip()] if categories else []
+    cats = resolve_tags(categories) or []
     body = {
         "chat_id": chat_id,
         "message_id": message_id,
