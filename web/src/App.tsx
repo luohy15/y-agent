@@ -1093,14 +1093,17 @@ export default function App() {
         setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
         setFileSearchOpen(true);
       }
-      // Close active in-app file tab (todo 3237):
-      // - Apple: keep existing Cmd+W (metaKey).
-      // - Non-Apple: Alt+W via event.code (Alt mutates event.key on macOS, and
-      //   Ctrl+W is browser-reserved / not reliably interceptable).
-      const closeTab = isApplePlatform()
-        ? (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyW")
-        : (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyW");
-      if (closeTab) {
+      // Close active in-app file tab (todo 3237).
+      // Apple: preserve the pre-change branch exactly (Ctrl+W and Cmd+W).
+      // Non-Apple: Alt+W only; Ctrl+W stays with the browser.
+      if (isApplePlatform()) {
+        if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+          const el = document.activeElement;
+          if ((el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && !el.dataset.editor) return;
+          e.preventDefault();
+          if (activeFileRef.current) handleCloseFile(activeFileRef.current);
+        }
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyW") {
         const el = document.activeElement;
         if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
         e.preventDefault();

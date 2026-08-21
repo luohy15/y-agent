@@ -8,7 +8,7 @@ export function isApplePlatform(
 
 /**
  * Platform label for the in-app close-tab shortcut.
- * Apple keeps the existing Cmd+W (⌘W); non-Apple uses Alt+W.
+ * Apple keeps the original Cmd/Ctrl+W binding (labelled ⌘W); non-Apple uses Alt+W.
  */
 export function closeTabShortcutLabel(
   navigatorLike: Pick<Navigator, "userAgent" | "platform"> = navigator,
