@@ -32,7 +32,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   platform-appropriate fallbacks and matching SDK theme tokens.
 - **Persisted usage-limit snapshot (3226)**: ordinary `GET /api/usage/limits` reads
   now come from a worker-refreshed snapshot instead of an on-request SSH scrape,
-  with explicit `?refresh=true` retries sharing the same guarded refresh path.
+  with explicit `?refresh=true` retries sharing the same guarded refresh path. The
+  scheduled sweep is owner-scoped to users with their own default VM config and
+  bounded with concurrency, per-attempt, and run budgets so one slow user cannot
+  starve the rest.
 - **Monitor route filters in SQL (3226)**: API latency detail queries push route and
   attribute filters into repository selects instead of filtering loaded rows in
   Python.
@@ -42,9 +45,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   simplifying the public demo surface and its module integration contract.
 
 ### Fixed
-- **Platform-aware file-tab closing shortcut (3237)**: file tabs now close with
-  `⌘W` on macOS or `Ctrl+W` elsewhere, without intercepting the browser's ordinary
-  close-window shortcut or a modifier-key repeat.
+- **Platform-aware file-tab closing shortcut (3237)**: Apple platforms keep the
+  original Cmd/Ctrl+W close-tab binding (labelled ⌘W); other platforms use Alt+W
+  so Ctrl+W stays with the browser, without intercepting ordinary close-window
+  shortcuts or a modifier-key repeat.
+- **Repeated CLI tag options (3245)**: `-t/--tags` now unions every occurrence
+  (including comma-separated lists) instead of silently keeping only the last
+  value on `y todo add/update` and `y english add`.
 - **SSE streams skipped by latency telemetry (3224)**: long-lived chat SSE responses
   are excluded from API latency capture so streaming duration does not inflate
   monitor histograms.
