@@ -86,6 +86,7 @@ jobs:
           [ -n "$OXYLABS_USERNAME" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsUsername=$OXYLABS_USERNAME"
           [ -n "$OXYLABS_PASSWORD" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsPassword=$OXYLABS_PASSWORD"
           [ -n "$ALPHAVANTAGE_API_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES AlphaVantageApiKey=$ALPHAVANTAGE_API_KEY"
+          [ -n "$ANTHROPIC_STATUS_WEBHOOK_SECRET" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES AnthropicStatusWebhookSecret=$ANTHROPIC_STATUS_WEBHOOK_SECRET"
 
           if [ -n "$PARAM_OVERRIDES" ]; then
             sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides $PARAM_OVERRIDES
