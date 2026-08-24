@@ -48,7 +48,9 @@ from api.controller.provider_status import router as provider_status_router
 from api.controller.module import router as module_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.api_latency import ApiLatencyMiddleware
+from api.middleware.provider_status_access_log import install_provider_status_access_log_filter
 
+install_provider_status_access_log_filter()
 app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
 
 app.add_middleware(

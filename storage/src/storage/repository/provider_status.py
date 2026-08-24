@@ -53,8 +53,8 @@ def _insert_event(session, values: dict) -> bool:
     if session.bind.dialect.name == "postgresql":
         statement = pg_insert(table).values(**values).on_conflict_do_nothing(
             index_elements=("provider", "event_key")
-        )
-        return session.execute(statement).rowcount == 1
+        ).returning(table.c.id)
+        return session.execute(statement).scalar_one_or_none() is not None
     try:
         with session.begin_nested():
             session.add(ProviderStatusEventEntity(**values))
