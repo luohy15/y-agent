@@ -85,6 +85,12 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  AnthropicStatusWebhookSecret:
+    Type: String
+    Description: Opaque path credential for the Anthropic Statuspage webhook receiver
+    NoEcho: true
+    Default: ""
+
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
@@ -274,6 +280,7 @@ Resources:
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
+          ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
           PORT: "8000"
@@ -342,11 +349,11 @@ Resources:
           Properties:
             Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
-        CheckClaudeStatusSchedule:
+        ReconcileProviderStatusSchedule:
           Type: Schedule
           Properties:
             Schedule: rate(15 minutes)
-            Input: '{"action": "check_claude_status"}'
+            Input: '{"action": "reconcile_provider_status"}'
         SyncModelUsageSchedule:
           # Minute 50 every hour (UTC): keeps the last local Asia/Shanghai run of
           # a day at 23:50 while also refreshing the current hour. Daily + hourly

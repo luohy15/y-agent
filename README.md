@@ -66,6 +66,7 @@ Two paths, split by whether you run the server or just use one. Each page opens 
 **Server — self-host** (you run the API + worker yourself):
 
 - [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
+- [docs/provider-status.md](docs/provider-status.md) — manually configure the Anthropic Statuspage webhook without storing credentials or failure-notification email in source.
 
 ## Hot-loadable modules
 

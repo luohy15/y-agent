@@ -11,6 +11,7 @@ JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
 PUBLIC_PREFIXES = ("/api/auth", "/api/telegram/webhook", "/api/health", "/docs", "/openapi.json")
+_PROVIDER_STATUS_WEBHOOK_PREFIX = "/api/provider-status/webhook/anthropic/"
 
 # Single-segment path after these prefixes; keys come from PUBLIC_DEMO_SLUGS so
 # middleware and the service share one allowlist authority (todo 3158).
@@ -24,6 +25,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Allow CORS preflight requests
         if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # The opaque path credential is validated by the dedicated receiver. This
+        # is deliberately not a broad public /api/provider-status prefix.
+        if request.method == "POST" and path.startswith(_PROVIDER_STATUS_WEBHOOK_PREFIX):
             return await call_next(request)
 
         # Allow public routes

@@ -74,6 +74,10 @@ The full set the API + worker consume. CLI-only keys (e.g. `Y_AGENT_WEB_URL`) li
 | `Y_AGENT_CLOUDFRONT_DISTRIBUTION_ID` | CDN invalidation after asset upload |
 | `Y_AGENT_TIMEZONE` | IANA tz for calendar / journal / display |
 | `FETCHER_URL` | Optional upstream fetcher for link downloads |
+| `ANTHROPIC_STATUS_WEBHOOK_SECRET` | Opaque path credential for the Anthropic Statuspage receiver. Set it only through the deployment secret parameter. |
+
+For the manual Claude Status subscription procedure, receiver verification limit, retention,
+and rollback behavior, see [provider-status.md](provider-status.md).
 
 ## Agent backends
 

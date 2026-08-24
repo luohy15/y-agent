@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Provider service health (3266)**: host-owned Anthropic Statuspage ingestion now
+  accepts a secret-protected, redacted webhook receipt and reconciles official current
+  and recent incident data for the Bot Provider view. Setup remains manual and the
+  status is explicitly upstream-reported rather than y-agent availability.
 
 ### Changed
 

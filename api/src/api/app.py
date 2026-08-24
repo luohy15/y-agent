@@ -44,6 +44,7 @@ from api.controller.user_preference import router as user_preference_router
 from api.controller.cookies import router as cookies_router
 from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
+from api.controller.provider_status import router as provider_status_router
 from api.controller.module import router as module_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.api_latency import ApiLatencyMiddleware
@@ -87,6 +88,7 @@ api_router.include_router(user_preference_router)
 api_router.include_router(cookies_router)
 api_router.include_router(inline_router)
 api_router.include_router(health_router)
+api_router.include_router(provider_status_router)
 api_router.include_router(module_router)
 app.include_router(api_router)
 

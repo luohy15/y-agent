@@ -123,7 +123,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v11**. The tag module owns
+  Backend host contract (`agent.module_host`) is **v12**. The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -136,6 +136,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolved module child-route identity. Host-owned raw/hourly/daily telemetry is
   rolled up and retained by the worker schedule. The `monitor` module reads it only
   through four configured-maintainer-only `api_latency_*` backend contract v10 queries.
+- **Provider service health** — host-owned `provider_status_*` tables normalize
+  upstream-reported component and incident state. The exact unauthenticated-but-secret
+  Anthropic Statuspage webhook receiver validates the canonical page identity, writes a
+  redacted bounded receipt before 2xx, and is reconciled from the official Status API on
+  the worker schedule. Bot reads only four maintainer-bound v12 host-contract queries.
+  Setup, privacy limits, and manual subscription steps: `docs/provider-status.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -208,6 +214,8 @@ exceptions noted):
 - **English learning**: `english_correction`
 - **Dev / trace**: `dev_worktree`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
+- **Provider status**: `provider_status_source`, `provider_status_component`,
+  `provider_status_incident`, `provider_status_incident_update`, `provider_status_event`
 - **Modules**: `module`, `module_version` (identity + immutable API/UI version rows;
   a version also carries its own `dispatch_scope`, `ui_surfaces`, and `ui_public`, so
   exposure and claimed host slots roll back with the code)
@@ -237,7 +245,8 @@ Grouped by feature area:
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
-- **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing), `vm_config.py`,
+- **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing),
+  `provider_status.py` (exact Anthropic Statuspage receiver), `vm_config.py`,
   `dev_worktree.py`, `tg_topic.py`
 
 ### Agent (`agent/src/agent/`)
@@ -246,12 +255,13 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 11`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 12`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
-  (including `tag_rename_plan` / `tag_rename_apply`), and fixed `api_latency_*`
-  capabilities; `tag_get` todo rows include `updated_at_unix`)
+  (including `tag_rename_plan` / `tag_rename_apply`), fixed `api_latency_*`, and
+  configured-maintainer-only `provider_status_*` capabilities; `tag_get` todo rows
+  include `updated_at_unix`)
 - `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
   import it directly
@@ -267,7 +277,7 @@ Grouped by feature area:
   registration). `_start_detached` handles Lambda lease + handoff.
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB
-- `steps/` — RSS feed fetch, link batch download
+- `steps/` — RSS feed fetch, link batch download, provider-status reconciliation
 - `downloaders/` — SSH wrapper that runs `y link fetch --json` on the user's VM
 - `link_downloader.py`, `process_manager.py`
 - `handler.py` — Lambda SQS event handler (in worker root)
