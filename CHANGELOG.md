@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Email module host prerequisites (3270)**: browser contract v11 adds the `mail`
+  icon and exports `sanitizeEmailHtml` on `@y/host` so the forthcoming email UI
+  module can sanitize HTML without bundling DOMPurify. An additive `openEmailThread`
+  helper is present but unused until the host entry points switch.
 - **Provider service health (3266)**: host-owned Anthropic Statuspage ingestion now
   accepts a secret-protected, redacted webhook receipt and reconciles official current
   and recent incident data for the Bot Provider view. Setup remains manual and the

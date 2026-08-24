@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "externals": [
     "react",
     "react-dom",
@@ -25,6 +25,7 @@
     "box",
     "message",
     "tag",
-    "activity"
+    "activity",
+    "mail"
   ]
 }

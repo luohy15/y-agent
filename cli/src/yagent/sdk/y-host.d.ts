@@ -455,6 +455,11 @@ declare module "@y/host" {
   }
   export function TraceView(props: TraceViewProps): any;
 
+  // sanitizeEmailHtml.ts (contract v11, todo 3270 A3) — host-owned DOMPurify
+  // leaf for untrusted email HTML. Config is whole-document parsing plus the
+  // forbidden-tag list; the module keeps the shadow-root / forced-light wrapper.
+  export function sanitizeEmailHtml(html: string): string;
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.

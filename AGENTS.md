@@ -109,7 +109,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   together, verifies hashes and schema preflight, creates one immutable
   `module_version`, and moves the active pointer. API dispatches
   `/api/module/<slug>/*` via a lazy hash-verified per-version sub-app. Web loader
-  keeps the `@y/host` browser contract (**v10**), integrity check, and error
+  keeps the `@y/host` browser contract (**v11**), integrity check, and error
   boundary, and mounts required `panel`, optional `detail`, and optional `shell`
   (centre column; one claimant, lowest slug wins). `module_version.ui_surfaces`
   records claims; only `shell` is enforced from the column. Publish is gated on

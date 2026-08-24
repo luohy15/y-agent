@@ -1,4 +1,4 @@
-import DOMPurify from "dompurify";
+export { sanitizeEmailHtml } from "../host/sanitizeEmailHtml";
 
 export function formatEmailDate(ts: number): string {
   if (!ts) return "";
@@ -51,18 +51,6 @@ export function splitOwnAndQuoted(s: string | undefined): { own: string; quoted:
 export function isHtmlContent(s: string | undefined): boolean {
   if (!s) return false;
   return /<(?:!doctype|html|head|body|table|div|p|br|span|a|img|style)[\s/>]/i.test(s);
-}
-
-// XSS-safe HTML for rendering an untrusted email body. DOMPurify defaults strip
-// scripts / event handlers / javascript: URIs; on top of that, forbid embedding
-// and form tags. <style> and http(s) <img> stay allowed so emails look right
-// (Gmail-with-images behavior). WHOLE_DOCUMENT keeps <style> blocks that live in
-// <head> of full HTML documents.
-export function sanitizeEmailHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
-    WHOLE_DOCUMENT: true,
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "input", "button", "meta", "link", "base"],
-  });
 }
 
 // Plain-text projection of an HTML body for snippets. DOMParser is inert (no

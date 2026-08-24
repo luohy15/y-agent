@@ -297,6 +297,8 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "extractContent",
   "toggleSelection",
   "selectMessagesByIndices",
+  // sanitizeEmailHtml.ts (contract v11) — pure DOMPurify wrapper, no network.
+  "sanitizeEmailHtml",
 ];
 
 /** The `@y/host` object published to module bytes on a demo page. Same key set

@@ -17,6 +17,7 @@ import {
 } from "../components/badges";
 import { ListEmpty, ListError, ListLoading } from "../components/ListStates";
 import { HOST_CONTRACT_VERSION } from "./contract";
+import { sanitizeEmailHtml } from "./sanitizeEmailHtml";
 import { runHostCommand } from "./commands";
 import { openArtifactDetail, useArtifactIntent } from "./intents";
 import { useDetailContext } from "./detailContext";
@@ -111,6 +112,11 @@ export const hostSdk = {
   // share code stays in the host bundle. Authenticated host FileViewer no longer
   // mounts this tab (todo 3179 H3).
   TraceView,
+
+  // sanitizeEmailHtml.ts (contract v11, todo 3270 A3) — host-owned DOMPurify
+  // leaf. The email module cannot resolve npm deps from its build tree, and the
+  // host already ships DOMPurify for artifacts / markdown export.
+  sanitizeEmailHtml,
 
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
