@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.26] - 2026-08-23
+
+### Added
 - **xAI web and X search bots (3206)**: `grok-web` and `grok-x` provide one-shot,
   source-grounded searches through xAI's native Responses API, return URL citations
   as message links, and can be explicitly selected like other model bots.
