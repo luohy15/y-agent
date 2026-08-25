@@ -49,6 +49,9 @@ The v12 surface adds configured-maintainer-only provider status reads:
   - provider_status_overview / provider_status_incidents / provider_status_incident /
     provider_status_history
 
+The v13 surface adds owner-bound durable vocabulary creation:
+  - tag_create_vocabulary
+
 Every request-bound capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
@@ -97,9 +100,14 @@ from 9 to 10. Tag rename/merge (todo 3219) adds owner-bound
 `tag_rename_plan` / `tag_rename_apply` over coordinated authoring + entity_tag
 rewrites, bumping it from 10 to 11. Provider status reads (todo 3266) add four
 fixed configured-maintainer-only queries over host-owned external-status data,
-bumping it from 11 to 12. Modules declare the minimum version they use and an
-older host rejects their bundle. Every later addition to the surface above
-bumps the version and, for modules that need it, `min_backend_version`.
+bumping it from 11 to 12. Durable canonical tag creation (todo 3290) adds
+owner-bound `tag_create_vocabulary`, a normalize-validate-idempotent-create
+adapter over `storage.service.tag.create_vocabulary` backed by the new
+`tag_vocabulary` table, bumping it from 12 to 13; the tag module raises its
+floor to 13 when it publishes the create route. Modules declare the minimum
+version they use and an older host rejects their bundle. Every later addition
+to the surface above bumps the version and, for modules that need it,
+`min_backend_version`.
 """
 
 from __future__ import annotations
@@ -115,7 +123,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 12
+BACKEND_CONTRACT_VERSION = 13
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -740,7 +748,11 @@ def _require_tag_owner(user_id: int) -> None:
 
 
 def tag_list_vocabulary(user_id: int) -> list[dict[str, Any]]:
-    """Distinct owner-scoped tags with usage counts as plain dictionaries."""
+    """Owner-scoped vocabulary rows with usage counts as plain dictionaries.
+
+    A durably created but never-attached tag (todo 3290) appears here with
+    count 0, so this is no longer just distinct entity_tag values.
+    """
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 
@@ -1021,3 +1033,26 @@ def provider_status_history(
 ) -> dict[str, Any]:
     """Bounded component transition history for one explicit time range."""
     return _provider_status_service(user_id).history(provider, start, end, limit)
+
+
+# ---------------------------------------------------------------------------
+# v13 tag vocabulary-creation capability (todo 3290)
+#
+# Owner-bound durable registration of a canonical tag that can exist with zero
+# entity_tag uses. The host owns normalization, syntax validation, and the
+# idempotent/race-safe create; the module only forwards raw input and renders
+# the returned canonical spelling.
+# ---------------------------------------------------------------------------
+
+
+def tag_create_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
+    """Normalize, validate, and idempotently register a canonical vocabulary tag.
+
+    Returns {"tag": canonical, "created": bool}. Raises ValueError (a
+    storage.service.tag.TagVocabularyError) on blank or syntactically invalid
+    input; callers map that to HTTP 400.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.create_vocabulary(user_id, tag)

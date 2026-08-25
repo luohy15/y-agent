@@ -14,22 +14,32 @@ entity_type (todo 3226) so SQL work stays O(types), not O(rows).
 Todo 3219 adds plan_rename() / apply_rename(): a single-session coordinated
 rename/merge over authoring fields + entity_tag. Carriers are found through
 entity_tag (exact source value); the CLI owns on-disk front matter.
+
+Todo 3290 adds create_vocabulary(): a durable, owner-scoped canonical
+tag_vocabulary row that can exist with zero entity_tag uses. list_vocabulary()
+now left-joins tag_vocabulary with entity_tag so a newly created tag appears
+with count 0, and apply_rename() keeps tag_vocabulary identity coordinated
+with a rename/merge (registers the target, retires the source spelling).
 """
 
 import hashlib
 import importlib
 import json
+import re
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm.attributes import flag_modified
 
 from storage.database.base import get_db
 from storage.entity.entity import EntityEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.note import NoteEntity
+from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.entity.todo import TodoEntity
 from storage.repository import entity_tag as tag_repo
+from storage.repository import tag_vocabulary as vocabulary_repo
 # Re-export write-time normalizers so carriers can keep authoring surfaces
 # (todo.tags / front_matter.tags) in the same canonical form as entity_tag.
 from storage.repository.entity_tag import normalize_tag, normalize_tags  # noqa: F401
@@ -174,8 +184,66 @@ def get_by_tag(user_id: int, tag: str, prefix: bool = False) -> Dict[str, List[D
 
 
 def list_vocabulary(user_id: int) -> List[Tuple[str, int]]:
-    """Distinct tags for the user with usage counts."""
-    return tag_repo.distinct_tags(user_id)
+    """Durable vocabulary tags for the user with usage counts (0 for an unused tag).
+
+    Left-joins tag_vocabulary with entity_tag rather than reading
+    entity_tag.distinct_tags() directly, so a tag created via
+    create_vocabulary() with no carrier yet still appears, with count 0.
+    """
+    with get_db() as session:
+        rows = (
+            session.query(TagVocabularyEntity.tag, func.count(EntityTagEntity.id))
+            .outerjoin(
+                EntityTagEntity,
+                (EntityTagEntity.user_id == TagVocabularyEntity.user_id)
+                & (EntityTagEntity.tag == TagVocabularyEntity.tag),
+            )
+            .filter(TagVocabularyEntity.user_id == user_id)
+            .group_by(TagVocabularyEntity.tag)
+            .order_by(TagVocabularyEntity.tag)
+            .all()
+        )
+        return [(row[0], row[1]) for row in rows]
+
+
+class TagVocabularyError(ValueError):
+    """Caller input failed canonical vocabulary syntax validation."""
+
+
+_TAG_SEGMENT_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _validate_tag_syntax(tag: str) -> None:
+    """Raise TagVocabularyError unless `tag` is slash-delimited lowercase hyphen slugs.
+
+    Each `/`-delimited segment must match `[a-z0-9]+(?:-[a-z0-9]+)*`: empty
+    segments (so leading/trailing/doubled slashes are rejected), whitespace,
+    punctuation other than `-`, and leading/trailing hyphens are all invalid.
+    Semantic rules (identity vs topic, singular/plural, usefulness) are human
+    policy and are deliberately not checked here.
+    """
+    for segment in tag.split("/"):
+        if not segment or not _TAG_SEGMENT_RE.match(segment):
+            raise TagVocabularyError(
+                f"invalid tag syntax: {tag!r} (segment {segment!r} must be "
+                "lowercase alphanumeric words joined by single hyphens)"
+            )
+
+
+def create_vocabulary(user_id: int, tag: str) -> Dict[str, object]:
+    """Normalize, validate, and idempotently register a canonical vocabulary tag.
+
+    Returns {"tag": canonical, "created": bool}; `created` is False when the
+    canonical spelling already exists (including when a concurrent create won
+    the uniqueness race). Raises TagVocabularyError on blank or syntactically
+    invalid input, and never writes on that path.
+    """
+    canonical = normalize_tag(tag)
+    if not canonical:
+        raise TagVocabularyError("tag must not be blank")
+    _validate_tag_syntax(canonical)
+    canonical, created = vocabulary_repo.create(user_id, canonical)
+    return {"tag": canonical, "created": created}
 
 
 # Authoring-surface carriers that predate entity_tag and need a one-shot backfill.
@@ -794,7 +862,9 @@ def apply_rename(
     Recomputes the plan, refuses on plan_hash mismatch or live drift, locks the
     affected authoring and entity_tag rows, rewrites them, appends one
     todo.history entry per touched todo, and post-verifies. Never deletes a
-    carrier or content.
+    carrier or content. Also keeps tag_vocabulary coordinated with the new
+    identity: registers `target`, then retires `source`'s vocabulary row once
+    entity_tag no longer holds it.
     """
     from sqlalchemy.exc import IntegrityError
     from sqlalchemy.orm.exc import NoResultFound
@@ -818,6 +888,13 @@ def apply_rename(
 
             now, now_unix = get_utc_iso8601_timestamp(), get_unix_timestamp()
             private_ops = plan["_projection_ops"]
+
+            # Register the target vocabulary identity before any other pending
+            # write exists in this session: ensure() may use a nested SAVEPOINT
+            # (SQLite) whose flush would otherwise sweep up unrelated pending
+            # authoring/entity_tag changes below and roll them back together
+            # with a spurious vocabulary race.
+            vocabulary_repo.ensure(session, user_id, target)
 
             # Lock every affected authoring + projection row before mutating so a
             # concurrent writer cannot slip a change past the exact-value check.
@@ -884,6 +961,12 @@ def apply_rename(
             session.flush()
 
             _verify_after_apply(session, user_id, plan)
+
+            # The source spelling is retired: entity_tag holds none of it after
+            # a verified rename/merge, so its vocabulary identity should not
+            # linger as a duplicate zero-use row of the tag it was just folded
+            # into or renamed to.
+            session.query(TagVocabularyEntity).filter_by(user_id=user_id, tag=source).delete()
         except TagRenameConflict:
             raise
         except (NoResultFound, IntegrityError) as exc:

@@ -636,6 +636,20 @@ The tag module raises its floor to 11 when it publishes the rename route. The
 host owns the DB half and the fail-closed `plan_hash` gate; the module CLI owns
 on-disk front-matter rewrite, preview/confirm, and the apply journal.
 
+Todo 3290 adds owner-bound durable vocabulary creation (`tag_create_vocabulary`)
+over a new host-owned `tag_vocabulary(user_id, tag)` registry, bumping
+`BACKEND_CONTRACT_VERSION` from 12 to **13** (todo 3266's provider status reads
+had already moved it from 11 to 12). Unlike the `entity_tag` projection, a
+`tag_vocabulary` row can exist with zero carrier uses, so a tag becomes a
+first-class, explicitly creatable identity rather than something only ever
+inferred from tagging a carrier. The host owns normalization, slash-delimited
+lowercase-hyphen syntax validation, and an idempotent, uniqueness-race-safe
+create; every existing normalized `entity_tag` write (any carrier, and
+`tag_rename_apply`, which mutates state, unlike the read-only `tag_rename_plan`)
+also keeps `tag_vocabulary` registered in the same transaction, so the module
+never needs its own vocabulary bookkeeping.
+The tag module raises its floor to 13 when it publishes the create route.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module

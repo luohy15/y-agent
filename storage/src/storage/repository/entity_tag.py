@@ -11,6 +11,12 @@ Write-time normalization (todo 3159 P1): every tag write path lowercases,
 trims, and maps underscore to hyphen. Project tags always use the hyphen form
 even when the repo directory under code/ uses underscores (e.g.
 code/alpha_vantage_mcp → alpha-vantage-mcp). No auto-singularize.
+
+Compatibility registration (todo 3290): add_tag() and sync_tags() also
+register each normalized tag in tag_vocabulary, in the same transaction as
+the entity_tag write, so any caller (including callers that predate the
+create-vocabulary route) keeps the vocabulary durable and the entity_tag
+projection a subset of it.
 """
 
 from typing import Iterable, List, Optional, Tuple, Union
@@ -18,6 +24,7 @@ from typing import Iterable, List, Optional, Tuple, Union
 from sqlalchemy import func
 from storage.entity.entity_tag import EntityTagEntity
 from storage.database.base import get_db
+from storage.repository import tag_vocabulary as vocabulary_repo
 
 
 def normalize_tag(tag: str) -> Optional[str]:
@@ -49,6 +56,12 @@ def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -
     """Reconcile entity_tag rows for (entity_type, entity_id) to exactly `tags`."""
     wanted = set(normalize_tags(tags))
     with get_db() as session:
+        # Register vocabulary before touching entity_tag: ensure() may run a
+        # nested SAVEPOINT on SQLite whose flush would otherwise sweep up any
+        # already-pending entity_tag delete/add and roll it back together with
+        # a spurious vocabulary race.
+        for tag in wanted:
+            vocabulary_repo.ensure(session, user_id, tag)
         existing = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id
         ).all()
@@ -69,6 +82,7 @@ def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
         exists = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
         ).first()
+        vocabulary_repo.ensure(session, user_id, tag)
         if exists:
             return False
         session.add(EntityTagEntity(user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag))

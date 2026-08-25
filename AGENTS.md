@@ -123,12 +123,14 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v12**. The tag module owns
+  Backend host contract (`agent.module_host`) is **v13**. The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
   sorting), exact-tag filters, coordinated `tag_rename_plan` /
-  `tag_rename_apply` (todo 3219), and the `tag.open` navigation adapter.
+  `tag_rename_apply` (todo 3219), the durable owner-scoped `tag_vocabulary`
+  table and `tag_create_vocabulary` (todo 3290), and the `tag.open`
+  navigation adapter.
   Per-module ownership, routes, CLI, and rollback hazards:
   `code/y-module/<slug>/README.md`. Contract: `docs/prd/module-system.md`.
 - **API latency monitoring** — an outer pure-ASGI middleware records one bounded,
@@ -257,13 +259,13 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 12`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 13`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
-  (including `tag_rename_plan` / `tag_rename_apply`), fixed `api_latency_*`, and
-  configured-maintainer-only `provider_status_*` capabilities; `tag_get` todo rows
-  include `updated_at_unix`)
+  (including `tag_create_vocabulary`, `tag_rename_plan` / `tag_rename_apply`),
+  fixed `api_latency_*`, and configured-maintainer-only `provider_status_*`
+  capabilities; `tag_get` todo rows include `updated_at_unix`)
 - `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
   import it directly
