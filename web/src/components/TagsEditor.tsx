@@ -22,6 +22,15 @@ export type TagCommitResult =
   | { kind: "add"; tag: string }
   | { kind: "reject"; hint: string };
 
+export const VOCABULARY_UNAVAILABLE_HINT = "Tag vocabulary is unavailable.";
+
+export function vocabularyUnavailable(
+  allowNew: boolean | undefined,
+  suggestions: readonly string[] | undefined,
+): boolean {
+  return allowNew === false && !suggestions?.length;
+}
+
 export function resolveTagCommit(
   raw: string,
   value: string[],
@@ -33,6 +42,9 @@ export function resolveTagCommit(
   if (allowNew) {
     if (value.includes(trimmed)) return { kind: "noop" };
     return { kind: "add", tag: trimmed };
+  }
+  if (vocabularyUnavailable(false, options.suggestions)) {
+    return { kind: "reject", hint: VOCABULARY_UNAVAILABLE_HINT };
   }
   const canonical =
     options.suggestions?.find((s) => s === trimmed) ??
@@ -127,11 +139,13 @@ export default function TagsEditor({
   const [highlight, setHighlight] = useState(0);
   const [highlightMoved, setHighlightMoved] = useState(false);
 
+  const vocabMissing = vocabularyUnavailable(allowNew, suggestions);
   const matches = useMemo(
     () => filterTagSuggestions(tagInput, suggestions, value),
     [tagInput, suggestions, value],
   );
-  const showList = Boolean(suggestions) && open && matches.length > 0;
+  const showList = !vocabMissing && Boolean(suggestions) && open && matches.length > 0;
+  const shownHint = vocabMissing ? VOCABULARY_UNAVAILABLE_HINT : hint;
 
   const applyCommit = (result: TagCommitResult) => {
     if (result.kind === "add") {
@@ -234,14 +248,15 @@ export default function TagsEditor({
             setOpen(false);
           }}
           placeholder={value.length === 0 ? "Add tags..." : ""}
-          className="flex-1 min-w-[4rem] bg-transparent text-sol-base1 text-xs outline-none"
+          className="flex-1 min-w-[4rem] bg-transparent text-sol-base1 text-xs outline-none disabled:opacity-50"
           autoComplete="off"
-          role={suggestions ? "combobox" : undefined}
-          aria-expanded={suggestions ? showList : undefined}
-          aria-autocomplete={suggestions ? "list" : undefined}
+          disabled={vocabMissing}
+          role={suggestions?.length ? "combobox" : undefined}
+          aria-expanded={suggestions?.length ? showList : undefined}
+          aria-autocomplete={suggestions?.length ? "list" : undefined}
         />
-        {hint && (
-          <span className="w-full text-[0.6rem] text-sol-red">{hint}</span>
+        {shownHint && (
+          <span className="w-full text-[0.6rem] text-sol-red">{shownHint}</span>
         )}
       </div>
       {showList && (

@@ -355,9 +355,9 @@ declare module "@y/host" {
   }): any;
 
   // TagsEditor.tsx (contract v12, todo 3285 S1) — shared chip editor. Todo
-  // detail keeps free-text commits (`allowNew` default true, no suggestions,
-  // no autocomplete). The note surface passes `suggestions` and
-  // `allowNew={false}` and gets a filtered keyboard/mouse list.
+  // detail and the note surface both pass `suggestions` with
+  // `allowNew={false}` (canonical tags only). Omit `suggestions` to keep a
+  // free-text chip field with no list.
   export interface TagsEditorProps {
     value: string[];
     onChange: (next: string[]) => void;

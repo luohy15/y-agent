@@ -120,7 +120,8 @@ export const hostSdk = {
   sanitizeEmailHtml,
 
   // TagsEditor.tsx (contract v12, todo 3285 S1) — shared chip editor used by
-  // host todo detail (free-text) and the file-module note surface (restricted).
+  // host todo detail and the file-module note surface (suggestions +
+  // allowNew={false}, canonical tags only).
   TagsEditor,
 
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /

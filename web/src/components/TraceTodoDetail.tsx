@@ -1,8 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import useSWR from "swr";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { API, jsonFetcher } from "../api";
 import { actionBadgeClass, priorityColorClass } from "./badges";
 import TagsEditor from "./TagsEditor";
+import { tagVocabularyKey, toTagSuggestions } from "./tagVocabulary";
 
 export interface TodoHistoryEntry {
   timestamp: string;
@@ -112,6 +115,12 @@ export default function TraceTodoDetail({
   const progressRef = useRef<HTMLTextAreaElement>(null);
 
   const dirty = Object.keys(patch).length > 0;
+  const { data: tagVocabulary } = useSWR(
+    tagVocabularyKey(API, editable),
+    jsonFetcher,
+    { revalidateOnFocus: false },
+  );
+  const tagSuggestions = useMemo(() => toTagSuggestions(tagVocabulary), [tagVocabulary]);
 
   // Drop the patch buffer when we navigate to a different todo. The parent confirms
   // discard-on-switch via onDirtyChange before actually updating todoInfo.todo_id.
@@ -293,6 +302,8 @@ export default function TraceTodoDetail({
                   key={`${todoInfo.todo_id}-${tagsEditorKey}`}
                   value={tagsValue}
                   onChange={commitTags}
+                  suggestions={tagSuggestions}
+                  allowNew={false}
                 />
 
                 <span className="text-sol-base01 pt-1">Progress</span>
