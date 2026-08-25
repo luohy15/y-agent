@@ -9,14 +9,20 @@ import os
 from fastapi import APIRouter, HTTPException, Request, Response
 from loguru import logger
 
+from storage.database.base import statement_timeout
 from storage.service import provider_status as status_service
 
 router = APIRouter(prefix="/provider-status")
 
+# Statuspage requires a 2xx within 30 seconds of initial connection and deactivates the
+# subscription otherwise, so the one unbounded step in this path gets its own bound. The
+# rest of the budget is a ~7s worst observed cold start plus a 10s connect timeout.
+_DB_STATEMENT_TIMEOUT_SECONDS = 10.0
+
 
 @router.post("/webhook/anthropic/{secret}", status_code=204)
 async def anthropic_webhook(secret: str, request: Request):
-    """Commit a validated Statuspage delivery before returning a 2xx response."""
+    """Commit a Statuspage delivery, or its redacted receipt, before returning a 2xx response."""
     configured_secret = os.environ.get("ANTHROPIC_STATUS_WEBHOOK_SECRET", "")
     if not configured_secret or not hmac.compare_digest(secret, configured_secret):
         logger.warning("provider status webhook rejected: invalid endpoint credential")
@@ -39,9 +45,10 @@ async def anthropic_webhook(secret: str, request: Request):
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise HTTPException(status_code=400, detail="Invalid JSON") from err
     try:
-        inserted = status_service.ingest_envelope(payload, channel="webhook")
+        with statement_timeout(_DB_STATEMENT_TIMEOUT_SECONDS):
+            outcome = status_service.ingest_webhook(payload)
     except ValueError as err:
         logger.warning("provider status webhook rejected: {}", str(err))
         raise HTTPException(status_code=422, detail="Unsupported provider status payload") from err
-    logger.info("provider status webhook accepted provider=anthropic duplicate={}", not inserted)
+    logger.info("provider status webhook accepted provider=anthropic outcome={}", outcome)
     return Response(status_code=204)

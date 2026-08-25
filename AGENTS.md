@@ -140,7 +140,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   upstream-reported component and incident state. The exact unauthenticated-but-secret
   Anthropic Statuspage webhook receiver validates the canonical page identity, writes a
   redacted bounded receipt before 2xx, and is reconciled from the official Status API on
-  the worker schedule. Bot reads only four maintainer-bound v12 host-contract queries.
+  the worker schedule. Statuspage deactivates an endpoint that answers non-2xx within
+  30s, so every canonical-page delivery is acknowledged: one it cannot normalize is kept
+  as an `unhandled` receipt that advances only `last_webhook_receipt_at`. Bot reads only four maintainer-bound v12 host-contract queries.
   Setup, privacy limits, and manual subscription steps: `docs/provider-status.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push

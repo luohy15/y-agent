@@ -88,8 +88,11 @@ def _upsert_source(row, values: dict) -> None:
     if values.get("source_updated_at") is not None and (
         row_updated is None or values["source_updated_at"] >= row_updated
     ):
-        row.indicator = values.get("indicator")
-        row.description = values.get("description")
+        # A webhook reports one component or incident and omits both keys because it carries
+        # no overall page status; only an envelope that carries them may overwrite them.
+        if "indicator" in values:
+            row.indicator = values["indicator"]
+            row.description = values.get("description")
         row.source_updated_at = values["source_updated_at"]
     for field in ("last_webhook_receipt_at", "last_reconciled_at", "last_success_at"):
         value = values.get(field)

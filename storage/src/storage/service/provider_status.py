@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from storage.repository import provider_status as repo
 
 ANTHROPIC_PROVIDER = "anthropic"
@@ -95,9 +97,11 @@ def _component_ref(component: dict) -> tuple[str, str]:
     )
 
 
-def _component(component: dict, observed_at: datetime) -> dict:
-    source_id = _text(component.get("id"), "component id", 128)
-    status = _text(component.get("status"), "component status", 64)
+def _component(component: dict, observed_at: datetime, update: dict | None = None) -> dict:
+    """Statuspage component deliveries keep state in `component` and the transition in `component_update`."""
+    update = update or {}
+    source_id = _text(component.get("id") or update.get("component_id"), "component id", 128)
+    status = _text(component.get("status") or update.get("new_status"), "component status", 64)
     if status not in COMPONENT_STATUSES:
         raise ValueError("unsupported component status")
     return {
@@ -106,7 +110,7 @@ def _component(component: dict, observed_at: datetime) -> dict:
         "name": _text(component.get("name"), "component name", 512),
         "status": status,
         "description": _text(component.get("description"), "component description", 16_384, required=False),
-        "source_updated_at": _parse_time(component.get("updated_at"), "component updated_at"),
+        "source_updated_at": _parse_time(component.get("updated_at") or update.get("created_at"), "component updated_at"),
         "observed_at": observed_at,
     }
 
@@ -177,9 +181,10 @@ def normalize_envelope(envelope: dict, *, channel: str, observed_at: datetime | 
         raise ValueError("invalid webhook meta")
     generated_at = _parse_time(meta.get("generated_at"), "meta generated_at", required=False)
     incident = envelope.get("incident")
-    component = envelope.get("component_update") or envelope.get("component")
+    component = envelope.get("component")
+    component_update = envelope.get("component_update")
     incident_id = envelope.get("incident_ID") or envelope.get("incident_id")
-    kind = "incident" if isinstance(incident, dict) else "component" if isinstance(component, dict) else None
+    kind = "incident" if isinstance(incident, dict) else "component" if isinstance(component, dict) or isinstance(component_update, dict) else None
     if kind is None:
         raise ValueError("unsupported provider status event")
     sanitized = _sanitize(envelope)
@@ -207,7 +212,9 @@ def normalize_envelope(envelope: dict, *, channel: str, observed_at: datetime | 
             raise ValueError("invalid incident update")
         components = [_component(item, observed_at) for item in incident.get("components", [])]
     else:
-        normalized_component = _component(component, observed_at)
+        if not isinstance(component, dict):
+            raise ValueError("missing component state")
+        normalized_component = _component(component, observed_at, component_update if isinstance(component_update, dict) else None)
         components.append(normalized_component)
         event_identifier = normalized_component["source_id"]
         event_status = normalized_component["status"]
@@ -215,8 +222,6 @@ def normalize_envelope(envelope: dict, *, channel: str, observed_at: datetime | 
     source = {
         "provider": ANTHROPIC_PROVIDER,
         **page,
-        "indicator": None,
-        "description": None,
         "source_updated_at": source_timestamp,
         "last_webhook_receipt_at": observed_at if channel == "webhook" else None,
         "last_reconciled_at": observed_at if channel == "reconciliation" else None,
@@ -277,6 +282,58 @@ def normalize_envelope(envelope: dict, *, channel: str, observed_at: datetime | 
 
 def ingest_envelope(envelope: dict, *, channel: str, observed_at: datetime | None = None) -> bool:
     return repo.ingest(normalize_envelope(envelope, channel=channel, observed_at=observed_at))
+
+
+def _unhandled_receipt(envelope: dict, page: dict, observed_at: datetime) -> dict:
+    """Keep bounded redacted provenance for a canonical delivery this normalizer cannot map."""
+    sanitized = _sanitize(envelope)
+    raw_json = json.dumps(sanitized, sort_keys=True, separators=(",", ":"))
+    raw_sha256 = hashlib.sha256(raw_json.encode()).hexdigest()
+    return {
+        "source": {
+            "provider": ANTHROPIC_PROVIDER, **page,
+            "source_updated_at": None, "last_webhook_receipt_at": observed_at,
+            "last_reconciled_at": None, "last_success_at": None,
+        },
+        "components": [],
+        "transitions": [],
+        "incidents": [],
+        "updates": [],
+        "event": {
+            "provider": ANTHROPIC_PROVIDER,
+            "event_key": _event_key("unhandled", raw_sha256, sanitized),
+            "channel": "webhook",
+            "event_kind": "unhandled",
+            "incident_source_id": None,
+            "component_source_id": None,
+            "status": None,
+            "source_timestamp": None,
+            "received_at": observed_at,
+            "raw_sha256": raw_sha256,
+            "raw_json": raw_json,
+            "expires_at": observed_at + EVENT_RETENTION,
+        },
+    }
+
+
+def ingest_webhook(envelope: Any, *, observed_at: datetime | None = None) -> str:
+    """Statuspage deactivates an endpoint that answers non-2xx, so acknowledge every canonical delivery.
+
+    Page identity is still enforced: only a body this normalizer cannot map is downgraded from a
+    rejection to a redacted `unhandled` receipt that records the webhook path is alive without
+    claiming fresh provider state.
+    """
+    if not isinstance(envelope, dict):
+        raise ValueError("webhook body must be a JSON object")
+    observed_at = observed_at or _now()
+    page = _canonical_page(envelope.get("statuspage") or envelope.get("page"))
+    try:
+        normalized = normalize_envelope(envelope, channel="webhook", observed_at=observed_at)
+    except ValueError as err:
+        logger.warning("provider status webhook delivery not normalized: {}", str(err))
+        repo.ingest(_unhandled_receipt(envelope, page, observed_at))
+        return "unhandled"
+    return "ingested" if repo.ingest(normalized) else "duplicate"
 
 
 def ingest_snapshot(summary: dict, incidents: list[dict], *, observed_at: datetime | None = None) -> int:

@@ -49,6 +49,62 @@ It does not accept an application JWT as webhook authentication. Duplicate and
 out-of-order deliveries are retained as bounded, redacted provenance but cannot move
 incident or component state backwards.
 
+## Delivery contract and the answer policy
+
+Statuspage requires a `2xx` **within 30 seconds of initial connection**, treats `3xx`
+as a failure, and deactivates a subscription that keeps failing. Reactivation is only
+possible through the link in the failure email, so any non-2xx answer is an outage of
+the whole intake path, not a single lost delivery.
+
+The receiver therefore answers `2xx` to every delivery that proves it came from the
+canonical Claude Status page, including a body this normalizer cannot map. Such a body
+is stored as a redacted, bounded `unhandled` event and advances
+`last_webhook_receipt_at` only: it never sets `last_success_at` and never writes
+component or incident state, so an unparsed delivery cannot make stale data look fresh.
+
+Non-2xx answers are reserved for requests that are not authentic provider deliveries:
+`404` for a wrong endpoint credential, `413` over the body cap, `400` for a body that
+is not JSON, and `422` for a body that is not a JSON object or does not carry the
+canonical page identity.
+
+The 30-second budget is bounded end to end: a ~7s worst observed cold start, the 10s
+`connect_timeout` in `storage.database.base`, and a 10s `statement_timeout` the
+receiver opts into around its single ingest transaction. A database that is down still
+answers `5xx` rather than acknowledging data it did not persist; scheduled
+reconciliation backfills that window.
+
+## Payload shapes
+
+Two envelope shapes are supported, both taken from Atlassian's published examples and
+matched against live deliveries:
+
+- **Component update** — state lives in `component` (`id`, `name`, `status`) and the
+  transition in `component_update` (`component_id`, `old_status`, `new_status`,
+  `created_at`). `component_update` has **no** `status` field and `component` has no
+  `updated_at`, so the component's timestamp falls back to `component_update.created_at`.
+- **Incident update** — `incident` plus its embedded `incident_updates`, whose
+  `affected_components` may key components by `code` rather than `id`.
+
+Neither shape carries the page's overall status, so a webhook advances component or
+incident state and the receipt timestamps but never overwrites the `indicator` and
+`description` last set by a Status API poll. Overall health comes from reconciliation
+only.
+
+Reading `component_update` as if it were a component is what deactivated the live
+subscription on 2026-08-24: every delivery answered `422 invalid component status`,
+from the initial connection onward, until Statuspage disabled the endpoint. The
+regression lives in `storage/tests/test_provider_status.py`.
+
+## Re-subscribing after a deactivation
+
+Deactivation is announced by email (and forwarded to Telegram). Re-subscription is
+manual, human-gated, and requires explicit approval:
+
+1. Confirm the fix is deployed, then send nothing synthetic to the live endpoint.
+2. Open the link in the deactivation email and re-subscribe the same endpoint URL.
+3. Watch the API log for `provider status webhook accepted provider=anthropic
+   outcome=...`; the endpoint path itself is redacted in access logs.
+
 Raw sanitized webhook provenance is retained for 30 days. Normalized component and
 incident history is retained for 366 days. The receiver redacts unsubscribe URLs,
 secret/token-like fields, email-like fields, and query-bearing URLs before persistence.
