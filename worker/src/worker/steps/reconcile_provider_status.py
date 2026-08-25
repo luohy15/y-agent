@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -25,9 +26,12 @@ async def _get_json(client: httpx.AsyncClient, url: str) -> dict:
             if len(body) > MAX_RESPONSE_BYTES:
                 raise ValueError("provider status response exceeds local limit")
     try:
-        return response.json()
-    except ValueError as err:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise ValueError("provider status response is not JSON") from err
+    if not isinstance(payload, dict):
+        raise ValueError("provider status response is not a JSON object")
+    return payload
 
 
 async def handle_reconcile_provider_status() -> dict:

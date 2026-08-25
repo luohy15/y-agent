@@ -33,6 +33,25 @@ Webhook** to enter that callback and a private failure-notification email. The f
 uses reCAPTCHA, so registration is deliberately human-controlled. Do not automate
 subscription or unsubscription, and do not store the failure email in y-agent.
 
+### Diagnosing a callback credential mismatch
+
+A `404` with the privacy-safe application warning `invalid endpoint credential` means
+the callback path did not exactly match the non-empty runtime credential. It happens
+before page or payload validation. Do not troubleshoot it by replaying traffic or by
+printing either credential, the callback URL, or a hash that could become a durable
+secret identifier.
+
+Compare the runtime credential and the final path segment copied from the Statuspage
+subscription privately: read both through hidden prompts, compare their SHA-256 values
+in memory with `hmac.compare_digest`, and print only `match=true|false` plus their
+lengths. If they differ, determine which side drifted from the intended credential before
+making any separately authorized correction. If they match, check URL encoding and
+deployment parameter provenance without logging the values. The application never
+generates or rotates this credential. Both the GitHub Actions workflow and
+`scripts/deploy.sh` must forward the configured secret-store value as
+`AnthropicStatusWebhookSecret`; otherwise a manual deploy can drift from the callback
+registered with Statuspage.
+
 ## Verification boundary and privacy
 
 Claude Status uses Atlassian Statuspage. Its public documentation describes endpoint
@@ -94,6 +113,19 @@ Reading `component_update` as if it were a component is what deactivated the liv
 subscription on 2026-08-24: every delivery answered `422 invalid component status`,
 from the initial connection onward, until Statuspage disabled the endpoint. The
 regression lives in `storage/tests/test_provider_status.py`.
+
+## Reconciliation transport
+
+The scheduled worker streams `summary.json` and `incidents.json` so it can enforce a
+512 KiB local limit without trusting `Content-Length`. It parses the bytes collected by
+that bounded read directly. Do not call `response.json()` after consuming an HTTPX
+stream with `aiter_bytes()`: streaming responses do not populate `response.content`, so
+that call raises `ResponseNotRead` even though every byte was received.
+
+A successful poll validates the canonical page and advances reconciliation freshness.
+A transport, size, JSON, identity, or persistence failure leaves the previous snapshot
+and freshness unchanged. The focused transport regression lives in
+`worker/tests/test_reconcile_provider_status.py`.
 
 ## Re-subscribing after a deactivation
 
