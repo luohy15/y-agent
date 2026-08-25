@@ -33,3 +33,7 @@ def last_success_at(action: str) -> datetime | None:
 
 def is_locked(action: str, ttl_seconds: int = 840) -> bool:
     return pipeline_lock_repo.is_locked(action, ttl_seconds=ttl_seconds)
+
+
+def try_acquire_exclusive_lock(action: str, ttl_seconds: int) -> bool:
+    return pipeline_lock_repo.try_acquire_exclusive_lock(action, ttl_seconds=ttl_seconds)

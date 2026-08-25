@@ -138,6 +138,11 @@ once the module reaches parity, so exactly one email presentation exists.
     unchanged, so that agents and scripts that read mail are unaffected.
 32. As the owner, I want mail to stay owner-scoped on every read path, so that
     no surface can serve another account's mail.
+32a. As a user, I want a per-account sync action in the account manager that
+     runs the existing host Gmail sync for that address only, so that new starred
+     mail appears without leaving the UI or mixing accounts. Duplicate clicks
+     while that account is already syncing are rejected; other accounts stay
+     independent.
 
 ### Module lifecycle and failure isolation
 
@@ -186,6 +191,36 @@ stay host-owned. Three facts drive this:
 
 The module UI calls the existing host routes with the SDK's authenticated fetch,
 exactly as the Todo and Calendar modules call their host routes.
+
+### Explicit per-account sync stays host-owned
+
+The Email module remains `ui` only. Browser code must not call
+`/api/email/account/credentials` and must not speak IMAP. A host-owned
+`POST /api/email/account/{address}/sync` validates that the address is
+registered for the caller, acquires an owner-and-account lock, runs
+`y email sync-gmail --account <address> --json` through VM execution, and
+returns a bounded `{status, address, count, summary}` envelope. Failures map to
+non-2xx with a safe message. Credentials, internal integer user ids, and the
+raw command log are never returned.
+
+This is an explicit manual UI action, not scheduled or automatic sync. The CLI
+fan-out over every registered account is unchanged; `--json` is an additive
+result mode around the same `_sync_account` pipeline.
+
+A representative per-account run of `luohycs@gmail.com` on 2026-08-25 completed
+in 10.33s (24 starred threads / 42 messages). CloudFront's custom origin read
+timeout defaults to 30s and is not overridden in `template.yaml`. The route
+stays synchronous: it probes `is_vm_asleep` (read-only, never starts the
+instance) before acquiring the lock and returns 503 when the VM is stopped, so
+`ssh_exec` never runs the unbounded `ensure_and_touch_vm` cold-boot prelude.
+The VM command then runs with `wake=False` and a 26s timeout (30s minus 4s of
+lock/probe/response overhead). If a later measured run exceeds that remaining
+budget, replace the route with an asynchronous job rather than raising the
+timeout past CloudFront.
+
+`pipeline_lock.try_acquire_lock` fails open and is not atomic, so this route
+uses `try_acquire_exclusive_lock` keyed by `email-sync:{user_id}:{address}`.
+The lock TTL (60s) is longer than the command timeout as a stale-lock backstop.
 
 ### Surfaces and the retired tab
 
@@ -312,7 +347,9 @@ Test files remain local-only and untracked.
   decorative.
 - **Broadening Gmail access.** Still IMAP with app passwords over starred
   threads; no Gmail API, no OAuth mailbox scopes, no additional folders.
-- **Scheduled or automatic sync.** `y email sync-gmail` stays manual.
+- **Scheduled or automatic sync.** `y email sync-gmail` stays a manual CLI, and
+  the UI action is an explicit per-account trigger of that same command. No
+  background schedule, all-account UI sync, progress streaming, or cancellation.
 - **Real read/unread or starred state**, and any notification surface.
 - **A public demo surface or anonymous access** to the domain.
 - **Treating every registered account address as "me"** in the recipients line;
@@ -334,3 +371,4 @@ Test files remain local-only and untracked.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 3270 | Migrated email presentation to the versioned `email` UI module while retaining host tables / HTTP / CLI / tag carrier; retired the `email.md` tab, host selection state, and legacy host surface after live parity approval. | - | `pages/plan-3270-email-module.md` | - | `pages/review-3270-email-host-prerequisites.md`; `pages/review-3270-email-module.md`; `pages/review-3270-email-host-retirement.md` | shipped |
+| 3287 | Host per-account sync route (`POST /api/email/account/{address}/sync`) with exclusive lock + `y email sync-gmail --json`; SDK build scans/hashes `code/y-module/shared/ui`. Module copy-thread-id UI and account-manager sync controls follow in `y-module`. | - | `pages/plan-3287-email-sync-copy-thread-id.md` | - | `pages/review-3287-email-sync-host.md` | implementing |

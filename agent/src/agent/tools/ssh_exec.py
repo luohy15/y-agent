@@ -59,14 +59,23 @@ def _shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
-async def ssh_exec(vm_config: VmConfig, cmd: list[str], stdin: str | None = None, dir: str | None = None, timeout: float = 30, check: bool = False) -> str:
+async def ssh_exec(
+    vm_config: VmConfig,
+    cmd: list[str],
+    stdin: str | None = None,
+    dir: str | None = None,
+    timeout: float = 30,
+    check: bool = False,
+    wake: bool = True,
+) -> str:
     # Off the loop: this prelude can do a boto3 describe/start, an SSH-ready
     # poll, and a DB write, and running it inline blocked the caller's event
     # loop — which defeats any timeout the caller wrapped around this call
     # (todo 3226: the usage-limit sweep bounds each user that way). Its own
     # wall clock is bounded in agent.ec2_wake, not here: a cancelled caller
     # abandons this thread and only the operation itself can end it.
-    await _offload(ensure_and_touch_vm, vm_config)
+    if wake:
+        await _offload(ensure_and_touch_vm, vm_config)
     user, host, port = _parse_ssh_target(vm_config.vm_name)
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 

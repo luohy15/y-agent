@@ -1,16 +1,58 @@
+import asyncio
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from loguru import logger
 from pydantic import BaseModel
 
+from agent.config import resolve_vm_config
+from agent.ec2_wake import is_vm_asleep
+from agent.tools.errors import CommandError
+from agent.vm_command import run_vm_command as _exec
 from storage.service import email as email_service
 from storage.service import email_account as email_account_service
+from storage.service import pipeline_lock as pipeline_lock_service
 
 router = APIRouter(prefix="/email")
+
+# CloudFront's custom origin read timeout defaults to 30s and is not overridden.
+# The route refuses a stopped VM before acquiring the lock (so ssh_exec never
+# runs the unbounded ensure_and_touch_vm cold-boot prelude), then sizes the
+# command timeout from the remaining budget. A representative per-account run of
+# luohycs@gmail.com on 2026-08-25 completed in 10.33s.
+_CLOUDFRONT_ORIGIN_TIMEOUT_SECONDS = 30.0
+_SYNC_OVERHEAD_SECONDS = 4.0
+_SYNC_TIMEOUT_SECONDS = _CLOUDFRONT_ORIGIN_TIMEOUT_SECONDS - _SYNC_OVERHEAD_SECONDS
+_SYNC_LOCK_TTL_SECONDS = 60
 
 
 def _get_user_id(request: Request) -> int:
     return request.state.user_id
+
+
+def _sync_lock_action(user_id: int, address: str) -> str:
+    return f"email-sync:{user_id}:{address}"
+
+
+def _parse_sync_summary(output: str, address: str) -> dict:
+    for line in reversed((output or "").splitlines()):
+        line = line.strip()
+        if not (line.startswith("{") and line.endswith("}")):
+            continue
+        try:
+            candidate = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict) and candidate.get("status") == "ok":
+            count = int(candidate.get("count") or 0)
+            return {
+                "status": "ok",
+                "address": candidate.get("address") or address,
+                "count": count,
+                "summary": f"Synced {count} new emails for {address}.",
+            }
+    raise HTTPException(status_code=502, detail="Email sync failed")
 
 
 class EmailItem(BaseModel):
@@ -67,6 +109,49 @@ async def delete_email_account(address: str, request: Request):
     if not email_account_service.delete_account(user_id, address):
         raise HTTPException(status_code=404, detail="Account not found")
     return {"ok": True, "address": address}
+
+
+@router.post("/account/{address}/sync")
+async def sync_email_account(address: str, request: Request):
+    """Run host-owned `y email sync-gmail --account` for one registered account."""
+    user_id = _get_user_id(request)
+    address = address.strip()
+    if not address or email_account_service.get_account(user_id, address) is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    vm_config = resolve_vm_config(user_id)
+    if await asyncio.to_thread(is_vm_asleep, vm_config):
+        raise HTTPException(
+            status_code=503,
+            detail="VM is stopped; retry after it is running",
+        )
+
+    lock_action = _sync_lock_action(user_id, address)
+    if not pipeline_lock_service.try_acquire_exclusive_lock(
+        lock_action, ttl_seconds=_SYNC_LOCK_TTL_SECONDS,
+    ):
+        raise HTTPException(status_code=409, detail="Sync already in progress")
+
+    try:
+        output = await _exec(
+            user_id,
+            ["y", "email", "sync-gmail", "--account", address, "--json"],
+            timeout=_SYNC_TIMEOUT_SECONDS,
+            check=True,
+            wake=False,
+        )
+    except CommandError as exc:
+        logger.warning("email sync failed address={} exit_code={}", address, exc.exit_code)
+        if exc.exit_code == -1:
+            raise HTTPException(status_code=504, detail="Email sync timed out") from None
+        raise HTTPException(status_code=502, detail="Email sync failed") from None
+    except Exception:
+        logger.exception("email sync failed address={}", address)
+        raise HTTPException(status_code=502, detail="Email sync failed") from None
+    finally:
+        pipeline_lock_service.release_lock(lock_action)
+
+    return _parse_sync_summary(output, address)
 
 
 @router.post("/batch")

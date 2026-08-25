@@ -3,9 +3,13 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
+
 from storage.entity.pipeline_lock import PipelineLockEntity
 from storage.database.base import get_db
-from storage.util import get_utc_iso8601_timestamp
+from storage.util import format_utc_iso8601, get_utc_iso8601_timestamp
 
 
 def _parse_iso8601(value: str) -> Optional[datetime]:
@@ -101,3 +105,44 @@ def is_locked(action: str, ttl_seconds: int = 840) -> bool:
         if locked_at is None:
             return False
         return locked_at >= cutoff
+
+
+def try_acquire_exclusive_lock(action: str, ttl_seconds: int) -> bool:
+    """Atomically acquire a lock. Concurrent callers cannot both succeed.
+
+    Unlike try_acquire_lock, this does not fail-open: a DB error propagates.
+    Insert uses a uniqueness conflict, and a live lock is taken only by a
+    compare-and-set update on an expired timestamp.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=ttl_seconds)
+    now_iso = get_utc_iso8601_timestamp()
+    cutoff_iso = format_utc_iso8601(cutoff)
+    with get_db() as session:
+        table = PipelineLockEntity.__table__
+        dialect = session.get_bind().dialect.name
+        if dialect == "postgresql":
+            statement = (
+                pg_insert(table)
+                .values(action=action, locked_at=now_iso)
+                .on_conflict_do_update(
+                    index_elements=("action",),
+                    set_={"locked_at": now_iso},
+                    where=table.c.locked_at < cutoff_iso,
+                )
+                .returning(table.c.action)
+            )
+            return session.execute(statement).scalar_one_or_none() is not None
+        try:
+            with session.begin_nested():
+                session.add(PipelineLockEntity(action=action, locked_at=now_iso))
+                session.flush()
+            return True
+        except IntegrityError:
+            result = session.execute(
+                update(table)
+                .where(table.c.action == action)
+                .where(table.c.locked_at < cutoff_iso)
+                .values(locked_at=now_iso)
+            )
+            return result.rowcount == 1

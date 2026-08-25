@@ -1,5 +1,6 @@
 import imaplib
 import email
+import json
 import re
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
@@ -107,9 +108,9 @@ def _extract_thread_id(fetch_response):
     return None
 
 
-def _sync_account(email_addr, password, limit, batch_size):
+def _sync_account(email_addr, password, limit, batch_size, echo=click.echo):
     """Sync one account's starred threads via IMAP. Returns count of new emails."""
-    click.echo(f"Connecting to Gmail IMAP as {email_addr}...")
+    echo(f"Connecting to Gmail IMAP as {email_addr}...")
 
     imap = imaplib.IMAP4_SSL('imap.gmail.com', 993)
     try:
@@ -120,11 +121,11 @@ def _sync_account(email_addr, password, limit, batch_size):
         _, data = imap.search(None, 'ALL')
         msg_nums = data[0].split()
         if not msg_nums:
-            click.echo("No starred emails found.")
+            echo("No starred emails found.")
             return 0
 
         msg_nums = msg_nums[-limit:]
-        click.echo(f"Found {len(msg_nums)} starred emails. Fetching thread IDs...")
+        echo(f"Found {len(msg_nums)} starred emails. Fetching thread IDs...")
 
         # Collect unique thread IDs from starred emails
         thread_ids = set()
@@ -136,7 +137,7 @@ def _sync_account(email_addr, password, limit, batch_size):
             if tid:
                 thread_ids.add(tid)
 
-        click.echo(f"Found {len(thread_ids)} unique threads. Fetching full threads from All Mail...")
+        echo(f"Found {len(thread_ids)} unique threads. Fetching full threads from All Mail...")
 
         # Step 2: Switch to All Mail and fetch all messages in each thread
         imap.select('"[Gmail]/All Mail"', readonly=True)
@@ -165,10 +166,10 @@ def _sync_account(email_addr, password, limit, batch_size):
         imap.logout()
 
     if not emails:
-        click.echo("No emails parsed successfully.")
+        echo("No emails parsed successfully.")
         return 0
 
-    click.echo(f"Parsed {len(emails)} emails across {len(thread_ids)} threads. Uploading...")
+    echo(f"Parsed {len(emails)} emails across {len(thread_ids)} threads. Uploading...")
 
     total = 0
     for i in range(0, len(emails), batch_size):
@@ -176,7 +177,7 @@ def _sync_account(email_addr, password, limit, batch_size):
         resp = api_request("POST", "/api/email/batch", json={"emails": batch, "account": email_addr})
         total += resp.json().get("count", 0)
 
-    click.echo(f"Synced {total} new emails for {email_addr}.")
+    echo(f"Synced {total} new emails for {email_addr}.")
     return total
 
 
@@ -187,7 +188,9 @@ def _sync_account(email_addr, password, limit, batch_size):
               help='Max starred emails to fetch per account (default: 100)')
 @click.option('--batch-size', '-b', default=50, type=int,
               help='Batch size for API uploads (default: 50)')
-def email_sync_gmail(account, limit, batch_size):
+@click.option('--json', 'as_json', is_flag=True,
+              help='Print a one-line JSON summary instead of human progress text')
+def email_sync_gmail(account, limit, batch_size, as_json):
     """Sync starred emails and their full threads from Gmail via IMAP.
 
     Fans out over all registered accounts (see `y email account list`).
@@ -201,8 +204,21 @@ def email_sync_gmail(account, limit, batch_size):
     if not accounts:
         raise click.ClickException("No accounts registered. Run: y email account add <address> <app_password>")
 
+    echo = (lambda *_args, **_kwargs: None) if as_json else click.echo
     total = 0
+    per_account = []
     for a in accounts:
-        total += _sync_account(a["address"], a["app_password"], limit, batch_size)
+        count = _sync_account(
+            a["address"], a["app_password"], limit, batch_size, echo=echo,
+        )
+        total += count
+        per_account.append({"address": a["address"], "count": count})
+
+    if as_json:
+        payload = {"status": "ok", "count": total, "accounts": per_account}
+        if account:
+            payload["address"] = account
+        click.echo(json.dumps(payload, ensure_ascii=False))
+        return
 
     click.echo(f"Synced {total} new emails across {len(accounts)} account(s).")

@@ -63,5 +63,13 @@ surfaces (`panel`, optional `detail`, optional `shell`, optional `demo`).
 `.tsx` and `.ts` file in that tree in `source_digest`, so edits to a sibling file
 change the manifest as well as the output bundle.
 
+When `code/y-module/shared/ui/` exists, the same Tailwind scan and
+`source_digest` also cover `shared/ui/**/*.{tsx,ts}`. That directory is for
+value-agnostic leaf UI imported by more than one module (for example a copy
+button). It is not the `common` module: `common` vendors Python and shared
+tables into an API zip. Shared UI is compile-time source only; esbuild still
+emits a self-contained per-module bundle, and there is no separately published
+shared UI runtime.
+
 No `contract.json` change is needed for this. It is a build-recipe change, not
 a change to what the host provides.

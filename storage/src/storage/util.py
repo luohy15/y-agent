@@ -109,13 +109,17 @@ def apply_time_filter(
 
     return query
 
+def format_utc_iso8601(value: datetime) -> str:
+    """UTC ISO 8601 with ms precision and Z suffix, comparable as a string."""
+    now = value.astimezone(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
 def get_utc_iso8601_timestamp() -> str:
     """Get current UTC time as ISO 8601 string with ms precision and Z suffix.
     Example: '2025-04-28T04:08:29.568Z'
     """
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    return format_utc_iso8601(datetime.now(timezone.utc))
 
 def generate_id() -> str:
     """Generate a unique ID (6 hex characters)."""
