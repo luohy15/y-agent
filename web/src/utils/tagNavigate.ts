@@ -4,6 +4,7 @@ import { API, authFetch } from "../api";
 import type { SidebarPanel } from "../components/ActivityBar";
 import { artifactPanelKey } from "../host/artifacts";
 import { openCalendarFocusDate } from "./calendarNavigate";
+import { openEmailThread } from "./emailNavigate";
 import { openTodoDetail } from "./todoDetailNavigate";
 
 export interface TagResultItem {
@@ -40,8 +41,6 @@ export interface TagNavigateDeps extends OpenTodoDeps {
   setSelectedLinkLinkId: (id: string | null) => void;
   setSelectedLinkContentKey: (key: string | null) => void;
   handleSelectFeed: (feedId: string, label: string) => void;
-  setSelectedThreadId: (id: string | null) => void;
-  setSelectedThreadAccount: (account: string | null) => void;
   setSidebarPanel: (panel: SidebarPanel) => void;
 }
 
@@ -89,8 +88,8 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
     case "email":
       authFetch(`${API}/api/email/${encodeURIComponent(item.id)}`)
         .then((r) => r.json())
-        .then((d) => { deps.setSelectedThreadId(d.thread_id || d.email_id || item.id); deps.setSelectedThreadAccount(d.account || null); deps.handleOpenFile("email.md"); })
-        .catch(() => { deps.setSidebarPanel("email"); });
+        .then((d) => openEmailThread(d.thread_id || d.email_id || item.id, d.account || "", deps.handleOpenFile))
+        .catch(() => { deps.setSidebarPanel(artifactPanelKey("email")); });
       break;
     case "reminder":
       deps.setSidebarPanel("reminder");

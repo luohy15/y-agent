@@ -3,7 +3,6 @@ import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
-import EmailViewer from "./EmailViewer";
 import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
@@ -41,8 +40,6 @@ interface FileViewerProps {
   selectedLinkContentKey?: string | null;
   selectedEntityId?: string | null;
   selectedCorrectionId?: string | null;
-  selectedThreadId?: string | null;
-  selectedThreadAccount?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
@@ -608,7 +605,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedThreadId, selectedThreadAccount, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -622,7 +619,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isLinksMd = !isDiff && activeFileName === "links.md";
   const isEntityPreview = !isDiff && activeFileName === "entity.md";
   const isEnglishPreview = !isDiff && activeFileName === "english.md";
-  const isEmail = !isDiff && activeFileName === "email.md";
   const isDev = !isDiff && activeFileName.endsWith("dev.md");
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
@@ -675,15 +671,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/english/"));
       return;
     }
-    if (isEmail) {
-      mutate((key) => typeof key === "string" && key.includes("/api/email/"));
-      return;
-    }
     if (isDev) {
       mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
       return;
     }
-  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isEmail, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
 
   if (mode === "public") {
     return (
@@ -837,13 +829,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileLinksMd = !fileDiff && !ordinaryTab && fileName === "links.md";
           const fileEntityPreview = !fileDiff && !ordinaryTab && fileName === "entity.md";
           const fileEnglishPreview = !fileDiff && !ordinaryTab && fileName === "english.md";
-          const fileEmail = !fileDiff && !ordinaryTab && fileName === "email.md";
           const fileDev = !fileDiff && !ordinaryTab && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileEmail || fileDev || fileDiff || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDev || fileDiff || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -916,8 +907,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                 />
               ) : fileEnglishPreview ? (
                 <EnglishView correctionId={selectedCorrectionId || ""} />
-              ) : fileEmail ? (
-                <EmailViewer threadId={selectedThreadId || null} account={selectedThreadAccount || null} />
               ) : fileDev ? (
                 <DevViewer />
               ) : (

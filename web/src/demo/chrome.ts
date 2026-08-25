@@ -26,7 +26,7 @@ export const DEMO_LEFT_UNAVAILABLE = [
   "artifact:calendar",
   "reminder",
   "routine",
-  "email",
+  "artifact:email",
   "english",
   "rss",
   "dev",

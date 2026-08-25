@@ -174,7 +174,6 @@ export function isHostWorkspaceTab(path: string): boolean {
     || name === "links.md"
     || name === "entity.md"
     || name === "english.md"
-    || name === "email.md"
     || name.endsWith("dev.md")
   );
 }

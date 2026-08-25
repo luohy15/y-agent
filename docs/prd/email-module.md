@@ -333,4 +333,4 @@ Test files remain local-only and untracked.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3270 | Migrate email to the module architecture: an `email` UI module owning the panel and thread reader, host retaining tables / HTTP / CLI / tag carrier, then retirement of the `email.md` reserved tab, host selection state, and legacy host surface. Spans y-agent host and y-module. | - | `pages/plan-3270-email-module.md` | - | `pages/review-3270-email-host-prerequisites.md` | Stage A reviewed |
+| 3270 | Migrated email presentation to the versioned `email` UI module while retaining host tables / HTTP / CLI / tag carrier; retired the `email.md` tab, host selection state, and legacy host surface after live parity approval. | - | `pages/plan-3270-email-module.md` | - | `pages/review-3270-email-host-prerequisites.md`; `pages/review-3270-email-module.md`; `pages/review-3270-email-host-retirement.md` | reviewed; deploy pending |

@@ -15,7 +15,6 @@ import CentreModeTabs from "./components/shell/CentreModeTabs";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
-import EmailList from "./components/EmailList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
@@ -107,7 +106,7 @@ interface BotConfigItem {
 // `trace.md` is the authenticated host special retired by todo 3179 H3
 // (selection now lives in the Todo module detail). Public `/t/:shareId`
 // keeps its own permanent tab and is not in this set.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md"]);
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md"]);
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
 // four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
@@ -226,7 +225,8 @@ export default function App() {
       raw === "files" ? "artifact:file"
         : raw === "notes" ? "artifact:note"
           : raw === "tags" ? "artifact:tag"
-            : raw
+            : raw === "email" ? "artifact:email"
+              : raw
     ) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
@@ -244,8 +244,6 @@ export default function App() {
   const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(() => localStorage.getItem("selectedEntityId") || null);
   const [selectedCorrectionId, setSelectedCorrectionId] = useState<string | null>(() => localStorage.getItem("selectedCorrectionId") || null);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => localStorage.getItem("selectedThreadId") || null);
-  const [selectedThreadAccount, setSelectedThreadAccount] = useState<string | null>(() => localStorage.getItem("selectedThreadAccount") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [, setChatRefreshKey] = useState(0);
@@ -327,8 +325,6 @@ export default function App() {
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
   useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
   useEffect(() => { if (selectedCorrectionId) localStorage.setItem("selectedCorrectionId", selectedCorrectionId); else localStorage.removeItem("selectedCorrectionId"); }, [selectedCorrectionId]);
-  useEffect(() => { if (selectedThreadId) localStorage.setItem("selectedThreadId", selectedThreadId); else localStorage.removeItem("selectedThreadId"); }, [selectedThreadId]);
-  useEffect(() => { if (selectedThreadAccount) localStorage.setItem("selectedThreadAccount", selectedThreadAccount); else localStorage.removeItem("selectedThreadAccount"); }, [selectedThreadAccount]);
 
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
@@ -1295,8 +1291,6 @@ export default function App() {
       setSelectedLinkLinkId,
       setSelectedLinkContentKey,
       handleSelectFeed,
-      setSelectedThreadId,
-      setSelectedThreadAccount,
       setSidebarPanel,
     });
     if (window.innerWidth < 768) setSidebarOpen(false);
@@ -1599,8 +1593,6 @@ export default function App() {
                 </div>
               ) : sidebarPanel === "links" ? (
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
-              ) : sidebarPanel === "email" ? (
-                <EmailList isLoggedIn={auth.isLoggedIn} selectedThreadId={selectedThreadId} onSelectEmail={(email) => { setSelectedThreadId(email.thread_id || email.email_id); setSelectedThreadAccount(email.account || null); handleOpenFile("email.md"); }} />
               ) : sidebarPanel === "rss" ? (
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
               ) : sidebarPanel === "entity" ? (
@@ -1687,7 +1679,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedThreadId={selectedThreadId} selectedThreadAccount={selectedThreadAccount} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live
