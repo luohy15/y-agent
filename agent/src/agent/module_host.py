@@ -781,7 +781,7 @@ def tag_add(
     entity_id: str,
     tags: List[str],
 ) -> dict[str, list[str]]:
-    """Add projection tags for one owner-scoped entity; returns newly added tags."""
+    """Add projection tags for one owner-scoped entity; email entity IDs are thread keys."""
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 
@@ -799,7 +799,7 @@ def tag_remove(
     entity_id: str,
     tags: List[str],
 ) -> dict[str, list[str]]:
-    """Remove projection tags for one owner-scoped entity; returns removed tags."""
+    """Remove projection tags for one owner-scoped entity; email entity IDs are thread keys."""
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 

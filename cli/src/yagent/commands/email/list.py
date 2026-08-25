@@ -7,7 +7,7 @@ from yagent.time_filter import collect_time_params, time_filter_options
 @click.command('list')
 @click.option('--query', '-q', default=None, help='Search by subject, from, or content')
 @click.option('--account', '-a', default=None, help='Filter by connected account address')
-@click.option('--tag', default=None, help='Filter by tag')
+@click.option('--tag', default=None, help='Filter by thread tag')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max emails to return')
 @click.option('--offset', '-o', default=0, help='Offset for pagination')

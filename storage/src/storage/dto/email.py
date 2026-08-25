@@ -13,6 +13,7 @@ class Email:
     content: Optional[str] = None
     thread_id: Optional[str] = None
     thread_count: Optional[int] = None
+    tags: Optional[List[str]] = None
     account: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -32,6 +33,7 @@ class Email:
             content=data.get('content'),
             thread_id=data.get('thread_id'),
             thread_count=data.get('thread_count'),
+            tags=data.get('tags'),
             account=data.get('account'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
@@ -59,6 +61,8 @@ class Email:
             result['thread_id'] = self.thread_id
         if self.thread_count is not None:
             result['thread_count'] = self.thread_count
+        if self.tags is not None:
+            result['tags'] = self.tags
         if self.account is not None:
             result['account'] = self.account
         if self.created_at is not None:

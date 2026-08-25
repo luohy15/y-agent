@@ -4,6 +4,7 @@ from .account import email_account_group
 from .get import email_get
 from .list import email_list
 from .sync_gmail import email_sync_gmail
+from .tag import email_tag_group
 
 
 @click.group('email')
@@ -16,3 +17,4 @@ email_group.add_command(email_account_group)
 email_group.add_command(email_get)
 email_group.add_command(email_list)
 email_group.add_command(email_sync_gmail)
+email_group.add_command(email_tag_group)

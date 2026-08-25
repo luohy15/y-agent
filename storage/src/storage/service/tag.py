@@ -1,8 +1,9 @@
 """Tag service — cross-entity tag projection and lookup.
 
 sync_tags() is the shared projection helper carrier slices (note/entity/todo
-authoring surfaces, and the 7 direct entity_tag carriers) call to keep
-entity_tag in sync with their own tag source of truth.
+authoring surfaces and direct entity_tag carriers) call to keep entity_tag in
+sync with their own tag source of truth. Email is the exception: its service
+validates canonical thread keys and existing vocabulary before it writes.
 
 Phase-2 carrier modules register their batch hydration resolvers via
 register_resolver() from their own service module (do not edit the built-in
@@ -78,10 +79,16 @@ def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -
 
 
 def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
+    if entity_type == "email":
+        from storage.service import email as email_service
+        return email_service.add_tag(user_id, entity_id, tag)
     return tag_repo.add_tag(user_id, entity_type, entity_id, tag)
 
 
 def remove_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
+    if entity_type == "email":
+        from storage.service import email as email_service
+        return email_service.remove_tag(user_id, entity_id, tag)
     return tag_repo.remove_tag(user_id, entity_type, entity_id, tag)
 
 
@@ -312,7 +319,7 @@ def backfill_tags(
 
     Uses sync_tags so re-runs are idempotent (reconcile, no duplicates).
     Skips items with no tags (does not wipe rows added via y tag add alone).
-    Scoped to one user. The 7 direct carriers had no prior tags.
+    Scoped to one user. Direct carriers have no authoring-column backfill.
     """
     wanted = set(entity_types) if entity_types else set(_BACKFILL_TYPES)
     unknown = wanted - set(_BACKFILL_TYPES)

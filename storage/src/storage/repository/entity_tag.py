@@ -3,9 +3,10 @@
 entity_tag is the single cross-entity queryable tag projection: rows are
 (user_id, entity_type, entity_id, tag). Each carrier entity keeps its own
 authoring surface (e.g. note.front_matter.tags, todo.tags) and calls
-sync_tags() to reconcile the projection; the 7 direct carriers (chat,
-calendar_event, reminder, routine, link, email, rss_feed) write here directly
-via add_tag/remove_tag.
+sync_tags() to reconcile the projection; direct carriers write here with
+add_tag/remove_tag. Email is the exception: its service validates canonical
+thread keys and, for additions, existing vocabulary before writing through its
+dedicated repository helpers.
 
 Write-time normalization (todo 3159 P1): every tag write path lowercases,
 trims, and maps underscore to hyphen. Project tags always use the hyphen form

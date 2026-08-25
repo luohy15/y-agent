@@ -46,11 +46,9 @@ export interface TagNavigateDeps extends OpenTodoDeps {
 
 // One type-dispatch callback covering all 10 tag carriers, reusing each
 // type's existing viewer/detail path rather than duplicating cards.
-// calendar_event/email need a small detail fetch because the tag drill-down
-// result omits start time / thread+account metadata; on a failed or
-// incomplete fetch they fall back to switching to the owning panel (the same
-// fallback the plan explicitly allows for reminder/routine) instead of
-// silently doing nothing.
+// calendar_event needs a detail fetch because the tag drill-down result omits
+// start time metadata. Email result ids are canonical thread keys, so they open
+// directly. Invalid payloads or failures fall back to the owning panel.
 export function navigateTag(entityType: string, item: TagResultItem, deps: TagNavigateDeps): void {
   switch (entityType) {
     case "todo":
@@ -86,10 +84,15 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
         .catch(() => { deps.setSidebarPanel(artifactPanelKey("calendar")); });
       break;
     case "email":
-      authFetch(`${API}/api/email/${encodeURIComponent(item.id)}`)
-        .then((r) => r.json())
-        .then((d) => openEmailThread(d.thread_id || d.email_id || item.id, d.account || "", deps.handleOpenFile))
-        .catch(() => { deps.setSidebarPanel(artifactPanelKey("email")); });
+      if (typeof item.id === "string" && item.id) {
+        try {
+          openEmailThread(item.id, "", deps.handleOpenFile);
+        } catch {
+          deps.setSidebarPanel(artifactPanelKey("email"));
+        }
+      } else {
+        deps.setSidebarPanel(artifactPanelKey("email"));
+      }
       break;
     case "reminder":
       deps.setSidebarPanel("reminder");

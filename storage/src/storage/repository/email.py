@@ -4,6 +4,7 @@ from typing import List, Optional
 from sqlalchemy import func
 from storage.entity.email import EmailEntity
 from storage.entity.entity_tag import EntityTagEntity
+from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.dto.email import Email
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
@@ -98,10 +99,10 @@ def list_emails(
                 | (EmailEntity.content.like(pattern))
             )
         if tag is not None:
-            tagged_email_ids = session.query(EntityTagEntity.entity_id).filter_by(
+            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter_by(
                 user_id=user_id, entity_type="email", tag=tag,
             )
-            q = q.filter(EmailEntity.email_id.in_(tagged_email_ids))
+            q = q.filter(func.coalesce(EmailEntity.thread_id, EmailEntity.email_id).in_(tagged_thread_ids))
         q = apply_time_filter(q, EmailEntity.date, on=on, from_=from_, to=to, field_type="unix_ms")
         q = apply_time_filter(q, EmailEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, EmailEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
@@ -125,6 +126,7 @@ def list_threads(
     updated_on: Optional[str] = None,
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> List[Email]:
     """Group emails into threads (key = COALESCE(thread_id, email_id)).
 
@@ -136,6 +138,11 @@ def list_threads(
     with get_db() as session:
         thread_key = func.coalesce(EmailEntity.thread_id, EmailEntity.email_id)
         base = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
+        if tag is not None:
+            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter_by(
+                user_id=user_id, entity_type="email", tag=tag,
+            )
+            base = base.filter(thread_key.in_(tagged_thread_ids))
         if account:
             base = base.filter(EmailEntity.account == account)
         if query:
@@ -185,6 +192,9 @@ def list_threads(
             dto.thread_id = k
             dto.thread_count = counts[k]
             result.append(dto)
+        tags_by_thread = list_thread_tags_by_ids(user_id, keys)
+        for dto in result:
+            dto.tags = tags_by_thread.get(dto.thread_id or dto.email_id, [])
         return result
 
 
@@ -198,20 +208,83 @@ def get_email(user_id: int, email_id: str) -> Optional[Email]:
         return _row_to_dto(entity)
 
 
-def get_emails_by_ids(user_id: int, email_ids: List[str]) -> List[Email]:
-    """Owner-scoped IN lookup for tag hydration."""
-    if not email_ids:
+def get_thread_representatives(user_id: int, thread_ids: List[str]) -> List[Email]:
+    """Return the latest message for each owner-scoped canonical thread key."""
+    if not thread_ids:
         return []
     with get_db() as session:
+        thread_key = func.coalesce(EmailEntity.thread_id, EmailEntity.email_id)
         rows = (
             session.query(EmailEntity)
-            .filter(
-                EmailEntity.user_id == user_id,
-                EmailEntity.email_id.in_(email_ids),
-            )
+            .filter(EmailEntity.user_id == user_id, thread_key.in_(thread_ids))
+            .order_by(EmailEntity.date.desc())
             .all()
         )
-        return [_row_to_dto(entity) for entity in rows]
+        representatives = {}
+        for row in rows:
+            key = row.thread_id or row.email_id
+            representatives.setdefault(key, row)
+        return [_row_to_dto(row) for row in representatives.values()]
+
+
+def thread_exists(user_id: int, thread_id: str) -> bool:
+    """Return whether an owner has an email with this canonical thread key."""
+    with get_db() as session:
+        thread_key = func.coalesce(EmailEntity.thread_id, EmailEntity.email_id)
+        return session.query(EmailEntity.id).filter(
+            EmailEntity.user_id == user_id,
+            thread_key == thread_id,
+        ).first() is not None
+
+
+def list_thread_tags(user_id: int, thread_id: str) -> List[str]:
+    return list_thread_tags_by_ids(user_id, [thread_id]).get(thread_id, [])
+
+
+def list_thread_tags_by_ids(user_id: int, thread_ids: List[str]) -> dict[str, List[str]]:
+    if not thread_ids:
+        return {}
+    with get_db() as session:
+        rows = session.query(EntityTagEntity.entity_id, EntityTagEntity.tag).filter(
+            EntityTagEntity.user_id == user_id,
+            EntityTagEntity.entity_type == "email",
+            EntityTagEntity.entity_id.in_(thread_ids),
+        ).order_by(EntityTagEntity.entity_id, EntityTagEntity.tag).all()
+        result = {thread_id: [] for thread_id in thread_ids}
+        for row in rows:
+            result[row.entity_id].append(row.tag)
+        return result
+
+
+def vocabulary_contains(user_id: int, tag: str) -> bool:
+    with get_db() as session:
+        return session.query(TagVocabularyEntity.id).filter_by(
+            user_id=user_id, tag=tag,
+        ).first() is not None
+
+
+def add_thread_tag(user_id: int, thread_id: str, tag: str) -> bool:
+    with get_db() as session:
+        exists = session.query(EntityTagEntity.id).filter_by(
+            user_id=user_id, entity_type="email", entity_id=thread_id, tag=tag,
+        ).first()
+        if exists:
+            return False
+        session.add(EntityTagEntity(
+            user_id=user_id, entity_type="email", entity_id=thread_id, tag=tag,
+        ))
+        return True
+
+
+def remove_thread_tag(user_id: int, thread_id: str, tag: str) -> bool:
+    with get_db() as session:
+        row = session.query(EntityTagEntity).filter_by(
+            user_id=user_id, entity_type="email", entity_id=thread_id, tag=tag,
+        ).first()
+        if not row:
+            return False
+        session.delete(row)
+        return True
 
 
 def get_emails_by_thread(user_id: int, thread_id: str, account: Optional[str] = None) -> List[Email]:

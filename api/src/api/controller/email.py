@@ -77,6 +77,10 @@ class AddEmailAccountRequest(BaseModel):
     app_password: str
 
 
+class EmailThreadTagRequest(BaseModel):
+    tag: str
+
+
 @router.get("/account/list")
 async def list_email_accounts(request: Request):
     user_id = _get_user_id(request)
@@ -196,6 +200,7 @@ async def list_threads(
     request: Request,
     query: Optional[str] = Query(None),
     account: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
     on: Optional[str] = Query(None),
@@ -210,12 +215,50 @@ async def list_threads(
 ):
     user_id = _get_user_id(request)
     emails = email_service.list_threads(
-        user_id, query=query, account=account, limit=limit, offset=offset,
+        user_id, query=query, account=account, tag=tag, limit=limit, offset=offset,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
     )
     return [e.to_dict() for e in emails]
+
+
+def _email_tag_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, LookupError):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/thread/{thread_id}/tags")
+async def list_thread_tags(thread_id: str, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        tags = email_service.list_thread_tags(user_id, thread_id)
+    except (LookupError, ValueError) as exc:
+        raise _email_tag_http_error(exc) from None
+    return {"thread_id": thread_id, "tags": tags}
+
+
+@router.post("/thread/{thread_id}/tags")
+async def add_thread_tag(thread_id: str, req: EmailThreadTagRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        added = email_service.add_thread_tag(user_id, thread_id, req.tag)
+        tags = email_service.list_thread_tags(user_id, thread_id)
+    except (LookupError, ValueError) as exc:
+        raise _email_tag_http_error(exc) from None
+    return {"thread_id": thread_id, "tag": req.tag, "added": added, "tags": tags}
+
+
+@router.post("/thread/{thread_id}/tags/remove")
+async def remove_thread_tag(thread_id: str, req: EmailThreadTagRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        removed = email_service.remove_thread_tag(user_id, thread_id, req.tag)
+        tags = email_service.list_thread_tags(user_id, thread_id)
+    except (LookupError, ValueError) as exc:
+        raise _email_tag_http_error(exc) from None
+    return {"thread_id": thread_id, "tag": req.tag, "removed": removed, "tags": tags}
 
 
 @router.get("/thread/{thread_id}")
