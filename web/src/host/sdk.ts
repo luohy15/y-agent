@@ -29,6 +29,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import ImageLightbox from "../components/ImageLightbox";
+import TagsEditor from "../components/TagsEditor";
 import TraceView from "../components/TraceView";
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
@@ -118,6 +119,10 @@ export const hostSdk = {
   // host already ships DOMPurify for artifacts / markdown export.
   sanitizeEmailHtml,
 
+  // TagsEditor.tsx (contract v12, todo 3285 S1) — shared chip editor used by
+  // host todo detail (free-text) and the file-module note surface (restricted).
+  TagsEditor,
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.
@@ -158,3 +163,4 @@ export type {
   TodoInfo,
   TodoPatch,
 } from "../components/TraceView";
+export type { TagsEditorProps } from "../components/TagsEditor";

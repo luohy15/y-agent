@@ -13,6 +13,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Shared tag chip editor (3285)**: browser contract v12 exports `TagsEditor` on
+  `@y/host` so the file-module note surface and host todo detail share one chip
+  implementation. Todo detail keeps free-text commits with no list; passing
+  `suggestions` opens a filtered keyboard/mouse autocomplete, and `allowNew={false}`
+  rejects values outside that vocabulary.
 - **Email module host prerequisites (3270)**: browser contract v11 adds the `mail`
   icon and exports `sanitizeEmailHtml` on `@y/host` so the forthcoming email UI
   module can sanitize HTML without bundling DOMPurify. An additive `openEmailThread`

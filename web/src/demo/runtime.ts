@@ -275,6 +275,8 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "PatchDiff",
   "ImageLightbox",
   "CodeEditor",
+  // TagsEditor.tsx (contract v12) — presentational chip editor, no network.
+  "TagsEditor",
   // TraceView is intentionally NOT demo-safe: authenticated fetches would hit
   // real APIs. Public demos keep the module-local fictional trace (todo 3158).
   // Markdown / citation helpers (pure).

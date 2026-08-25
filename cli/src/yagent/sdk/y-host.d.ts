@@ -354,6 +354,18 @@ declare module "@y/host" {
     onInitialLineApplied?: () => void;
   }): any;
 
+  // TagsEditor.tsx (contract v12, todo 3285 S1) — shared chip editor. Todo
+  // detail keeps free-text commits (`allowNew` default true, no suggestions,
+  // no autocomplete). The note surface passes `suggestions` and
+  // `allowNew={false}` and gets a filtered keyboard/mouse list.
+  export interface TagsEditorProps {
+    value: string[];
+    onChange: (next: string[]) => void;
+    suggestions?: readonly string[];
+    allowNew?: boolean;
+  }
+  export function TagsEditor(props: TagsEditorProps): any;
+
   // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
   // detail / public-trace leaf. One physical implementation; modules mount it
   // rather than copying waterfall / share / todo-detail code.

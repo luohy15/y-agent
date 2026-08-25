@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { actionBadgeClass, priorityColorClass } from "./badges";
+import TagsEditor from "./TagsEditor";
 
 export interface TodoHistoryEntry {
   timestamp: string;
@@ -105,7 +106,7 @@ export default function TraceTodoDetail({
 }: TraceTodoDetailProps) {
   const editable = !!onSave;
   const [patch, setPatch] = useState<TodoPatch>({});
-  const [tagInput, setTagInput] = useState("");
+  const [tagsEditorKey, setTagsEditorKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const progressRef = useRef<HTMLTextAreaElement>(null);
@@ -116,7 +117,7 @@ export default function TraceTodoDetail({
   // discard-on-switch via onDirtyChange before actually updating todoInfo.todo_id.
   useEffect(() => {
     setPatch({});
-    setTagInput("");
+    setTagsEditorKey((k) => k + 1);
   }, [todoInfo.todo_id]);
 
   // Mirror dirty state to parent so it can install a navigation guard.
@@ -127,7 +128,7 @@ export default function TraceTodoDetail({
 
   const handleCancel = () => {
     setPatch({});
-    setTagInput("");
+    setTagsEditorKey((k) => k + 1);
   };
 
   // Effective values: patch overrides server value
@@ -202,36 +203,13 @@ export default function TraceTodoDetail({
       return np;
     });
   };
-  const addTag = () => {
-    const t = tagInput.trim();
-    if (!t) return;
-    if (tagsValue.includes(t)) {
-      setTagInput("");
-      return;
-    }
-    commitTags([...tagsValue, t]);
-    setTagInput("");
-  };
-  const removeTag = (tag: string) => {
-    commitTags(tagsValue.filter((x) => x !== tag));
-  };
-  const onTagKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addTag();
-    } else if (e.key === "Backspace" && tagInput === "" && tagsValue.length > 0) {
-      e.preventDefault();
-      commitTags(tagsValue.slice(0, -1));
-    }
-  };
-
   const handleSave = async () => {
     if (!onSave || !dirty) return;
     setSaving(true);
     try {
       await onSave(patch);
       setPatch({});
-      setTagInput("");
+      setTagsEditorKey((k) => k + 1);
     } finally {
       setSaving(false);
     }
@@ -311,28 +289,11 @@ export default function TraceTodoDetail({
                 </div>
 
                 <span className="text-sol-base01 pt-1">Tags</span>
-                <div className="flex flex-wrap gap-1 items-center bg-sol-base03 border border-sol-base01/30 rounded px-1.5 py-1 focus-within:border-sol-blue">
-                  {tagsValue.map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-0.5 bg-sol-base02 text-sol-base0 pl-1.5 pr-1 py-0.5 rounded text-[0.65rem]">
-                      {tag}
-                      <button
-                        onClick={() => removeTag(tag)}
-                        className="text-sol-base01 hover:text-sol-red cursor-pointer leading-none"
-                        title="Remove tag"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={onTagKeyDown}
-                    onBlur={() => { if (tagInput.trim()) addTag(); }}
-                    placeholder={tagsValue.length === 0 ? "Add tags..." : ""}
-                    className="flex-1 min-w-[4rem] bg-transparent text-sol-base1 text-xs outline-none"
-                  />
-                </div>
+                <TagsEditor
+                  key={`${todoInfo.todo_id}-${tagsEditorKey}`}
+                  value={tagsValue}
+                  onChange={commitTags}
+                />
 
                 <span className="text-sol-base01 pt-1">Progress</span>
                 <textarea
