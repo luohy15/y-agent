@@ -43,6 +43,7 @@ import {
 } from "./utils/fileHost";
 import {
   closeWorkspaceTabKey,
+  dropTabHistory,
   fileDirtyPayload,
   fileRemapPayload,
   fileRemovePayload,
@@ -50,17 +51,20 @@ import {
   HOST_FILE_TABS_COLLAPSED_KEY,
   HOST_FILE_TABS_MIGRATION_KEY,
   makeFileTab,
-  openOrdinaryWorkspaceTab,
+  openOrdinaryWorkspaceTabWithHistory,
   persistHostWorkspace,
   readStoredDescriptors,
   reconcileFileWorkspace,
+  remapTabHistory,
   serializeFileWorkspace,
   remapOrdinaryTabs,
   removeOrdinaryTabs,
   restoreHostWorkspace,
   restoreHostWorkspaceWithoutMigration,
+  stepTabHistory,
   type FocusRequest,
   type OrdinaryFileTab,
+  type TabHistoryMap,
 } from "./utils/fileWorkspace";
 import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
 import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
@@ -199,6 +203,11 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string | null>(() => initialWorkspace.active);
   const [previewFile, setPreviewFile] = useState<string | null>(() => initialWorkspace.preview);
   const [fileTabs, setFileTabs] = useState<Record<string, OrdinaryFileTab>>(() => initialWorkspace.files);
+  // Session-scoped per-tab back/forward stacks (todo 3288); not persisted with
+  // the fileWorkspace preference, dies with the tab and the page reload.
+  const [fileHistory, setFileHistory] = useState<TabHistoryMap>({});
+  const fileHistoryRef = useRef(fileHistory);
+  fileHistoryRef.current = fileHistory;
   const [fileDirty, setFileDirty] = useState<Record<string, boolean>>({});
   const fileDirtyRef = useRef(fileDirty);
   fileDirtyRef.current = fileDirty;
@@ -455,13 +464,14 @@ export default function App() {
       return;
     }
     const tab = makeFileTab(path, vmName, workDir);
-    const next = openOrdinaryWorkspaceTab(
+    const { snapshot: next, history: nextHistory } = openOrdinaryWorkspaceTabWithHistory(
       {
         openTabs: openFilesRef.current,
         active: activeFileRef.current,
         preview: previewFileRef.current,
         files: fileTabsRef.current,
       },
+      fileHistoryRef.current,
       tab,
       preview,
     );
@@ -469,6 +479,7 @@ export default function App() {
     setOpenFiles(next.openTabs);
     setActiveFile(next.active);
     setPreviewFile(next.preview);
+    setFileHistory(nextHistory);
     if (typeof line === "number" && Number.isFinite(line)) {
       setFileFocus((prev) => ({ ...prev, [tab.id]: { line, nonce: Date.now() } }));
     }
@@ -748,6 +759,7 @@ export default function App() {
       setActiveFile(next.active);
       setPreviewFile(next.preview);
       setFileTabs(next.files);
+      setFileHistory((prev) => dropTabHistory(prev, [path]));
       setFileDirty((prev) => {
         if (!(path in prev)) return prev;
         const dirty = { ...prev };
@@ -790,6 +802,7 @@ export default function App() {
     setActiveFile(null);
     setPreviewFile(null);
     setFileTabs({});
+    setFileHistory({});
     setFileDirty({});
     setFileFocus({});
   }, [touchWorkspace]);
@@ -839,6 +852,7 @@ export default function App() {
     setPreviewFile(next.preview);
     setFileTabs(next.files);
     if (next.idMap.size > 0) {
+      setFileHistory((prev) => remapTabHistory(prev, next.idMap));
       setFileDirty((prev) => {
         let changed = false;
         const dirty = { ...prev };
@@ -875,6 +889,8 @@ export default function App() {
     setActiveFile(next.active);
     setPreviewFile(next.preview);
     setFileTabs(next.files);
+    const removedIds = Object.keys(prevFiles).filter((id) => !(id in next.files));
+    setFileHistory((prev) => dropTabHistory(prev, removedIds));
     setFileDirty((prev) => {
       let changed = false;
       const dirty = { ...prev };
@@ -886,6 +902,28 @@ export default function App() {
       return changed ? dirty : prev;
     });
   }, [touchWorkspace]);
+
+  const stepFileTabHistory = useCallback((direction: "back" | "forward") => {
+    const result = stepTabHistory(
+      {
+        openTabs: openFilesRef.current,
+        active: activeFileRef.current,
+        preview: previewFileRef.current,
+        files: fileTabsRef.current,
+      },
+      fileHistoryRef.current,
+      direction,
+    );
+    if (!result) return;
+    touchWorkspace();
+    setOpenFiles(result.snapshot.openTabs);
+    setActiveFile(result.snapshot.active);
+    setPreviewFile(result.snapshot.preview);
+    setFileTabs(result.snapshot.files);
+    setFileHistory(result.history);
+  }, [touchWorkspace]);
+  const handleFileBack = useCallback(() => stepFileTabHistory("back"), [stepFileTabHistory]);
+  const handleFileForward = useCallback(() => stepFileTabHistory("forward"), [stepFileTabHistory]);
 
   // C1: publish retained per-location VM/work-directory context for the
   // Files module panel — left uses default VM + currentVmWorkDir, right uses
@@ -1105,6 +1143,21 @@ export default function App() {
         e.preventDefault();
         if (activeFileRef.current) handleCloseFile(activeFileRef.current);
       }
+      // File tab back/forward (todo 3288). Apple: Cmd+[ / Cmd+]. Non-Apple:
+      // Alt+ArrowLeft / Alt+ArrowRight. Same guard shape as the close shortcut.
+      if (isApplePlatform()) {
+        if (e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "[" || e.key === "]")) {
+          const el = document.activeElement;
+          if ((el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && !el.dataset.editor) return;
+          e.preventDefault();
+          if (e.key === "[") handleFileBack(); else handleFileForward();
+        }
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+        const el = document.activeElement;
+        if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
+        e.preventDefault();
+        if (e.code === "ArrowLeft") handleFileBack(); else handleFileForward();
+      }
     };
     // Sandboxed (origin-null) HTML preview iframes swallow keydown events when
     // focused, so global shortcuts stop firing once the user clicks into the
@@ -1124,7 +1177,26 @@ export default function App() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("message", onPreviewKeydown);
     };
-  }, [handleCloseFile, handleSelectFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+  }, [handleCloseFile, handleFileBack, handleFileForward, handleSelectFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+
+  // Mouse back/forward buttons (button 3/4) step the active file tab's history
+  // instead of navigating the browser out of the SPA (todo 3288 S5). Only
+  // active while the file viewer panel is showing and the tab has a step to take.
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      if (!chatHideRef.current) return;
+      const activeId = activeFileRef.current;
+      if (!activeId) return;
+      const direction = e.button === 3 ? "back" : "forward";
+      const stack = fileHistoryRef.current[activeId]?.[direction];
+      if (!stack || stack.length === 0) return;
+      e.preventDefault();
+      if (direction === "back") handleFileBack(); else handleFileForward();
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [handleFileBack, handleFileForward]);
 
   useEffect(() => {
     const dirty = Object.values(fileDirty).some(Boolean);
@@ -1679,7 +1751,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

@@ -11,8 +11,8 @@ import EnglishView from "./EnglishView";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
-import { fileDetailContext, type FocusRequest, type OrdinaryFileTab } from "../utils/fileWorkspace";
-import { closeTabShortcutLabel } from "../utils/platform";
+import { fileDetailContext, type FocusRequest, type OrdinaryFileTab, type TabHistoryMap } from "../utils/fileWorkspace";
+import { closeTabShortcutLabel, isApplePlatform } from "../utils/platform";
 import FileTabStrip, { FileBreadcrumb } from "./shell/FileTabStrip";
 import MarkdownPreview from "./shell/MarkdownPreview";
 
@@ -50,6 +50,11 @@ interface FileViewerProps {
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   onPreviewFile?: (path: string, line?: number) => void;
+  // Per-tab back/forward navigation history (todo 3288). Shown only when the
+  // active tab is an ordinary file tab.
+  fileHistory?: TabHistoryMap;
+  onFileBack?: () => void;
+  onFileForward?: () => void;
   // Public trace projection: render note tabs keyed by note `share_id`, with content
   // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
   // Public mode only: the reserved `trace.md` tab renders <TraceView> in injected mode from `traceData`.
@@ -605,7 +610,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
@@ -713,6 +718,39 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     italic: filePath === previewFile,
   }));
 
+  const activeOrdinaryTab = activeFile ? fileTabs[activeFile] : undefined;
+  const activeTabHistory = activeFile ? fileHistory[activeFile] : undefined;
+  const canFileBack = !!activeTabHistory && activeTabHistory.back.length > 0;
+  const canFileForward = !!activeTabHistory && activeTabHistory.forward.length > 0;
+  const tabHistoryNav = activeOrdinaryTab ? (
+    <div className="flex items-center gap-0.5 pl-2 pr-1 shrink-0">
+      <button
+        type="button"
+        onClick={onFileBack}
+        disabled={!canFileBack}
+        aria-label="Back"
+        title={isApplePlatform() ? "Back (⌘[)" : "Back (Alt+←)"}
+        className="text-sol-base01 hover:text-sol-base1 disabled:opacity-30 disabled:cursor-default disabled:hover:text-sol-base01 cursor-pointer p-0.5"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={onFileForward}
+        disabled={!canFileForward}
+        aria-label="Forward"
+        title={isApplePlatform() ? "Forward (⌘])" : "Forward (Alt+→)"}
+        className="text-sol-base01 hover:text-sol-base1 disabled:opacity-30 disabled:cursor-default disabled:hover:text-sol-base01 cursor-pointer p-0.5"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+    </div>
+  ) : undefined;
+
   const breadcrumbPath = activeFile
     ? isArtifact
       ? inlineArtifactLabel(activeFile, artifactTabs)
@@ -731,6 +769,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         onSelect={onSelectFile}
         onClose={onCloseFile}
         onReorder={onReorderFiles}
+        leading={tabHistoryNav}
         closeHint={closeTabShortcutLabel()}
         onDoubleClick={(filePath) => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
         breadcrumb={activeFile && !fileTabs[activeFile] ? (

@@ -456,6 +456,141 @@ export function openOrdinaryWorkspaceTab(
   };
 }
 
+/** Per-tab back/forward stacks (todo 3288). Session-scoped, kept in App state
+ * rather than the persisted workspace payload. */
+export interface TabHistory {
+  back: OrdinaryFileTab[];
+  forward: OrdinaryFileTab[];
+}
+
+export type TabHistoryMap = Record<string, TabHistory>;
+
+/** Cap on entries per back/forward stack; oldest entries drop first. */
+export const TAB_HISTORY_DEPTH_CAP = 32;
+
+/**
+ * `openOrdinaryWorkspaceTab` plus history bookkeeping: when the open replaces
+ * the preview tab in place, the replaced tab's history transfers to the new
+ * tab id with the replaced tab pushed onto `back` and `forward` cleared (a
+ * normal navigation, not a history step). A non-replacing open (already open
+ * elsewhere, or the preview tab survives) records nothing. The replaced
+ * preview must also be the active tab: a link click always navigates the
+ * currently active tab, so a preview that is open but not active is a
+ * displaced background tab, not the click's source, and must not seed the
+ * new tab's back history.
+ */
+export function openOrdinaryWorkspaceTabWithHistory(
+  state: HostWorkspaceSnapshot,
+  history: TabHistoryMap,
+  tab: OrdinaryFileTab,
+  preview: boolean,
+): { snapshot: HostWorkspaceSnapshot; history: TabHistoryMap } {
+  const replacedId = !state.openTabs.includes(tab.id)
+    && preview
+    && state.preview
+    && state.active === state.preview
+    && state.openTabs.includes(state.preview)
+    ? state.preview
+    : null;
+  const snapshot = openOrdinaryWorkspaceTab(state, tab, preview);
+  const replacedTab = replacedId ? state.files[replacedId] : null;
+  if (!replacedId || !replacedTab) return { snapshot, history };
+  const prior = history[replacedId] ?? { back: [], forward: [] };
+  const nextHistory = { ...history };
+  delete nextHistory[replacedId];
+  nextHistory[tab.id] = {
+    back: [...prior.back, replacedTab].slice(-TAB_HISTORY_DEPTH_CAP),
+    forward: [],
+  };
+  return { snapshot, history: nextHistory };
+}
+
+/** Swap the active tab's id in place, keeping its strip position and its
+ * preview/pinned status. Used by `stepTabHistory` to step back/forward
+ * without disturbing tab order. No-op if the target id is already open in a
+ * different slot (avoids a duplicate strip key). */
+export function replaceOrdinaryTabInPlace(
+  state: HostWorkspaceSnapshot,
+  tab: OrdinaryFileTab,
+): HostWorkspaceSnapshot {
+  const activeId = state.active;
+  if (!activeId) return state;
+  const idx = state.openTabs.indexOf(activeId);
+  if (idx < 0) return state;
+  if (tab.id !== activeId && state.openTabs.includes(tab.id)) return state;
+  const openTabs = state.openTabs.map((key) => (key === activeId ? tab.id : key));
+  const files = { ...state.files };
+  if (activeId !== tab.id) delete files[activeId];
+  files[tab.id] = tab;
+  return {
+    openTabs,
+    active: tab.id,
+    preview: state.preview === activeId ? tab.id : state.preview,
+    files,
+  };
+}
+
+/**
+ * Step the active tab's history one entry back or forward, replacing it in
+ * place. Returns null when there is no active ordinary tab, its stack in
+ * that direction is empty, or the target id has since collided with a tab
+ * already open elsewhere (`replaceOrdinaryTabInPlace` would no-op) — in the
+ * collision case the stack and history map are left untouched rather than
+ * being partially consumed.
+ */
+export function stepTabHistory(
+  state: HostWorkspaceSnapshot,
+  history: TabHistoryMap,
+  direction: "back" | "forward",
+): { snapshot: HostWorkspaceSnapshot; history: TabHistoryMap } | null {
+  const activeId = state.active;
+  if (!activeId) return null;
+  const current = state.files[activeId];
+  if (!current) return null;
+  const entry = history[activeId] ?? { back: [], forward: [] };
+  const sourceStack = direction === "back" ? entry.back : entry.forward;
+  if (sourceStack.length === 0) return null;
+  const target = sourceStack[sourceStack.length - 1];
+  const snapshot = replaceOrdinaryTabInPlace(state, target);
+  if (snapshot === state) return null;
+  const remainingSource = sourceStack.slice(0, -1);
+  const destStack = direction === "back" ? entry.forward : entry.back;
+  const nextDestStack = [...destStack, current].slice(-TAB_HISTORY_DEPTH_CAP);
+  const nextHistory = { ...history };
+  delete nextHistory[activeId];
+  nextHistory[target.id] = direction === "back"
+    ? { back: remainingSource, forward: nextDestStack }
+    : { back: nextDestStack, forward: remainingSource };
+  return { snapshot, history: nextHistory };
+}
+
+/** Drop history dying with a closed/removed tab. */
+export function dropTabHistory(history: TabHistoryMap, tabIds: string[]): TabHistoryMap {
+  if (tabIds.length === 0 || tabIds.every((id) => !(id in history))) return history;
+  const next = { ...history };
+  for (const id of tabIds) delete next[id];
+  return next;
+}
+
+/** Remap history keys through `remapOrdinaryTabs`' idMap. Stack entries (old
+ * paths) are left as-is; a stale entry just shows the viewer's normal
+ * missing-file view when stepped into. */
+export function remapTabHistory(history: TabHistoryMap, idMap: Map<string, string>): TabHistoryMap {
+  if (idMap.size === 0) return history;
+  let changed = false;
+  const next: TabHistoryMap = {};
+  for (const [key, entry] of Object.entries(history)) {
+    const mapped = idMap.get(key);
+    if (mapped && mapped !== key) {
+      next[mapped] = entry;
+      changed = true;
+    } else {
+      next[key] = entry;
+    }
+  }
+  return changed ? next : history;
+}
+
 export function closeWorkspaceTabKey(state: HostWorkspaceSnapshot, key: string): HostWorkspaceSnapshot {
   const index = state.openTabs.indexOf(key);
   const openTabs = state.openTabs.filter((tab) => tab !== key);
