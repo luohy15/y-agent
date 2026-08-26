@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Owner-scoped tag vocabulary (3290)**: the host persists each owner's canonical
+  tag vocabulary and exposes `tag_create_vocabulary`, allowing modules to validate
+  and create vocabulary entries without depending solely on active tag carriers.
+
 - **Shared tag chip editor (3285)**: browser contract v12 exports `TagsEditor` on
   `@y/host` so the file-module note surface and host todo detail share one chip
   implementation. Passing `suggestions` opens a filtered keyboard/mouse
@@ -32,6 +36,12 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   access logs redact the opaque webhook path.
 
 ### Changed
+- **Per-tab file navigation history (3288)**: File workspace tabs now retain their
+  own back/forward path history, so navigation in one tab does not replace another
+  tab's context.
+- **Email thread tag carrier (3292)**: email tags are stored and resolved at the
+  thread level rather than on individual messages, keeping a conversation's tags
+  consistent across its messages.
 
 ### Fixed
 
