@@ -43,10 +43,14 @@ export function useTheme(isLoggedIn: boolean) {
   }, [isLoggedIn]);
 
   useEffect(() => {
-    if (!isLoggedIn || !preference.loaded || !legacyPreference.loaded || reconciledRef.current) return;
-    reconciledRef.current = true;
+    if (!isLoggedIn || reconciledRef.current) return;
 
-    if (isThemePrefs(preference.serverValue)) {
+    const currentReadSucceeded = preference.loaded && preference.status === "idle";
+    const legacyReadSucceeded = legacyPreference.loaded && legacyPreference.status === "idle";
+
+    // A valid current value is authoritative and does not need the legacy read.
+    if (currentReadSucceeded && isThemePrefs(preference.serverValue)) {
+      reconciledRef.current = true;
       if (userTouchedRef.current) return;
       const normalized: ThemePrefs = { mode: preference.serverValue.mode };
       setCurrentPrefs(normalized);
@@ -56,7 +60,15 @@ export function useTheme(isLoggedIn: boolean) {
       // Old-shape payload (extra lightVariant/darkVariant) — write the normalized
       // { mode } shape back so subsequent reads no longer see a removed palette.
       if (Object.keys(preference.serverValue).length > 1) preference.setValue(normalized);
-    } else if (isLegacyTheme(legacyPreference.serverValue)) {
+      return;
+    }
+
+    // An absent current value can only be reconciled after both reads succeeded.
+    // A failed or offline read is unknown, not confirmed absence.
+    if (!currentReadSucceeded || !legacyReadSucceeded) return;
+    reconciledRef.current = true;
+
+    if (isLegacyTheme(legacyPreference.serverValue)) {
       if (userTouchedRef.current) return;
       const migrated = migrateLegacyTheme(legacyPreference.serverValue);
       setCurrentPrefs(migrated);
@@ -67,7 +79,15 @@ export function useTheme(isLoggedIn: boolean) {
     } else if (!prefsEqual(prefsRef.current, DEFAULT_PREFS)) {
       preference.setValue(prefsRef.current);
     }
-  }, [isLoggedIn, preference.loaded, preference.serverValue, legacyPreference.loaded, legacyPreference.serverValue]);
+  }, [
+    isLoggedIn,
+    preference.loaded,
+    preference.serverValue,
+    preference.status,
+    legacyPreference.loaded,
+    legacyPreference.serverValue,
+    legacyPreference.status,
+  ]);
 
   const persist = useCallback(
     (next: ThemePrefs) => {
