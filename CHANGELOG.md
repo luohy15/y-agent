@@ -44,6 +44,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   consistent across its messages.
 
 ### Fixed
+- **Theme reconciliation on failed preference reads (3298)**: a failed or offline
+  account-preference read is now treated as unknown rather than confirmed absence,
+  so the web UI no longer resets to the default theme when the server read
+  errors.
 
 ### Removed
 
