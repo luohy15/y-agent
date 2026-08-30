@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 
 from yagent.api_client import api_request
-from yagent.time_util import utc_to_local, local_to_utc, local_date_to_utc_range
+from yagent.time_util import utc_to_tz, local_to_utc, local_date_to_utc_range
 
 
 def _agent_home() -> str:
@@ -37,7 +37,8 @@ def update_dashboard() -> str:
         lines.append("| Time | Summary | Status |")
         lines.append("|------|---------|--------|")
         for e in today_events:
-            time_str = utc_to_local(e["start_time"]) if not e.get("all_day") else "All Day"
+            tz_name = e.get("timezone") or "UTC"
+            time_str = utc_to_tz(e["start_time"], tz_name) if not e.get("all_day") else "All Day"
             lines.append(f"| {time_str} | {e['summary']} | {e.get('status', '')} |")
     else:
         lines.append("")
@@ -51,7 +52,7 @@ def update_dashboard() -> str:
         lines.append("| Date | Time | Summary |")
         lines.append("|------|------|---------|")
         for e in upcoming:
-            local = utc_to_local(e["start_time"])
+            local = utc_to_tz(e["start_time"], e.get("timezone") or "UTC")
             lines.append(f"| {local} | {local} | {e['summary']} |")
     else:
         lines.append("")

@@ -9,6 +9,7 @@ class CalendarEvent:
     source_id: Optional[str] = None
     description: Optional[str] = None
     end_time: Optional[str] = None
+    timezone: str = "UTC"
     all_day: bool = False
     status: str = "CONFIRMED"
     source: Optional[str] = None
@@ -28,6 +29,7 @@ class CalendarEvent:
             source_id=data.get('source_id'),
             description=data.get('description'),
             end_time=data.get('end_time'),
+            timezone=data.get('timezone') or 'UTC',
             all_day=data.get('all_day', False),
             status=data.get('status', 'CONFIRMED'),
             source=data.get('source'),
@@ -44,6 +46,7 @@ class CalendarEvent:
             'event_id': self.event_id,
             'summary': self.summary,
             'start_time': self.start_time,
+            'timezone': self.timezone or 'UTC',
             'all_day': self.all_day,
             'status': self.status,
         }

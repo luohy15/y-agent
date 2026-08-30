@@ -20,6 +20,7 @@ class CreateEventRequest(BaseModel):
     todo_id: Optional[str] = None
     all_day: bool = False
     source: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 class UpdateEventRequest(BaseModel):
@@ -29,6 +30,7 @@ class UpdateEventRequest(BaseModel):
     end_time: Optional[str] = None
     description: Optional[str] = None
     todo_id: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 class EventIdRequest(BaseModel):
@@ -81,6 +83,7 @@ async def create_event(req: CreateEventRequest, request: Request):
             user_id, req.summary, req.start,
             end_time=req.end, description=req.description,
             todo_id=req.todo_id, all_day=req.all_day, source=req.source,
+            timezone=req.timezone,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

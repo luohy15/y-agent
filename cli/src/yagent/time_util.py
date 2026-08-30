@@ -23,6 +23,18 @@ def utc_to_local(utc_str: str) -> str:
     return local_dt.strftime("%Y-%m-%d %H:%M")
 
 
+def utc_to_tz(utc_str: str, tz_name: str) -> str:
+    """Convert UTC ISO 8601 string to a wall-clock string in tz_name."""
+    from dateutil import tz as dateutil_tz
+    tz = dateutil_tz.gettz(tz_name) if tz_name else None
+    if tz is None:
+        tz = timezone.utc
+    utc_str_clean = utc_str.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(utc_str_clean)
+    local_dt = dt.astimezone(tz)
+    return local_dt.strftime("%Y-%m-%d %H:%M")
+
+
 def local_to_utc(local_str: str) -> str:
     """Convert a local datetime string to UTC ISO 8601 with Z suffix.
 

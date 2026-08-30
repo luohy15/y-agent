@@ -31,13 +31,24 @@ def _get_configured_tz():
     return dateutil_tz.tzlocal()
 
 
-def _local_to_utc(local_str: str) -> str:
-    """Convert a local datetime string to UTC ISO 8601.
+def _resolve_iana_tz(tz_name: str):
+    """Resolve an IANA timezone name. Raises ValueError if unknown."""
+    from dateutil import tz as dateutil_tz
+    tz = dateutil_tz.gettz(tz_name) if tz_name else None
+    if tz is None:
+        raise ValueError(f"Unknown timezone: {tz_name}")
+    return tz
+
+
+def _local_to_utc(local_str: str, tz_name: str) -> str:
+    """Convert a naive wall-clock datetime string in tz_name to UTC ISO 8601.
 
     Accepts formats: 'YYYY-MM-DDTHH:MM:SS', 'YYYY-MM-DDTHH:MM', 'YYYY-MM-DD'.
-    Uses Y_AGENT_TIMEZONE env var if set, otherwise system local timezone.
+    Strings ending in Z pass through untouched.
     """
-    local_tz = _get_configured_tz()
+    if local_str.endswith("Z"):
+        return local_str
+    local_tz = _resolve_iana_tz(tz_name)
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
         try:
             dt = datetime.strptime(local_str, fmt)
@@ -46,9 +57,6 @@ def _local_to_utc(local_str: str) -> str:
             return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc_dt.microsecond // 1000:03d}Z"
         except ValueError:
             continue
-    # If already UTC ISO 8601 with Z suffix, return as-is
-    if local_str.endswith("Z"):
-        return local_str
     raise ValueError(f"Cannot parse datetime: {local_str}")
 
 
@@ -72,15 +80,19 @@ def add_event(
     todo_id: Optional[str] = None,
     all_day: bool = False,
     source: Optional[str] = None,
+    timezone: Optional[str] = None,
 ) -> CalendarEvent:
-    utc_start = _local_to_utc(start_time)
-    utc_end = _local_to_utc(end_time) if end_time else None
+    tz_name = timezone or "UTC"
+    _resolve_iana_tz(tz_name)
+    utc_start = _local_to_utc(start_time, tz_name)
+    utc_end = _local_to_utc(end_time, tz_name) if end_time else None
     resolved_todo_id = _resolve_todo_id(user_id, todo_id)
     event = CalendarEvent(
         event_id=generate_id(),
         summary=summary,
         start_time=utc_start,
         end_time=utc_end,
+        timezone=tz_name,
         description=description,
         todo_id=resolved_todo_id,
         all_day=all_day,
@@ -93,9 +105,17 @@ def update_event(user_id: int, event_id: str, **fields) -> Optional[CalendarEven
     event = event_repo.get_event(user_id, event_id)
     if not event:
         return None
+    if "timezone" in fields:
+        tz_name = fields["timezone"] or "UTC"
+        _resolve_iana_tz(tz_name)
+        event.timezone = tz_name
+    else:
+        tz_name = event.timezone or "UTC"
     for key, value in fields.items():
+        if key == "timezone":
+            continue
         if key in ("start_time", "end_time") and value is not None:
-            value = _local_to_utc(value)
+            value = _local_to_utc(value, tz_name)
         elif key == "todo_id":
             value = _resolve_todo_id(user_id, value)
         if hasattr(event, key):

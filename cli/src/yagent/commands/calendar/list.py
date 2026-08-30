@@ -2,7 +2,7 @@ import click
 from tabulate import tabulate
 from yagent.api_client import api_request
 from yagent.time_filter import collect_time_params, time_filter_options
-from yagent.time_util import utc_to_local
+from yagent.time_util import utc_to_tz
 
 
 @click.command('list')
@@ -39,14 +39,16 @@ def calendar_list(on, from_, to, created_on, created_from, created_to,
 
     table = []
     for e in events:
-        local_start = utc_to_local(e["start_time"])
-        local_end = utc_to_local(e["end_time"]) if e.get("end_time") else "-"
+        tz_name = e.get("timezone") or "UTC"
+        local_start = utc_to_tz(e["start_time"], tz_name)
+        local_end = utc_to_tz(e["end_time"], tz_name) if e.get("end_time") else "-"
         table.append([
             e["event_id"],
             e["summary"],
             local_start,
             local_end,
+            tz_name,
             "Yes" if e.get("all_day") else "No",
             e.get("status", ""),
         ])
-    click.echo(tabulate(table, headers=["ID", "Summary", "Start", "End", "All Day", "Status"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["ID", "Summary", "Start", "End", "TZ", "All Day", "Status"], tablefmt="simple"))

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text
 from .base import Base, BaseEntity
 
 
@@ -13,6 +13,7 @@ class CalendarEventEntity(Base, BaseEntity):
     description = Column(Text, nullable=True)
     start_time = Column(String, nullable=False)
     end_time = Column(String, nullable=True)
+    timezone = Column(String, nullable=False, default="UTC", server_default=text("'UTC'"))
     all_day = Column(Boolean, nullable=False, default=False)
     status = Column(String, nullable=False, default="CONFIRMED")
     source = Column(String, nullable=True)
