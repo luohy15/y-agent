@@ -60,12 +60,14 @@ decisions and the additive host→module CSS contract.
   persistence, and the host-to-module color-token contract; this feature owns
   the human-facing reference and the control-level CSS contract (radius,
   elevation, checkbox, field) that consumes those tokens.
-- The reference is a single static HTML file under `pages/`
-  (`pages/design-3112.html`), with inline CSS and no build-time or application
-  dependency. Its metadata identifies this PRD, project, and design status.
-  The filename remains todo-oriented (3112) while the page functions as the
-  living visual reference; later control deliveries update it in place rather
-  than spawning a parallel design file.
+- The reference is a single static HTML file, `docs/prd/design-language.html`,
+  living next to this PRD in the y-agent repo (moved from `pages/design-3112.html`
+  in todo 3115; that path is now a short pointer stub kept for historical note
+  associations), with inline CSS and no build-time or application dependency.
+  Its metadata identifies this PRD, project, and design status. The filename is
+  stable and non-todo-oriented while the page functions as the living visual
+  reference; later control deliveries update it in place rather than spawning a
+  parallel design file.
 - Solarized Light and Solarized Dark are the only documented themes. The base
   palette's semantic color values are stable across the two polarities, while
   the eight neutral roles invert as implemented by the host.
@@ -182,7 +184,7 @@ decisions and the additive host→module CSS contract.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3112 | Current UI design-language reference | `pages/design-3112.html` | - | - | - | approved |
-| 3115 | Converge host and module controls on the design language | `pages/design-3112.html` | `pages/plan-3115-design-language-convergence.md` | - | `pages/review-3115-host-design-language-convergence.md`, `pages/review-3115-module-design-language-convergence.md` | reviewed |
+| 3112 | Current UI design-language reference | `docs/prd/design-language.html` | - | - | - | approved |
+| 3115 | Converge host and module controls on the design language | `docs/prd/design-language.html` | `pages/plan-3115-design-language-convergence.md` | - | `pages/review-3115-host-design-language-convergence.md`, `pages/review-3115-module-design-language-convergence.md` | reviewed |
 | 3181 | Step chat and file reader body copy up one type-scale step at tablet widths (768–1023px) | - | `pages/plan-3181-tablet-reader-type.md` | - | `pages/review-3181-tablet-reader-type.md` | shipped (chat v26, file v16) |
 | 3236 | Windows CJK typography: explicit SC fallback chain in host/SDK mono+sans tokens, mono body retained, local Adobe Source faces preferred | `pages/design-3236.html` | `pages/plan-3236-windows-cjk-typography.md` | `pages/decision-3236-typography-roles.md` | `pages/review-3236-windows-cjk-typography.md` | shipped (web deploy d10289c) |

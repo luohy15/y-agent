@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="y-project" content="y-agent">
+  <meta name="y-feature" content="design-language">
+  <meta name="y-todo" content="3112">
+  <meta name="y-feature-doc" content="code/y-agent/docs/prd/design-language.md">
+  <meta name="y-design-status" content="approved">
+  <title>y-agent design language</title>
+  <style>
+    :root {
+      --base03: #fdf6e3;
+      --base02: #eee8d5;
+      --base01: #93a1a1;
+      --base00: #839496;
+      --base0: #657b83;
+      --base1: #586e75;
+      --base2: #073642;
+      --base3: #002b36;
+      --yellow: #b58900;
+      --orange: #cb4b16;
+      --red: #dc322f;
+      --magenta: #d33682;
+      --violet: #6c71c4;
+      --blue: #268bd2;
+      --cyan: #2aa198;
+      --green: #859900;
+      --shadow-float: 0 12px 28px rgb(7 54 66 / 16%);
+      --radius: 4px;
+    }
+    [data-polarity="dark"] {
+      --base03: #002b36;
+      --base02: #073642;
+      --base01: #586e75;
+      --base00: #657b83;
+      --base0: #839496;
+      --base1: #93a1a1;
+      --base2: #eee8d5;
+      --base3: #fdf6e3;
+      --shadow-float: 0 12px 28px rgb(0 0 0 / 30%);
+    }
+    * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--base02) var(--base03); }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: var(--base03); }
+    *::-webkit-scrollbar-thumb { background: var(--base02); border-radius: var(--radius); }
+    *::-webkit-scrollbar-thumb:hover { background: var(--base01); }
+    body { margin: 0; background: var(--base03); color: var(--base0); font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; transition: background .18s, color .18s; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .page { max-width: 1200px; margin: 0 auto; padding: 42px 28px 80px; }
+    .eyebrow, .mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .eyebrow { color: var(--base01); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    header { display: flex; justify-content: space-between; gap: 28px; align-items: flex-start; padding-bottom: 28px; border-bottom: 1px solid var(--base02); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { color: var(--base1); font-size: clamp(30px, 5vw, 45px); letter-spacing: -.045em; line-height: 1; margin: 7px 0 13px; font-weight: 650; }
+    h2 { color: var(--base1); font-size: 16px; margin-bottom: 14px; }
+    h3 { color: var(--base1); font-size: 12px; margin-bottom: 8px; }
+    .lede { max-width: 650px; color: var(--base0); margin: 0; }
+    .mode-switch { display: flex; flex: 0 0 auto; gap: 3px; padding: 3px; background: var(--base02); border: 1px solid color-mix(in srgb, var(--base01) 34%, transparent); border-radius: var(--radius); }
+    .mode-switch button { border: 0; border-radius: var(--radius); padding: 6px 10px; background: transparent; color: var(--base00); cursor: pointer; font-size: 12px; }
+    .mode-switch button.active { background: var(--base03); color: var(--base1); box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
+    .note { margin: 26px 0 38px; display: grid; grid-template-columns: 8px 1fr; gap: 12px; padding: 12px 14px 12px 0; border-bottom: 1px solid var(--base02); }
+    .note i { display: block; background: var(--cyan); border-radius: var(--radius); }
+    .note p { margin: 0; color: var(--base01); font-size: 12px; }
+    .section { margin-top: 44px; }
+    .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--base02); padding-bottom: 9px; margin-bottom: 16px; }
+    .section-title h2 { margin: 0; }
+    .section-title span { color: var(--base01); font: 10px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .06em; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { min-width: 0; padding: 17px; background: color-mix(in srgb, var(--base02) 42%, var(--base03)); border: 1px solid color-mix(in srgb, var(--base01) 24%, transparent); border-radius: var(--radius); }
+    .spec { color: var(--base01); font-size: 11px; }
+    .swatches { display: grid; grid-template-columns: repeat(8, 1fr); border-radius: var(--radius); overflow: hidden; margin: 12px 0 10px; }
+    .swatch { min-height: 68px; display: flex; align-items: end; padding: 6px; color: var(--base03); font: 9px ui-monospace, monospace; }
+    .swatch.dark-label { color: var(--base3); }
+    .accent-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 7px; margin-top: 12px; }
+    .accent { min-width: 0; height: 42px; border-radius: var(--radius); position: relative; }
+    .accent span { position: absolute; top: calc(100% + 4px); width: 100%; color: var(--base01); font: 9px ui-monospace, monospace; text-align: center; }
+    .type-sample { margin: 10px 0; display: flex; justify-content: space-between; align-items: baseline; color: var(--base1); border-bottom: 1px solid var(--base02); padding-bottom: 8px; }
+    .type-sample span:last-child { color: var(--base01); font: 10px ui-monospace, monospace; }
+    .t-title { font-size: 22px; letter-spacing: -.035em; }.t-body { font-size: 14px; }.t-small { font-size: 12px; }.t-mono { font-size: 11px; font-family: ui-monospace, monospace; }
+    .ruler { display: flex; align-items: end; gap: 8px; height: 72px; margin: 14px 0; }
+    .ruler div { width: 28px; background: var(--blue); opacity: .8; border-radius: 3px 3px 0 0; position: relative; }
+    .ruler span { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); font: 9px ui-monospace, monospace; color: var(--base01); }
+    .component-area { display: grid; grid-template-columns: 1.12fr .88fr; gap: 14px; }
+    .demo { padding: 17px; border: 1px solid color-mix(in srgb, var(--base01) 24%, transparent); border-radius: var(--radius); background: var(--base03); }
+    .demo + .demo { margin-top: 14px; }
+    .demo-label { margin-bottom: 13px; color: var(--base01); font: 10px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .06em; }
+    .buttons, .tags, .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .btn { cursor: pointer; border: 1px solid transparent; border-radius: var(--radius); padding: 7px 11px; font-size: 12px; }
+    .btn.primary { background: var(--blue); color: var(--base03); }.btn.soft { border-color: color-mix(in srgb, var(--blue) 42%, transparent); background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }.btn.quiet { background: transparent; color: var(--base01); }.btn.danger { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+    .field { display: grid; gap: 5px; }.field label { color: var(--base01); font-size: 11px; }.field input { height: 31px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--base01) 48%, transparent); outline: 0; border-radius: var(--radius); background: color-mix(in srgb, var(--base02) 62%, var(--base03)); color: var(--base0); font-size: 12px; transition: border-color .12s, background .12s, box-shadow .12s; }.field input:hover { border-color: color-mix(in srgb, var(--base01) 70%, transparent); }.field input:focus { border-color: var(--blue); background: var(--base03); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 18%, transparent); }
+    .check { display: inline-flex; align-items: center; gap: 8px; color: var(--base0); font-size: 12px; cursor: pointer; }.check input { width: 14px; height: 14px; }
+    .custom-check { appearance: none; margin: 0; border: 1px solid color-mix(in srgb, var(--base01) 40%, transparent); border-radius: 3px; background: var(--base03); cursor: pointer; transition: background .12s, border-color .12s, box-shadow .12s; }.custom-check:hover:not(:disabled) { border-color: var(--base01); }.custom-check:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 45%, transparent); outline-offset: 2px; }.custom-check:checked { border-color: var(--blue); background: var(--blue); box-shadow: inset 0 0 0 3px var(--base03); }.custom-check:disabled { opacity: .55; cursor: not-allowed; }
+    .tabs { gap: 0; border-bottom: 1px solid var(--base02); }.tab { padding: 6px 10px; font-size: 12px; color: var(--base01); border: 0; background: transparent; cursor: pointer; }.tab.active { color: var(--base1); border-bottom: 2px solid var(--blue); }
+    .tag { padding: 2px 6px; border-radius: var(--radius); background: var(--base02); color: var(--base0); font-size: 10px; }.tag.active { background: var(--blue); color: var(--base03); }.tag.warn { background: color-mix(in srgb, var(--yellow) 19%, transparent); color: var(--yellow); }.tag.done { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; } th { color: var(--base01); text-align: left; font-weight: 500; } th, td { padding: 8px 6px; border-bottom: 1px solid var(--base02); } td { color: var(--base0); } tr:last-child td { border-bottom: 0; } .table-link { color: var(--blue); }.priority { color: var(--red); }
+    .row { display: flex; align-items: center; gap: 10px; padding: 9px; border-radius: var(--radius); }.row:hover { background: var(--base02); }.dot { width: 7px; height: 7px; border-radius: 99px; background: var(--blue); }.row .grow { flex: 1; min-width: 0; }.row strong { color: var(--base1); font-size: 12px; font-weight: 500; }.row small { color: var(--base01); font-size: 10px; }
+    .panel { border: 1px solid var(--base02); background: var(--base03); }.panel-head { display: flex; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--base02); }.panel-head strong { color: var(--base1); font-size: 12px; }.panel-body { padding: 4px; }
+    .drift { border-left: 3px solid var(--yellow); background: color-mix(in srgb, var(--yellow) 7%, transparent); padding: 14px; border-radius: 0 var(--radius) var(--radius) 0; }.drift + .drift { margin-top: 10px; }.drift h3 { color: var(--yellow); margin-bottom: 4px; }.drift p { margin: 0; color: var(--base0); font-size: 12px; }.variants { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 12px; }
+    .floating-demo { position: relative; width: 220px; padding: 12px; border: 1px solid var(--base01); border-radius: var(--radius); background: var(--base03); box-shadow: var(--shadow-float); }
+    .floating-demo strong { display: block; color: var(--base1); font-size: 12px; margin-bottom: 3px; }
+    .floating-demo span { color: var(--base01); font-size: 11px; }
+    footer { border-top: 1px solid var(--base02); margin-top: 52px; padding-top: 15px; color: var(--base01); font: 10px ui-monospace, monospace; }
+    @media (max-width: 760px) { .page { padding: 26px 17px 56px; } header, .component-area { display: block; }.mode-switch { margin-top: 20px; width: fit-content; }.grid.two, .grid.three { grid-template-columns: 1fr; }.accent-row, .swatches { grid-template-columns: repeat(4, 1fr); }.accent-row { row-gap: 22px; }.component-area > * + * { margin-top: 14px; } }
+  </style>
+</head>
+<body data-polarity="light">
+  <main class="page">
+    <header>
+      <div>
+        <div class="eyebrow">y-agent / current interface reference</div>
+        <h1>Design language</h1>
+        <p class="lede">The approved visual reference for y-agent host and module UI. Solarized tokens, one radius, one floating elevation, and the host-owned checkbox and field treatments are the system in use.</p>
+      </div>
+      <div class="mode-switch" aria-label="Preview polarity">
+        <button class="active" data-mode="light">Solarized Light</button>
+        <button data-mode="dark">Solarized Dark</button>
+      </div>
+    </header>
+
+    <div class="note"><i></i><p><strong style="color:var(--base1)">Scope.</strong> Solarized is the only supported theme family. Semantic accents remain fixed; the neutral scale reverses between polarities. All samples below respond to the polarity switch.</p></div>
+
+    <section class="section">
+      <div class="section-title"><h2>Palette</h2><span>16 host tokens</span></div>
+      <div class="card">
+        <h3>Neutral roles</h3>
+        <div class="swatches">
+          <div class="swatch" style="background:var(--base03)">base03</div><div class="swatch dark-label" style="background:var(--base02)">base02</div><div class="swatch dark-label" style="background:var(--base01)">base01</div><div class="swatch dark-label" style="background:var(--base00)">base00</div><div class="swatch" style="background:var(--base0)">base0</div><div class="swatch" style="background:var(--base1)">base1</div><div class="swatch" style="background:var(--base2)">base2</div><div class="swatch" style="background:var(--base3)">base3</div>
+        </div>
+        <p class="spec">base03 is the application canvas. base02 is the quiet fill and divider family. base1 is prominent text. The named roles, rather than literal values, flip with polarity.</p>
+        <h3 style="margin-top:23px">Semantic accents</h3>
+        <div class="accent-row">
+          <div class="accent" style="background:var(--yellow)"><span>yellow</span></div><div class="accent" style="background:var(--orange)"><span>orange</span></div><div class="accent" style="background:var(--red)"><span>red</span></div><div class="accent" style="background:var(--magenta)"><span>magenta</span></div><div class="accent" style="background:var(--violet)"><span>violet</span></div><div class="accent" style="background:var(--blue)"><span>blue</span></div><div class="accent" style="background:var(--cyan)"><span>cyan</span></div><div class="accent" style="background:var(--green)"><span>green</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h2>Type and rhythm</h2><span>compact by default</span></div>
+      <div class="grid two">
+        <div class="card"><h3>Type scale</h3><div class="type-sample"><span class="t-title">Section heading</span><span>22px</span></div><div class="type-sample"><span class="t-body">Body copy and controls</span><span>14px</span></div><div class="type-sample"><span class="t-small">Dense UI labels</span><span>12px</span></div><div class="type-sample"><span class="t-mono">trace:3112 · metadata</span><span>11px mono</span></div></div>
+        <div class="card"><h3>Spacing rhythm</h3><div class="ruler"><div style="height:8px"><span>8</span></div><div style="height:16px"><span>16</span></div><div style="height:24px"><span>24</span></div><div style="height:32px"><span>32</span></div><div style="height:48px"><span>48</span></div></div><p class="spec">Most UI is assembled from 4px-adjacent increments. 8px and 12px dominate dense controls, 16px panels, and 24px section breaks.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h2>Controls</h2><span>recurring patterns</span></div>
+      <div class="component-area">
+        <div>
+          <div class="demo"><div class="demo-label">Buttons</div><div class="buttons"><button class="btn primary">Save changes</button><button class="btn soft">Open detail</button><button class="btn quiet">Cancel</button><button class="btn danger">Stop</button></div></div>
+          <div class="demo"><div class="demo-label">Input</div><div class="field"><label>Search</label><input value="todo:3112" aria-label="Search example"></div></div>
+          <div class="demo"><div class="demo-label">Tabs</div><div class="tabs"><button class="tab active">Overview</button><button class="tab">Notes</button><button class="tab">Activity</button></div></div>
+        </div>
+        <div>
+          <div class="demo"><div class="demo-label">Tags and statuses</div><div class="tags"><span class="tag active">active</span><span class="tag warn">medium priority</span><span class="tag done">completed</span><span class="tag">design</span></div></div>
+          <div class="demo"><div class="demo-label">Checkbox treatment</div><div class="variants"><label class="check"><input class="custom-check" type="checkbox" checked>Enabled</label><label class="check"><input class="custom-check" type="checkbox">All day</label><label class="check"><input class="custom-check" type="checkbox" checked disabled>Shared</label></div><p class="spec" style="margin:13px 0 0">Host class <code>.y-check</code>: a 14px token-aware square with a 3px corner radius (the only non-4px control corner). Unchecked uses the canvas and muted border; checked becomes blue with an inset canvas mark; keyboard focus receives a blue halo; disabled is <code>opacity:.55</code>. Browser-native checkbox appearance is not part of the design language.</p></div>
+          <div class="demo"><div class="demo-label">Surface rules</div><p class="spec" style="margin:0">One radius token: <code>4px</code> (<code>rounded</code>), with <code>rounded-full</code> kept for genuinely round objects (dots, avatars, toggle tracks/knobs, progress bars, circular icon buttons, count pills). Inputs use host class <code>.y-field</code> for quieter base02/base03 fill, translucent base01 border, and blue focus halo. Non-floating surfaces have borders only. Menus, dialogs, popovers, tooltips, drawers, toasts, and FABs use one <code>shadow-float</code> elevation.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h2>Information surfaces</h2><span>lists, panels, tables</span></div>
+      <div class="grid two">
+        <div class="panel"><div class="panel-head"><strong>Recent todos</strong><span class="mono" style="color:var(--base01);font-size:10px">3 items</span></div><div class="panel-body"><div class="row"><i class="dot"></i><div class="grow"><strong>Document design language</strong><br><small>#3112 · active</small></div><span class="tag active">active</span></div><div class="row"><i class="dot" style="background:var(--green)"></i><div class="grow"><strong>Solarized-only themes</strong><br><small>#3106 · shipped</small></div><span class="tag done">done</span></div><div class="row"><i class="dot" style="background:var(--yellow)"></i><div class="grow"><strong>Calendar checkbox drift</strong><br><small>#3109 · active</small></div><span class="tag warn">review</span></div></div></div>
+        <div class="card" style="padding:11px"><table><thead><tr><th>Todo</th><th>Status</th><th>Priority</th></tr></thead><tbody><tr><td class="table-link">#3112 Design language</td><td>active</td><td class="priority">medium</td></tr><tr><td class="table-link">#3106 Themes</td><td>completed</td><td>medium</td></tr><tr><td class="table-link">#3109 Checkbox</td><td>active</td><td>low</td></tr></tbody></table></div>
+      </div>
+      <div class="demo" style="margin-top:14px"><div class="demo-label">Floating layer</div><div class="floating-demo"><strong>Context menu</strong><span>One elevation token for menus, popovers, and dialogs.</span></div></div>
+    </section>
+
+    <section class="section">
+      <div class="section-title"><h2>Settled conventions</h2><span>shipped in todo 3115</span></div>
+      <div class="drift"><h3>Checkbox: host class <code>.y-check</code></h3><p>One custom primitive for every <code>type="checkbox"</code> in host and module UI. Spec: <code>appearance:none</code>, 14px square, <code>border-radius:3px</code>, muted base01 border on base03 fill; hover raises the border; checked is blue with an inset base03 mark; <code>:focus-visible</code> draws a 2px blue outline at offset 2px; disabled is <code>opacity:.55; cursor:not-allowed</code>. Class name is append-only while older module versions remain rollback-reachable.</p></div>
+      <div class="drift"><h3>Radius: one 4px token, round objects stay round</h3><p>Host and SDK register <code>--radius: 4px</code>; bare <code>rounded</code> resolves to it. Sized variants (<code>rounded-sm|md|lg|xs</code>) are not used. <code>rounded-full</code> remains for genuinely round objects: status dots, chart legend swatches, avatars/initials, routine toggle track and knob, progress bars/tracks, circular icon buttons and FABs, and count pills. Absolute 4px (not <code>0.25rem</code>) because root font is 110%.</p></div>
+      <div class="drift"><h3>Elevation: one Solarized-aware <code>shadow-float</code></h3><p>Ordinary panels, cards, and rows stay border-defined with no elevation. Any layer floating above the document uses <code>shadow-float</code>: light <code>0 12px 28px rgb(7 54 66 / 16%)</code>, dark <code>0 12px 28px rgb(0 0 0 / 30%)</code>. The Tailwind theme key holds a var indirection so the shadow flips with polarity at runtime. Host class <code>.y-field</code> owns input fill/border/focus only; size and padding stay per-site utilities.</p></div>
+    </section>
+
+    <footer>Feature: design-language · Todo: 3112 (living reference) · Status: approved · Host code y-agent 4069880 · Module code y-module 8ef8811 · Visual decisions recorded here; CSS authority is web/src/style.css.</footer>
+  </main>
+  <script>
+    const root = document.body;
+    document.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => {
+      root.dataset.polarity = button.dataset.mode;
+      document.querySelectorAll('[data-mode]').forEach((candidate) => candidate.classList.toggle('active', candidate === button));
+    }));
+  </script>
+</body>
+</html>
