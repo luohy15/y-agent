@@ -555,9 +555,19 @@ export default function DemoShell() {
         leftOpen={desktopSidebarOpen}
         bottomOpen={bottomOpen}
         rightOpen={rightOpen}
+        maximized={!desktopSidebarOpen && !rightOpen}
         onToggleLeft={() => setDesktopSidebarOpen((v) => !v)}
         onToggleBottom={() => setBottomOpen((v) => !v)}
         onToggleRight={() => setRightOpen((v) => !v)}
+        onToggleMaximize={() => {
+          if (!desktopSidebarOpen && !rightOpen) {
+            setDesktopSidebarOpen(true);
+            setRightOpen(true);
+          } else {
+            setDesktopSidebarOpen(false);
+            setRightOpen(false);
+          }
+        }}
       />
 
       <div className="flex flex-1 min-h-0">

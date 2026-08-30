@@ -1504,9 +1504,19 @@ export default function App() {
           leftOpen={desktopSidebarOpen}
           bottomOpen={!bottomPanelCollapsed}
           rightOpen={!rightPanelCollapsed}
+          maximized={!desktopSidebarOpen && rightPanelCollapsed}
           onToggleLeft={() => setDesktopSidebarOpen(v => !v)}
           onToggleBottom={() => setBottomPanelCollapsed(v => !v)}
           onToggleRight={() => setRightPanelCollapsed(v => !v)}
+          onToggleMaximize={() => {
+            if (!desktopSidebarOpen && rightPanelCollapsed) {
+              setDesktopSidebarOpen(true);
+              setRightPanelCollapsed(false);
+            } else {
+              setDesktopSidebarOpen(false);
+              setRightPanelCollapsed(true);
+            }
+          }}
           meta={
             <>
               {chatListTraceId && (
