@@ -7,6 +7,7 @@ export interface DesktopHeaderBarProps {
   bottomOpen?: boolean;
   rightOpen?: boolean;
   maximized?: boolean;
+  onOpenFileSearch?: () => void;
   onToggleLeft?: () => void;
   onToggleBottom?: () => void;
   onToggleRight?: () => void;
@@ -24,6 +25,7 @@ export default function DesktopHeaderBar({
   bottomOpen = false,
   rightOpen = false,
   maximized = false,
+  onOpenFileSearch,
   onToggleLeft,
   onToggleBottom,
   onToggleRight,
@@ -36,6 +38,17 @@ export default function DesktopHeaderBar({
         {meta}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        {onOpenFileSearch && (
+          <button
+            onClick={onOpenFileSearch}
+            className="hidden pointer-coarse:flex p-2 rounded cursor-pointer text-sol-base01 hover:text-sol-base1"
+            title="Search files (Ctrl+P)"
+          >
+            <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+        )}
         {onToggleLeft && (
           <button
             onClick={onToggleLeft}

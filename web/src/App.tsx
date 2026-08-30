@@ -1091,6 +1091,17 @@ export default function App() {
   const chatHideRef = useRef(chatHide);
   chatHideRef.current = chatHide;
 
+  const openFileSearch = useCallback(() => {
+    if (!contextualFileTabsRef.current) {
+      setFileSearchOpen(false);
+      openHostWorkspaceTab(FILE_AGGREGATE_TAB);
+      publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
+      return;
+    }
+    setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
+    setFileSearchOpen(true);
+  }, [openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "`") {
@@ -1118,14 +1129,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "p") {
         e.preventDefault();
-        if (!contextualFileTabsRef.current) {
-          setFileSearchOpen(false);
-          openHostWorkspaceTab(FILE_AGGREGATE_TAB);
-          publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
-          return;
-        }
-        setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
-        setFileSearchOpen(true);
+        openFileSearch();
       }
       // Close active in-app file tab (todo 3237).
       // Apple: preserve the pre-change branch exactly (Ctrl+W and Cmd+W).
@@ -1177,7 +1181,7 @@ export default function App() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("message", onPreviewKeydown);
     };
-  }, [handleCloseFile, handleFileBack, handleFileForward, handleSelectFile, openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+  }, [handleCloseFile, handleFileBack, handleFileForward, handleSelectFile, openFileSearch]);
 
   // Mouse back/forward buttons (button 3/4) step the active file tab's history
   // instead of navigating the browser out of the SPA (todo 3288 S5). Only
@@ -1470,16 +1474,7 @@ export default function App() {
             </svg>
           </button>
           <button
-            onClick={() => {
-              if (!contextualFileTabsRef.current) {
-                setFileSearchOpen(false);
-                openHostWorkspaceTab(FILE_AGGREGATE_TAB);
-                publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
-                return;
-              }
-              setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
-              setFileSearchOpen(true);
-            }}
+            onClick={openFileSearch}
             className="h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 text-sol-base01 hover:text-sol-base1"
             title="Search files (Ctrl+P)"
           >
@@ -1505,6 +1500,7 @@ export default function App() {
           bottomOpen={!bottomPanelCollapsed}
           rightOpen={!rightPanelCollapsed}
           maximized={!desktopSidebarOpen && rightPanelCollapsed}
+          onOpenFileSearch={openFileSearch}
           onToggleLeft={() => setDesktopSidebarOpen(v => !v)}
           onToggleBottom={() => setBottomPanelCollapsed(v => !v)}
           onToggleRight={() => setRightPanelCollapsed(v => !v)}
