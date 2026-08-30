@@ -22,3 +22,6 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/storage"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/storage/data/english_words_10k.txt" = "storage/data/english_words_10k.txt"

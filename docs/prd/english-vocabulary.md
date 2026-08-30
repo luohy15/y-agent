@@ -161,4 +161,4 @@ Deferred by Roy's 2026-08-30 v1 narrowing (the full-system interview in chat
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 2903 | v1 scan-and-mark PRD settled; design + implementation pending | - | - | - | - | planned |
+| 2903 | v1 scan-and-mark | `pages/design-2903.html` | `pages/plan-2903-english-vocabulary.md` | - | `pages/review-2903-english-vocabulary.md` | implemented |

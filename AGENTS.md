@@ -84,6 +84,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   `id`, not a `[trace:...]` / `[routine:...]` / bootstrap message, prose, majority
   English); the live chat pipeline is untouched. The diff is computed at read time in
   the web `English` panel, never stored.
+- **English vocabulary** — host-owned `english_word` inventory of a frequency-ranked
+  top-10k list. `y english vocab seed` inserts per-user rows from the packaged
+  `storage/data/english_words_10k.txt`; scan-and-mark (`unseen` / `known` / `unknown`)
+  lives in the English panel Vocabulary sub-tab and `y english vocab`
+  (`seed` / `list` / `mark` / `stats`). Tiers 3k/5k/10k are derived from rank.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items.
@@ -215,7 +220,7 @@ exceptions noted):
   `entity_note_relation`, `entity_rss_relation`
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
   coordination, no service)
-- **English learning**: `english_correction`
+- **English learning**: `english_correction`, `english_word`
 - **Dev / trace**: `dev_worktree`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **Provider status**: `provider_status_source`, `provider_status_component`,
@@ -244,7 +249,7 @@ Grouped by feature area:
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
-  `english_correction.py`
+  `english_correction.py`, `english_word.py` (`/english/vocab`)
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
@@ -301,7 +306,8 @@ Grouped by feature area:
 - `host/commands.ts`, runtime-loaded `todo` artifact; `TraceView` stays bundled for
   unauthenticated shares
 - `LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
-  `GitPanel.tsx`, `CommandPalette.tsx`, `api.ts`, `hooks/useAuth.ts`
+  `GitPanel.tsx`, `CommandPalette.tsx`, `EnglishList.tsx`, `VocabularyTab.tsx`,
+  `api.ts`, `hooks/useAuth.ts`
 
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group

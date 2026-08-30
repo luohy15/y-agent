@@ -21,6 +21,7 @@ from storage.dto.rss_feed import RssFeed
 from storage.dto.user_preference import UserPreference
 from storage.dto.user_cookies import UserCookies
 from storage.dto.english_correction import EnglishCorrection
+from storage.dto.english_word import EnglishWord
 
 __all__ = [
     "BotConfig", "DEFAULT_OPENROUTER_CONFIG",
@@ -40,4 +41,5 @@ __all__ = [
     "UserPreference",
     "UserCookies",
     "EnglishCorrection",
+    "EnglishWord",
 ]
