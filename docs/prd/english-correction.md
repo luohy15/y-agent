@@ -213,6 +213,11 @@ this delivery.
 - **Non-chat-surface English** (e.g. commit messages, todo descriptions,
   note content) — scope is limited to user chat messages read from the
   `chat` table.
+- **Vocabulary tracking** — word-level known/unknown state, seeded frequency
+  word lists, and the scan-and-mark flow are owned by
+  [english-vocabulary](english-vocabulary.md); this feature stays at the
+  message/grammar level. They share the English panel and `y english` CLI
+  namespace but no tables.
 - **Replacing the `refine` skill** — `refine` remains the on-demand, explicit
   single-sentence helper; this feature is the passive, automatic, historical
   counterpart. The two are not merged.
