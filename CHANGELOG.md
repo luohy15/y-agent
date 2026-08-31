@@ -13,10 +13,33 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.27] - 2026-08-30
+
+### Added
+- **English vocabulary scan-and-mark (2903)**: host-owned `english_word` inventory of
+  a frequency-ranked top-10k list. `y english vocab seed` inserts per-user rows;
+  scan-and-mark (`unseen` / `known` / `unknown`) lives in the English panel
+  Vocabulary sub-tab and `y english vocab` (`seed` / `list` / `mark` / `stats`).
+  Tiers 3k/5k/10k are derived from rank.
+- **Tablet file-search button (3330)**: the desktop header cluster shows a
+  touch-only Ctrl+P search control on coarse pointers, so file search is reachable
+  on tablets without a keyboard.
+- **Per-event calendar timezone (3320)**: calendar events store and accept an
+  explicit timezone in storage, API, and CLI, so timed events are not forced
+  through a single implicit zone.
+- **Maximize-center header toggle (3317)**: the desktop header bar (and demo shell)
+  gains a linked maximize-center control that hides the side and bottom chrome in
+  one click.
 - **Owner-scoped tag vocabulary (3290)**: the host persists each owner's canonical
   tag vocabulary and exposes `tag_create_vocabulary`, allowing modules to validate
   and create vocabulary entries without depending solely on active tag carriers.
-
 - **Shared tag chip editor (3285)**: browser contract v12 exports `TagsEditor` on
   `@y/host` so the file-module note surface and host todo detail share one chip
   implementation. Passing `suggestions` opens a filtered keyboard/mouse
@@ -30,8 +53,6 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   accepts a secret-protected, redacted webhook receipt and reconciles official current
   and recent incident data for the Bot Provider view. Setup remains manual and the
   status is explicitly upstream-reported rather than y-agent availability. Webhook
-  receipts now persist on PostgreSQL (`RETURNING` instead of `rowcount`), and Uvicorn
-  access logs redact the opaque webhook path. Webhook
   receipts now persist on PostgreSQL (`RETURNING` instead of `rowcount`), and Uvicorn
   access logs redact the opaque webhook path.
 
