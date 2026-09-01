@@ -106,6 +106,7 @@ def list_links(
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
     tag: Optional[str] = None,
+    tz: Optional[str] = None,
 ) -> List[LinkActivity]:
     return link_repo.list_links(
         user_id, query=query,
@@ -117,6 +118,7 @@ def list_links(
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
         tag=tag,
+        tz=tz,
     )
 
 

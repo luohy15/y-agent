@@ -36,9 +36,29 @@ TIME_RANGE_ALIASES = {
 }
 
 
-def parse_time_range(time_filter: str, default: str | None = None) -> tuple[datetime.date | None, datetime.date | None]:
+def parse_time_range(
+    time_filter: str, default: str | None = None, tz: str | None = None,
+) -> tuple[datetime.date | None, datetime.date | None]:
+    """`tz` (an IANA name, e.g. a client's browser timezone) overrides the
+    configured Y_AGENT_TIMEZONE when resolving relative tokens ("today" /
+    "month" / "ytd" / ...) against "now". Omitting `tz` preserves existing
+    behavior byte-for-byte."""
     value = (time_filter or default or "").strip()
     value = TIME_RANGE_ALIASES.get(value.lower(), value)
     if not value:
         return None, None
+    if tz:
+        # fava's day resolver is rebound at import to storage.util.local_today
+        # (see the module-level rebind above); temporarily rebind it again to
+        # resolve this call's relative tokens against `tz` instead of the
+        # configured timezone, then restore. parse_date() is synchronous with
+        # no internal yield point, so this is safe under asyncio (no context
+        # switch can interleave another caller's window) and under Lambda /
+        # uvicorn's one-request-at-a-time-per-worker execution.
+        original = _fava_date.local_today
+        _fava_date.local_today = lambda: local_today(tz)
+        try:
+            return parse_date(value)
+        finally:
+            _fava_date.local_today = original
     return parse_date(value)

@@ -127,6 +127,7 @@ async def list_links(
     updated_on: Optional[str] = Query(None),
     updated_from: Optional[str] = Query(None),
     updated_to: Optional[str] = Query(None),
+    tz: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
     activity_ids = None
@@ -150,6 +151,7 @@ async def list_links(
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+        tz=tz,
     )
     return [l.to_dict() for l in links]
 

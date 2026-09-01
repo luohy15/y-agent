@@ -69,6 +69,16 @@ function toLocalInputValue(iso?: string | null): string {
   return formatLocalInput(d);
 }
 
+function toUtcIso(localValue: string): string {
+  // `localValue` is a `datetime-local` input string (no timezone), parsed by
+  // `Date` as browser-local wall time; converting to an ISO instant before
+  // sending lets the server treat it as an already-UTC "Z" string
+  // (`_local_to_utc` passthrough) instead of reinterpreting it in
+  // Y_AGENT_TIMEZONE, which broke round-trips for non-Shanghai clients.
+  const d = new Date(localValue);
+  return isNaN(d.getTime()) ? localValue : d.toISOString();
+}
+
 function defaultRemindAt(): string {
   const d = new Date();
   d.setMinutes(d.getMinutes() + 60);
@@ -297,7 +307,7 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
         const body: Record<string, string> = {
           reminder_id: form.reminder_id,
           title,
-          remind_at: form.remind_at,
+          remind_at: toUtcIso(form.remind_at),
           description: form.description.trim(),
           todo_id: form.todo_id.trim(),
           calendar_event_id: form.calendar_event_id.trim(),
@@ -314,7 +324,7 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
       } else {
         const body: Record<string, string> = {
           title,
-          remind_at: form.remind_at,
+          remind_at: toUtcIso(form.remind_at),
         };
         if (form.description.trim()) body.description = form.description.trim();
         if (form.todo_id.trim()) body.todo_id = form.todo_id.trim();

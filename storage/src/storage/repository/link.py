@@ -54,6 +54,7 @@ def list_links(
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
     tag: Optional[str] = None,
+    tz: Optional[str] = None,
 ) -> List[LinkActivity]:
     with get_db() as session:
         q = (
@@ -92,9 +93,9 @@ def list_links(
                 ))
             else:
                 q = q.filter(LinkActivityEntity.source == source)
-        q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms")
-        q = apply_time_filter(q, LinkActivityEntity.created_at, on=created_on, from_=created_from, to=created_to)
-        q = apply_time_filter(q, LinkActivityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
+        q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms", tz=tz)
+        q = apply_time_filter(q, LinkActivityEntity.created_at, on=created_on, from_=created_from, to=created_to, tz=tz)
+        q = apply_time_filter(q, LinkActivityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to, tz=tz)
         if query:
             pattern = f"%{query}%"
             q = q.filter(

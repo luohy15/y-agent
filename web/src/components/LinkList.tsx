@@ -259,6 +259,9 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
   if (timeParams.on) params.set("on", timeParams.on);
   if (timeParams.from) params.set("from", timeParams.from);
   if (timeParams.to) params.set("to", timeParams.to);
+  if (timeParams.on || timeParams.from || timeParams.to) {
+    params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  }
   if (query) params.set("query", query);
   if (todoId) params.set("todo_id", todoId);
   if (feedId === ALL_RSS_FEEDS_ID) {

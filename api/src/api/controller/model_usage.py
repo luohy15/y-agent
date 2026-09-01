@@ -8,8 +8,8 @@ from agent import usage_limits as limits_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
 from storage.service import usage_rate as rate_service
-from storage.service.model_usage_daily import _local_today
 from storage.service.time_range import parse_time_range
+from storage.util import local_today
 
 router = APIRouter(prefix="/usage")
 
@@ -32,22 +32,27 @@ async def list_model_daily(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(100000),
+    tz: Optional[str] = Query(None),
 ):
     """Per-model daily usage rows. Defaults to source='crs' and today's date
     (the freshest CRS snapshot) when no range is given. When `time` is given it
     is parsed server-side with the shared finance time grammar (specific dates,
     quarters, ranges, ytd/mtd/etc.); fava's exclusive end boundary is converted
-    to the repo's inclusive `<=` semantics via −1 day."""
+    to the repo's inclusive `<=` semantics via −1 day. `tz` (a client's browser
+    IANA timezone) resolves relative tokens / the no-range "today" default
+    against that timezone's current date instead of the configured
+    Y_AGENT_TIMEZONE, picking which pre-bucketed (Y_AGENT_TIMEZONE-stamped)
+    usage_date rows to fetch -- it does not re-bucket stored rows."""
     user_id = request.state.user_id
     if time is not None:
         # `time` is authoritative; its parsed (possibly None) bounds pass
         # straight through, so `all` / `''` stay unbounded instead of
         # collapsing back to the today-default below.
-        start, end = parse_time_range(time)
+        start, end = parse_time_range(time, tz=tz)
         from_date = start.isoformat() if start else None
         to_date = (end - timedelta(days=1)).isoformat() if end else None
     else:
-        today = _local_today()
+        today = local_today(tz).isoformat()
         from_date = from_date or today
         to_date = to_date or today
     rows = usage_service.list_for(
@@ -71,19 +76,22 @@ async def list_model_hourly(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(100000),
+    tz: Optional[str] = Query(None),
 ):
     """Per-model hourly usage rows. Defaults to source='crs' and today's date
-    when no range is given (same raw-grain convention as model-daily). Marks
-    `partial: true` on rows whose (usage_date, usage_hour) equals the server's
-    current configured-timezone hour; the browser clock never decides this
-    (todo 3165)."""
+    when no range is given (same raw-grain convention as model-daily), with
+    the same `tz`-overrides-default-today behavior. Marks `partial: true` on
+    rows whose (usage_date, usage_hour) equals the server's current
+    configured-timezone hour; the browser clock never decides this (todo
+    3165) -- `tz` only affects which bucket dates are fetched, not the
+    partial-hour marker."""
     user_id = request.state.user_id
     if time is not None:
-        start, end = parse_time_range(time)
+        start, end = parse_time_range(time, tz=tz)
         from_date = start.isoformat() if start else None
         to_date = (end - timedelta(days=1)).isoformat() if end else None
     else:
-        today = _local_today()
+        today = local_today(tz).isoformat()
         from_date = from_date or today
         to_date = to_date or today
     rows = hourly_service.list_for(

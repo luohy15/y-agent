@@ -17,29 +17,33 @@ _TIME_FILTER_DATE_FMT = "%Y-%m-%d"
 _TIME_FILTER_DATETIME_FMTS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M")
 
 
-def _time_filter_tz():
-    """Configured local timezone (Y_AGENT_TIMEZONE), falling back to system local."""
+def _time_filter_tz(tz_name: Optional[str] = None):
+    """Resolve the local timezone: an explicit IANA `tz_name` (e.g. a client's
+    browser timezone) takes precedence over the configured Y_AGENT_TIMEZONE,
+    which falls back to system local. An unrecognized `tz_name` falls back the
+    same way, matching the existing Y_AGENT_TIMEZONE behavior."""
     from dateutil import tz as dateutil_tz
-    tz_name = os.getenv("Y_AGENT_TIMEZONE")
-    if tz_name:
-        tz = dateutil_tz.gettz(tz_name)
+    name = tz_name or os.getenv("Y_AGENT_TIMEZONE")
+    if name:
+        tz = dateutil_tz.gettz(name)
         if tz:
             return tz
     return dateutil_tz.tzlocal()
 
 
-def local_today():
-    """Today's date in the configured timezone (Y_AGENT_TIMEZONE), falling back
-    to system local — the single source for "today" shared by the write path
-    (model_usage_daily) and the read path (time_range's fava day resolution),
-    which previously disagreed by a day for 8 hours after local midnight
-    (todo 2953)."""
-    return datetime.now(_time_filter_tz()).date()
+def local_today(tz: Optional[str] = None):
+    """Today's date in `tz` if given, else the configured timezone
+    (Y_AGENT_TIMEZONE), falling back to system local — the single source for
+    "today" shared by the write path (model_usage_daily) and the read path
+    (time_range's fava day resolution), which previously disagreed by a day
+    for 8 hours after local midnight (todo 2953). Callers that omit `tz`
+    (CLI, agent, routines) are unaffected."""
+    return datetime.now(_time_filter_tz(tz)).date()
 
 
-def _parse_time_filter_input(value: str) -> tuple[datetime, bool]:
+def _parse_time_filter_input(value: str, tz: Optional[str] = None) -> tuple[datetime, bool]:
     """Parse a local-tz date or datetime string. Returns (utc_dt, is_date_only)."""
-    local_tz = _time_filter_tz()
+    local_tz = _time_filter_tz(tz)
     for fmt in _TIME_FILTER_DATETIME_FMTS:
         try:
             dt = datetime.strptime(value, fmt).replace(tzinfo=local_tz)
@@ -71,10 +75,14 @@ def apply_time_filter(
     to: Optional[str] = None,
     *,
     field_type: str = "iso",
+    tz: Optional[str] = None,
 ):
     """Apply a unified time-range filter to a SQLAlchemy query.
 
-    Inputs are local-tz (Y_AGENT_TIMEZONE):
+    Inputs are local-tz: an explicit `tz` (IANA name, e.g. a client's browser
+    timezone) overrides the configured Y_AGENT_TIMEZONE for this call only.
+    Omitting `tz` preserves existing behavior byte-for-byte (CLI / agent /
+    routine callers are unaffected).
     - `on`    : 'YYYY-MM-DD' — restricts to the full local day on `field`
     - `from_` : 'YYYY-MM-DD' (start-of-day) or 'YYYY-MM-DDTHH:MM[:SS]' — closed
                 lower bound
@@ -89,7 +97,7 @@ def apply_time_filter(
     (callers / CLI enforce; here we apply whichever is set).
     """
     if on is not None:
-        start_dt, is_date = _parse_time_filter_input(on)
+        start_dt, is_date = _parse_time_filter_input(on, tz)
         if not is_date:
             raise ValueError(f"`on` requires YYYY-MM-DD, got: {on!r}")
         end_dt = start_dt + timedelta(days=1)
@@ -98,11 +106,11 @@ def apply_time_filter(
         return query
 
     if from_ is not None:
-        start_dt, _ = _parse_time_filter_input(from_)
+        start_dt, _ = _parse_time_filter_input(from_, tz)
         query = query.filter(field >= _emit_time_filter_value(start_dt, field_type))
 
     if to is not None:
-        end_dt, is_date = _parse_time_filter_input(to)
+        end_dt, is_date = _parse_time_filter_input(to, tz)
         if is_date:
             end_dt = end_dt + timedelta(days=1)
         query = query.filter(field < _emit_time_filter_value(end_dt, field_type))
