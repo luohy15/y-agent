@@ -234,4 +234,4 @@ history are a documented future extension, not part of this delivery.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 2871 | Storage / API / `y english` CLI / web panel + detail view built; `english-correction` skill and hourly routine registered (disabled) | `pages/design-2871.html` | `pages/plan-2871-english-correction.md` | - | `pages/review-2871-english-correction.md`, `pages/review-2871-english-correction-s5-skill.md` | implemented |
-| 3345 | Quick refine/correct tool: `POST /api/english/refine` + English panel Refine sub-tab, persisting changed text into `english_correction` | - | `pages/plan-3345-english-refine-tool.md` | - | - | implementing |
+| 3345 | Quick refine/correct tool: `POST /api/english/refine` + English panel Refine sub-tab, persisting changed text into `english_correction` | - | `pages/plan-3345-english-refine-tool.md` | - | `pages/review-3345-english-refine-tool.md` | deployed |
