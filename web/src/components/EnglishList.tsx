@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { API, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
+import RefineTab from "./RefineTab";
 import VocabularyTab from "./VocabularyTab";
 
 export interface EnglishCorrection {
@@ -27,7 +28,7 @@ interface Routine {
 }
 
 type StatusFilter = "active" | "dismissed" | "all";
-type SubTab = "corrections" | "patterns" | "vocabulary";
+type SubTab = "corrections" | "patterns" | "vocabulary" | "refine";
 
 interface EnglishListProps {
   isLoggedIn: boolean;
@@ -198,7 +199,7 @@ export default function EnglishList({
 
   return (
     <div className="flex flex-col h-full text-xs overflow-hidden">
-      {subTab !== "vocabulary" && (
+      {subTab !== "vocabulary" && subTab !== "refine" && (
       <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
         <div className="flex gap-1.5">
           <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-sol-base02 border border-sol-base01 rounded">
@@ -284,11 +285,25 @@ export default function EnglishList({
         >
           Vocabulary
         </button>
+        <button
+          onClick={() => setSubTab("refine")}
+          className={`flex-1 py-1.5 cursor-pointer ${
+            subTab === "refine"
+              ? "text-sol-blue border-b-2 border-sol-blue font-medium"
+              : "text-sol-base01 hover:text-sol-base0"
+          }`}
+        >
+          Refine
+        </button>
       </div>
 
       {subTab === "vocabulary" ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <VocabularyTab isLoggedIn={isLoggedIn} />
+        </div>
+      ) : subTab === "refine" ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <RefineTab isLoggedIn={isLoggedIn} onSaved={() => mutate()} />
         </div>
       ) : (
       <div className="flex-1 overflow-y-auto p-1.5">
@@ -429,7 +444,7 @@ export default function EnglishList({
       </div>
       )}
 
-      {subTab !== "vocabulary" && (
+      {subTab !== "vocabulary" && subTab !== "refine" && (
       <div className="px-2 py-1.5 border-t border-sol-base02 text-[0.55rem] text-sol-base01 leading-relaxed shrink-0">
         Auto-scan runs hourly via routine{" "}
         <span className="text-sol-cyan font-mono">english-correction</span>. Toggle in Routines · no

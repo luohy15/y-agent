@@ -1,11 +1,37 @@
+import json
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from api.controller.inline import INLINE_BOT_NAME, INLINE_MAX_TOKENS, INLINE_TIMEOUT
+from storage.service import bot_config as bot_service
 from storage.service import english_correction as eng_service
+from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
 router = APIRouter(prefix="/english")
+
+REFINE_CHAT_ID = "refine"
+REFINE_MAX_CHARS = 2000
+REFINE_SYSTEM_PROMPT = (
+    "You refine English (or Chinese-to-English) with a minimal edit that preserves meaning. "
+    "Refine the grammar and wording while preserving the original meaning.\n"
+    "Rules:\n"
+    "- Prefer the smallest change that makes the sentence grammatical and natural. "
+    "Do not rewrite for style or formality when the original is already grammatical.\n"
+    "- If the original is already natural, do not invent a better version. "
+    "Set changed=false, copy the original into corrected, use an empty categories list, "
+    "and explain in 1-2 sentences that it is already natural.\n"
+    "- If you change the text, set changed=true. Emit one or more free-form lowercase "
+    "category strings (e.g. tense, article, preposition, word choice) and a 1-2 sentence "
+    "explanation of the grammar or wording issue.\n"
+    "- Preserve Chinese characters the user intends to keep. Correct only English spans "
+    "unless the user is clearly asking for an English rendering of Chinese.\n"
+    "Return ONLY a JSON object, no markdown fences, no extra text, with keys "
+    "changed (boolean), corrected (string), categories (array of strings), explanation (string)."
+)
+_FENCE_OPEN_RE = re.compile(r"^```(?:json)?\s*", re.IGNORECASE)
 
 
 def _get_user_id(request: Request) -> int:
@@ -29,6 +55,72 @@ class DismissRequest(BaseModel):
 
 class MarkScannedRequest(BaseModel):
     scanned_through_unix: int
+
+
+class RefineRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=REFINE_MAX_CHARS)
+
+
+class RefineResponse(BaseModel):
+    changed: bool
+    corrected: str
+    categories: List[str]
+    explanation: str
+    correction_id: Optional[str] = None
+
+
+def _parse_refine_json(raw: str) -> dict:
+    """Lenient JSON object parse: strip fences, then take the first {...} span."""
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("empty LLM response")
+    if text.startswith("```"):
+        text = _FENCE_OPEN_RE.sub("", text, count=1)
+        text = re.sub(r"\s*```\s*$", "", text)
+        text = text.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("no JSON object in LLM response")
+    data = json.loads(text[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("LLM JSON is not an object")
+    return data
+
+
+def _normalize_refine_result(original: str, data: dict) -> tuple[bool, str, List[str], str]:
+    corrected = data.get("corrected")
+    if corrected is None:
+        corrected = data.get("corrected_text")
+    if not isinstance(corrected, str) or not corrected.strip():
+        raise ValueError("missing corrected text")
+    corrected = corrected.strip()
+
+    explanation = data.get("explanation")
+    if not isinstance(explanation, str):
+        raise ValueError("missing explanation")
+    explanation = explanation.strip()
+
+    cats = data.get("categories")
+    if cats is None:
+        cats = data.get("error_categories")
+    if cats is None:
+        cats = []
+    if isinstance(cats, str):
+        cats = [cats]
+    if not isinstance(cats, list):
+        raise ValueError("categories is not a list")
+    categories = [str(c).strip() for c in cats if str(c).strip()]
+
+    changed = corrected != original
+    if not changed:
+        corrected = original
+        if not explanation:
+            explanation = "Already natural."
+        categories = []
+    elif not explanation:
+        raise ValueError("missing explanation")
+    return changed, corrected, categories, explanation
 
 
 @router.get("/list")
@@ -122,3 +214,62 @@ async def list_pending(
 async def mark_scanned(req: MarkScannedRequest, request: Request):
     user_id = _get_user_id(request)
     return eng_service.set_watermark(user_id, req.scanned_through_unix)
+
+
+@router.post("/refine", response_model=RefineResponse)
+async def refine_text(req: RefineRequest, request: Request) -> RefineResponse:
+    user_id = _get_user_id(request)
+    original = (req.text or "").strip()
+    if not original:
+        raise HTTPException(status_code=400, detail="text is required")
+    if len(original) > REFINE_MAX_CHARS:
+        raise HTTPException(status_code=400, detail=f"text exceeds {REFINE_MAX_CHARS} characters")
+
+    bot_config = bot_service.get_config(user_id, INLINE_BOT_NAME)
+    if not bot_config or not bot_config.api_key or not bot_config.model:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Bot {INLINE_BOT_NAME!r} is not configured for this user (api_key and model required)",
+        )
+
+    from agent.openai_chat import openai_chat_completion
+    try:
+        raw, _ = await openai_chat_completion(
+            [{"role": "user", "content": original}],
+            bot_config,
+            max_tokens=INLINE_MAX_TOKENS,
+            system_prompt=REFINE_SYSTEM_PROMPT,
+            timeout=INLINE_TIMEOUT,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+
+    try:
+        payload = _parse_refine_json(raw or "")
+        changed, corrected, categories, explanation = _normalize_refine_result(original, payload)
+    except (ValueError, json.JSONDecodeError, TypeError) as e:
+        raise HTTPException(status_code=502, detail=f"LLM parse failed: {e}")
+
+    correction_id = None
+    if changed:
+        now = get_utc_iso8601_timestamp()
+        row = eng_service.add_correction(
+            user_id,
+            chat_id=REFINE_CHAT_ID,
+            message_id=generate_message_id(),
+            message_at=now,
+            message_at_unix=get_unix_timestamp(),
+            original_text=original,
+            corrected_text=corrected,
+            error_categories=categories,
+            explanation=explanation,
+        )
+        correction_id = row.correction_id
+
+    return RefineResponse(
+        changed=changed,
+        corrected=corrected,
+        categories=categories,
+        explanation=explanation,
+        correction_id=correction_id,
+    )

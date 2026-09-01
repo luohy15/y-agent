@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **English panel Refine tab (3345)**: type or paste a sentence in the English
+  panel Refine sub-tab; `POST /api/english/refine` uses the `inline` bot and
+  writes a changed result into `english_correction` (`chat_id="refine"`). Already
+  natural text is returned without a new row.
 
 ### Changed
 

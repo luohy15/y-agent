@@ -26,9 +26,13 @@ qualifying message produces a minimal grammar correction, an explanation, and
 an error classification. Results accumulate into a personal error history
 that surfaces recurring patterns over time. The user can inspect corrections
 and dismiss ones that are false positives (informal style, deliberate
-phrasing) so they stop polluting the history. Personalized review exercises
-generated from that history are a documented future extension, not part of
-this delivery.
+phrasing) so they stop polluting the history. The same English panel also
+hosts an on-demand Refine sub-tab (`POST /api/english/refine`) that ports
+the desktop grammar-refine behavior: type or paste a sentence, get a
+minimally edited version plus a short explanation, and persist the row into
+`english_correction` only when the model actually changed the text
+(`chat_id="refine"`). Personalized review exercises generated from that
+history are a documented future extension, not part of this delivery.
 
 ## User Stories
 
@@ -219,11 +223,15 @@ this delivery.
   message/grammar level. They share the English panel and `y english` CLI
   namespace but no tables.
 - **Replacing the `refine` skill** — `refine` remains the on-demand, explicit
-  single-sentence helper; this feature is the passive, automatic, historical
-  counterpart. The two are not merged.
+  single-sentence helper in chat (and still logs `lifelog/english/YYYY-MM-DD.md`);
+  this feature is the passive, automatic, historical counterpart. The English
+  panel Refine tab is a third, web-only entry point that writes the same
+  `english_correction` table via `/api/english/refine` and does not replace
+  the chat skill.
 
 ## Delivery Records
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 2871 | Storage / API / `y english` CLI / web panel + detail view built; `english-correction` skill and hourly routine registered (disabled) | `pages/design-2871.html` | `pages/plan-2871-english-correction.md` | - | `pages/review-2871-english-correction.md`, `pages/review-2871-english-correction-s5-skill.md` | implemented |
+| 3345 | Quick refine/correct tool: `POST /api/english/refine` + English panel Refine sub-tab, persisting changed text into `english_correction` | - | `pages/plan-3345-english-refine-tool.md` | - | - | implementing |

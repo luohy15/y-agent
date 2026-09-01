@@ -82,8 +82,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   `english_correction_scan`) with `y english mark-scanned`. Eligibility is
   deterministic Python in `storage/service/english_correction.py` (user role, has an
   `id`, not a `[trace:...]` / `[routine:...]` / bootstrap message, prose, majority
-  English); the live chat pipeline is untouched. The diff is computed at read time in
-  the web `English` panel, never stored.
+  English); the live chat pipeline is untouched. The web English panel also has an
+  on-demand Refine sub-tab (`POST /api/english/refine`) that uses the `inline` bot
+  and persists changed text into the same `english_correction` table. The diff is
+  computed at read time in the web `English` panel, never stored.
 - **English vocabulary** — host-owned `english_word` inventory of a frequency-ranked
   top-10k list. `y english vocab seed` inserts per-user rows from the packaged
   `storage/data/english_words_10k.txt`; scan-and-mark (`unseen` / `known` / `unknown`)
