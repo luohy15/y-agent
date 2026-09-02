@@ -17,6 +17,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   panel Refine sub-tab; `POST /api/english/refine` uses the `inline` bot and
   writes a changed result into `english_correction` (`chat_id="refine"`). Already
   natural text is returned without a new row.
+- **Client-timezone date ranges (3346)**: time filters and usage endpoints take an
+  optional `tz` so calendar days are interpreted in the caller's zone. LinkList
+  sends the browser timezone; ReminderList submits UTC instants.
 
 ### Changed
 
