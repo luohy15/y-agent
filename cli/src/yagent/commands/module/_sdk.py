@@ -131,7 +131,11 @@ def _copy_sdk_tree(src: Path, dest: Path) -> None:
 def _ensure_npm_install(dest: Path) -> None:
     marker = dest / "node_modules" / ".bin" / "tailwindcss"
     esbuild = dest / "node_modules" / ".bin" / "esbuild"
-    if marker.is_file() and esbuild.is_file():
+    # react-markdown/package.json also stands in for the other three Node
+    # renderer deps (react, react-dom, remark-gfm), which land in the same
+    # `npm install` (todo 3371 T1).
+    react_markdown = dest / "node_modules" / "react-markdown" / "package.json"
+    if marker.is_file() and esbuild.is_file() and react_markdown.is_file():
         return
     if not shutil.which("npm"):
         raise RuntimeError(

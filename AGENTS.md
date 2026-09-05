@@ -400,6 +400,12 @@ y module rollback <slug>
 y module activate <slug> <version_no>
 y module enable <slug> | y module disable <slug>
 y module delete <slug> [-y|--yes]
+
+# Markdown -> PDF export, reusing the file module's react-markdown + WeasyPrint
+# pipeline (todo 3371). `y pdf export` is a host alias that lazily resolves
+# the same module command; both names run identical code.
+y pdf export <md> [-o <pdf>]
+y file export-pdf <md> [-o <pdf>]
 ```
 
 ## Conventions

@@ -22,11 +22,26 @@ time, via a relative import from `web/src/host/contract.ts`
 | `theme.css` | `@theme reference` block registering the host's `sol-*` color names plus host-resolved `--radius` and `--shadow-float` for Tailwind, without emitting a `:root` value block (decision D3). Utilities emit `var(...)` and inherit whatever the host set at runtime. Host-owned control classes `.y-check` / `.y-field` live in host `web/src/style.css` (append-only CSS contract; not redeclared here) and are applied by class name from module TSX. An artifact's CSS entry imports this alongside `tailwindcss/theme.css` (see the spike's `artifact/demo.css` for the exact three-line recipe). |
 | `y-host.d.ts` | Type declarations for `@y/host`, handed to artifact authors, plus the artifact module shape (`panel` + optional `detail` + optional `shell` + optional `demo`, see `pages/decision-2412-module-shape.md`, `docs/prd/module-system.md`, and `docs/prd/public-module-demos.md`). Must match `web/src/host/sdk.ts`'s actual export list — the registry is what exists at runtime, so a d.ts name with no runtime binding fails silently (esbuild does not typecheck) until an artifact calls it. |
 | `templates/starter.{tsx,json}` | Scaffold written by `y module create`. The `.tsx` is the canonical example of the module shape: `export const panel` (required), `export const detail` (optional), `export const shell` (optional). Public-showcase modules also export `demo`. |
+| `package.json` | Also pins the Node-side renderer deps (`react`, `react-dom`, `react-markdown`, `remark-gfm`) that a module's Node driver script runs with real `node_modules` (not the browser's alias-to-shim path) — see *Runtime dependencies* below. |
 
 If `contract.json`'s values ever diverge from what `web/src/host/registry.ts`
 actually registers, that is the D6 single-source-of-truth invariant breaking
 — fix by pointing the drifted side at this file rather than hand-copying
 values.
+
+## Runtime dependencies
+
+`package.json` pins `react`, `react-dom`, `react-markdown`, `remark-gfm` to the
+exact versions in `web/package-lock.json` (todo 3371). A CLI Node-side markdown
+export driver, e.g. `code/y-module/file/scripts/export-node.mjs`, runs with
+these as real installed packages via `NODE_PATH=.sdk/node_modules`, since the
+browser bundle's esbuild `alias` → `shims/*.cjs` substitution only applies to
+`y module publish`'s browser build. **Lockstep rule**: when
+`web/package-lock.json` bumps the pinned version of any of these four
+packages, bump the matching entry in this `package.json` in the same change.
+`_ensure_npm_install` in `cli/src/yagent/commands/module/_sdk.py` checks for
+`node_modules/react-markdown/package.json` (in addition to the `tailwindcss` /
+`esbuild` binaries) so an existing `.sdk` install picks up these deps.
 
 ## Surfaces
 

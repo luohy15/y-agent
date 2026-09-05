@@ -33,12 +33,13 @@ def remove_auth():
         os.remove(AUTH_FILE)
 
 
-def api_request(method: str, path: str, **kwargs) -> httpx.Response:
+def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.Response:
     """Make an authenticated API request.
 
     Args:
         method: HTTP method (GET, POST, etc.)
         path: API path (e.g. /api/todo/list)
+        timeout: request timeout in seconds (default 30)
         **kwargs: passed to httpx.request (params, json, etc.)
     """
     api_url = os.getenv("Y_API_BASE")
@@ -57,7 +58,7 @@ def api_request(method: str, path: str, **kwargs) -> httpx.Response:
     url = f"{api_url}{path}"
     headers = {"Authorization": f"Bearer {token}"}
 
-    resp = httpx.request(method, url, headers=headers, timeout=30, **kwargs)
+    resp = httpx.request(method, url, headers=headers, timeout=timeout, **kwargs)
 
     if resp.status_code == 401:
         print("Session expired. Run 'y login' to re-authenticate.", file=sys.stderr)
