@@ -648,6 +648,14 @@ create; every existing normalized `entity_tag` write (any carrier, and
 `tag_rename_apply`, which mutates state, unlike the read-only `tag_rename_plan`)
 also keeps `tag_vocabulary` registered in the same transaction, so the module
 never needs its own vocabulary bookkeeping.
+
+Todo 3384 enriches the existing `tag_get` todo row shape with a nullable
+`created_at` ISO timestamp (the todo row's own creation time, distinct from
+the existing `updated_at_unix` field added by todo 3169), bumping
+`BACKEND_CONTRACT_VERSION` from 13 to **14**. This follows the same pattern as
+the v9 bump: a field addition to an already-hydrated batch lookup, not a new
+function or SQL fetch. The tag module raises its floor to 14 when it renders
+the field between the todo ID and title.
 The tag module raises its floor to 13 when it publishes the create route.
 
 **v1 has shipped and been

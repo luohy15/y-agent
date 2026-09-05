@@ -105,11 +105,14 @@ def _resolve_todos(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
         return {}
     # updated_at_unix is the todo row's own timestamp (not effective chat activity).
     # Present so presentation clients (tag module) can sort without a second fetch.
+    # created_at (todo 3384) is the row's own nullable ISO creation timestamp, so
+    # presentation clients can render it without deriving it from the todo ID.
     return {
         todo_id: {
             "id": todo.todo_id,
             "title": todo.name,
             "updated_at_unix": todo.updated_at_unix,
+            "created_at": todo.created_at,
         }
         for todo_id, todo in todo_service.find_todos_by_ids(user_id, entity_ids).items()
     }
