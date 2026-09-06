@@ -20,6 +20,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Client-timezone date ranges (3346)**: time filters and usage endpoints take an
   optional `tz` so calendar days are interpreted in the caller's zone. LinkList
   sends the browser timezone; ReminderList submits UTC instants.
+- **`y pdf export` alias for markdown-to-PDF export (3371)**: host alias that
+  lazily resolves the same file-module command as `y file export-pdf`; the SDK
+  runtime gained renderer dependencies and `api_request` a timeout parameter.
+- **`tag_get` todo rows carry `created_at` (3384)**: backend module host contract
+  bumped to v14 so modules can sort/filter tag results by creation time.
 
 ### Changed
 
