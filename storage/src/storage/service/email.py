@@ -95,8 +95,6 @@ def list_thread_tags(user_id: int, thread_id: str) -> List[str]:
 def add_thread_tag(user_id: int, thread_id: str, tag: str) -> bool:
     _require_thread(user_id, thread_id)
     canonical = _canonical_vocabulary_tag(tag)
-    if not email_repo.vocabulary_contains(user_id, canonical):
-        raise LookupError("Tag is not in the vocabulary")
     return email_repo.add_thread_tag(user_id, thread_id, canonical)
 
 

@@ -649,6 +649,32 @@ create; every existing normalized `entity_tag` write (any carrier, and
 also keeps `tag_vocabulary` registered in the same transaction, so the module
 never needs its own vocabulary bookkeeping.
 
+Todo 3397 advances backend contract **15 to 16** with owner-bound
+`tag_delete_vocabulary(user_id, tag)`. It deletes only the exact owner's
+vocabulary row when no raw `entity_tag` rows of any type remain, including
+unresolved carriers. Blank input raises `TagVocabularyError` (400), absence
+raises `LookupError` (404), and nonempty vocabulary raises
+`storage.repository.tag_vocabulary.TagVocabularyConflict` (409). Owner/context
+validation remains fail-closed (403). Success is `{tag, deleted: true}` with no
+internal IDs. It never removes memberships or authored content.
+
+The shared `tag_vocabulary.lock_owner` helper reserves PostgreSQL advisory
+namespace **3397** with the internal owner ID as the second integer key.
+Deletion locks before existence/membership reads; `ensure`, ordinary membership
+writers, rename apply (before rebuilding its plan), and email addition (before
+its in-transaction vocabulary validation) cooperate until commit. Under READ
+COMMITTED, a writer that wins first makes deletion reject. After deletion,
+ordinary compatibility writes may re-register a tag; email requires existing
+vocabulary and rejects instead. Raw SQL is outside this protocol, and SQLite
+tests do not establish its concurrency guarantee.
+
+Rename plans/hash now include `source_exists` (vocabulary or projection), and
+`target_exists` uses the same union. Empty registered sources still retire via
+the normal coordinated apply; an existing unused target is a merge. An unknown
+source is a no-op after stale-hash validation and cannot create a target.
+The tag module must require v16; deploy the host before publishing that module.
+The browser contract is unchanged, and membership `rm` is not vocabulary delete.
+
 Todo 3384 enriches the existing `tag_get` todo row shape with a nullable
 `created_at` ISO timestamp (the todo row's own creation time, distinct from
 the existing `updated_at_unix` field added by todo 3169), bumping

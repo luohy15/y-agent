@@ -11,11 +11,43 @@ separately-committed transaction.
 
 from typing import Tuple
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from storage.database.base import get_db
 from storage.entity.tag_vocabulary import TagVocabularyEntity
+from storage.entity.entity_tag import EntityTagEntity
+
+
+class TagVocabularyConflict(ValueError):
+    """Vocabulary retirement was rejected because raw memberships still exist."""
+
+
+def lock_owner(session, user_id: int) -> None:
+    """Serialize vocabulary retirement and membership writers until commit.
+
+    PostgreSQL two-integer advisory namespace 3397 is reserved for tag owners;
+    the second key is the internal owner ID. SQLite is for outcome tests only.
+    Call before membership/existence reads, not merely before inserting rows.
+    """
+    if session.bind.dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(3397, :owner_id)"),
+            {"owner_id": user_id},
+        )
+
+
+def delete_empty(user_id: int, tag: str) -> None:
+    """Delete only an existing, unused exact vocabulary spelling for this owner."""
+    with get_db() as session:
+        lock_owner(session, user_id)
+        row = session.query(TagVocabularyEntity).filter_by(user_id=user_id, tag=tag).first()
+        if row is None:
+            raise LookupError("Tag is not in the vocabulary")
+        if session.query(EntityTagEntity.id).filter_by(user_id=user_id, tag=tag).first():
+            raise TagVocabularyConflict("Tag still has associated carriers")
+        session.delete(row)
 
 
 def ensure(session, user_id: int, tag: str) -> bool:
@@ -27,6 +59,7 @@ def ensure(session, user_id: int, tag: str) -> bool:
     savepoint and catches the IntegrityError instead, since SQLite lacks a
     portable multi-column upsert through this SQLAlchemy version pin.
     """
+    lock_owner(session, user_id)
     table = TagVocabularyEntity.__table__
     if session.bind.dialect.name == "postgresql":
         statement = pg_insert(table).values(user_id=user_id, tag=tag).on_conflict_do_nothing(

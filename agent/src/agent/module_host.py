@@ -119,7 +119,11 @@ field), bumping it from 13 to 14; the tag module raises its floor to 14 when
 it renders the field. Todo 3387 enriches the existing `tag_get` note row with
 the same nullable `created_at` ISO timestamp (the note row's own creation
 time), bumping it from 14 to 15; the tag module raises its floor to 15 when
-it renders the field. Modules declare the minimum version they use and an
+it renders the field. Todo 3397 adds owner-bound `tag_delete_vocabulary`
+(empty-only, exact spelling) and vocabulary-aware rename plans with
+`source_exists`, bumping it from 15 to 16. The tag module requires v16 for
+these operations; deploy the host before publishing the module.
+Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
 """
@@ -137,7 +141,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 15
+BACKEND_CONTRACT_VERSION = 16
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -1070,3 +1074,16 @@ def tag_create_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
     from storage.service import tag as tag_service
 
     return tag_service.create_vocabulary(user_id, tag)
+
+
+def tag_delete_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
+    """Retire an exact, unused owner vocabulary spelling (backend contract v16).
+
+    Returns {"tag": tag, "deleted": True}. Map TagVocabularyConflict to 409,
+    other ValueError to 400, LookupError to 404, and PermissionError to 403.
+    No membership or authored content is removed.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.delete_vocabulary(user_id, tag)

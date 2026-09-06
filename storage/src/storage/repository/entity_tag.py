@@ -80,10 +80,10 @@ def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
     if not tag:
         return False
     with get_db() as session:
+        vocabulary_repo.ensure(session, user_id, tag)
         exists = session.query(EntityTagEntity).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
         ).first()
-        vocabulary_repo.ensure(session, user_id, tag)
         if exists:
             return False
         session.add(EntityTagEntity(user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag))

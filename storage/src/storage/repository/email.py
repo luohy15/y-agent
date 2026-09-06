@@ -5,6 +5,7 @@ from sqlalchemy import func
 from storage.entity.email import EmailEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.tag_vocabulary import TagVocabularyEntity
+from storage.repository import tag_vocabulary as vocabulary_repo
 from storage.dto.email import Email
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
@@ -256,15 +257,13 @@ def list_thread_tags_by_ids(user_id: int, thread_ids: List[str]) -> dict[str, Li
         return result
 
 
-def vocabulary_contains(user_id: int, tag: str) -> bool:
-    with get_db() as session:
-        return session.query(TagVocabularyEntity.id).filter_by(
-            user_id=user_id, tag=tag,
-        ).first() is not None
-
-
 def add_thread_tag(user_id: int, thread_id: str, tag: str) -> bool:
     with get_db() as session:
+        vocabulary_repo.lock_owner(session, user_id)
+        if session.query(TagVocabularyEntity.id).filter_by(
+            user_id=user_id, tag=tag,
+        ).first() is None:
+            raise LookupError("Tag is not in the vocabulary")
         exists = session.query(EntityTagEntity.id).filter_by(
             user_id=user_id, entity_type="email", entity_id=thread_id, tag=tag,
         ).first()

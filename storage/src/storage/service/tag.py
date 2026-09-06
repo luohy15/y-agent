@@ -263,6 +263,18 @@ def create_vocabulary(user_id: int, tag: str) -> Dict[str, object]:
     return {"tag": canonical, "created": created}
 
 
+def delete_vocabulary(user_id: int, tag: str) -> Dict[str, object]:
+    """Retire an exact spelling only when no raw memberships remain.
+
+    Raises TagVocabularyError for blank input, LookupError for an absent tag,
+    and vocabulary_repo.TagVocabularyConflict for nonempty vocabulary.
+    """
+    if not isinstance(tag, str) or not tag.strip():
+        raise TagVocabularyError("tag must not be blank")
+    vocabulary_repo.delete_empty(user_id, tag)
+    return {"tag": tag, "deleted": True}
+
+
 # Authoring-surface carriers that predate entity_tag and need a one-shot backfill.
 _BACKFILL_TYPES = ("note", "entity", "todo")
 _PAGE_SIZE = 200
@@ -524,6 +536,7 @@ def compute_plan_hash(plan: Dict) -> str:
                 key=lambda i: (i["entity_type"], i["entity_id"], i["to"]),
             ),
         },
+        "source_exists": plan["source_exists"],
         "target_exists": plan["target_exists"],
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -541,7 +554,14 @@ def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
     )
     carrier_keys = sorted({(etype, eid) for etype, eid in source_pairs})
 
-    target_exists = (
+    vocabulary_tags = {
+        row.tag for row in session.query(TagVocabularyEntity.tag).filter(
+            TagVocabularyEntity.user_id == user_id,
+            TagVocabularyEntity.tag.in_([source, target]),
+        ).all()
+    }
+    source_exists = source in vocabulary_tags or bool(source_pairs)
+    target_exists = target in vocabulary_tags or (
         session.query(EntityTagEntity.id)
         .filter_by(user_id=user_id, tag=target)
         .first()
@@ -692,6 +712,7 @@ def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
         "mode": mode,
         "source": source,
         "target": target,
+        "source_exists": source_exists,
         "target_exists": target_exists,
         "carriers": carriers,
         "files": files,
@@ -722,6 +743,7 @@ def _public_plan(plan: Dict) -> Dict:
         "mode": plan["mode"],
         "source": plan["source"],
         "target": plan["target"],
+        "source_exists": plan["source_exists"],
         "target_exists": plan["target_exists"],
         "carriers": plan["carriers"],
         "files": plan["files"],
@@ -891,6 +913,7 @@ def apply_rename(
 
     with get_db() as session:
         try:
+            vocabulary_repo.lock_owner(session, user_id)
             plan = _build_rename_plan(session, user_id, source, target)
             if plan["blockers"]:
                 raise TagRenameConflict(f"rename blocked: {plan['blockers']}")
@@ -898,6 +921,9 @@ def apply_rename(
                 raise TagRenameConflict(
                     "plan_hash mismatch; re-run dry-run and apply the fresh plan"
                 )
+
+            if not plan["source_exists"]:
+                return _public_plan(plan)
 
             by_type = defaultdict(dict)
             for carrier in plan["carriers"]:
