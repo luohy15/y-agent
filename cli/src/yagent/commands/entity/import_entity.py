@@ -55,7 +55,7 @@ def import_single(filepath):
 @click.command("import")
 @click.argument("paths", nargs=-1, required=True)
 def entity_import(paths):
-    """Import markdown files as entities. Relative paths use $Y_AGENT_HOME."""
+    """Import files as entities. Front matter (name/type) is only parsed from markdown (.md) files; other file types default to type 'person'. Relative paths use $Y_AGENT_HOME."""
     for filepath in paths:
         entity_id, note_id = import_single(filepath)
         if entity_id:

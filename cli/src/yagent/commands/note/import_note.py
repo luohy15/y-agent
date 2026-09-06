@@ -38,7 +38,14 @@ def _json_safe(value):
 
 
 def _parse_front_matter(filepath):
-    """Parse YAML front matter from a markdown file. Returns dict or None."""
+    """Parse YAML front matter from a markdown file. Returns dict or None.
+
+    Only files with a case-insensitive `.md` suffix are opened as text; any
+    other extension (PDF, images, non-UTF-8 payloads, etc.) returns None
+    without reading the file, so binary content is never decoded as YAML.
+    """
+    if Path(filepath).suffix.lower() != ".md":
+        return None
     with open(filepath, "r") as f:
         text = f.read()
     match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
@@ -117,7 +124,7 @@ def import_single(filepath):
 @click.command("import")
 @click.argument("paths", nargs=-1, required=True)
 def note_import(paths):
-    """Import markdown files as notes. Relative paths use $Y_AGENT_HOME; worktree paths use the main repo."""
+    """Import files as notes. Markdown (.md) front matter is parsed; other file types are imported without it. Relative paths use $Y_AGENT_HOME; worktree paths use the main repo."""
     for filepath in paths:
         content_key, note_id = import_single(filepath)
         if note_id:
