@@ -114,6 +114,22 @@ async def list_model_hourly(
     return out
 
 
+@router.get("/range")
+async def get_range(
+    time: Optional[str] = Query(None),
+    tz: Optional[str] = Query(None),
+):
+    """Resolve the shared time grammar to inclusive `{from_date, to_date}` bounds
+    without fetching any rows (same fava-exclusive-end -> inclusive conversion as
+    `model-daily`/`model-hourly`; null/unbounded tokens like `all` pass through as
+    null). Lets a client size its own fetch window (D7's Over-time hybrid
+    rebucketing) without duplicating `parse_time_range`'s grammar client-side."""
+    start, end = parse_time_range(time, tz=tz)
+    from_date = start.isoformat() if start else None
+    to_date = (end - timedelta(days=1)).isoformat() if end else None
+    return {"from_date": from_date, "to_date": to_date}
+
+
 @router.get("/daily-totals")
 async def list_daily_totals(
     request: Request,
