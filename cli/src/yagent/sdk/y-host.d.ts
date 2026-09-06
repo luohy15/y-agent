@@ -366,6 +366,18 @@ declare module "@y/host" {
   }
   export function TagsEditor(props: TagsEditorProps): any;
 
+  // HtmlPreview.tsx (contract v13, todo 3406) — host-owned sandboxed HTML
+  // document preview leaf shared by the File module's in-app preview and the
+  // public shared-note HTML viewer. Owns preparation, sandbox flags, and
+  // srcDoc; always `sandbox="allow-scripts"`, never `allow-same-origin`.
+  export interface HtmlPreviewProps {
+    source: string;
+    title: string;
+    className?: string;
+    keyboardBridge?: boolean;
+  }
+  export function HtmlPreview(props: HtmlPreviewProps): any;
+
   // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
   // detail / public-trace leaf. One physical implementation; modules mount it
   // rather than copying waterfall / share / todo-detail code.

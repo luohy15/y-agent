@@ -28,6 +28,7 @@ import { optimisticListMutate } from "../utils/optimisticMutate";
 import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
+import HtmlPreview from "../components/HtmlPreview";
 import ImageLightbox from "../components/ImageLightbox";
 import TagsEditor from "../components/TagsEditor";
 import TraceView from "../components/TraceView";
@@ -124,6 +125,11 @@ export const hostSdk = {
   // allowNew={false}, canonical tags only).
   TagsEditor,
 
+  // HtmlPreview.tsx / previewHtml.ts (contract v13, todo 3406) — host-owned
+  // sandboxed HTML document preview leaf, shared by the File module's in-app
+  // preview and the public shared-note HTML viewer.
+  HtmlPreview,
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.
@@ -165,3 +171,4 @@ export type {
   TodoPatch,
 } from "../components/TraceView";
 export type { TagsEditorProps } from "../components/TagsEditor";
+export type { HtmlPreviewProps } from "../components/HtmlPreview";

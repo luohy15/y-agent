@@ -196,6 +196,24 @@ html {
   caret-color: transparent;
 }
 
+/* Shared HTML preview viewport height (todo 3406): a real `@supports` feature
+ * query, not two Tailwind utility classes or two same-property declarations
+ * in one rule. `h-screen h-dvh` cannot guarantee 100dvh wins (Tailwind's
+ * generated stylesheet order does not follow className order), and a plain
+ * `height: 100vh; height: 100dvh;` fallback-via-invalid-value pair gets
+ * collapsed to just the last declaration by the production CSS minifier
+ * (verified against the built dist/assets/*.css). The @supports guard
+ * survives minification because the two declarations live in different
+ * rules. */
+.html-preview-viewport {
+  height: 100vh;
+}
+@supports (height: 100dvh) {
+  .html-preview-viewport {
+    height: 100dvh;
+  }
+}
+
 /*
  * Host→module CSS contract (append-only class names):
  * .y-check / .y-field. Do not rename while older module versions remain

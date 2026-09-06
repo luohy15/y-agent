@@ -7,6 +7,8 @@ import remarkStripComments from "../utils/remarkStripComments";
 import { API } from "../api";
 import DocsToc, { type TocItem } from "./DocsToc";
 import MobileToc from "./MobileToc";
+import HtmlPreview from "./HtmlPreview";
+import { extractHtmlTitle } from "../utils/previewHtml";
 
 interface NoteShareResponse {
   note_id: string;
@@ -27,6 +29,12 @@ function titleFromContent(content: string): string | null {
   const body = stripFrontMatter(content);
   const heading = body.split("\n").find((line) => /^#\s+/.test(line));
   return heading ? heading.replace(/^#\s+/, "").trim() : null;
+}
+
+/** `.html`/`.htm`, case-insensitive, matching File's HTML extension set.
+ * Extension-only: never sniff Markdown content as HTML. */
+function isHtmlContentKey(contentKey: string): boolean {
+  return /\.html?$/i.test(contentKey);
 }
 
 interface SharedNoteProps {
@@ -53,49 +61,84 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
 
   const articleRef = useRef<HTMLElement | null>(null);
+  // Monotonic request counter (todo 3406 review): guards against an older
+  // in-flight fetch applying its response after a newer one has already
+  // started, e.g. a fast shareId/password transition racing the network.
+  const requestIdRef = useRef(0);
 
+  // fetchShare owns every outcome (success, expected HTTP failure, and a
+  // rejected fetch/json promise) behind one requestId guard (todo 3406 review
+  // round 2): a thrown/rejected promise used to skip the guard entirely and
+  // let a stale request's error land on whatever share is now current, so
+  // reporting is done here instead of via a caller-side .catch/try-catch.
   const fetchShare = useCallback(async (password?: string) => {
     if (!shareId) return;
+    const requestId = ++requestIdRef.current;
+    const isCurrent = () => requestIdRef.current === requestId;
     setLoading(true);
     setError(null);
-    const url = `${API}/api/note/share?share_id=${encodeURIComponent(shareId)}${password ? `&password=${encodeURIComponent(password)}` : ""}`;
-    const res = await fetch(url);
-    if (res.status === 401) {
-      setNeedsPassword(true);
+    try {
+      const url = `${API}/api/note/share?share_id=${encodeURIComponent(shareId)}${password ? `&password=${encodeURIComponent(password)}` : ""}`;
+      const res = await fetch(url);
+      if (!isCurrent()) return; // superseded by a newer request
+      if (res.status === 401) {
+        setData(null);
+        setNeedsPassword(true);
+        setLoading(false);
+        return;
+      }
+      if (res.status === 403) {
+        setData(null);
+        setNeedsPassword(true);
+        setLoading(false);
+        setError("Invalid password");
+        return;
+      }
+      if (res.status === 429) {
+        setLoading(false);
+        setError("Too many attempts. Try again later.");
+        return;
+      }
+      if (!res.ok) {
+        setData(null);
+        setLoading(false);
+        setError("Shared note not found");
+        return;
+      }
+      const body: NoteShareResponse = await res.json();
+      if (!isCurrent()) return; // superseded by a newer request
+      setData(body);
+      setNeedsPassword(false);
       setLoading(false);
-      return;
-    }
-    if (res.status === 403) {
-      setNeedsPassword(true);
+    } catch (err) {
+      if (!isCurrent()) return; // a superseded request's own rejection (e.g. network failure)
       setLoading(false);
-      throw new Error("Invalid password");
+      setError(err instanceof Error ? err.message : "Failed to load shared note");
     }
-    if (res.status === 429) {
-      setLoading(false);
-      throw new Error("Too many attempts. Try again later.");
-    }
-    if (!res.ok) {
-      setLoading(false);
-      throw new Error("Shared note not found");
-    }
-    const body: NoteShareResponse = await res.json();
-    setData(body);
-    setNeedsPassword(false);
-    setLoading(false);
   }, [shareId]);
 
+  // A shareId/password-query transition invalidates whatever the previous
+  // share displayed (todo 3406 review): clear it up front instead of leaving
+  // the prior share's content/title/OG metadata visible until (or if) the
+  // new fetch ever succeeds.
   useEffect(() => {
+    setData(null);
+    setNeedsPassword(false);
+    setError(null);
     const urlPassword = searchParams.get("p") || undefined;
-    fetchShare(urlPassword).catch((err) => setError(err.message || "Failed to load shared note"));
+    fetchShare(urlPassword);
   }, [fetchShare, searchParams]);
+
+  const isHtml = useMemo(() => (data ? isHtmlContentKey(data.content_key) : false), [data]);
 
   const title = useMemo(() => {
     if (!data) return "Shared Note";
+    if (isHtml) return extractHtmlTitle(data.content) || data.front_matter?.title || data.content_key;
     return data.front_matter?.title || titleFromContent(data.content) || data.content_key;
-  }, [data]);
+  }, [data, isHtml]);
 
   useEffect(() => {
-    if (!data) {
+    if (!data || isHtml) {
       setTocItems([]);
       return;
     }
@@ -114,15 +157,45 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
       );
     });
     return () => window.cancelAnimationFrame(id);
-  }, [data]);
+  }, [data, isHtml]);
 
-  const submitPassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      await fetchShare(passwordInput);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load shared note");
+  // Client-side title/OG metadata (todo 3406, binding decision 6: HTML only):
+  // only after a successful HTML share fetch (`data` is only set on the
+  // success path), and restored/removed on cleanup so a share transition or
+  // unmount never leaks stale metadata. Markdown title selection/display is
+  // unaffected.
+  useEffect(() => {
+    if (!data || !isHtml) return;
+    const previousTitle = document.title;
+    document.title = title;
+
+    let meta = document.querySelector('meta[property="og:title"]');
+    const created = !meta;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("property", "og:title");
+      document.head.appendChild(meta);
     }
+    const previousContent = meta.getAttribute("content");
+    meta.setAttribute("content", title);
+
+    return () => {
+      document.title = previousTitle;
+      if (created) {
+        meta?.remove();
+      } else if (previousContent !== null) {
+        meta?.setAttribute("content", previousContent);
+      } else {
+        meta?.removeAttribute("content");
+      }
+    };
+  }, [data, isHtml, title]);
+
+  const submitPassword = (event: React.FormEvent) => {
+    event.preventDefault();
+    // fetchShare reports every outcome (including a rejection) itself, under
+    // its own requestId guard; no caller-side try/catch is needed or safe.
+    fetchShare(passwordInput);
   };
 
   const copyLink = () => {
@@ -187,25 +260,44 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
           </button>
         </div>
       </header>
-      <MobileToc items={tocItems} />
-      <main className="max-w-6xl mx-auto px-4 py-6 overflow-x-clip lg:flex lg:gap-8">
-        <div className="min-w-0 max-w-4xl mx-auto lg:flex-1">
+      {isHtml ? (
+        <>
           {data.front_matter?.tags && data.front_matter.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-4">
+            <div className="max-w-6xl mx-auto px-4 pt-4 flex flex-wrap gap-1">
               {data.front_matter.tags.map((tag) => (
                 <span key={tag} className="text-[0.65rem] bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded">{tag}</span>
               ))}
             </div>
           )}
-          <article ref={articleRef} className="prose prose-invert max-w-none break-words prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkStripComments]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
-          </article>
-        </div>
+          <HtmlPreview
+            source={data.content}
+            title={title}
+            className="html-preview-viewport block w-full border-0 bg-white"
+          />
+        </>
+      ) : (
+        <>
+          <MobileToc items={tocItems} />
+          <main className="max-w-6xl mx-auto px-4 py-6 overflow-x-clip lg:flex lg:gap-8">
+            <div className="min-w-0 max-w-4xl mx-auto lg:flex-1">
+              {data.front_matter?.tags && data.front_matter.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-4">
+                  {data.front_matter.tags.map((tag) => (
+                    <span key={tag} className="text-[0.65rem] bg-sol-base02 text-sol-base0 px-1.5 py-0.5 rounded">{tag}</span>
+                  ))}
+                </div>
+              )}
+              <article ref={articleRef} className="prose prose-invert max-w-none break-words prose-pre:bg-sol-base02 prose-code:text-sol-cyan">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkStripComments]} rehypePlugins={[rehypeSlug]}>{stripFrontMatter(data.content)}</ReactMarkdown>
+              </article>
+            </div>
 
-        <aside className="hidden lg:block w-56 shrink-0 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-auto">
-          <DocsToc items={tocItems} />
-        </aside>
-      </main>
+            <aside className="hidden lg:block w-56 shrink-0 sticky top-20 self-start max-h-[calc(100vh-6rem)] overflow-auto">
+              <DocsToc items={tocItems} />
+            </aside>
+          </main>
+        </>
+      )}
     </>
   );
 }
