@@ -254,6 +254,21 @@ export default function TraceView({
   // Reset the batch-share selection when switching traces.
   useEffect(() => { setDeselectedNoteIds(new Set()); }, [selectedTraceId]);
 
+  const [todoIdCopied, setTodoIdCopied] = useState(false);
+  const todoIdCopiedTimerRef = useRef<number | null>(null);
+  // Guards the deferred `writeText().then(...)` completion below: if the user
+  // navigates away while the clipboard write is still pending, this flips to
+  // false before the promise resolves, so the callback skips both the state
+  // update and creating a fresh, now-uncleared timeout.
+  const todoIdCopiedMountedRef = useRef(true);
+  useEffect(() => {
+    todoIdCopiedMountedRef.current = true;
+    return () => {
+      todoIdCopiedMountedRef.current = false;
+      if (todoIdCopiedTimerRef.current !== null) window.clearTimeout(todoIdCopiedTimerRef.current);
+    };
+  }, []);
+
   // Module detail: a required todo that resolved missing/malformed is unavailable.
   // Transient fetch failures never fire this (parent keeps the selection for retry).
   useEffect(() => {
@@ -393,11 +408,23 @@ export default function TraceView({
             </div>
             <div className="flex items-center gap-2 mb-1">
               <button
-                onClick={() => navigator.clipboard.writeText(todoInfo?.todo_id || selectedTraceId || "")}
-                className="inline-flex items-center text-[0.6rem] text-sol-base01 hover:text-sol-base0 font-mono cursor-pointer"
-                title="Copy todo ID"
+                onClick={() => {
+                  navigator.clipboard.writeText(todoInfo?.todo_id || selectedTraceId || "").then(() => {
+                    if (!todoIdCopiedMountedRef.current) return;
+                    setTodoIdCopied(true);
+                    if (todoIdCopiedTimerRef.current !== null) window.clearTimeout(todoIdCopiedTimerRef.current);
+                    todoIdCopiedTimerRef.current = window.setTimeout(() => setTodoIdCopied(false), 1200);
+                  });
+                }}
+                className={`inline-flex items-center gap-0.5 text-[0.6rem] font-mono cursor-pointer ${todoIdCopied ? "text-sol-green" : "text-sol-base01 hover:text-sol-base0"}`}
+                title={todoIdCopied ? "Copied" : "Copy todo ID"}
               >
-                #{todoInfo?.todo_id || selectedTraceId}
+                {todoIdCopied && (
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+                {todoIdCopied ? "Copied" : `#${todoInfo?.todo_id || selectedTraceId}`}
               </button>
               {!publicMode && <SharePopover
                 onCreate={createTraceShare}
