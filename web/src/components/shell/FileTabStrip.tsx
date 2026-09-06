@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import { reorderKeys, useTabTouchReorder } from "./useTabTouchReorder";
 
 export interface FileTabItem {
   key: string;
@@ -75,18 +76,23 @@ export default function FileTabStrip({
   const dragIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const keys = tabs.map((t) => t.key);
+  const touch = useTabTouchReorder(keys, onReorder);
 
   return (
     <div className={className}>
       <div className="flex items-center bg-sol-base02 shrink-0">
         {leading}
-        <div className="flex items-center overflow-x-auto">
+        <div ref={touch.containerRef} className="flex items-center overflow-x-auto">
           {tabs.map((tab, i) => {
             const closable = tab.closable ?? !!onClose;
+            const isTouchTracked = touch.touchKey === tab.key;
+            const isTouchSource = touch.armed && isTouchTracked;
+            const isDropTarget = dropIdx === i || touch.dropKey === tab.key;
             return (
               <div
                 key={tab.key}
-                draggable={!!onReorder}
+                data-tab-key={tab.key}
+                draggable={!!onReorder && touch.touchKey !== tab.key}
                 onDragStart={(e) => {
                   if (!onReorder) return;
                   dragIdx.current = i;
@@ -104,10 +110,7 @@ export default function FileTabStrip({
                   e.preventDefault();
                   const from = dragIdx.current;
                   if (from !== null && from !== i) {
-                    const reordered = [...keys];
-                    const [moved] = reordered.splice(from, 1);
-                    reordered.splice(i, 0, moved);
-                    onReorder(reordered);
+                    onReorder(reorderKeys(keys, from, i));
                   }
                   dragIdx.current = null;
                   setDropIdx(null);
@@ -120,7 +123,14 @@ export default function FileTabStrip({
                   tab.key === activeKey
                     ? "bg-sol-base03 text-sol-base1"
                     : "text-sol-base01 hover:text-sol-base1"
-                } ${dropIdx === i ? "border-l-2 border-l-sol-blue" : ""}`}
+                } ${isDropTarget ? "border-l-2 border-l-sol-blue" : ""} ${
+                  isTouchSource ? "opacity-60 ring-1 ring-inset ring-sol-blue" : ""
+                }`}
+                style={
+                  isTouchTracked
+                    ? { WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }
+                    : undefined
+                }
                 onClick={() => onSelect(tab.key)}
                 onDoubleClick={() => onDoubleClick?.(tab.key)}
                 title={tab.title ?? tab.label}
