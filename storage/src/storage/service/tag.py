@@ -121,8 +121,15 @@ def _resolve_todos(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
 def _resolve_notes(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
     if not entity_ids:
         return {}
+    # created_at (todo 3387) is the row's own nullable ISO creation timestamp,
+    # so presentation clients can sort notes by creation time without a
+    # separate fetch, matching the todo row's created_at (todo 3384).
     return {
-        note.note_id: {"id": note.note_id, "title": note.content_key}
+        note.note_id: {
+            "id": note.note_id,
+            "title": note.content_key,
+            "created_at": note.created_at,
+        }
         for note in note_service.get_notes_by_ids(user_id, entity_ids)
     }
 

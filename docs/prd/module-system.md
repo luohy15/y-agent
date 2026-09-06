@@ -658,6 +658,14 @@ function or SQL fetch. The tag module raises its floor to 14 when it renders
 the field between the todo ID and title.
 The tag module raises its floor to 13 when it publishes the create route.
 
+Todo 3387 enriches the existing `tag_get` note row shape with the same
+nullable `created_at` ISO timestamp (the note row's own creation time),
+bumping `BACKEND_CONTRACT_VERSION` from 14 to **15**. This mirrors the 3384
+todo-row addition, but for the note carrier: a field addition to the already-
+hydrated `_resolve_notes` batch lookup, not a new function or SQL fetch. The
+tag module raises its floor to 15 when it renders the field and sorts notes by
+it.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module

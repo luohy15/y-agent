@@ -56,6 +56,10 @@ The v14 surface enriches the existing `tag_get` todo row shape with a nullable
 `created_at` ISO timestamp (the todo row's own creation time), a surface
 addition alongside the v9 `updated_at_unix` field, not a new function.
 
+The v15 surface enriches the existing `tag_get` note row shape with a nullable
+`created_at` ISO timestamp (the note row's own creation time), the same
+addition as v14 but for the note carrier instead of the todo carrier.
+
 Every request-bound capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
@@ -112,6 +116,9 @@ floor to 13 when it publishes the create route. Todo 3384 enriches the
 existing `tag_get` todo row with a nullable `created_at` ISO timestamp (the
 todo row's own creation time, alongside the existing `updated_at_unix`
 field), bumping it from 13 to 14; the tag module raises its floor to 14 when
+it renders the field. Todo 3387 enriches the existing `tag_get` note row with
+the same nullable `created_at` ISO timestamp (the note row's own creation
+time), bumping it from 14 to 15; the tag module raises its floor to 15 when
 it renders the field. Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -130,7 +137,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 14
+BACKEND_CONTRACT_VERSION = 15
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
