@@ -13,6 +13,35 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Sandboxed HTML note previews (3406)**: shared notes with `.html`/`.htm`
+  `content_key` render through a host-owned `HtmlPreview` leaf
+  (`sandbox=allow-scripts` only, dvh viewport sizing, scoped client-side
+  title/og metadata), exported via browser contract v13.
+- **Client-timezone usage range resolution (3346)**: `GET /api/usage/range`
+  resolves time range bounds using the caller's timezone.
+- **Vocabulary-aware tag rename and delete (contract 16)**: tag rename now
+  respects the owner-scoped vocabulary, empty-only vocabulary entries can be
+  deleted, and vocabulary writers share a transaction-scoped PostgreSQL owner
+  advisory lock.
+- **Touch drag to reorder file tabs (3396)**: long-press a `FileViewer` tab on
+  touch devices to drag and reorder it, matching desktop drag-and-drop.
+- **`tag_get` note rows carry `created_at` (3387)**: backend module host
+  contract bumped to v15 so modules can read a tag's note creation time.
+
+### Changed
+
+### Fixed
+- **Front-matter parsing guarded to markdown files (3408)**: `y note import` /
+  `y entity import` only attempt front-matter parsing on markdown files,
+  avoiding spurious parse attempts on other file types.
+- **Todo detail ID copy feedback (3390)**: copying a todo ID from
+  `TraceView` now shows visible copy confirmation.
+
+### Removed
+
+## [0.5.28] - 2026-09-06
+
+### Added
 - **English panel Refine tab (3345)**: type or paste a sentence in the English
   panel Refine sub-tab; `POST /api/english/refine` uses the `inline` bot and
   writes a changed result into `english_correction` (`chat_id="refine"`). Already
