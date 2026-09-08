@@ -31,6 +31,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Changed
 
 ### Fixed
+- **Upload duration units (3445)**: advertised POST expiry, worker leases,
+  recovery/abandonment, and active discovery now use millisecond timestamps
+  matching stored Unix times. API status no longer invents a `failed` job
+  while the browser is still uploading.
 - **Front-matter parsing guarded to markdown files (3408)**: `y note import` /
   `y entity import` only attempt front-matter parsing on markdown files,
   avoiding spurious parse attempts on other file types.

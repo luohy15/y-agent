@@ -4,6 +4,7 @@ from sqlalchemy import and_, or_, select, update
 from storage.database.base import get_db
 from storage.entity.upload_job import UploadJobEntity as Job
 from storage.entity.user import UserEntity
+from storage.upload_timing import ABANDON_MS, ACTIVE_RETENTION_MS, LEASE_MS, REENQUEUE_MS
 from storage.util import get_utc_iso8601_timestamp
 
 
@@ -44,7 +45,7 @@ def active(user_id):
     with get_db() as session:
         batches = select(Job.batch_id).where(Job.user_id == user_id, or_(
             Job.status.in_(["authorized", "staged", "transferring"]),
-            Job.updated_at_unix >= get_unix_timestamp() - 86400))
+            Job.updated_at_unix >= get_unix_timestamp() - ACTIVE_RETENTION_MS))
         return [_dict(row) for row in session.scalars(select(Job).where(
             Job.user_id == user_id, Job.batch_id.in_(batches)).order_by(Job.id))]
 
@@ -66,7 +67,7 @@ def promote(user_id, upload_id, version, now):
 def claim(user_id, upload_id, token, now):
     return _update(user_id, upload_id, [or_(Job.status == "staged", and_(
         Job.status == "transferring", Job.lease_expires_at_unix < now))],
-        status="transferring", lease_token=token, lease_expires_at_unix=now + 900,
+        status="transferring", lease_token=token, lease_expires_at_unix=now + LEASE_MS,
         attempts=Job.attempts + 1)
 
 
@@ -87,19 +88,19 @@ def retry(user_id, upload_id, now):
 def recovery_candidates(now):
     with get_db() as session:
         return [_dict(row) for row in session.scalars(select(Job).where(or_(
-            and_(Job.status == "authorized", Job.created_at_unix < now - 2400),
-            and_(Job.status == "staged", or_(Job.last_enqueued_at_unix < now - 900, Job.attempts >= 5)),
+            and_(Job.status == "authorized", Job.created_at_unix < now - ABANDON_MS),
+            and_(Job.status == "staged", or_(Job.last_enqueued_at_unix < now - REENQUEUE_MS, Job.attempts >= 5)),
             and_(Job.status == "transferring", Job.lease_expires_at_unix < now),
         )).order_by(Job.id))]
 
 
 def recover(row, now, error=None):
     if row["status"] == "authorized":
-        guards = [Job.status == "authorized", Job.staging_version_id.is_(None), Job.created_at_unix < now - 2400]
+        guards = [Job.status == "authorized", Job.staging_version_id.is_(None), Job.created_at_unix < now - ABANDON_MS]
     elif row["status"] == "staged":
         guards = [Job.status == "staged"]
         if not error:
-            guards.append(Job.last_enqueued_at_unix < now - 900)
+            guards.append(Job.last_enqueued_at_unix < now - REENQUEUE_MS)
     else:
         guards = [Job.status == "transferring", Job.lease_token == row["lease_token"],
                   Job.lease_expires_at_unix < now]

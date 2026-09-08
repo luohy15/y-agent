@@ -12,10 +12,10 @@ from botocore.exceptions import ClientError
 
 from storage.repository import upload_job as repo
 from storage.service import vm_config
+from storage.upload_timing import POST_TTL_MS, POST_TTL_SECONDS
 from storage.util import get_unix_timestamp
 
 MAX_SIZE_BYTES = 20_000_000
-POST_TTL = 1800
 DID_NOT_FINISH = "The upload did not finish. Select the file again."
 STAGED_EXPIRED = "The staged copy expired. Select the file again."
 ATTEMPTS_EXHAUSTED = "The transfer did not complete after 5 attempts."
@@ -106,7 +106,7 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
         post = s3_client().generate_presigned_post(
             Bucket=bucket(), Key=key, Fields=fields,
             Conditions=[{k: v} for k, v in fields.items()] + [["content-length-range", size_bytes, size_bytes]],
-            ExpiresIn=POST_TTL)
+            ExpiresIn=POST_TTL_SECONDS)
     except UploadError:
         raise
     except Exception:
@@ -116,14 +116,12 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
                       dest_dir=dest_dir, filename=filename, size_bytes=size_bytes,
                       expected_checksum_sha256_b64=checksum_sha256_b64, staging_key=key,
                       overwrite_ack=overwrite_ack)
-    return {"job": public_job(row), "post": post, "expires_at_unix": row["created_at_unix"] + POST_TTL,
+    return {"job": public_job(row), "post": post, "expires_at_unix": row["created_at_unix"] + POST_TTL_MS,
             "max_size_bytes": MAX_SIZE_BYTES}
 
 
 def public_job(row):
     status, error = row["status"], row["error"]
-    if status == "authorized" and row["created_at_unix"] < get_unix_timestamp() - 2400:
-        status, error = "failed", DID_NOT_FINISH
     return {
         **{key: row[key] for key in ("upload_id", "batch_id", "vm_name", "work_dir", "dest_dir", "filename",
                                     "size_bytes", "created_at_unix", "updated_at_unix", "saved_at")},
