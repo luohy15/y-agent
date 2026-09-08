@@ -120,6 +120,96 @@ Resources:
       QueueName: !Sub ${AWS::StackName}-job-queue-dlq
       MessageRetentionPeriod: 1209600  # 14 days
 
+  UploadQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-upload-queue
+      VisibilityTimeout: 960
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UploadQueueDLQ.Arn
+        maxReceiveCount: 3
+
+  UploadQueueDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-upload-queue-dlq
+      MessageRetentionPeriod: 1209600
+
+  UploadQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref UploadQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt UploadQueue.Arn
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-uploads-${AWS::AccountId}-${AWS::Region}
+
+  UploadStagingBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: UploadQueuePolicy
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}-${AWS::Region}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [POST]
+            AllowedOrigins: ['https://yovy.app', 'http://localhost:5174']
+            AllowedHeaders: ['*']
+            MaxAge: 1800
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireStagingVersions
+            Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 1
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: RemoveExpiredDeleteMarkers
+            Status: Enabled
+            Prefix: uploads/
+            ExpiredObjectDeleteMarker: true
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt UploadQueue.Arn
+
+  UploadStagingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadStagingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt UploadStagingBucket.Arn
+              - !Sub ${UploadStagingBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   # -----------------------------------------------------------------------
   # DynamoDB — job state / cache
   # -----------------------------------------------------------------------
@@ -278,6 +368,9 @@ Resources:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
+          Y_AGENT_UPLOAD_BUCKET: !Ref UploadStagingBucket
+          Y_AGENT_UPLOAD_QUEUE_URL: !Ref UploadQueue
+          Y_AGENT_UPLOAD_QUEUE_ARN: !GetAtt UploadQueue.Arn
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
@@ -319,6 +412,9 @@ Resources:
           SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
+          Y_AGENT_UPLOAD_BUCKET: !Ref UploadStagingBucket
+          Y_AGENT_UPLOAD_QUEUE_URL: !Ref UploadQueue
+          Y_AGENT_UPLOAD_QUEUE_ARN: !GetAtt UploadQueue.Arn
           Y_AGENT_TIMEZONE: Asia/Shanghai
           OXYLABS_USERNAME: !Ref OxylabsUsername
           OXYLABS_PASSWORD: !Ref OxylabsPassword
@@ -334,6 +430,18 @@ Resources:
             BatchSize: 1
             FunctionResponseTypes:
               - ReportBatchItemFailures
+        UploadSQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt UploadQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+        RecoverUploadJobsSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Input: '{"action": "recover_upload_jobs"}'
         FetchRssLinksSchedule:
           Type: Schedule
           Properties:

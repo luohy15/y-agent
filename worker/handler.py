@@ -25,6 +25,9 @@ CONTINUATION_THRESHOLD_MS = 120_000  # 2 min before timeout
 
 
 def _handle_scheduled_action(action: str, event: dict) -> dict:
+    if action == "recover_upload_jobs":
+        from worker.steps.recover_upload_jobs import handle_recover_upload_jobs
+        return handle_recover_upload_jobs()
     if action == "fetch_rss_links":
         from worker.steps.fetch_rss_links import handle_fetch_rss_links
         return asyncio.run(handle_fetch_rss_links())
@@ -93,6 +96,17 @@ def lambda_handler(event, context):
         return _handle_scheduled_action(action, event)
 
     records = event.get("Records", [])
+    upload_arn = os.environ.get("Y_AGENT_UPLOAD_QUEUE_ARN")
+    if records and upload_arn and records[0].get("eventSourceARN") == upload_arn:
+        from worker.steps.transfer_upload import handle_upload_message
+        failures = []
+        for record in records:
+            try:
+                asyncio.run(handle_upload_message(json.loads(record["body"])))
+            except Exception:
+                logger.warning("[upload] queue record deferred")
+                failures.append({"itemIdentifier": record["messageId"]})
+        return {"batchItemFailures": failures}
 
     async def main():
         # Compute deadline
