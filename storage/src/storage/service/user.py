@@ -1,7 +1,11 @@
 """User service."""
 
 import os
-from storage.repository.user import get_or_create_user, list_users as repo_list_users
+from storage.repository.user import (
+    get_or_create_user,
+    get_user_by_id,
+    list_users as repo_list_users,
+)
 
 
 def list_users():
@@ -18,6 +22,19 @@ def get_default_user_id() -> int:
     """Get the default user ID, creating a default user if necessary."""
     user = get_or_create_user("default")
     return user.id
+
+
+def get_live_public_user_id(internal_id):
+    """Map an authenticated internal PK to the live public user_id.
+
+    Production JWTs carry UserEntity.id. Upload staging keys and owner
+    lookup use UserEntity.user_id. Do not stringify the integer; a missing
+    or deleted user returns None.
+    """
+    if type(internal_id) is not int:
+        return None
+    user = get_user_by_id(internal_id)
+    return user.user_id if user else None
 
 
 def get_module_maintainer_user_id():

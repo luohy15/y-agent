@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
 
 from storage.service import upload_job as uploads
+from storage.service import user as users
 
 router = APIRouter(prefix="/upload")
 
@@ -25,21 +26,28 @@ def _call(function, *args, **kwargs):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+def _public_user_id(request: Request) -> str:
+    public_user_id = users.get_live_public_user_id(request.state.user_id)
+    if not public_user_id:
+        raise HTTPException(status_code=401, detail="The authenticated user was not found.")
+    return public_user_id
+
+
 @router.post("/authorize")
 def authorize(req: AuthorizeRequest, request: Request):
-    return _call(uploads.authorize, request.state.user_id, **req.model_dump())
+    return _call(uploads.authorize, _public_user_id(request), **req.model_dump())
 
 
 @router.get("/active")
 def active(request: Request):
-    return _call(uploads.get_active, request.state.user_id)
+    return _call(uploads.get_active, _public_user_id(request))
 
 
 @router.get("/batch/{batch_id}")
 def batch(batch_id: str, request: Request):
-    return _call(uploads.get_batch, request.state.user_id, batch_id)
+    return _call(uploads.get_batch, _public_user_id(request), batch_id)
 
 
 @router.post("/{upload_id}/retry")
 def retry(upload_id: str, request: Request):
-    return _call(uploads.retry_upload, request.state.user_id, upload_id)
+    return _call(uploads.retry_upload, _public_user_id(request), upload_id)

@@ -32,7 +32,7 @@ class UploadError(Exception):
 def bucket():
     value = os.environ.get("Y_AGENT_UPLOAD_BUCKET")
     if not value:
-        raise UploadError("File uploads are unavailable. The per-file limit is 20 MB.", 503)
+        raise UploadError("File uploads are unavailable.", 503)
     return value
 
 
@@ -110,7 +110,7 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
     except UploadError:
         raise
     except Exception:
-        raise UploadError("Upload authorization failed. Try again. The per-file limit is 20 MB.", 503)
+        raise UploadError("Upload authorization failed. Try again.", 503)
     row = repo.create(owner, upload_id=upload_id, batch_id=batch_id, vm_name=vm_name,
                       work_dir=work_dir if work_dir is not None else (vm.work_dir or ""),
                       dest_dir=dest_dir, filename=filename, size_bytes=size_bytes,
