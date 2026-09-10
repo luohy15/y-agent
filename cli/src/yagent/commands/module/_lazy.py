@@ -168,3 +168,10 @@ class LazyModuleGroup(click.Group):
         if not is_discoverable_module(cmd_name):
             return None
         return LazyModuleProxy(cmd_name, short_help=module_short_help(cmd_name))
+
+    def invoke(self, ctx: click.Context):
+        import httpx
+        try:
+            return super().invoke(ctx)
+        except httpx.HTTPStatusError as exc:
+            raise click.ClickException(str(exc)) from exc

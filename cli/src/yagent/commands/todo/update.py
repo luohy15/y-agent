@@ -15,8 +15,8 @@ from yagent.tag_option import resolve_tags
 @click.option('--progress', default=None, help='Progress note')
 @click.option('--awaiting', type=click.Choice(['question', 'review', 'external', 'none']),
               help='Declare a wait, or none to clear it; stalled is host-internal')
-@click.option('--awaiting-chat', help='Same-trace public chat ID required for question')
-@click.option('--awaiting-until', help='Timezone-aware ISO deadline for external (default grace: 60 minutes)')
+@click.option('--awaiting-chat', help='Same-trace public chat ID; only valid with --awaiting question')
+@click.option('--awaiting-until', help='Timezone-aware ISO deadline; only valid with --awaiting external (default grace: 60 minutes)')
 def todo_update(todo_id, name, desc, due, priority, tags, progress, awaiting, awaiting_chat, awaiting_until):
     """Update a todo."""
     body = {"todo_id": todo_id}

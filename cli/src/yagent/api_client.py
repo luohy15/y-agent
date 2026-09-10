@@ -64,5 +64,22 @@ def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.
         print("Session expired. Run 'y login' to re-authenticate.", file=sys.stderr)
         sys.exit(1)
 
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise httpx.HTTPStatusError(
+            f"{resp.status_code} {path}: {_http_error_detail(resp)}",
+            request=exc.request,
+            response=resp,
+        ) from exc
     return resp
+
+
+def _http_error_detail(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+        if isinstance(body, dict) and "detail" in body:
+            return str(body["detail"])
+    except Exception:
+        pass
+    return (resp.text or "")[:200]

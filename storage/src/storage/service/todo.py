@@ -168,7 +168,10 @@ def _apply_fields(session, row, fields, *, action="updated", internal=False):
         fields["awaiting"] = None
     if reason != "question":
         if fields.get("awaiting_chat") is not None:
-            raise ValueError("awaiting_chat is only valid for question")
+            raise ValueError(
+                "awaiting_chat is only valid with awaiting=question "
+                "(other reasons are navigated from the todo's trace)"
+            )
         fields["awaiting_chat"] = None
     elif any(k in fields for k in ("awaiting", "awaiting_chat")):
         from storage.entity.chat import ChatEntity
@@ -179,7 +182,7 @@ def _apply_fields(session, row, fields, *, action="updated", internal=False):
             raise ValueError("Question requires a same-owner, same-trace awaiting_chat")
     if reason != "external":
         if fields.get("awaiting_until") is not None:
-            raise ValueError("awaiting_until is only valid for external")
+            raise ValueError("awaiting_until is only valid with awaiting=external")
         fields["awaiting_until"] = None
     elif fields.get("awaiting_until") is not None:
         try:
