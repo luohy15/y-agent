@@ -14,7 +14,6 @@ from storage.dto.link import Link, LinkActivity, LinkSummary
 from storage.dto.note import Note
 from storage.dto.email import Email
 from storage.dto.dev_worktree import DevWorktreeHistoryEntry, DevWorktree
-from storage.dto.tg_topic import TgTopic
 from storage.dto.reminder import Reminder
 from storage.dto.routine import Routine
 from storage.dto.rss_feed import RssFeed
@@ -34,7 +33,6 @@ __all__ = [
     "Note",
     "Email",
     "DevWorktreeHistoryEntry", "DevWorktree",
-    "TgTopic",
     "Reminder",
     "Routine",
     "RssFeed",

@@ -16,14 +16,13 @@ def send_telegram_photo_reference(
     tg_chat_id,
     image_path: str,
     caption: str | None = None,
-    topic_id=None,
     vm_config=None,
     ssh_client=None,
 ) -> bool:
     parsed = urlparse(image_path)
     scheme = parsed.scheme.lower()
     if scheme in {"http", "https"}:
-        send_telegram_photo(bot_token, tg_chat_id, image_path, caption=caption, message_thread_id=topic_id)
+        send_telegram_photo(bot_token, tg_chat_id, image_path, caption=caption)
         return True
     if scheme == "s3":
         logger.warning("telegram photo: skipping legacy s3 image ref {}", image_path)
@@ -38,7 +37,7 @@ def send_telegram_photo_reference(
             finally:
                 sftp.close()
             image_file.flush()
-            send_telegram_photo(bot_token, tg_chat_id, image_file.name, caption=caption, message_thread_id=topic_id)
+            send_telegram_photo(bot_token, tg_chat_id, image_file.name, caption=caption)
         return True
 
     if vm_config is None:
@@ -54,7 +53,6 @@ def send_telegram_photo_reference(
             tg_chat_id,
             image_path,
             caption=caption,
-            topic_id=topic_id,
             vm_config=vm_config,
             ssh_client=client,
         )

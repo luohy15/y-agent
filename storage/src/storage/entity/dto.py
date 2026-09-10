@@ -10,7 +10,6 @@ from storage.dto import (  # noqa: F401
     Link, LinkActivity, LinkSummary,
     Note,
     Email,
-    TgTopic,
     Reminder,
     Routine,
     RssFeed,

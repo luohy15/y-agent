@@ -130,11 +130,9 @@ The **Git panel** shows file-level status against `HEAD`. Click a file to see it
 
 If your deployment has a Telegram bot configured, you can chat with the same backend from your phone:
 
-1. Bind a forum topic to a y-agent chat from the chat menu (the Telegram icon).
-2. Messages in that topic now route to the bound chat. Replies from the agent come back as Telegram posts (markdown auto-converts to HTML).
+1. `/bind <jwt_token>` in a private message to the bot links your Telegram account.
+2. Messages you send route to your manager session; replies come back as Telegram posts (markdown auto-converts to HTML). `/clear` restarts that session. Prefix a message with `/<chat_id>` or `/<todo_id>` to address a specific non-manager chat — it accepts the message but does not reply on Telegram, since only the manager session gets automatic Telegram delivery. Every other named session's detail surface is the web app.
 3. **Reminders** are also delivered through Telegram — add `y reminder add "ping me at 3pm to review the PR"`.
-
-Forum topics are great for "one chat per project" — the topic name is the persistent address, and you can join/leave the conversation across days without losing trace context.
 
 ## Routine
 

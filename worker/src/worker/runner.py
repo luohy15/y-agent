@@ -169,13 +169,15 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
 
 
 def _resolve_telegram_target(chat, user_id: int):
-    """Resolve Telegram target for a chat. Returns (bot_token, tg_chat_id, topic_id) or None.
+    """Resolve Telegram target for a chat. Returns (bot_token, tg_chat_id) or None.
 
-    A chat with no topic (e.g. legacy / pre-topic chats) never routes to Telegram.
+    Only the manager topic (the owner's DM) is eligible for automatic
+    session-reply delivery. Non-manager named sessions and anonymous chats
+    never route here; their detail surface is web, not Telegram.
     """
     from storage.service.telegram import resolve_target
 
-    if not chat.topic:
+    if chat.topic != "manager":
         return None
     return resolve_target(user_id, topic=chat.topic)
 
@@ -255,7 +257,7 @@ def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=N
     target = _resolve_telegram_target(chat, user_id)
     if not target:
         return
-    bot_token, tg_chat_id, topic_id = target
+    bot_token, tg_chat_id = target
 
     for msg in reversed(chat.messages):
         if msg.role != "user":
@@ -276,9 +278,9 @@ def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=N
 
         if images:
             for index, image_path in enumerate(images):
-                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client)
+                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, vm_config=vm_config, ssh_client=ssh_client)
         elif text:
-            send_telegram_message(bot_token, tg_chat_id, text, topic_id)
+            send_telegram_message(bot_token, tg_chat_id, text)
         break
 
 
@@ -289,7 +291,7 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
     target = _resolve_telegram_target(chat, user_id)
     if not target:
         return False
-    bot_token, tg_chat_id, topic_id = target
+    bot_token, tg_chat_id = target
 
     reply_text = None
     images = []
@@ -327,14 +329,14 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
         delivered_now = []
         reply_caption = strip_artifact_fences_for_telegram(reply_text) if reply_text else None
         for index, image_path in enumerate(images):
-            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_caption if index == 0 and reply_caption else None, topic_id=topic_id, vm_config=vm_config, ssh_client=ssh_client):
+            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_caption if index == 0 and reply_caption else None, vm_config=vm_config, ssh_client=ssh_client):
                 sent_count += 1
                 delivered_now.append(image_path)
         changed = _append_delivered_images(target_message, delivered_now) if target_message is not None else False
         logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", sent_count, chat.topic, tg_chat_id)
         return changed
     elif reply_text and not had_images_before_filter:
-        send_telegram_message(bot_token, tg_chat_id, strip_artifact_fences_for_telegram(reply_text), topic_id)
+        send_telegram_message(bot_token, tg_chat_id, strip_artifact_fences_for_telegram(reply_text))
         logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
     return False
 

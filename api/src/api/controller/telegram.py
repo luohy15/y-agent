@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
-from storage.service.tg_topic import auto_discover_topic
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
@@ -38,10 +37,10 @@ def _bot_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
 
-async def _send_message(chat_id, text: str, message_thread_id=None):
+async def _send_message(chat_id, text: str):
     """Send a message to a Telegram chat, splitting if too long."""
     import asyncio
-    await asyncio.to_thread(send_telegram_message, TELEGRAM_BOT_TOKEN, chat_id, text, message_thread_id)
+    await asyncio.to_thread(send_telegram_message, TELEGRAM_BOT_TOKEN, chat_id, text)
 
 
 
@@ -52,18 +51,16 @@ class TelegramImageUpload(BaseModel):
 
 class SendMessageRequest(BaseModel):
     text: str = ""
-    topic: Optional[str] = None
     images: Optional[List[str]] = None
     image_uploads: Optional[List[TelegramImageUpload]] = None
 
 
 @router.post("/send")
 async def telegram_send(req: SendMessageRequest, request: Request):
-    """Send a Telegram message to the authenticated user's DM or a bound forum topic.
+    """Send a Telegram message to the authenticated user's DM.
 
     Body:
       text: message body (markdown ok; server converts to Telegram HTML)
-      topic: optional topic name. None / 'manager' → DM; otherwise requires a tg_topic binding.
     """
     user_id = request.state.user_id
     text = req.text.strip() if req.text else ""
@@ -72,19 +69,14 @@ async def telegram_send(req: SendMessageRequest, request: Request):
     if not text and not images and not image_uploads:
         raise HTTPException(status_code=400, detail="text or images is required")
 
-    target = resolve_target(user_id, topic=req.topic)
+    target = resolve_target(user_id)
     if not target:
-        if req.topic and req.topic != 'manager':
-            raise HTTPException(
-                status_code=404,
-                detail=f"No Telegram binding for topic '{req.topic}'. Bind it first or omit --topic to DM.",
-            )
         raise HTTPException(
             status_code=404,
             detail="No Telegram DM target. /bind your account in Telegram first.",
         )
 
-    bot_token, tg_chat_id, thread_id = target
+    bot_token, tg_chat_id = target
     import asyncio
     if images or image_uploads:
         from agent.config import resolve_vm_config
@@ -93,9 +85,9 @@ async def telegram_send(req: SendMessageRequest, request: Request):
         safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload", vm_config=vm_config) for upload in image_uploads)
         for index, image_path in enumerate(safe_image_paths):
             caption = text if index == 0 else None
-            await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption, thread_id)
+            await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption)
     elif text:
-        await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, text, thread_id)
+        await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, text)
     return {"ok": True}
 
 
@@ -118,9 +110,16 @@ async def telegram_webhook(request: Request):
         logger.info("telegram webhook: no message in body")
         return {"ok": True}
 
+    # The Telegram group is retired: only private chats are eligible. Ignore
+    # everything else before any photo download, command, or chat write, and
+    # don't post a rejection back into the (retired) group.
+    chat_type = message.get("chat", {}).get("type")
+    if chat_type != "private":
+        logger.info("telegram webhook: ignoring non-private chat type={}", chat_type)
+        return {"ok": True}
+
     telegram_chat_id = message["chat"]["id"]
     telegram_user_id = message["from"]["id"]
-    message_thread_id = message.get("message_thread_id")
     text = message.get("text", "").strip()
 
     # Handle photo messages
@@ -128,7 +127,7 @@ async def telegram_webhook(request: Request):
     if message.get("photo"):
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
-            await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+            await _send_message(telegram_chat_id, "Please /bind your account first.")
             return {"ok": True}
         text = message.get("caption", "").strip() or "请看这张图片"
         from agent.config import resolve_vm_config
@@ -141,15 +140,15 @@ async def telegram_webhook(request: Request):
 
     # Handle /bind command
     if text.startswith("/bind"):
-        return await _handle_bind(telegram_chat_id, telegram_user_id, text, message_thread_id)
+        return await _handle_bind(telegram_chat_id, telegram_user_id, text)
 
     # Handle /unbind command
     if text == "/unbind":
-        return await _handle_unbind(telegram_chat_id, telegram_user_id, message_thread_id)
+        return await _handle_unbind(telegram_chat_id, telegram_user_id)
 
     # Handle /clear command — start a new session
     if text == "/clear":
-        return await _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id)
+        return await _handle_clear(telegram_chat_id, telegram_user_id)
 
     # Handle /start command
     if text == "/start":
@@ -161,9 +160,7 @@ async def telegram_webhook(request: Request):
             "Use /clear to start a new session.\n"
             "Send any text to chat.\n"
             "Prefix with /<chat_id> to target a specific chat (e.g. /ba4988 hi).\n"
-            "Prefix with /<todo_id> to target the latest chat of a todo (e.g. /1938 hi).\n\n"
-            "In forum groups, each topic is a separate chat session.",
-            message_thread_id=message_thread_id,
+            "Prefix with /<todo_id> to target the latest chat of a todo (e.g. /1938 hi).",
         )
         return {"ok": True}
 
@@ -176,7 +173,7 @@ async def telegram_webhook(request: Request):
         body = text[route_match.end():]
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat_id, body,
-            images=images, message_thread_id=message_thread_id,
+            images=images,
         )
 
     # Explicit todo routing: `/{todo_id} <message>` resolves to the most
@@ -188,19 +185,19 @@ async def telegram_webhook(request: Request):
         body = text[todo_match.end():]
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
-            await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+            await _send_message(telegram_chat_id, "Please /bind your account first.")
             return {"ok": True}
         target_chat = find_latest_chat_by_trace_id(user.id, todo_id)
         if not target_chat:
-            await _send_message(telegram_chat_id, f"no chat for todo /{todo_id}", message_thread_id=message_thread_id)
+            await _send_message(telegram_chat_id, f"no chat for todo /{todo_id}")
             return {"ok": True}
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat.id, body,
-            images=images, message_thread_id=message_thread_id,
+            images=images,
         )
 
     # Regular message — route to chat
-    return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images, message_thread_id=message_thread_id)
+    return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images)
 
 
 async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> List[str]:
@@ -242,109 +239,74 @@ def _save_telegram_image(content: bytes, ext: str, file_id: str, *, vm_config=No
 
 
 
-async def _handle_bind(telegram_chat_id, telegram_user_id, text: str, message_thread_id=None):
+async def _handle_bind(telegram_chat_id, telegram_user_id, text: str):
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
-        await _send_message(telegram_chat_id, "Usage: /bind <jwt_token>\n\nGet your token from the web app or CLI (y login).", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "Usage: /bind <jwt_token>\n\nGet your token from the web app or CLI (y login).")
         return {"ok": True}
 
     token = parts[1].strip()
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        await _send_message(telegram_chat_id, "Invalid or expired token. Please get a fresh token from the web app or CLI.", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "Invalid or expired token. Please get a fresh token from the web app or CLI.")
         return {"ok": True}
 
     email = payload.get("email", "")
     user = bind_telegram_id(email, telegram_user_id)
     if user:
-        await _send_message(telegram_chat_id, f"Bound to account: {email}", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, f"Bound to account: {email}")
     else:
-        await _send_message(telegram_chat_id, f"No account found for: {email}", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, f"No account found for: {email}")
     return {"ok": True}
 
 
-async def _handle_unbind(telegram_chat_id, telegram_user_id, message_thread_id=None):
+async def _handle_unbind(telegram_chat_id, telegram_user_id):
     user = unbind_telegram_id(telegram_user_id)
     if user:
-        await _send_message(telegram_chat_id, f"Unbound account: {user.email}", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, f"Unbound account: {user.email}")
     else:
-        await _send_message(telegram_chat_id, "No account is bound to this Telegram user.", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "No account is bound to this Telegram user.")
     return {"ok": True}
 
 
-async def _handle_clear(telegram_chat_id, telegram_user_id, message_thread_id=None):
+async def _handle_clear(telegram_chat_id, telegram_user_id):
+    """Start a new session. The Telegram group is retired, so /clear always
+    restarts the manager session — there is no per-topic forum branch left."""
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
-        await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
 
-    # Determine topic from telegram forum topic
-    topic = "manager"
-    if message_thread_id:
-        from storage.repository.tg_topic import get_topic_by_thread_id
-        tg_topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
-        if tg_topic:
-            topic = tg_topic.topic_name
-
-    if topic == "manager":
-        from storage.service import chat as chat_service
-        await chat_service.restart_manager_session(user.id)
-        await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
-        return {"ok": True}
-
-    # Create a new empty chat with topic set (allocate+insert with race retry)
     from storage.service import chat as chat_service
-    from storage.dto.chat import Chat as ChatDTO
-    from storage.repository import chat as chat_repo
-    timestamp = get_utc_iso8601_timestamp()
-
-    def build(chat_id: str):
-        return ChatDTO(
-            id=chat_id,
-            create_time=timestamp,
-            update_time=timestamp,
-            messages=[],
-            topic=topic,
-        )
-
-    chat = await chat_service.insert_generated_chat(user.id, build)
-    chat_id = chat.id
-
-    # Singleton root topic: /clear always starts a fresh root chat (no trace),
-    # so release any prior holder of the same topic.
-    released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
-    if released:
-        logger.info("Released topic '{}' from {} previous chat(s) on /clear by user {}", topic, released, user.id)
-
-    await _send_message(telegram_chat_id, "New session started.", message_thread_id=message_thread_id)
+    await chat_service.restart_manager_session(user.id)
+    await _send_message(telegram_chat_id, "New session started.")
     return {"ok": True}
 
 
-async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None, message_thread_id=None):
+async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None):
     """Route a Telegram message to an explicit chat by id.
 
     Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
     to the bound user (so a stranger's chat id resolves as 'not found'), then
     delivers via `deliver_user_message` — same append-or-steer semantics as
     the dispatch-shaped `/api/chat/message` path. The target chat receives the
-    message but does not reply to Telegram: only top-level chats with a
-    tg_topic / DM binding emit replies, and child chats addressed by id stay
-    silent.
+    message but does not reply to Telegram: only the manager DM emits
+    replies, and child chats addressed by id stay silent.
     """
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
-        await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
 
     if not text.strip():
-        await _send_message(telegram_chat_id, f"Usage: /{target_chat_id} <message>", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, f"Usage: /{target_chat_id} <message>")
         return {"ok": True}
 
     from storage.repository import chat as chat_repo
     target_chat = await chat_repo.get_chat(user.id, target_chat_id)
     if not target_chat:
-        await _send_message(telegram_chat_id, f"chat /{target_chat_id} not found", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, f"chat /{target_chat_id} not found")
         return {"ok": True}
 
     from storage.service import chat as chat_service
@@ -361,30 +323,18 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     return {"ok": True}
 
 
-async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None, message_thread_id=None):
-    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text={} images={} thread={}", telegram_chat_id, telegram_user_id, text, len(images) if images else 0, message_thread_id)
+async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None):
+    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text={} images={}", telegram_chat_id, telegram_user_id, text, len(images) if images else 0)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         logger.info("_handle_message: no user bound for telegram_user_id={}", telegram_user_id)
-        await _send_message(telegram_chat_id, "Please /bind your account first.", message_thread_id=message_thread_id)
+        await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
 
     logger.info("_handle_message: found user id={} email={}", user.id, user.email)
 
-    # Auto-discover forum topic in DB
-    if message_thread_id:
-        try:
-            auto_discover_topic(user.id, telegram_chat_id, message_thread_id)
-        except Exception as e:
-            logger.warning("tg_topic auto-discover failed: {}", e)
-
-    # Determine topic from telegram forum topic
+    # The Telegram group is retired: a DM always targets the manager topic.
     topic = 'manager'
-    if message_thread_id:
-        from storage.repository.tg_topic import get_topic_by_thread_id
-        tg_topic = get_topic_by_thread_id(user.id, telegram_chat_id, message_thread_id)
-        if tg_topic:
-            topic = tg_topic.topic_name
 
     # Find or create chat for this topic
     chat = find_latest_chat_by_topic(user.id, topic)

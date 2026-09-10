@@ -90,7 +90,6 @@ def init_tables():
     import storage.entity.email  # noqa: F401
     import storage.entity.email_account  # noqa: F401
     import storage.entity.dev_worktree  # noqa: F401
-    import storage.entity.tg_topic  # noqa: F401
     import storage.entity.trace_share  # noqa: F401
     import storage.entity.note_share  # noqa: F401
     import storage.entity.link_todo_relation  # noqa: F401

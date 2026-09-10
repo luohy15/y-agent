@@ -76,10 +76,10 @@ async def deliver_death(chat_id, proc, outcome, error):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
     text = f"Trace {chat.trace_id or 'unknown'}, child {chat_id}: observed {outcome}. {str(error or 'No error detail available.')[:1800]}"
-    if chat.topic:
+    if chat.topic == "manager":
         try:
             target = resolve_target(user_id, topic=chat.topic)
-            if target and send_telegram_message_checked(target[0], target[1], text, target[2]):
+            if target and send_telegram_message_checked(target[0], target[1], text):
                 return "topic"
         except Exception:
             logger.warning("Death topic delivery failed: chat_id={}", chat_id)
@@ -127,7 +127,7 @@ async def deliver_death(chat_id, proc, outcome, error):
             if latest and latest.awaiting == "stalled" and current_run(chat_id, proc):
                 target = resolve_target(user_id)
                 if target:
-                    send_telegram_message_checked(target[0], target[1], text, target[2])
+                    send_telegram_message_checked(target[0], target[1], text)
             return "inbox"
     except Exception:
         logger.exception("Death inbox evidence or delivery failed: chat_id={}", chat_id)

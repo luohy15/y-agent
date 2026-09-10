@@ -113,7 +113,7 @@ def _resolve_attach_vm_config(user_id: int, chat, vm_name: Optional[str]):
 
 
 def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths: List[str], vm_name: Optional[str] = None) -> List[str]:
-    if not image_paths or not chat.topic:
+    if not image_paths or chat.topic != "manager":
         return []
 
     from storage.service.telegram import resolve_target
@@ -123,7 +123,7 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
     if not telegram_target:
         return []
 
-    bot_token, tg_chat_id, topic_id = telegram_target
+    bot_token, tg_chat_id = telegram_target
     try:
         vm_config = _resolve_attach_vm_config(user_id, chat, vm_name)
     except Exception as exc:
@@ -139,7 +139,6 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
                 tg_chat_id,
                 image_path,
                 caption=caption if index == 0 and caption else None,
-                topic_id=topic_id,
                 vm_config=vm_config,
             )
         except Exception as exc:

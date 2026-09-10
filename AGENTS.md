@@ -98,10 +98,16 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Browser cookies** — `y cookies sync` stores local browser cookies in the API/DB so remote `y link fetch` can pass them to `yt-dlp`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
-- **Telegram** — forum topic binding (`tg_topic`), webhook secret verification,
-  markdown → HTML conversion, per-topic routing, root-topic callbacks short-circuited
-  at the API layer. Web-only artifact fences are stripped to `[chart]` / `[diagram]`
-  / `[svg]` placeholders before Telegram delivery.
+- **Telegram** — private-chat-only webhook (secret verified, non-private chat
+  types ignored before any command/chat write; the former forum group and its
+  `tg_topic` binding table are retired). Only the manager session
+  (`chat.topic == "manager"`) gets automatic DM delivery (final replies,
+  pre-run mirrors, immediate image attachments); non-manager sessions have no
+  Telegram reply path, their detail surface is web. Markdown → HTML
+  conversion, root-topic callbacks short-circuited at the API layer. Web-only
+  artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
+  placeholders before Telegram delivery. See
+  [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.
   Plain `svg` fences remain code blocks. Fence dispatch lives in the chat module's
@@ -218,7 +224,7 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 By category (all entities get a Repository in `repository/` and a Service in `service/`;
 exceptions noted):
 
-- **Identity / chat**: `user`, `chat`, `tg_topic`
+- **Identity / chat**: `user`, `chat`
 - **Tasks / time**: `todo`, `calendar_event`, `reminder`
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`
@@ -258,9 +264,9 @@ Grouped by feature area:
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
-- **Infrastructure**: `telegram.py` (webhook, bind/unbind, routing),
+- **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
   `provider_status.py` (exact Anthropic Statuspage receiver), `vm_config.py`,
-  `dev_worktree.py`, `tg_topic.py`
+  `dev_worktree.py`
 
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
@@ -468,7 +474,7 @@ Every entity has two kinds of identifier:
 - JWT tokens MUST use the string `user_id` (from `UserEntity.user_id`), not the integer PK.
 - S3 keys and cache keys MUST use public string IDs (e.g. `lifelog/link/<link_id>/...`).
 - DTOs returned to the API layer MUST omit internal integer IDs; use dedicated response dicts or filter fields in the controller.
-- Entities without a public string ID (`BotConfig`, `VmConfig`, `TgTopic`, `PipelineLock`) should be addressed by their natural key (e.g. `name`, `group_id + topic_name`) rather than exposing the integer PK.
+- Entities without a public string ID (`BotConfig`, `VmConfig`, `PipelineLock`) should be addressed by their natural key (e.g. `name`) rather than exposing the integer PK.
 
 ## Maintenance
 

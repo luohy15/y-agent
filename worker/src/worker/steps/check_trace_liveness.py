@@ -178,7 +178,7 @@ def _claim_and_push(todo, reason) -> str:
     text = _notice(todo, evidence.get("reason", reason), evidence.get("chat_id"), evidence.get("outcome", "unknown"), error_text)
     try:
         target = resolve_target(user_id)
-        if target and send_telegram_message_checked(target[0], target[1], text, target[2]):
+        if target and send_telegram_message_checked(target[0], target[1], text):
             return "pushed"
     except Exception:
         logger.exception("check_trace_liveness: push failed, inbox retained: user_id={} todo_id={}", user_id, todo_id)

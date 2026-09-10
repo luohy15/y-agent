@@ -269,17 +269,17 @@ def get_telegram_bot_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
 
 
-def send_telegram_message_checked(bot_token: str, chat_id, text: str, message_thread_id=None) -> bool:
+def send_telegram_message_checked(bot_token: str, chat_id, text: str) -> bool:
     """Bounded text delivery with an explicit transport outcome, never DTO mutation."""
     if not bot_token or not chat_id or not text:
         return False
     try:
-        return send_telegram_message(bot_token, chat_id, text, message_thread_id, checked=True)
+        return send_telegram_message(bot_token, chat_id, text, checked=True)
     except Exception:
         return False
 
 
-def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None, *, checked=False):
+def send_telegram_message(bot_token: str, chat_id, text: str, *, checked=False):
     """Send a message to Telegram with HTML formatting, chunking, and plain-text fallback."""
     import httpx
 
@@ -292,13 +292,9 @@ def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=
     with httpx.Client() as client:
         for i, chunk in enumerate(html_chunks):
             payload = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"}
-            if message_thread_id:
-                payload["message_thread_id"] = message_thread_id
             resp = client.post(url, json=payload)
             if not resp.is_success or (checked and resp.json().get("ok") is not True):
                 fallback_payload = {"chat_id": chat_id, "text": plain_chunks[i] if i < len(plain_chunks) else chunk}
-                if message_thread_id:
-                    fallback_payload["message_thread_id"] = message_thread_id
                 resp = client.post(url, json=fallback_payload)
             if checked and (not resp.is_success or resp.json().get("ok") is not True):
                 return False
@@ -309,7 +305,7 @@ def _is_http_url(value: str) -> bool:
     return urlparse(value).scheme.lower() in {"http", "https"}
 
 
-def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str = None, message_thread_id=None) -> None:
+def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str = None) -> None:
     """Send a local image file or HTTP(S) image URL to Telegram with an optional caption."""
     import os
 
@@ -324,8 +320,6 @@ def send_telegram_photo(bot_token: str, chat_id, image_path: str, caption: str =
     if caption:
         data["caption"] = markdown_to_telegram_html(caption)[:1024]
         data["parse_mode"] = "HTML"
-    if message_thread_id:
-        data["message_thread_id"] = message_thread_id
 
     with httpx.Client() as client:
         if is_url:
