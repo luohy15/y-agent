@@ -194,6 +194,8 @@ def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
         return None
     old_status = todo.status
     todo.status = status
+    if old_status != status and todo.pinned:
+        todo.pinned = False
     if status == "completed":
         todo.completed_at = get_utc_iso8601_timestamp()
     elif old_status == "completed":
