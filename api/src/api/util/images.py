@@ -56,7 +56,12 @@ def resolve_send_image_path(image_path: str, *, require_exists: bool = True) -> 
     return path
 
 
-def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload", vm_config=None) -> str:
+def decode_send_image_upload(upload: ImageUploadLike, *, prefix: str) -> tuple[str, bytes]:
+    """Validate and decode a send-image upload to a sanitised filename and bytes.
+
+    `prefix` is accepted for call-site symmetry with `save_send_image_upload`;
+    the returned filename is the sanitised original basename (stem + suffix).
+    """
     filename = Path(upload.filename or "").name
     if not filename:
         raise HTTPException(status_code=400, detail="image filename is required")
@@ -71,7 +76,13 @@ def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload", v
         raise HTTPException(status_code=400, detail="image upload exceeds 10 MB")
 
     safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(filename).stem).strip("-") or "image"
-    return save_image_bytes(data, prefix=f"{prefix}-{safe_stem}", suffix=suffix, vm_config=vm_config)
+    return f"{safe_stem}{suffix}", data
+
+
+def save_send_image_upload(upload: ImageUploadLike, *, prefix: str = "upload", vm_config=None) -> str:
+    filename, data = decode_send_image_upload(upload, prefix=prefix)
+    suffix = Path(filename).suffix.lower()
+    return save_image_bytes(data, prefix=f"{prefix}-{Path(filename).stem}", suffix=suffix, vm_config=vm_config)
 
 
 def _image_name(prefix: str, suffix: str) -> str:

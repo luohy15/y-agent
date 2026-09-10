@@ -59,6 +59,12 @@ fallback are removed from the codebase. `y telegram send --topic` (and the
 `SendMessageRequest.topic` request field) is retired: the CLI and the
 `/api/telegram/send` endpoint only ever address the owner's DM now.
 
+Explicit `y telegram send --image` (`POST /api/telegram/send`) posts upload
+bytes straight to Telegram and SSH-fetches `images` paths via
+`send_telegram_photo_reference`. It does not persist a copy under
+`assets/images/`, and an undeliverable photo is a hard 502 rather than a
+best-effort drop.
+
 ## User Stories
 
 1. As a user, I want a completed manager-session turn to be pushed to my
@@ -113,3 +119,4 @@ fallback are removed from the codebase. `y telegram send --topic` (and the
 |------|---------|--------|------|-----------|--------|--------|
 | 3460 | Read-only inventory and removal proposal for the Telegram group and per-topic delivery; corrected to manager-only-DM policy after Roy's scope feedback | - | `pages/plan-3460-telegram-group-removal.md` | - | - | proposal approved |
 | 3468 | Implemented the manager-only gate (worker eligibility, immediate-attachment API path, `deliver_death` topic branch), private-only inbound webhook gate with forum discovery/`/clear`-branch/thread-plumbing removal, and full `tg_topic` API/service/repository/entity/DTO removal and `y telegram send --topic` retirement; routine-caller migration (sub-task 6) delivered separately | - | `pages/plan-3460-telegram-group-removal.md` | - | `pages/review-3468-telegram-removal.md` | shipped |
+| 3474 | Explicit send image transport: uploads posted as bytes (no EC2 store), `images` delivered via `send_telegram_photo_reference` with `require_exists=False`, hard 502 on undeliverable | - | `pages/plan-3474-telegram-send-image.md` | - | `pages/review-3474-telegram-send-image.md` | reviewed; deployment pending |

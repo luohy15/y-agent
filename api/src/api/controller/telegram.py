@@ -12,9 +12,9 @@ from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, u
 from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
-from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo
+from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
 # generate_id remains for non-chat identifiers (e.g. safe_file_id fallback).
-from api.util.images import resolve_send_image_path, save_image_bytes, save_send_image_upload
+from api.util.images import decode_send_image_upload, resolve_send_image_path, save_image_bytes
 
 router = APIRouter(prefix="/telegram")
 
@@ -79,13 +79,43 @@ async def telegram_send(req: SendMessageRequest, request: Request):
     bot_token, tg_chat_id = target
     import asyncio
     if images or image_uploads:
-        from agent.config import resolve_vm_config
-        vm_config = resolve_vm_config(user_id)
-        safe_image_paths = [resolve_send_image_path(image_path) for image_path in images]
-        safe_image_paths.extend(save_send_image_upload(upload, prefix="telegram-upload", vm_config=vm_config) for upload in image_uploads)
-        for index, image_path in enumerate(safe_image_paths):
-            caption = text if index == 0 else None
-            await asyncio.to_thread(send_telegram_photo, bot_token, tg_chat_id, str(image_path), caption)
+        resolved_images = [
+            str(resolve_send_image_path(image_path, require_exists=False))
+            for image_path in images
+        ]
+        decoded_uploads = [
+            decode_send_image_upload(upload, prefix="telegram-upload")
+            for upload in image_uploads
+        ]
+        photo_index = 0
+        if resolved_images:
+            from agent.config import resolve_vm_config
+            from agent.telegram_delivery import send_telegram_photo_reference
+            vm_config = resolve_vm_config(user_id)
+            for image_path in resolved_images:
+                caption = text if photo_index == 0 else None
+                sent = await asyncio.to_thread(
+                    send_telegram_photo_reference,
+                    bot_token,
+                    tg_chat_id,
+                    image_path,
+                    caption,
+                    vm_config,
+                )
+                if not sent:
+                    raise HTTPException(status_code=502, detail="failed to deliver telegram photo")
+                photo_index += 1
+        for filename, content in decoded_uploads:
+            caption = text if photo_index == 0 else None
+            await asyncio.to_thread(
+                send_telegram_photo_bytes,
+                bot_token,
+                tg_chat_id,
+                filename,
+                content,
+                caption,
+            )
+            photo_index += 1
     elif text:
         await asyncio.to_thread(send_telegram_message, bot_token, tg_chat_id, text)
     return {"ok": True}
