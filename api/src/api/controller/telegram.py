@@ -351,7 +351,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     try:
         await chat_service.deliver_user_message(
             user.id, target_chat, text,
-            images=images, source="telegram",
+            images=images, source="telegram", human_reply=True,
             trace_id=target_chat.trace_id, topic=target_chat.topic,
             skill=target_chat.skill, backend=target_chat.backend,
             work_dir=target_chat.work_dir,
@@ -401,7 +401,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         try:
             await chat_service.deliver_user_message(
                 user.id, chat, text,
-                images=images, source="telegram",
+                images=images, source="telegram", human_reply=True,
                 topic=topic, work_dir=chat.work_dir,
             )
         except Exception as e:

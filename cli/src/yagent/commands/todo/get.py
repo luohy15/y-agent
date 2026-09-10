@@ -15,6 +15,11 @@ def todo_get(todo_id):
     click.echo(f"Priority:  {todo.get('priority') or '-'}")
     click.echo(f"Due:       {todo.get('due_date') or '-'}")
     click.echo(f"Tags:      {', '.join(todo['tags']) if todo.get('tags') else '-'}")
+    click.echo(f"Awaiting:  {todo.get('awaiting') or '-'}")
+    if todo.get('awaiting_chat'):
+        click.echo(f"Reply in:  {todo['awaiting_chat']}")
+    if todo.get('awaiting_until'):
+        click.echo(f"Until:     {todo['awaiting_until']}")
     if todo.get('desc'):
         click.echo(f"Desc:      {todo['desc']}")
     if todo.get('progress'):

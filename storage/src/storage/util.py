@@ -269,7 +269,17 @@ def get_telegram_bot_token() -> str:
     return os.environ.get("TELEGRAM_BOT_TOKEN_DEV", os.getenv("TELEGRAM_BOT_TOKEN", ""))
 
 
-def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None) -> None:
+def send_telegram_message_checked(bot_token: str, chat_id, text: str, message_thread_id=None) -> bool:
+    """Bounded text delivery with an explicit transport outcome, never DTO mutation."""
+    if not bot_token or not chat_id or not text:
+        return False
+    try:
+        return send_telegram_message(bot_token, chat_id, text, message_thread_id, checked=True)
+    except Exception:
+        return False
+
+
+def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=None, *, checked=False):
     """Send a message to Telegram with HTML formatting, chunking, and plain-text fallback."""
     import httpx
 
@@ -285,11 +295,14 @@ def send_telegram_message(bot_token: str, chat_id, text: str, message_thread_id=
             if message_thread_id:
                 payload["message_thread_id"] = message_thread_id
             resp = client.post(url, json=payload)
-            if not resp.is_success:
+            if not resp.is_success or (checked and resp.json().get("ok") is not True):
                 fallback_payload = {"chat_id": chat_id, "text": plain_chunks[i] if i < len(plain_chunks) else chunk}
                 if message_thread_id:
                     fallback_payload["message_thread_id"] = message_thread_id
-                client.post(url, json=fallback_payload)
+                resp = client.post(url, json=fallback_payload)
+            if checked and (not resp.is_success or resp.json().get("ok") is not True):
+                return False
+    return True if checked else None
 
 
 def _is_http_url(value: str) -> bool:

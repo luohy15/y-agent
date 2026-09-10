@@ -40,6 +40,9 @@ class Todo:
     priority: Optional[str] = None
     pinned: bool = False
     status: str = "pending"
+    awaiting: Optional[str] = None
+    awaiting_chat: Optional[str] = None
+    awaiting_until: Optional[str] = None
     progress: Optional[str] = None
     completed_at: Optional[str] = None
     history: Optional[List[TodoHistoryEntry]] = None
@@ -62,6 +65,9 @@ class Todo:
             priority=data.get('priority'),
             pinned=data.get('pinned', False),
             status=data.get('status', 'pending'),
+            awaiting=data.get('awaiting'),
+            awaiting_chat=data.get('awaiting_chat'),
+            awaiting_until=data.get('awaiting_until'),
             progress=data.get('progress'),
             completed_at=data.get('completed_at'),
             history=history,
@@ -77,6 +83,9 @@ class Todo:
             'name': self.name,
             'pinned': self.pinned,
             'status': self.status,
+            'awaiting': self.awaiting,
+            'awaiting_chat': self.awaiting_chat,
+            'awaiting_until': self.awaiting_until,
         }
         if self.desc is not None:
             result['desc'] = self.desc

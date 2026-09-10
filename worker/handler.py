@@ -49,6 +49,16 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "refresh_usage_limits":
         from worker.steps.refresh_usage_limits import handle_refresh_usage_limits
         return asyncio.run(handle_refresh_usage_limits())
+    if action == "check_trace_liveness":
+        # Orphan maintenance is a separate step ahead of the read-only
+        # classifier (todo 3458 S7b): the classifier never modifies chats.
+        from worker.monitor import _sweep_orphan_running_chats
+        from worker.steps.check_trace_liveness import handle_check_trace_liveness
+
+        async def _maintenance_then_watchdog():
+            maintenance = await _sweep_orphan_running_chats()
+            return {**(await handle_check_trace_liveness()), "maintenance": maintenance}
+        return asyncio.run(_maintenance_then_watchdog())
     return {"status": "error", "message": f"Unknown action: {action}"}
 
 

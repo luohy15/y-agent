@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -27,6 +27,9 @@ class UpdateTodoRequest(BaseModel):
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
     priority: Optional[str] = None
+    awaiting: Optional[Literal["question", "review", "external", "none"]] = None
+    awaiting_chat: Optional[str] = None
+    awaiting_until: Optional[str] = None
     progress: Optional[str] = None
     status: Optional[str] = None
 
@@ -42,6 +45,7 @@ async def list_todos(
     priority: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
     unread: Optional[bool] = Query(None),
+    awaiting: Optional[Literal["any", "question", "review", "stalled", "external"]] = Query(None),
     tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
@@ -62,6 +66,7 @@ async def list_todos(
         priority=priority,
         query=query,
         unread=unread,
+        awaiting=awaiting,
         tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
@@ -125,16 +130,12 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     fields = req.model_dump(exclude={"todo_id"}, exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
-    status = fields.pop("status", None)
-    todo = None
-    if status is not None:
-        todo = todo_service.update_status(user_id, req.todo_id, status)
-        if not todo:
-            raise HTTPException(status_code=404, detail="Todo not found")
-    if fields:
+    try:
         todo = todo_service.update_todo(user_id, req.todo_id, **fields)
-        if not todo:
-            raise HTTPException(status_code=404, detail="Todo not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
 
 
@@ -154,7 +155,7 @@ async def pin_todo(req: PinTodoRequest, request: Request):
 
 class UpdateStatusRequest(BaseModel):
     todo_id: str
-    status: str
+    status: Literal["pending", "active", "completed", "deleted"]
 
 
 @router.post("/status")

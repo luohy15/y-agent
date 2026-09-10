@@ -281,7 +281,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
         chat = await chat_service.deliver_user_message(
-            user_id, chat, req.prompt,
+            user_id, chat, req.prompt, human_reply=True,
             images=images, reasoning_effort=reasoning_effort,
             bot_name=req.bot_name, bot_tier=req.bot_tier,
             vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks,
@@ -311,44 +311,18 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         found = find_chat_by_topic_and_trace(user_id, req.topic, req.trace_id)
         if found:
             chat_id = found.id
-            existing_chat = await chat_service.get_chat_by_id(chat_id)
+            existing_chat = await chat_service.get_chat(user_id, chat_id)
 
-    # Root topics are long-lived conversations, not function calls — they have no
-    # parent to "return" to, so dispatch callbacks targeting them are rejected.
-    # The check fires on the resolved target chat's topic so that addressing a
-    # root chat by `--chat-id` (the canonical post-1876 callback shape) is also
-    # caught — pre-resolution `req.topic` is None in that case.
-    # Two arms: existing chat → callback (reject; --new doesn't apply because
-    # --chat-id semantically means "use this specific chat"); new chat → only
-    # reject when --new isn't set (preserves `--topic manager --new` to start a
-    # fresh root session).
-    # Today there is exactly one root topic ("manager"); the check is hard-coded
-    # to that name until the root-topic set becomes a first-class concept.
-    if existing_chat and existing_chat.topic == "manager":
-        raise HTTPException(
-            status_code=400,
-            detail="Root topic 'manager' does not accept notify callbacks. Send to from_chat instead, or use --new with --topic manager to start a fresh manager session.",
-        )
-    if not existing_chat and req.topic == "manager" and not req.force_new:
-        raise HTTPException(
-            status_code=400,
-            detail="Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session, or send to a specific topic instead.",
-        )
+    try:
+        chat_service.validate_dispatch_target(existing_chat, topic=req.topic, force_new=req.force_new)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Build message content with trace metadata prefix (only include parts we have).
-    # For a brand-new chat the to_chat: id is filled in after create (see below).
     def _dispatch_content(to_chat_id: str) -> str:
-        parts = []
-        if req.trace_id:
-            parts.append(f'trace:{req.trace_id}')
-        if req.from_topic:
-            parts.append(f'from:{req.from_topic}')
-        if req.topic:
-            parts.append(f'to:{req.topic}')
-        if req.from_chat_id:
-            parts.append(f'from_chat:{req.from_chat_id}')
-        parts.append(f'to_chat:{to_chat_id}')
-        return f"[{' '.join(parts)}]\n{req.prompt}"
+        return chat_service.dispatch_content(
+            req.prompt, to_chat_id, trace_id=req.trace_id, from_topic=req.from_topic,
+            topic=req.topic, from_chat_id=req.from_chat_id,
+        )
 
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
     from agent.config import resolve_vm_config
@@ -359,13 +333,16 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     work_dir = req.work_dir
     from storage.repository import chat as chat_repo
     if existing_chat:
+        if req.trace_id and existing_chat.trace_id and req.trace_id != existing_chat.trace_id:
+            raise HTTPException(status_code=400, detail="Chat trace_id mismatch")
         if existing_chat.work_dir:
             if work_dir and work_dir != existing_chat.work_dir:
                 raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat '{chat_id}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
             if not work_dir:
                 work_dir = existing_chat.work_dir
-        chat = await chat_service.deliver_user_message(
-            user_id, existing_chat, _dispatch_content(chat_id),
+        chat = await chat_service.deliver_dispatch(
+            user_id, existing_chat, req.prompt,
+            from_chat_id=req.from_chat_id, from_topic=req.from_topic,
             images=images, reasoning_effort=reasoning_effort,
             bot_name=req.bot_name, bot_tier=req.bot_tier,
             work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
@@ -384,6 +361,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             update_time=get_utc_iso8601_timestamp(),
             messages=[user_msg],
             topic=req.topic,
+            trace_id=req.trace_id if req.topic != "manager" else None,
             skill=skill,
             running=True,
         )

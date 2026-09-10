@@ -308,6 +308,9 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
     )
     try:
         with get_db() as session:
+            from storage.repository.todo import lock_todo
+            if chat.trace_id and chat.topic != "manager":
+                lock_todo(session, user_id, chat.trace_id)
             session.add(entity)
     except IntegrityError as exc:
         raise ChatIdCollision(user_id, chat.id) from exc
@@ -479,6 +482,58 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
         return chat
 
 
+def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
+                         human_reply=False, trace_id=None, topic=None, skill=None):
+    """Lock todo before chat; append/start and conditional clear commit together.
+
+    Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
+    the legacy warn-and-run behavior. Root queue traces never bind or clear a
+    todo; preserve any legacy persisted root metadata rather than repairing it.
+    """
+    from storage.repository.todo import lock_todo
+    from storage.service.todo import clear_awaiting_locked
+    from storage.util import get_utc_iso8601_timestamp
+
+    with get_db() as session:
+        identity = session.query(ChatEntity.trace_id, ChatEntity.topic).filter_by(
+            user_id=user_id, chat_id=chat_id).first()
+        if identity is None:
+            raise ValueError("Chat not found")
+        if trace_id and identity.trace_id and trace_id != identity.trace_id and identity.topic != "manager":
+            raise ValueError("Chat trace_id mismatch")
+        effective_topic = identity.topic or topic
+        effective_trace = identity.trace_id or (trace_id if effective_topic != "manager" else None)
+        todo = (lock_todo(session, user_id, effective_trace)
+                if effective_trace and effective_topic != "manager" else None)
+        row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
+               .populate_existing().with_for_update().first())
+        if row is None or (row.trace_id, row.topic) != (identity.trace_id, identity.topic):
+            raise ValueError("Chat identity changed during acceptance")
+        chat = _entity_to_chat(row)
+        already_running = chat.running
+        if message is not None:
+            chat.messages.append(message)
+        chat.trace_id = effective_trace
+        chat.topic = effective_topic
+        chat.skill = chat.skill or skill or (effective_topic if effective_topic != "manager" else None)
+        chat.running = True
+        chat.interrupted = False
+        chat.update_time = get_utc_iso8601_timestamp()
+        row.trace_id = effective_trace
+        row.topic = effective_topic
+        row.skill = chat.skill
+        row.status = "running"
+        row.json_content = json.dumps(chat.to_dict())
+        row.title = _extract_title(chat)
+        row.search_text = _extract_search_text(chat)
+        reasons = {"stalled", "external"} if message is None else set()
+        if human_reply:
+            reasons.add("question")
+        clear_awaiting_locked(session, todo, reasons)
+        session.flush()
+        return chat, already_running
+
+
 async def save_chat(user_id: int, chat: Chat) -> Chat:
     return _save_chat_sync(user_id, chat)
 
@@ -565,16 +620,51 @@ async def save_chat_by_id(chat: Chat) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
-def find_running_chat_ids_older_than(cutoff_unix: int, limit: int = 100) -> List[str]:
-    """Return running chat IDs with updated_at_unix older than cutoff_unix."""
+def find_running_chats_older_than(cutoff_unix: int, *, after_id: int = 0,
+                                  limit: int = 100) -> List[Tuple[int, int, str]]:
+    """Keyset page of (id, user_id, chat_id) still marked running before cutoff_unix (ms)."""
     with get_db() as session:
-        rows = (session.query(ChatEntity.chat_id)
+        rows = (session.query(ChatEntity.id, ChatEntity.user_id, ChatEntity.chat_id)
                 .filter(ChatEntity.status == "running")
                 .filter(ChatEntity.updated_at_unix < cutoff_unix)
-                .order_by(ChatEntity.updated_at_unix.asc())
+                .filter(ChatEntity.id > after_id)
+                .order_by(ChatEntity.id.asc())
                 .limit(limit)
                 .all())
-        return [row.chat_id for row in rows]
+        return [(row.id, row.user_id, row.chat_id) for row in rows]
+
+
+def stop_orphan_running_chat(user_id: int, chat_id: str, cutoff_unix: int, is_live) -> bool:
+    """Clear running for one owner's chat only while it is still running and still older than cutoff.
+
+    Locks the trace's todo before the chat row (same order as accept/start and
+    terminal persistence) so a concurrent start cannot be overwritten. A stale
+    scan is not proof of an orphan: `is_live(chat_id)` must be a fresh,
+    owner-matched, consistent process lookup and is evaluated inside the lock;
+    if it reports a live process or raises, the row stays running.
+    """
+    from storage.repository.todo import lock_todo
+    from storage.util import get_utc_iso8601_timestamp
+
+    with get_db() as session:
+        identity = session.query(ChatEntity.trace_id, ChatEntity.topic).filter_by(
+            user_id=user_id, chat_id=chat_id).first()
+        if identity is None:
+            return False
+        if identity.trace_id and identity.topic != "manager":
+            lock_todo(session, user_id, identity.trace_id)
+        row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
+               .populate_existing().with_for_update().first())
+        if row is None or row.status != "running" or (row.updated_at_unix or 0) >= cutoff_unix:
+            return False
+        if is_live(chat_id):
+            return False
+        chat = _entity_to_chat(row)
+        chat.running = False
+        chat.update_time = get_utc_iso8601_timestamp()
+        row.json_content = json.dumps(chat.to_dict())
+        row.status = _chat_status(chat)
+        return True
 
 
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:

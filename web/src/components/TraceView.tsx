@@ -475,6 +475,7 @@ export default function TraceView({
                 historyOpen={historyOpen}
                 setHistoryOpen={setHistoryOpen}
                 onDirtyChange={publicMode ? undefined : onTraceTodoDirtyChange}
+                onSelectChat={publicMode ? undefined : onSelectChat}
                 onSave={publicMode ? undefined : async (patch: TodoPatch) => {
                   const res = await authFetch(`${API}/api/todo/update`, {
                     method: "POST",

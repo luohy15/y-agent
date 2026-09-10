@@ -488,6 +488,17 @@ Resources:
           Properties:
             Schedule: rate(5 minutes)
             Input: '{"action": "refresh_usage_limits"}'
+        CheckTraceLivenessSchedule:
+          # Trace liveness watchdog plus periodic orphan-running-chat
+          # maintenance (todo 3458 phase 4). Deployed disabled for the staged
+          # rollout: flip Enabled only after the awaiting schema is applied,
+          # hr has aligned trace-terminal ownership, and orphan maintenance
+          # has been reviewed. Disable again first when rolling the host back.
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: false
+            Input: '{"action": "check_trace_liveness"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations

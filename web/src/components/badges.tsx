@@ -77,6 +77,18 @@ export function statusBadgeClass(status: string): string {
   return STATUS_COLOR[status] || "bg-sol-base02 text-sol-base01";
 }
 
+// --- Awaiting badge (todo inbox reason) ---
+const AWAITING_COLOR: Record<string, string> = {
+  question: "bg-sol-cyan/20 text-sol-cyan",
+  review: "bg-sol-yellow/20 text-sol-yellow",
+  stalled: "bg-sol-red/20 text-sol-red",
+  external: "bg-sol-blue/20 text-sol-blue",
+};
+
+export function awaitingBadgeClass(awaiting: string): string {
+  return `${BADGE_BASE} ${AWAITING_COLOR[awaiting] || "bg-sol-base02 text-sol-base01"}`;
+}
+
 // --- Priority color ---
 const PRIORITY_COLOR: Record<string, string> = {
   high: "text-sol-red",

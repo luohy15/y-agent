@@ -8,12 +8,17 @@ from yagent.time_filter import collect_time_params, time_filter_options
 @click.option('--status', '-s', default=None, help='Filter by status')
 @click.option('--priority', '-p', default=None, help='Filter by priority')
 @click.option('--tag', default=None, help='Filter by tag (via entity_tag)')
+@click.option('--awaiting', is_flag=False, flag_value='any',
+              type=click.Choice(['any', 'question', 'review', 'stalled', 'external']),
+              help='Inbox reasons when bare; a named reason matches exactly')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
-def todo_list(status, priority, tag, on, from_, to, created_on, created_from, created_to,
+def todo_list(status, priority, tag, awaiting, on, from_, to, created_on, created_from, created_to,
               updated_on, updated_from, updated_to, limit):
     """List todos. Canonical time field: completed_at."""
     params = {"limit": limit}
+    if awaiting is not None:
+        params["awaiting"] = awaiting
     if status is not None:
         params["status"] = status
     if priority is not None:
@@ -39,8 +44,9 @@ def todo_list(status, priority, tag, on, from_, to, created_on, created_from, cr
             t["todo_id"],
             f"{pin_marker}{t['name']}",
             t["status"],
+            t.get("awaiting") or "-",
             t.get("priority") or "-",
             t.get("due_date") or "-",
             ",".join(t["tags"]) if t.get("tags") else "-",
         ])
-    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Priority", "Due", "Tags"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Awaiting", "Priority", "Due", "Tags"], tablefmt="simple"))

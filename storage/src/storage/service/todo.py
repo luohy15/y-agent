@@ -1,6 +1,7 @@
 """Todo service."""
 
 import ast
+from datetime import datetime, timezone
 from typing import List, Optional
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
@@ -29,9 +30,11 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    awaiting: Optional[str] = None,
 ) -> List[Todo]:
     return todo_repo.list_todos(
         user_id,
+        awaiting=awaiting,
         status=status,
         priority=priority,
         query=query,
@@ -138,73 +141,126 @@ def get_latest_marker(todo: Todo, marker: str) -> Optional[str]:
     return None
 
 
-def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
+STATUS_ACTION = {
+    "pending": "deactivated", "active": "activated",
+    "completed": "completed", "deleted": "deleted",
+}
+
+
+def _apply_fields(session, row, fields, *, action="updated", internal=False):
+    fields = dict(fields)
+    if "status" in fields and fields["status"] not in STATUS_ACTION:
+        raise ValueError("Invalid todo status")
+    if "awaiting" in fields:
+        if fields["awaiting"] == "none":
+            fields["awaiting"] = None
+        allowed = {None, "question", "review", "external"}
+        if internal:
+            allowed.add("stalled")
+        if fields["awaiting"] not in allowed:
+            raise ValueError("Invalid awaiting reason")
+    reason = fields.get("awaiting", row.awaiting)
+    status = fields.get("status", row.status)
+    if status in {"completed", "deleted"}:
+        if fields.get("awaiting") is not None:
+            raise ValueError("Closed todos cannot await")
+        reason = None
+        fields["awaiting"] = None
+    if reason != "question":
+        if fields.get("awaiting_chat") is not None:
+            raise ValueError("awaiting_chat is only valid for question")
+        fields["awaiting_chat"] = None
+    elif any(k in fields for k in ("awaiting", "awaiting_chat")):
+        from storage.entity.chat import ChatEntity
+        pointer = fields.get("awaiting_chat", row.awaiting_chat)
+        if not pointer or not session.query(ChatEntity.id).filter_by(
+            user_id=row.user_id, chat_id=pointer, trace_id=row.todo_id,
+        ).first():
+            raise ValueError("Question requires a same-owner, same-trace awaiting_chat")
+    if reason != "external":
+        if fields.get("awaiting_until") is not None:
+            raise ValueError("awaiting_until is only valid for external")
+        fields["awaiting_until"] = None
+    elif fields.get("awaiting_until") is not None:
+        try:
+            dt = datetime.fromisoformat(fields["awaiting_until"])
+            if dt.utcoffset() is None:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise ValueError("awaiting_until must be a timezone-aware ISO timestamp")
+        fields["awaiting_until"] = dt.astimezone(timezone.utc).isoformat()
+    if "status" in fields and fields["status"] != row.status:
+        fields["completed_at"] = get_utc_iso8601_timestamp() if status == "completed" else None
+        if row.pinned and "pinned" not in fields:
+            fields["pinned"] = False
     if "tags" in fields and fields["tags"] is not None:
         fields["tags"] = normalize_tags(fields["tags"])
-    changed = []
-    for key, value in fields.items():
-        if hasattr(todo, key) and getattr(todo, key) != value:
-            setattr(todo, key, value)
-            changed.append(key)
-    if changed:
-        history = todo.history or []
-        history.append(TodoHistoryEntry(
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-            action="updated",
-            note=f"changed: {', '.join(f'{k}={getattr(todo, k)!r}' for k in changed)}",
-        ))
-        todo.history = history
-        todo = todo_repo.save_todo(user_id, todo)
-    if "tags" in fields:
+    changed = {k: v for k, v in fields.items() if getattr(row, k) != v}
+    if not changed:
+        return False
+    for key, value in changed.items():
+        setattr(row, key, value)
+    row.history = [*(row.history or []), TodoHistoryEntry(
+        timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+        action=action, note=f"changed: {', '.join(f'{k}={v!r}' for k, v in changed.items())}",
+    ).to_dict()]
+    return True
+
+
+def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
+    allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
+               "awaiting", "awaiting_chat", "awaiting_until", "pinned"}
+    if fields.keys() - allowed:
+        raise ValueError("Unknown todo fields")
+    todo = todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(session, row, fields))
+    if todo and "tags" in fields:
         tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
     return todo
 
 
 def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
-    todo.pinned = pinned
-    history = todo.history or []
-    action = "pinned" if pinned else "unpinned"
-    history.append(TodoHistoryEntry(
-        timestamp=get_utc_iso8601_timestamp(),
-        unix_timestamp=get_unix_timestamp(),
-        action=action,
-    ))
-    todo.history = history
-    return todo_repo.save_todo(user_id, todo)
-
-
-STATUS_ACTION = {
-    "pending": "deactivated",
-    "active": "activated",
-    "completed": "completed",
-    "deleted": "deleted",
-}
+    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(
+        session, row, {"pinned": pinned}, action="pinned" if pinned else "unpinned"))
 
 
 def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
-    todo = todo_repo.get_todo(user_id, todo_id)
-    if not todo:
-        return None
-    old_status = todo.status
-    todo.status = status
-    if old_status != status and todo.pinned:
-        todo.pinned = False
-    if status == "completed":
-        todo.completed_at = get_utc_iso8601_timestamp()
-    elif old_status == "completed":
-        todo.completed_at = None
-    action = STATUS_ACTION.get(status, status)
-    history = todo.history or []
-    history.append(TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action=action))
-    todo.history = history
-    return todo_repo.save_todo(user_id, todo)
+    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(
+        session, row, {"status": status}, action=STATUS_ACTION.get(status, status)))
+
+
+def clear_awaiting_locked(session, row, reasons):
+    """Caller holds the todo lock, optionally alongside an accepted chat write."""
+    if row is not None and row.awaiting in reasons:
+        return _apply_fields(session, row, {"awaiting": None}, internal=True)
+    return False
+
+
+def claim_stalled(user_id: int, todo_id: str, *, expected_updated_at_unix: int,
+                  expected_awaiting: Optional[str] = None, recheck=None) -> bool:
+    """Claim an observed fault once. Evidence recheck runs under the todo lock.
+
+    The runtime/watchdog caller must recheck its process snapshot and activity
+    deadline here; SQL running chats are always checked by this primitive.
+    """
+    from storage.entity.chat import ChatEntity
+    won = False
+
+    def claim(session, row):
+        nonlocal won
+        if (row.status != "active" or row.awaiting not in {None, "external"}
+                or row.awaiting != expected_awaiting
+                or row.updated_at_unix != expected_updated_at_unix):
+            return
+        if session.query(ChatEntity.id).filter_by(
+            user_id=user_id, trace_id=todo_id, status="running",
+        ).first():
+            return
+        if recheck is None or not recheck(session, row):
+            return
+        won = _apply_fields(session, row, {"awaiting": "stalled"}, internal=True)
+
+    todo_repo.mutate_todo(user_id, todo_id, claim)
+    return won
 
 
 def bulk_update_todos(

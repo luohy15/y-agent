@@ -3,7 +3,7 @@ import useSWR from "swr";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { API, jsonFetcher } from "../api";
-import { actionBadgeClass, priorityColorClass } from "./badges";
+import { actionBadgeClass, awaitingBadgeClass, priorityColorClass } from "./badges";
 import TagsEditor from "./TagsEditor";
 import { tagVocabularyKey, toTagSuggestions } from "./tagVocabulary";
 
@@ -31,6 +31,9 @@ export interface TodoInfo {
   due_date?: string;
   progress?: string;
   completed_at?: string;
+  awaiting?: string | null;
+  awaiting_chat?: string | null;
+  awaiting_until?: string | null;
   created_at?: string;
   updated_at?: string;
   history?: TodoHistoryEntry[];
@@ -62,6 +65,8 @@ interface TraceTodoDetailProps {
   /** When provided, a plain left-click on a shared-note link calls this instead of
    *  navigating (the `href`/new-tab still works for cmd-click / right-click). */
   onOpenNote?: (note: TodoNoteInfo) => void;
+  /** Authenticated navigation to the chat holding an awaiting question. */
+  onSelectChat?: (chatId: string) => void;
 }
 
 const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
@@ -106,6 +111,7 @@ export default function TraceTodoDetail({
   onSave,
   onDirtyChange,
   onOpenNote,
+  onSelectChat,
 }: TraceTodoDetailProps) {
   const editable = !!onSave;
   const [patch, setPatch] = useState<TodoPatch>({});
@@ -385,6 +391,28 @@ export default function TraceTodoDetail({
                     </div>
                   </>
                 )}
+              </>
+            )}
+            {todoInfo.awaiting && (
+              <>
+                <span className="text-sol-base01">Awaiting</span>
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <span className={awaitingBadgeClass(todoInfo.awaiting)}>{todoInfo.awaiting}</span>
+                  {todoInfo.awaiting === "question" && todoInfo.awaiting_chat && (
+                    onSelectChat ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectChat(todoInfo.awaiting_chat!)}
+                        className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
+                        title={`Open chat ${todoInfo.awaiting_chat}`}
+                      >
+                        {todoInfo.awaiting_chat}
+                      </button>
+                    ) : (
+                      <span className="font-mono text-sol-base0 break-all">{todoInfo.awaiting_chat}</span>
+                    )
+                  )}
+                </div>
               </>
             )}
             {todoInfo.created_at && (

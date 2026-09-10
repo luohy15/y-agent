@@ -45,6 +45,23 @@ def _is_api_5xx_error_text(value) -> bool:
     return isinstance(value, str) and bool(_API_5XX_RESULT_RE.match(value.strip()))
 
 
+def _is_rate_limit_error_text(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if re.match(r"^API Error:\s*429\b", text, re.IGNORECASE):
+        return True
+    return bool(
+        re.match(r"^API Error:\s*403\b", text, re.IGNORECASE)
+        and re.search(r"rate[ _-]?limit|throttl|too many requests", text, re.IGNORECASE)
+        and not re.search(r"invalid.*(?:key|credential)|billing|permission|access denied", text, re.IGNORECASE)
+    )
+
+
+def _is_retryable_api_error_text(value) -> bool:
+    return _is_api_5xx_error_text(value) or _is_rate_limit_error_text(value)
+
+
 def _convert_assistant(obj: Dict, tool_use_index: Dict[str, Dict]) -> Optional[Message]:
     """Convert a stream-json assistant object to a y-agent Message."""
     message = obj.get("message", {})
@@ -371,7 +388,7 @@ class StreamConverter:
             msg = _convert_assistant(obj, self.tool_use_index)
             if not msg:
                 return []
-            if _is_api_5xx_error_text(msg.content):
+            if not msg.tool_calls and _is_retryable_api_error_text(msg.content):
                 return []
             msg.parent_id = self.last_message_id
             self.last_message_id = msg.id

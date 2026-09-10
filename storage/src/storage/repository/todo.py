@@ -30,6 +30,9 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         priority=entity.priority,
         pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
+        awaiting=entity.awaiting,
+        awaiting_chat=entity.awaiting_chat,
+        awaiting_until=entity.awaiting_until,
         progress=entity.progress,
         completed_at=entity.completed_at,
         history=[TodoHistoryEntry.from_dict(h) for h in history],
@@ -58,7 +61,10 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    awaiting: Optional[str] = None,
 ) -> List[Todo]:
+    if awaiting is not None and awaiting not in {"any", "question", "review", "stalled", "external"}:
+        raise ValueError("Invalid awaiting filter")
     with get_db() as session:
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
@@ -79,6 +85,10 @@ def list_todos(
              .filter(TodoEntity.user_id == user_id))
         if status:
             q = q.filter(TodoEntity.status == status)
+        if awaiting == "any":
+            q = q.filter(TodoEntity.awaiting.in_(("question", "review", "stalled")))
+        elif awaiting is not None:
+            q = q.filter(TodoEntity.awaiting == awaiting)
         if priority:
             q = q.filter(TodoEntity.priority == priority)
         if query:
@@ -167,9 +177,24 @@ def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
         return None
 
 
+def lock_todo(session, user_id: int, todo_id: str):
+    """Shared serialization point for todo patches and trace accept/start."""
+    return (session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id)
+            .populate_existing().with_for_update().first())
+
+
+def mutate_todo(user_id: int, todo_id: str, mutate) -> Optional[Todo]:
+    with get_db() as session:
+        row = lock_todo(session, user_id, todo_id)
+        if row is None:
+            return None
+        mutate(session, row)
+        session.flush()
+        return _entity_to_dto(row)
+
+
 def save_todo(user_id: int, todo: Todo) -> Todo:
     with get_db() as session:
-        entity = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo.todo_id).first()
         fields = dict(
             name=todo.name,
             desc=todo.desc,
@@ -182,12 +207,9 @@ def save_todo(user_id: int, todo: Todo) -> Todo:
             completed_at=todo.completed_at,
             history=[h.to_dict() for h in (todo.history or [])],
         )
-        if entity:
-            for k, v in fields.items():
-                setattr(entity, k, v)
-        else:
-            entity = TodoEntity(user_id=user_id, todo_id=todo.todo_id, **fields)
-            session.add(entity)
+        # Creation only. Existing todos must use locked field patches.
+        entity = TodoEntity(user_id=user_id, todo_id=todo.todo_id, **fields)
+        session.add(entity)
         session.flush()
         return _entity_to_dto(entity)
 

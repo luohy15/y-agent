@@ -12,7 +12,7 @@ import time
 from loguru import logger
 
 from worker.process_manager import (
-    get_running_processes, try_acquire_lease, renew_lease,
+    get_running_processes, get_process, try_acquire_lease, renew_lease,
     update_process_offset, complete_process, release_lease,
 )
 from worker.runner import message_callback, check_interrupted
@@ -180,7 +180,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # Build steer checker. claude_code injects steer into the live stdin pipe,
     # which is the only delivery path now that the kill-and-resume backends are
     # gone.
-    chat = await chat_service.get_chat_by_id(chat_id)
+    chat = await chat_service.get_chat(user_id, chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
     initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
     # Load previously consumed steer IDs from prior Lambda
@@ -197,17 +197,20 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
     from agent.claude_code import tail_ssh_output
-    result = await tail_ssh_output(
-        chat_id=chat_id,
-        vm_config=vm_config,
-        offset=offset,
-        last_message_id=last_message_id,
-        message_callback=_msg_callback,
-        check_interrupted_fn=_check_interrupted,
-        check_deadline_fn=_check_deadline,
-        ssh_client=client,
-        check_steer_fn=steer_fn,
-    )
+    if proc.get("resume_pending"):
+        result = json.loads(proc["resume_pending"])
+    else:
+        result = await tail_ssh_output(
+            chat_id=chat_id,
+            vm_config=vm_config,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            ssh_client=client,
+            check_steer_fn=steer_fn,
+        )
 
     # Save offset to DynamoDB
     # Defensive: keep prior session_id when this tail did not observe a fresh one.
@@ -229,25 +232,44 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
     if result["is_done"]:
         from storage.repository import chat as chat_repo
-        fresh = await chat_service.get_chat_by_id(chat_id)
+        fresh = await chat_service.get_chat(user_id, chat_id)
+        from worker.death_delivery import current_run, persist_terminal, deliver_death
+        if not current_run(chat_id, proc):
+            return
         if _should_resume_5xx(result, proc) and updated_session_id and fresh and not fresh.interrupted:
-            logger.warning(
-                "resume-on-5xx: chat_id={} session_id={} retrying same Claude Code session",
-                chat_id, updated_session_id,
-            )
-            await _apply_completion_metadata(
-                fresh=fresh,
-                result={**result, "status": "completed"},
-                result_data=result.get("result_data"),
-                proc=proc,
-                chat_id=chat_id,
-            )
-            await chat_repo.save_chat_by_id(fresh)
-            complete_process(chat_id, status=result["status"])
+            from agent.claude_code import _is_rate_limit_error_text
+            from worker.process_manager import set_resume_pending, claim_resume
+            if not proc.get("resume_pending"):
+                delay = 30 if _is_rate_limit_error_text(result["result_data"].get("result")) else 0
+                proc["resume_retry_at"] = time.time() + delay
+                set_resume_pending(chat_id, proc, result, proc["resume_retry_at"])
+            delay = max(0, proc["resume_retry_at"] - time.time())
+            if deadline_at and time.monotonic() + delay + 30 >= deadline_at:
+                release_lease(chat_id)
+                return
+            await asyncio.sleep(delay)
+            fresh = await chat_service.get_chat(user_id, chat_id)
+            from worker.death_delivery import current_run
+            if not current_run(chat_id, proc):
+                return
+            if not fresh or fresh.interrupted:
+                await persist_terminal(chat_id, proc, {"status": "interrupted"}, outcome="interrupted")
+                return
+            if not claim_resume(chat_id, proc, lambda_req_id):
+                return
+            fresh = await persist_terminal(chat_id, proc, {**result, "status": "completed"}, outcome=None)
+            if not fresh or fresh.interrupted:
+                return
             await _relaunch_claude_code_turn(
                 chat_id, user_id, proc, backend=backend_type,
                 resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)) + 1,
             )
+            return
+
+        if result["status"] == "error":
+            fresh = await persist_terminal(chat_id, proc, result)
+            if fresh:
+                await deliver_death(chat_id, proc, "error", (result.get("result_data") or {}).get("result"))
             return
 
         # Mark chat as no longer running
@@ -354,8 +376,8 @@ def _should_resume_5xx(result: dict, proc: dict) -> bool:
     result_data = result.get("result_data")
     if not isinstance(result_data, dict) or not result_data.get("is_error"):
         return False
-    from agent.claude_code import _is_api_5xx_error_text
-    return _is_api_5xx_error_text(result_data.get("result"))
+    from agent.claude_code import _is_retryable_api_error_text
+    return _is_retryable_api_error_text(result_data.get("result"))
 
 
 async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
@@ -504,31 +526,65 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
     )
 
 
-async def _sweep_orphan_running_chats():
-    from storage.repository import chat as chat_repo
+def _owner_process_running(user_id: int):
+    """Fresh consistent lookup for the locked orphan-clear boundary; raises when unavailable."""
+    def is_live(chat_id: str) -> bool:
+        record = get_process(chat_id)
+        return record.get("user_id") == user_id and record.get("status") == "running"
+    return is_live
 
+
+async def _sweep_orphan_running_chats() -> dict:
+    """Owner-aware, paginated orphan maintenance; an evidence failure clears nothing.
+
+    Runs at monitor start and from the scheduled `check_trace_liveness` action
+    (todo 3458 S7b), so a chat stuck running with no process record is cleared
+    even when no further monitor loop ever starts. The cutoff is in
+    milliseconds like `chat.updated_at_unix`. The eventually consistent scan
+    only shortlists candidates; each clear re-reads the process record
+    consistently inside the row lock, and a candidate whose lookup fails is
+    left running and counted as `failed`.
+    """
+    from storage.repository import chat as chat_repo
+    from storage.util import get_unix_timestamp
+
+    swept = failed = 0
     try:
-        running_process_ids = {proc["chat_id"] for proc in get_running_processes() if proc.get("chat_id")}
-        cutoff_unix = int(time.time()) - ORPHAN_RUNNING_CHAT_GRACE_SECONDS
-        orphan_chat_ids = chat_repo.find_running_chat_ids_older_than(cutoff_unix)
-        for orphan_chat_id in orphan_chat_ids:
-            if orphan_chat_id in running_process_ids:
-                continue
-            await _mark_chat_stopped(orphan_chat_id)
-            logger.warning("swept orphan running chat: chat_id={}", orphan_chat_id)
+        running = {(proc.get("user_id"), proc["chat_id"]) for proc in get_running_processes() if proc.get("chat_id")}
+        cutoff_unix = get_unix_timestamp() - ORPHAN_RUNNING_CHAT_GRACE_SECONDS * 1000
+        after_id = 0
+        while True:
+            page = chat_repo.find_running_chats_older_than(cutoff_unix, after_id=after_id)
+            if not page:
+                break
+            after_id = page[-1][0]
+            for _, user_id, chat_id in page:
+                if (user_id, chat_id) in running:
+                    continue
+                try:
+                    if chat_repo.stop_orphan_running_chat(user_id, chat_id, cutoff_unix, _owner_process_running(user_id)):
+                        swept += 1
+                        logger.warning("swept orphan running chat: user_id={} chat_id={}", user_id, chat_id)
+                except Exception as e:
+                    failed += 1
+                    logger.warning("orphan sweep left chat running, evidence unavailable: user_id={} chat_id={} error={}",
+                                   user_id, chat_id, e)
     except Exception as e:
         logger.exception("orphan running chat sweep failed: {}", e)
-
-    return
+        return {"status": "error", "swept": swept, "failed": failed}
+    return {"status": "degraded" if failed else "ok", "swept": swept, "failed": failed}
 
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
-    """Handle hard timeout: kill tmux, complete process, mark chat stopped, add message, notify."""
+    """Handle hard timeout through the same terminal persistence and delivery as errors."""
     from agent.config import resolve_vm_config
-    from storage.entity.dto import Message
     from storage.service import chat as chat_service
-    from storage.repository import chat as chat_repo
-    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+    from worker.death_delivery import current_run
+    owner_chat = await chat_service.get_chat(proc["user_id"], chat_id)
+    if (not owner_chat or (owner_chat.topic != "manager" and owner_chat.trace_id != proc.get("trace_id"))
+            or not current_run(chat_id, proc)):
+        return
 
     # 1. Kill tmux session on remote
     user_id = proc["user_id"]
@@ -545,38 +601,14 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
     except Exception as e:
         logger.exception("hard timeout: failed to kill tmux for chat_id={}: {}", chat_id, e)
 
-    # 2. Mark process as timed out in DynamoDB
-    complete_process(chat_id, status="timeout")
-
-    # 3. Mark chat as stopped + add timeout message
-    fresh = await chat_service.get_chat_by_id(chat_id)
+    from worker.death_delivery import persist_terminal, deliver_death
+    elapsed = int(time.time() - proc.get("started_at", 0))
+    timeout_text = f"This chat was automatically stopped after running for {elapsed // 60} minutes (hard timeout: {HARD_TIMEOUT_SECONDS // 60} min)."
+    fresh = await persist_terminal(chat_id, proc, {
+        "status": "error", "result_data": {"result": timeout_text},
+    }, outcome="timeout")
     if fresh:
-        fresh.running = False
-
-        elapsed = int(time.time() - proc.get("started_at", 0))
-        timeout_text = f"This chat was automatically stopped after running for {elapsed // 60} minutes (hard timeout: {HARD_TIMEOUT_SECONDS // 60} min)."
-        timeout_msg = Message(
-            id=generate_message_id(),
-            role="assistant",
-            content=timeout_text,
-            timestamp=get_utc_iso8601_timestamp(),
-            unix_timestamp=get_unix_timestamp(),
-        )
-        message_callback(chat_id, timeout_msg)
-
-        await chat_repo.save_chat_by_id(fresh)
-
-        # 4. Send Telegram notification
-        try:
-            from worker.runner import _resolve_telegram_target
-            from storage.util import send_telegram_message
-            target = _resolve_telegram_target(fresh, user_id)
-            if target:
-                bot_token, tg_chat_id, topic_id = target
-                send_telegram_message(bot_token, tg_chat_id, f"⏰ {timeout_text}", topic_id)
-                logger.info("hard timeout: telegram notification sent for chat_id={}", chat_id)
-        except Exception as e:
-            logger.exception("hard timeout: telegram notification failed for chat_id={}: {}", chat_id, e)
+        await deliver_death(chat_id, proc, "timeout", timeout_text)
 
     logger.info("hard timeout: completed handling for chat_id={}", chat_id)
 

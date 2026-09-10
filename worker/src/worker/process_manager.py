@@ -57,7 +57,7 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         "vm_name": {"S": vm_name},
         "status": {"S": "running"},
         "stdout_offset": {"N": "0"},
-        "started_at": {"N": str(now)},
+        "started_at": {"N": str(time.time())},
         "ttl": {"N": str(now + 86400)},
     }
     if bot_name:
@@ -87,7 +87,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
 
 def get_running_processes() -> list:
     """Query all status=running process records via DynamoDB scan."""
-    resp = _get_dynamodb().scan(
+    client = _get_dynamodb()
+    kwargs = dict(
         TableName=TABLE_NAME,
         FilterExpression="begins_with(id, :prefix) AND #s = :running",
         ExpressionAttributeNames={"#s": "status"},
@@ -96,7 +97,57 @@ def get_running_processes() -> list:
             ":running": {"S": "running"},
         },
     )
-    return [_unpack_item(item) for item in resp.get("Items", [])]
+    records = []
+    while True:
+        resp = client.scan(**kwargs)
+        records.extend(_unpack_item(item) for item in resp.get("Items", []))
+        if not resp.get("LastEvaluatedKey"):
+            return records
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+
+
+def get_process(chat_id: str) -> dict:
+    resp = _get_dynamodb().get_item(
+        TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+        ConsistentRead=True,
+    )
+    return _unpack_item(resp.get("Item") or {})
+
+
+def set_resume_pending(chat_id: str, proc: dict, result: dict, retry_at: float) -> None:
+    _get_dynamodb().update_item(
+        TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+        UpdateExpression="SET resume_pending = :result, resume_retry_at = :at",
+        ConditionExpression="user_id = :uid AND started_at = :started AND #s = :running",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":uid": {"N": str(proc["user_id"])},
+            ":started": {"N": str(proc["started_at"])},
+            ":running": {"S": "running"},
+            ":result": {"S": json.dumps(result)}, ":at": {"N": str(retry_at)},
+        },
+    )
+
+
+def claim_resume(chat_id: str, proc: dict, owner_id: str) -> bool:
+    try:
+        _get_dynamodb().update_item(
+            TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+            UpdateExpression="SET resume_5xx_retries = :one",
+            ConditionExpression=("user_id = :uid AND started_at = :started AND monitor_owner = :owner "
+                                 "AND #s = :running AND attribute_exists(resume_pending) "
+                                 "AND (attribute_not_exists(resume_5xx_retries) OR resume_5xx_retries < :one)"),
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":uid": {"N": str(proc["user_id"])}, ":started": {"N": str(proc["started_at"])},
+                ":owner": {"S": owner_id}, ":running": {"S": "running"}, ":one": {"N": "1"},
+            },
+        )
+        return True
+    except Exception as e:
+        if "ConditionalCheckFailedException" in type(e).__name__:
+            return False
+        raise
 
 
 def try_acquire_lease(chat_id: str, owner_id: str, lease_duration: int = 900) -> bool:
@@ -181,6 +232,25 @@ def release_lease(chat_id: str) -> None:
         Key={"id": {"S": f"proc-{chat_id}"}},
         UpdateExpression="REMOVE monitor_owner, monitor_lease",
     )
+
+
+def complete_current_process(chat_id: str, proc: dict, status: str) -> bool:
+    try:
+        _get_dynamodb().update_item(
+            TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+            UpdateExpression="SET #s = :status REMOVE monitor_owner, monitor_lease",
+            ConditionExpression="user_id = :uid AND started_at = :started AND #s = :running",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":uid": {"N": str(proc["user_id"])}, ":started": {"N": str(proc["started_at"])},
+                ":status": {"S": status}, ":running": {"S": "running"},
+            },
+        )
+        return True
+    except Exception as e:
+        if "ConditionalCheckFailedException" in type(e).__name__:
+            return False
+        raise
 
 
 def complete_process(chat_id: str, status: str = "completed") -> None:

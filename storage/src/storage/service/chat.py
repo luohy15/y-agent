@@ -247,11 +247,37 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
+def validate_dispatch_target(chat, *, topic=None, force_new=False):
+    if (chat and chat.topic == "manager") or (not chat and topic == "manager" and not force_new):
+        raise ValueError("Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session.")
+
+
+def dispatch_content(content: str, to_chat_id: str, *, trace_id=None, from_topic=None,
+                     topic=None, from_chat_id=None) -> str:
+    fields = (("trace", trace_id), ("from", from_topic), ("to", topic),
+              ("from_chat", from_chat_id), ("to_chat", to_chat_id))
+    return f"[{' '.join(f'{key}:{value}' for key, value in fields if value)}]\n{content}"
+
+
+async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
+                           from_topic=None, **kwargs) -> Chat:
+    validate_dispatch_target(chat)
+    trace_id = kwargs.get("trace_id")
+    if trace_id and chat.trace_id and trace_id != chat.trace_id:
+        raise ValueError("Chat trace_id mismatch")
+    return await deliver_user_message(
+        user_id, chat, dispatch_content(content, chat.id, trace_id=trace_id,
+                                       from_topic=from_topic, topic=kwargs.get("topic"),
+                                       from_chat_id=from_chat_id), **kwargs,
+    )
+
+
 async def deliver_user_message(
     user_id: int,
     chat: Chat,
     content: str,
     *,
+    human_reply: bool = False,
     images: Optional[List[str]] = None,
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
@@ -291,16 +317,10 @@ async def deliver_user_message(
         msg_dict["source"] = source
     user_msg = Message.from_dict(msg_dict)
 
-    chat.messages.append(user_msg)
-    chat.interrupted = False
-
-    # If the chat is already running, don't queue a new task — the running
-    # worker picks up the new message via steer polling.
-    already_running = chat.running
-    if not already_running:
-        chat.running = True
-
-    await chat_repo.save_chat_by_id(chat)
+    chat, already_running = chat_repo.accept_or_start_chat(
+        user_id, chat.id, message=user_msg, human_reply=human_reply,
+        trace_id=trace_id, topic=topic, skill=skill,
+    )
     clear_attention_on_reply(user_id, chat.id)
 
     if not already_running:
