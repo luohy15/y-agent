@@ -442,7 +442,7 @@ y file export-pdf <md> [-o <pdf>]
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
-  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`,
+  `Y_AGENT_S3_BUCKET`, `Y_AGENT_TIMEZONE`, `Y_AGENT_WEB_URL`, `FETCHER_URL`, `ALPHAVANTAGE_API_KEY`,
   `Y_AGENT_MODULE_BUNDLE_DIR` (local module bundle store used when
   `Y_AGENT_S3_BUCKET` is unset; defaults to `~/.y-agent/ui-bundles`),
   `Y_AGENT_MODULE_MAINTAINER_USER_ID` (the public string `user.user_id` of the

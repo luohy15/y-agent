@@ -1,12 +1,15 @@
 """Todo service."""
 
 import ast
+import os
 from datetime import datetime, timezone
 from typing import List, Optional
+from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
+from storage.service import telegram as telegram_service
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 _CHANGED_NOTE_PREFIX = "changed: "
@@ -210,14 +213,53 @@ def _apply_fields(session, row, fields, *, action="updated", internal=False):
     return True
 
 
+_NOTICE_NAME_LIMIT = 120
+_INBOX_NOTICE_REASONS = {"question", "review"}
+
+
+def awaiting_notice_text(todo: Todo) -> str:
+    """Plain-text owner DM for a new question/review inbox entry."""
+    name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
+    reason = todo.awaiting
+    lines = [
+        f"Todo {todo.todo_id} needs you: awaiting {reason}",
+        name,
+    ]
+    if reason == "question":
+        chat = todo.awaiting_chat or ""
+        lines.append(f'Answer in chat {chat}: reply here with "/{chat} <your answer>"')
+    elif reason == "review":
+        lines.append(
+            f'Verify then: y todo finish {todo.todo_id} (or reply "/{todo.todo_id} ...")'
+        )
+    origin = (os.getenv("Y_AGENT_WEB_URL") or "").strip().rstrip("/")
+    if origin:
+        lines.append(f"{origin}/trace/{todo.todo_id}")
+    return "\n".join(lines)
+
+
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
                "awaiting", "awaiting_chat", "awaiting_until", "pinned"}
     if fields.keys() - allowed:
         raise ValueError("Unknown todo fields")
-    todo = todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(session, row, fields))
+    before = None
+
+    def apply(session, row):
+        nonlocal before
+        before = row.awaiting
+        _apply_fields(session, row, fields)
+
+    todo = todo_repo.mutate_todo(user_id, todo_id, apply)
     if todo and "tags" in fields:
         tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
+    if todo and todo.awaiting in _INBOX_NOTICE_REASONS and todo.awaiting != before:
+        try:
+            telegram_service.send_owner_notice(user_id, awaiting_notice_text(todo))
+        except Exception:
+            logger.exception(
+                "todo awaiting notice failed: user_id={} todo_id={}", user_id, todo_id,
+            )
     return todo
 
 

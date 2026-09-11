@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -131,7 +132,7 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     try:
-        todo = todo_service.update_todo(user_id, req.todo_id, **fields)
+        todo = await asyncio.to_thread(todo_service.update_todo, user_id, req.todo_id, **fields)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not todo:

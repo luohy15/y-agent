@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 from loguru import logger
 
 from storage.repository.user import get_user_by_id
-from storage.util import get_telegram_bot_token
+from storage.util import get_telegram_bot_token, send_telegram_message_checked
 
 
 def resolve_target(user_id: int, topic: Optional[str] = None) -> Optional[Tuple[str, int]]:
@@ -31,3 +31,15 @@ def resolve_target(user_id: int, topic: Optional[str] = None) -> Optional[Tuple[
         logger.debug("telegram: no telegram_id for user_id={}", user_id)
         return None
     return (bot_token, user.telegram_id)
+
+
+def send_owner_notice(user_id: int, text: str) -> bool:
+    """Best-effort DM to the owner. Never raises."""
+    try:
+        target = resolve_target(user_id)
+        if not target:
+            return False
+        return bool(send_telegram_message_checked(target[0], target[1], text))
+    except Exception:
+        logger.exception("telegram: owner notice failed for user_id={}", user_id)
+        return False

@@ -367,6 +367,7 @@ Resources:
           Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
+          Y_AGENT_WEB_URL: !If [HasCustomDomain, !Sub "https://${DomainName}", ""]
           Y_AGENT_S3_BUCKET: !Ref YAgentS3Bucket
           Y_AGENT_UPLOAD_BUCKET: !Ref UploadStagingBucket
           Y_AGENT_UPLOAD_QUEUE_URL: !Ref UploadQueue
