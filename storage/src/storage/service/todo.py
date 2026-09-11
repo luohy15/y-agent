@@ -1,7 +1,6 @@
 """Todo service."""
 
 import ast
-import os
 from datetime import datetime, timezone
 from typing import List, Optional
 from loguru import logger
@@ -228,13 +227,6 @@ def awaiting_notice_text(todo: Todo) -> str:
     if reason == "question":
         chat = todo.awaiting_chat or ""
         lines.append(f'Answer in chat {chat}: reply here with "/{chat} <your answer>"')
-    elif reason == "review":
-        lines.append(
-            f'Verify then: y todo finish {todo.todo_id} (or reply "/{todo.todo_id} ...")'
-        )
-    origin = (os.getenv("Y_AGENT_WEB_URL") or "").strip().rstrip("/")
-    if origin:
-        lines.append(f"{origin}/trace/{todo.todo_id}")
     return "\n".join(lines)
 
 
