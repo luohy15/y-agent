@@ -53,16 +53,30 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                         continue
                     if len(tail_tasks) >= MAX_PROCESSES_PER_LAMBDA:
                         break
-                    if try_acquire_lease(cid, lambda_req_id):
-                        # Hard timeout check: if process has been running too long, stop it
-                        started_at = proc.get("started_at", 0)
-                        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
-                            logger.warning("hard timeout: chat_id={} started_at={} elapsed={}s", cid, started_at, int(time.time() - started_at))
-                            await _handle_timeout(cid, proc, ssh_pool)
+                    if try_acquire_lease(cid, lambda_req_id, started_at=proc.get("started_at")):
+                        # Scan is eventually consistent; tail from a consistent re-read.
+                        # started_at must still be the generation the lease was
+                        # acquired for, otherwise a new run's put_item could be
+                        # tailed under the previous generation's lease.
+                        fresh = get_process(cid)
+                        if (not fresh or fresh.get("status") != "running"
+                                or fresh.get("started_at") != proc.get("started_at")):
+                            logger.warning(
+                                "skip stale monitor candidate: chat_id={} status={} started_at={} acquired_started_at={}",
+                                cid, (fresh or {}).get("status"),
+                                (fresh or {}).get("started_at"), proc.get("started_at"),
+                            )
                             continue
 
-                        proc_meta[cid] = proc
-                        task = asyncio.create_task(_tail_and_process(cid, proc, lambda_req_id, deadline_at, ssh_pool))
+                        # Hard timeout check: if process has been running too long, stop it
+                        started_at = fresh.get("started_at", 0)
+                        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
+                            logger.warning("hard timeout: chat_id={} started_at={} elapsed={}s", cid, started_at, int(time.time() - started_at))
+                            await _handle_timeout(cid, fresh, ssh_pool)
+                            continue
+
+                        proc_meta[cid] = fresh
+                        task = asyncio.create_task(_tail_and_process(cid, fresh, lambda_req_id, deadline_at, ssh_pool))
                         tail_tasks[cid] = task
                         idle_since = None
 

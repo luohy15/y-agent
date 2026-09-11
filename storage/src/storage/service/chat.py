@@ -4,6 +4,7 @@ import os
 from typing import List, Optional
 
 import boto3
+from loguru import logger
 
 from storage.entity.dto import Chat, Message, trailing_user_messages
 from storage.repository import chat as chat_repo
@@ -227,12 +228,31 @@ async def append_message(chat_id: str, message: Message) -> Chat:
     return await chat_repo.save_chat_by_id(chat)
 
 
+def _replay_identity(message: Message):
+    """Replay key for stream events: event uuid plus tool_call_id.
+
+    Claude Code reuses one user-event uuid across every tool_result in that
+    event (`_convert_user_tool_results`), so id alone would drop legitimate
+    sibling results. Absence of id is never treated as a replay.
+    """
+    if not message.id:
+        return None
+    return (message.id, message.tool_call_id)
+
+
 def append_message_sync(chat_id: str, message: Message) -> Chat:
     """Append a single message to a chat (sync, for worker display_callback)."""
     from storage.repository.chat import _get_chat_by_id_sync, _save_chat_by_id_sync
     chat = _get_chat_by_id_sync(chat_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
+    incoming = _replay_identity(message)
+    if incoming is not None and any(_replay_identity(existing) == incoming for existing in chat.messages):
+        logger.warning(
+            "skip duplicate message id: chat_id={} message_id={} tool_call_id={}",
+            chat_id, message.id, message.tool_call_id,
+        )
+        return chat
     chat.messages.append(message)
     return _save_chat_by_id_sync(chat)
 

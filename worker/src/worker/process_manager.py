@@ -150,27 +150,37 @@ def claim_resume(chat_id: str, proc: dict, owner_id: str) -> bool:
         raise
 
 
-def try_acquire_lease(chat_id: str, owner_id: str, lease_duration: int = 900) -> bool:
+def try_acquire_lease(chat_id: str, owner_id: str, lease_duration: int = 900,
+                     started_at=None) -> bool:
     """Try to acquire monitoring lease. Returns True on success.
 
-    Succeeds if: no owner / same owner (renew) / old lease expired.
+    Succeeds if: no owner / same owner (renew) / old lease expired, AND the
+    record is still a live run (`status = running`). When `started_at` is given
+    the same generation is required, so a finished run whose owner was cleared
+    by `complete_process` can never be re-tailed (todo 3496).
     """
     now = int(time.time())
+    conditions = [
+        "(attribute_not_exists(monitor_owner) OR monitor_owner = :owner OR monitor_lease < :now)",
+        "#s = :running",
+    ]
+    values = {
+        ":owner": {"S": owner_id},
+        ":lease": {"N": str(now + lease_duration)},
+        ":now": {"N": str(now)},
+        ":running": {"S": "running"},
+    }
+    if started_at is not None:
+        conditions.append("started_at = :started")
+        values[":started"] = {"N": str(started_at)}
     try:
         _get_dynamodb().update_item(
             TableName=TABLE_NAME,
             Key={"id": {"S": f"proc-{chat_id}"}},
             UpdateExpression="SET monitor_owner = :owner, monitor_lease = :lease",
-            ConditionExpression=(
-                "attribute_not_exists(monitor_owner) "
-                "OR monitor_owner = :owner "
-                "OR monitor_lease < :now"
-            ),
-            ExpressionAttributeValues={
-                ":owner": {"S": owner_id},
-                ":lease": {"N": str(now + lease_duration)},
-                ":now": {"N": str(now)},
-            },
+            ConditionExpression=" AND ".join(conditions),
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues=values,
         )
         return True
     except Exception as e:
