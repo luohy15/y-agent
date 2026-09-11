@@ -28,11 +28,11 @@ class UpdateTodoRequest(BaseModel):
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
     priority: Optional[str] = None
-    awaiting: Optional[Literal["question", "review", "external", "none"]] = None
     awaiting_chat: Optional[str] = None
-    awaiting_until: Optional[str] = None
     progress: Optional[str] = None
     status: Optional[str] = None
+    awaiting: Optional[str] = None
+    awaiting_until: Optional[str] = None
 
 
 class TodoIdRequest(BaseModel):
@@ -46,7 +46,6 @@ async def list_todos(
     priority: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
     unread: Optional[bool] = Query(None),
-    awaiting: Optional[Literal["any", "question", "review", "stalled", "external"]] = Query(None),
     tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
@@ -59,7 +58,13 @@ async def list_todos(
     updated_to: Optional[str] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
+    awaiting: Optional[str] = Query(None),
 ):
+    if awaiting is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="awaiting filter is removed; use status=awaiting",
+        )
     user_id = _get_user_id(request)
     todos = todo_service.list_todos(
         user_id,
@@ -67,7 +72,6 @@ async def list_todos(
         priority=priority,
         query=query,
         unread=unread,
-        awaiting=awaiting,
         tag=tag,
         on=on, from_=from_, to=to,
         created_on=created_on, created_from=created_from, created_to=created_to,
@@ -140,6 +144,47 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     return todo.to_dict()
 
 
+class AwaitTodoRequest(BaseModel):
+    todo_id: str
+    chat_id: Optional[str] = None
+
+
+class ResumeTodoRequest(BaseModel):
+    todo_id: str
+
+
+def _transition_payload(todo, changed: bool):
+    payload = todo.to_dict()
+    payload["changed"] = changed
+    return payload
+
+
+@router.post("/await")
+async def await_todo(req: AwaitTodoRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        todo, changed = await asyncio.to_thread(
+            todo_service.await_todo, user_id, req.todo_id, req.chat_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return _transition_payload(todo, changed)
+
+
+@router.post("/resume")
+async def resume_todo(req: ResumeTodoRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        todo, changed = await asyncio.to_thread(todo_service.resume_todo, user_id, req.todo_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return _transition_payload(todo, changed)
+
+
 class PinTodoRequest(BaseModel):
     todo_id: str
     pinned: bool
@@ -156,13 +201,16 @@ async def pin_todo(req: PinTodoRequest, request: Request):
 
 class UpdateStatusRequest(BaseModel):
     todo_id: str
-    status: Literal["pending", "active", "completed", "deleted"]
+    status: Literal["pending", "active", "awaiting", "completed", "deleted"]
 
 
 @router.post("/status")
 async def update_status(req: UpdateStatusRequest, request: Request):
     user_id = _get_user_id(request)
-    todo = todo_service.update_status(user_id, req.todo_id, req.status)
+    try:
+        todo = todo_service.update_status(user_id, req.todo_id, req.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
@@ -178,11 +226,14 @@ class BulkUpdateRequest(BaseModel):
 @router.post("/bulk_update")
 async def bulk_update(req: BulkUpdateRequest, request: Request):
     user_id = _get_user_id(request)
-    count = todo_service.bulk_update_todos(
-        user_id,
-        req.todo_ids,
-        status=req.status,
-        priority=req.priority,
-        pinned=req.pinned,
-    )
+    try:
+        count = todo_service.bulk_update_todos(
+            user_id,
+            req.todo_ids,
+            status=req.status,
+            priority=req.priority,
+            pinned=req.pinned,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "count": count}

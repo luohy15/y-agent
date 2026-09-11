@@ -63,9 +63,7 @@ class SendMessageRequest(BaseModel):
     from_topic: Optional[str] = None
     from_chat_id: Optional[str] = None
     force_new: Optional[bool] = False
-    # Opt-in resume-work signal. Not a dispatch-shape field: a human send
-    # carrying only this flag stays a human send and is rejected (todo 3484).
-    resume_work: bool = False
+    resume_work: Optional[bool] = None
 
 
 class SendMessageResponse(BaseModel):
@@ -263,8 +261,11 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     dispatch_shaped = _is_dispatch_shaped(req)
     reasoning_effort = _normalize_reasoning_effort(req.reasoning_effort)
 
-    if req.resume_work and not dispatch_shaped:
-        raise HTTPException(status_code=400, detail="resume_work requires a dispatch-shaped request")
+    if req.resume_work:
+        raise HTTPException(
+            status_code=400,
+            detail="resume_work is removed; use y todo resume / POST /api/todo/resume",
+        )
 
     if not dispatch_shaped:
         if not req.chat_id:
@@ -318,14 +319,6 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             chat_id = found.id
             existing_chat = await chat_service.get_chat(user_id, chat_id)
 
-    if req.resume_work:
-        target_topic = (existing_chat.topic if existing_chat else None) or req.topic
-        if target_topic == "manager":
-            raise HTTPException(status_code=400, detail="resume_work cannot target a root topic")
-        resolved_trace = req.trace_id or (existing_chat.trace_id if existing_chat else None)
-        if not resolved_trace:
-            raise HTTPException(status_code=400, detail="resume_work requires a trace")
-
     try:
         chat_service.validate_dispatch_target(existing_chat, topic=req.topic, force_new=req.force_new)
     except ValueError as exc:
@@ -359,7 +352,6 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             images=images, reasoning_effort=reasoning_effort,
             bot_name=req.bot_name, bot_tier=req.bot_tier,
             work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
-            resume_work=req.resume_work,
         )
         return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
 
@@ -383,9 +375,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     # Use insert_generated_chat so topic/skill/running land on the first write
     # and the allocate+insert race is retried (plan 3131 D3).
-    chat = await chat_service.insert_generated_chat(
-        user_id, build, resume_trace_id=req.trace_id if req.resume_work else None,
-    )
+    chat = await chat_service.insert_generated_chat(user_id, build)
     chat_id = chat.id
 
     # Singleton root topic: a new chat claiming a topic without a trace_id is a

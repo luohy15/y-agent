@@ -30,9 +30,7 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         priority=entity.priority,
         pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
-        awaiting=entity.awaiting,
         awaiting_chat=entity.awaiting_chat,
-        awaiting_until=entity.awaiting_until,
         progress=entity.progress,
         completed_at=entity.completed_at,
         history=[TodoHistoryEntry.from_dict(h) for h in history],
@@ -61,10 +59,7 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    awaiting: Optional[str] = None,
 ) -> List[Todo]:
-    if awaiting is not None and awaiting not in {"any", "question", "review", "stalled", "external"}:
-        raise ValueError("Invalid awaiting filter")
     with get_db() as session:
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
@@ -85,10 +80,6 @@ def list_todos(
              .filter(TodoEntity.user_id == user_id))
         if status:
             q = q.filter(TodoEntity.status == status)
-        if awaiting == "any":
-            q = q.filter(TodoEntity.awaiting.in_(("question", "review", "stalled")))
-        elif awaiting is not None:
-            q = q.filter(TodoEntity.awaiting == awaiting)
         if priority:
             q = q.filter(TodoEntity.priority == priority)
         if query:
@@ -135,8 +126,10 @@ def list_todos(
             # active: due_date asc (nulls last), priority asc, effective_updated desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
             q = q.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), effective_updated.desc())
+        elif status == "awaiting":
+            q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         else:
-            # completed or no filter: effective_updated desc
+            # completed, deleted, or no filter: effective_updated desc
             q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         q = q.offset(offset).limit(limit)
         return [_entity_to_dto(row) for row in q.all()]

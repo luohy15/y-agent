@@ -1,8 +1,7 @@
 """Todo service."""
 
 import ast
-from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.repository import todo as todo_repo
@@ -32,11 +31,9 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    awaiting: Optional[str] = None,
 ) -> List[Todo]:
     return todo_repo.list_todos(
         user_id,
-        awaiting=awaiting,
         status=status,
         priority=priority,
         query=query,
@@ -145,64 +142,81 @@ def get_latest_marker(todo: Todo, marker: str) -> Optional[str]:
 
 STATUS_ACTION = {
     "pending": "deactivated", "active": "activated",
-    "completed": "completed", "deleted": "deleted",
+    "awaiting": "awaiting", "completed": "completed", "deleted": "deleted",
+}
+OPEN_STATUSES = {"pending", "active", "awaiting"}
+CLOSED_STATUSES = {"completed", "deleted"}
+UNPIN_STATUSES = {"pending", "completed", "deleted"}
+LEGACY_AWAITING_FIELDS = {"awaiting", "awaiting_until"}
+_RESUME_GUIDANCE = {
+    "pending": "Resume cannot activate an unstarted task; use activate",
+    "completed": "Resume cannot revive closed work; use reopen",
+    "deleted": "Resume cannot revive closed work; use reopen",
 }
 
 
-def _apply_fields(session, row, fields, *, action="updated", internal=False):
-    fields = dict(fields)
-    if "status" in fields and fields["status"] not in STATUS_ACTION:
-        raise ValueError("Invalid todo status")
-    if "awaiting" in fields:
-        if fields["awaiting"] == "none":
-            fields["awaiting"] = None
-        allowed = {None, "question", "review", "external"}
-        if internal:
-            allowed.add("stalled")
-        if fields["awaiting"] not in allowed:
-            raise ValueError("Invalid awaiting reason")
-    reason = fields.get("awaiting", row.awaiting)
-    status = fields.get("status", row.status)
-    if status in {"completed", "deleted"}:
-        if fields.get("awaiting") is not None:
-            raise ValueError("Closed todos cannot await")
-        reason = None
-        fields["awaiting"] = None
-    if reason != "question":
-        if fields.get("awaiting_chat") is not None:
-            raise ValueError(
-                "awaiting_chat is only valid with awaiting=question "
-                "(other reasons are navigated from the todo's trace)"
-            )
+def _legacy_awaiting_rejected(fields) -> None:
+    if fields.keys() & LEGACY_AWAITING_FIELDS:
+        raise ValueError(
+            "awaiting and awaiting_until are no longer writable; "
+            "use await/resume or status=awaiting"
+        )
+
+
+def _pointer_chat(session, row, chat_id: str) -> None:
+    from storage.entity.chat import ChatEntity
+    if not session.query(ChatEntity.id).filter_by(
+        user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
+    ).first():
+        raise ValueError("awaiting_chat must name a same-owner, same-trace chat")
+
+
+def _status_side_effects(row, fields, status: str) -> None:
+    if fields.get("status") == row.status:
+        return
+    fields["completed_at"] = get_utc_iso8601_timestamp() if status == "completed" else None
+    if status != "awaiting":
         fields["awaiting_chat"] = None
-    elif any(k in fields for k in ("awaiting", "awaiting_chat")):
-        from storage.entity.chat import ChatEntity
-        pointer = fields.get("awaiting_chat", row.awaiting_chat)
-        if not pointer or not session.query(ChatEntity.id).filter_by(
-            user_id=row.user_id, chat_id=pointer, trace_id=row.todo_id,
-        ).first():
-            raise ValueError("Question requires a same-owner, same-trace awaiting_chat")
-    if reason != "external":
-        if fields.get("awaiting_until") is not None:
-            raise ValueError("awaiting_until is only valid with awaiting=external")
-        fields["awaiting_until"] = None
-    elif fields.get("awaiting_until") is not None:
-        try:
-            dt = datetime.fromisoformat(fields["awaiting_until"])
-            if dt.utcoffset() is None:
-                raise ValueError()
-        except (ValueError, TypeError):
-            raise ValueError("awaiting_until must be a timezone-aware ISO timestamp")
-        fields["awaiting_until"] = dt.astimezone(timezone.utc).isoformat()
-    if "status" in fields and fields["status"] != row.status:
-        fields["completed_at"] = get_utc_iso8601_timestamp() if status == "completed" else None
-        if row.pinned and "pinned" not in fields:
-            fields["pinned"] = False
+    if row.pinned and "pinned" not in fields and status in UNPIN_STATUSES:
+        fields["pinned"] = False
+
+
+def _transition_locked(session, row, fields, *, action="updated"):
+    """Owner-locked status/pointer transition. Returns whether the row changed."""
+    fields = dict(fields)
+    _legacy_awaiting_rejected(fields)
+    if "status" in fields:
+        status = fields["status"]
+        if status not in STATUS_ACTION:
+            raise ValueError("Invalid todo status")
+        if status == "awaiting":
+            if row.status in CLOSED_STATUSES:
+                raise ValueError("Closed todos cannot await")
+            if row.status not in OPEN_STATUSES:
+                raise ValueError("Invalid todo status")
+            if "awaiting_chat" not in fields:
+                fields["awaiting_chat"] = None
+        elif fields.get("awaiting_chat"):
+            raise ValueError("awaiting_chat is only valid while status is awaiting")
+        _status_side_effects(row, fields, status)
+    elif "awaiting_chat" in fields:
+        if row.status != "awaiting":
+            raise ValueError("awaiting_chat is only valid while status is awaiting")
+        if fields["awaiting_chat"] is None:
+            fields["awaiting_chat"] = None
+    if fields.get("awaiting_chat"):
+        if fields.get("status", row.status) != "awaiting":
+            raise ValueError("awaiting_chat is only valid while status is awaiting")
+        _pointer_chat(session, row, fields["awaiting_chat"])
     if "tags" in fields and fields["tags"] is not None:
         fields["tags"] = normalize_tags(fields["tags"])
     changed = {k: v for k, v in fields.items() if getattr(row, k) != v}
     if not changed:
         return False
+    if "status" in changed:
+        action = STATUS_ACTION.get(fields["status"], action)
+        if row.status == "awaiting" and fields["status"] == "active":
+            action = "resumed"
     for key, value in changed.items():
         setattr(row, key, value)
     row.history = [*(row.history or []), TodoHistoryEntry(
@@ -212,40 +226,28 @@ def _apply_fields(session, row, fields, *, action="updated", internal=False):
     return True
 
 
+def _apply_fields(session, row, fields, *, action="updated", internal=False):
+    return _transition_locked(session, row, fields, action=action)
+
+
 _NOTICE_NAME_LIMIT = 120
-_INBOX_NOTICE_REASONS = {"question", "review"}
 
 
 def awaiting_notice_text(todo: Todo) -> str:
-    """Plain-text owner DM for a new question/review inbox entry."""
+    """Plain-text owner DM for a new awaiting inbox entry."""
     name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
-    reason = todo.awaiting
     lines = [
-        f"Todo {todo.todo_id} needs you: awaiting {reason}",
+        f"Todo {todo.todo_id} needs you",
         name,
     ]
-    if reason == "question":
-        chat = todo.awaiting_chat or ""
+    if todo.awaiting_chat:
+        chat = todo.awaiting_chat
         lines.append(f'Answer in chat {chat}: reply here with "/{chat} <your answer>"')
     return "\n".join(lines)
 
 
-def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
-    allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
-               "awaiting", "awaiting_chat", "awaiting_until", "pinned"}
-    if fields.keys() - allowed:
-        raise ValueError("Unknown todo fields")
-    before = None
-
-    def apply(session, row):
-        nonlocal before
-        before = row.awaiting
-        _apply_fields(session, row, fields)
-
-    todo = todo_repo.mutate_todo(user_id, todo_id, apply)
-    if todo and "tags" in fields:
-        tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
-    if todo and todo.awaiting in _INBOX_NOTICE_REASONS and todo.awaiting != before:
+def _maybe_notice(user_id: int, todo_id: str, todo: Optional[Todo], entered: bool) -> Optional[Todo]:
+    if todo and entered:
         try:
             telegram_service.send_owner_notice(user_id, awaiting_notice_text(todo))
         except Exception:
@@ -255,49 +257,102 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     return todo
 
 
+def _mutate_transition(user_id: int, todo_id: str, mutate) -> Tuple[Optional[Todo], bool, bool]:
+    entered = False
+    changed = False
+
+    def apply(session, row):
+        nonlocal entered, changed
+        before = row.status
+        changed = bool(mutate(session, row))
+        entered = changed and before != "awaiting" and row.status == "awaiting"
+        return changed
+
+    return todo_repo.mutate_todo(user_id, todo_id, apply), entered, changed
+
+
+def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
+    allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
+               "awaiting_chat", "pinned"}
+    unknown = fields.keys() - allowed - LEGACY_AWAITING_FIELDS
+    if unknown:
+        raise ValueError("Unknown todo fields")
+    _legacy_awaiting_rejected(fields)
+
+    def apply(session, row):
+        return _apply_fields(session, row, fields)
+
+    todo, entered, _changed = _mutate_transition(user_id, todo_id, apply)
+    if todo and "tags" in fields:
+        tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
+    return _maybe_notice(user_id, todo_id, todo, entered)
+
+
 def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
-    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(
+    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _transition_locked(
         session, row, {"pinned": pinned}, action="pinned" if pinned else "unpinned"))
 
 
 def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
-    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _apply_fields(
-        session, row, {"status": status}, action=STATUS_ACTION.get(status, status)))
+    if status not in STATUS_ACTION:
+        raise ValueError("Invalid todo status")
+
+    def apply(session, row):
+        if status == "active" and row.status == "awaiting":
+            return _resume_locked(session, row)
+        if status == "awaiting":
+            return _await_locked(session, row, chat_id=None)
+        return _transition_locked(session, row, {"status": status})
+
+    todo, entered, _changed = _mutate_transition(user_id, todo_id, apply)
+    return _maybe_notice(user_id, todo_id, todo, entered)
+
+
+def _await_locked(session, row, chat_id: Optional[str]) -> bool:
+    if row.status in CLOSED_STATUSES:
+        raise ValueError("Closed todos cannot await")
+    if row.status not in OPEN_STATUSES:
+        raise ValueError("Invalid todo status")
+    return _transition_locked(session, row, {"status": "awaiting", "awaiting_chat": chat_id})
+
+
+def _resume_locked(session, row) -> bool:
+    if row.status == "active":
+        return False
+    if row.status != "awaiting":
+        raise ValueError(_RESUME_GUIDANCE.get(row.status, "Resume requires an awaiting todo"))
+    return _transition_locked(session, row, {"status": "active"})
+
+
+def await_todo(user_id: int, todo_id: str, chat_id: Optional[str] = None) -> Tuple[Optional[Todo], bool]:
+    def apply(session, row):
+        return _await_locked(session, row, chat_id)
+
+    todo, entered, changed = _mutate_transition(user_id, todo_id, apply)
+    return _maybe_notice(user_id, todo_id, todo, entered), changed
+
+
+def resume_todo(user_id: int, todo_id: str) -> Tuple[Optional[Todo], bool]:
+    def apply(session, row):
+        return _resume_locked(session, row)
+
+    todo, _entered, changed = _mutate_transition(user_id, todo_id, apply)
+    return todo, changed
 
 
 def clear_awaiting_locked(session, row, reasons, *, action="updated"):
-    """Caller holds the todo lock, optionally alongside an accepted chat write."""
-    if row is not None and row.awaiting in reasons:
-        return _apply_fields(session, row, {"awaiting": None}, action=action, internal=True)
+    """Kept for S2 callers. S1 does not auto-resume from chat/run-entry.
+
+    Human auto-resume and fault claims are S2. Until then this is a no-op so
+    leftover reason-based callers cannot silently rewrite status.
+    """
     return False
 
 
 def claim_stalled(user_id: int, todo_id: str, *, expected_updated_at_unix: int,
                   expected_awaiting: Optional[str] = None, recheck=None) -> bool:
-    """Claim an observed fault once. Evidence recheck runs under the todo lock.
-
-    The runtime/watchdog caller must recheck its process snapshot and activity
-    deadline here; SQL running chats are always checked by this primitive.
-    """
-    from storage.entity.chat import ChatEntity
-    won = False
-
-    def claim(session, row):
-        nonlocal won
-        if (row.status != "active" or row.awaiting not in {None, "external"}
-                or row.awaiting != expected_awaiting
-                or row.updated_at_unix != expected_updated_at_unix):
-            return
-        if session.query(ChatEntity.id).filter_by(
-            user_id=user_id, trace_id=todo_id, status="running",
-        ).first():
-            return
-        if recheck is None or not recheck(session, row):
-            return
-        won = _apply_fields(session, row, {"awaiting": "stalled"}, internal=True)
-
-    todo_repo.mutate_todo(user_id, todo_id, claim)
-    return won
+    """Kept for S2 callers. S1 does not move active traces into awaiting."""
+    return False
 
 
 def bulk_update_todos(
