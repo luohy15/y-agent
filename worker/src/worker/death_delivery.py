@@ -102,33 +102,32 @@ async def deliver_death(chat_id, proc, outcome, error):
     if not todo:
         return "no-todo"
 
+    from storage.repository import dev_release as dev_release_repo
+
     def recheck(session, row):
-        # A declaration made during this run is newer evidence than its death.
-        if row.awaiting == "external" and row.updated_at_unix >= proc["started_at"] * 1000:
-            return False
+        # A pending publication-slot registration on this trace is an explained
+        # wait, not unexplained silence (todo 3506 S2: no more awaiting=external
+        # park write, the watchdog/death path reads the waiter table directly).
+        if dev_release_repo.has_pending_waiter(session, user_id, chat.trace_id):
+            return None
         if not current_run(chat_id, proc):
-            return False
+            return None
         rows = session.query(ChatEntity).filter_by(user_id=user_id, trace_id=chat.trace_id).all()
         ids = {r.chat_id for r in rows}
         for record in get_running_processes():
             if record.get("user_id") == user_id and (
                 record.get("trace_id") == chat.trace_id or record.get("chat_id") in ids
             ):
-                return False
-        return not any(r.chat_id != chat_id and (r.updated_at_unix or 0) >= proc["started_at"] * 1000 for r in rows)
+                return None
+        if any(r.chat_id != chat_id and (r.updated_at_unix or 0) >= proc["started_at"] * 1000 for r in rows):
+            return None
+        return text, chat_id
 
     try:
-        won = todo_service.claim_stalled(
-            user_id, chat.trace_id, expected_updated_at_unix=todo.updated_at_unix,
-            expected_awaiting=todo.awaiting, recheck=recheck,
+        _todo, changed = todo_service.claim_fault(
+            user_id, chat.trace_id, expected_updated_at_unix=todo.updated_at_unix, recheck=recheck,
         )
-        if won:
-            latest = todo_service.get_todo(user_id, chat.trace_id)
-            if latest and latest.awaiting == "stalled" and current_run(chat_id, proc):
-                target = resolve_target(user_id)
-                if target:
-                    send_telegram_message_checked(target[0], target[1], text)
-            return "inbox"
+        return "inbox" if changed else "suppressed"
     except Exception:
         logger.exception("Death inbox evidence or delivery failed: chat_id={}", chat_id)
     return "suppressed"

@@ -261,7 +261,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     dispatch_shaped = _is_dispatch_shaped(req)
     reasoning_effort = _normalize_reasoning_effort(req.reasoning_effort)
 
-    if req.resume_work:
+    if req.resume_work is not None:
         raise HTTPException(
             status_code=400,
             detail="resume_work is removed; use y todo resume / POST /api/todo/resume",

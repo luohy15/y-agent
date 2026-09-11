@@ -129,7 +129,7 @@ def new_chat_id(user_id: int) -> str:
     )
 
 
-def _insert_generated_chat_sync(user_id: int, build_chat, *, resume_trace_id=None) -> Chat:
+def _insert_generated_chat_sync(user_id: int, build_chat) -> Chat:
     """Allocate a chat_id, build the Chat DTO, and insert; retry on race.
 
     `build_chat(chat_id) -> Chat` must produce a complete create-time DTO for
@@ -141,7 +141,7 @@ def _insert_generated_chat_sync(user_id: int, build_chat, *, resume_trace_id=Non
         chat_id = new_chat_id(user_id)
         chat = build_chat(chat_id)
         try:
-            return chat_repo._insert_chat_sync(user_id, chat, resume_trace_id=resume_trace_id)
+            return chat_repo._insert_chat_sync(user_id, chat)
         except ChatIdCollision as exc:
             last_exc = exc
             continue
@@ -150,9 +150,9 @@ def _insert_generated_chat_sync(user_id: int, build_chat, *, resume_trace_id=Non
     ) from last_exc
 
 
-async def insert_generated_chat(user_id: int, build_chat, *, resume_trace_id=None) -> Chat:
+async def insert_generated_chat(user_id: int, build_chat) -> Chat:
     """Async wrapper around allocate-and-insert with collision retry."""
-    return _insert_generated_chat_sync(user_id, build_chat, resume_trace_id=resume_trace_id)
+    return _insert_generated_chat_sync(user_id, build_chat)
 
 
 async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None) -> Chat:
@@ -305,24 +305,24 @@ def _dispatch_body(chat: Chat, content: str, *, from_chat_id, from_topic, kwargs
 
 
 async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                           from_topic=None, resume_work=False, **kwargs) -> Chat:
+                           from_topic=None, **kwargs) -> Chat:
     return await deliver_user_message(
         user_id, chat,
         _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
                        kwargs=kwargs),
-        resume_work=resume_work, **kwargs,
+        **kwargs,
     )
 
 
 async def accept_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                          from_topic=None, resume_work=False, **kwargs) -> DispatchAcceptance:
+                          from_topic=None, **kwargs) -> DispatchAcceptance:
     """The accept half of `deliver_dispatch`, for a sender that owes the worker
     enqueue separately (durable grant wakeups, todo 3493)."""
     return await accept_user_message(
         user_id, chat,
         _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
                        kwargs=kwargs),
-        resume_work=resume_work, **kwargs,
+        **kwargs,
     )
 
 
@@ -336,7 +336,6 @@ async def accept_user_message(
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     event_id: Optional[str] = None,
-    resume_work: bool = False,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
     skill: Optional[str] = None,
@@ -372,7 +371,7 @@ async def accept_user_message(
     chat, already_running = chat_repo.accept_or_start_chat(
         user_id, chat.id, message=user_msg, human_reply=human_reply,
         trace_id=trace_id, topic=topic, skill=skill,
-        event_id=event_id, resume_work=resume_work,
+        event_id=event_id,
     )
     clear_attention_on_reply(user_id, chat.id)
     return DispatchAcceptance(chat=chat, already_running=already_running)
@@ -428,7 +427,6 @@ async def deliver_user_message(
     skill: Optional[str] = None,
     backend: Optional[str] = None,
     event_id: Optional[str] = None,
-    resume_work: bool = False,
 ) -> Chat:
     """Append `content` as a user message into `chat` and ensure it gets run.
 
@@ -443,7 +441,7 @@ async def deliver_user_message(
     acceptance = await accept_user_message(
         user_id, chat, content, human_reply=human_reply, images=images,
         reasoning_effort=reasoning_effort, source=source, event_id=event_id,
-        resume_work=resume_work, trace_id=trace_id, topic=topic, skill=skill,
+        trace_id=trace_id, topic=topic, skill=skill,
     )
     if not acceptance.already_running:
         enqueue_chat_run(

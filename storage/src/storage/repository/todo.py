@@ -126,10 +126,8 @@ def list_todos(
             # active: due_date asc (nulls last), priority asc, effective_updated desc
             due_date_sort = func.nullif(TodoEntity.due_date, "")
             q = q.order_by(TodoEntity.pinned.desc(), due_date_sort.asc().nullslast(), _PRIORITY_ORDER.asc(), effective_updated.desc())
-        elif status == "awaiting":
-            q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         else:
-            # completed, deleted, or no filter: effective_updated desc
+            # awaiting, completed, deleted, or no filter: effective_updated desc
             q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         q = q.offset(offset).limit(limit)
         return [_entity_to_dto(row) for row in q.all()]

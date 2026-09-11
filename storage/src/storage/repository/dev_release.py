@@ -665,6 +665,20 @@ def get_waiter(project_key: str, waiter_id: str) -> Optional[DevReleaseWaiter]:
         return _waiter_to_dto(session, row, position)
 
 
+def has_pending_waiter(session, user_id: int, trace_id: str) -> bool:
+    """True while this account's trace has a pending (not yet granted/cancelled/
+    rejected) publication-slot registration.
+
+    Used as fault-classification evidence by the trace-liveness watchdog and
+    death delivery (todo 3506): a queued coordinator is genuinely blocked on
+    another session's release, so silence is expected rather than a fault. A
+    granted receipt is no longer `pending`, so it stops suppressing on its own;
+    no separate unpark write is needed.
+    """
+    return session.query(DevReleaseWaiterEntity.id).filter_by(
+        user_id=user_id, trace_id=trace_id, status="pending").first() is not None
+
+
 def list_waiters(user_id: int, *, project_key: Optional[str] = None,
                  limit: int = 50) -> List[DevReleaseWaiter]:
     """This account's own receipts. Never another account's."""

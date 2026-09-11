@@ -276,53 +276,6 @@ def _todo_ids(values) -> List[str]:
     return [_text(value, "todo_ids", MAX_ID_LENGTH) for value in values]
 
 
-def _set_awaiting(user_id: int, trace_id: str, *, expect: Optional[str],
-                  value: Optional[str]) -> None:
-    """Move a trace's inbox reason only when it is still the one we expect.
-
-    Best effort in both directions: the slot transition is already committed
-    and must never fail over the marker, and an inbox reason this feature did
-    not set (a question waiting on Roy, a review handed to him) is never
-    overwritten or cleared.
-    """
-    from storage.service import todo as todo_service
-    try:
-        todo = todo_service.get_todo(user_id, trace_id)
-        if todo is None or todo.awaiting != expect:
-            return
-        todo_service.update_todo(user_id, trace_id, awaiting=value or "none")
-    except Exception as exc:  # noqa: BLE001 - never fail a committed transition
-        logger.warning("[dev-release] could not set trace {} awaiting={}: {}",
-                       trace_id, value, exc)
-
-
-def _mark_durable_wait(user_id: int, trace_id: str) -> None:
-    """Make an intentional queue wait visible to the liveness watchdog.
-
-    A queued coordinator is genuinely blocked on another session, so it is an
-    explained external wait rather than unexplained silence.
-    """
-    _set_awaiting(user_id, trace_id, expect=None, value="external")
-
-
-def _clear_durable_wait(user_id: int, trace_id: str) -> None:
-    """Undo the queue park once the trace is no longer waiting in line.
-
-    Only the `external` reason this feature parks with is cleared, and the
-    grant path clears it explicitly rather than widening what `resume_work`
-    means for every caller of the shared chat primitive.
-    """
-    _set_awaiting(user_id, trace_id, expect="external", value=None)
-
-
-def _unpark_rejected(rejected) -> None:
-    """Release the queue park of every waiter a transition skipped."""
-    for entry in rejected or []:
-        user = user_repo.get_user_by_user_id(entry.get("user_id") or "")
-        if user is not None:
-            _clear_durable_wait(user.id, entry["trace_id"])
-
-
 def enqueue(user_id: int, *, project: str, trace_id: str, chat_id: str, waiter_id: str,
             request_id: str, authorization_reference: str, baseline_sha: str,
             candidate_sha: str, todo_ids: List[str], target: Optional[str] = None,
@@ -348,8 +301,6 @@ def enqueue(user_id: int, *, project: str, trace_id: str, chat_id: str, waiter_i
         candidate_sha=_sha(candidate_sha, "candidate_sha"),
         todo_ids=_todo_ids(todo_ids),
     )
-    if outcome == "queued":
-        _mark_durable_wait(user_id, waiter.trace_id)
     return slot, waiter, outcome
 
 
@@ -363,8 +314,6 @@ def cancel_waiter(user_id: int, *, project: str, trace_id: str, chat_id: str, wa
         trace_id=_text(trace_id, "trace_id", MAX_ID_LENGTH),
         chat_id=_text(chat_id, "chat_id", MAX_ID_LENGTH),
     )
-    if outcome == "cancelled":
-        _clear_durable_wait(user_id, waiter.trace_id)
     return slot, waiter, outcome
 
 
@@ -430,13 +379,12 @@ async def deliver_grant(waiter: DevReleaseWaiter, user_id: int) -> str:
         if chat is None:
             raise ValueError(f"chat {waiter.chat_id!r} not found")
 
-        # `resume_work` is the shared primitive's flag and clears `review`;
-        # the queue park is this feature's own marker, so it clears it itself
-        # rather than widening that flag for every caller.
-        _clear_durable_wait(user_id, waiter.trace_id)
+        # A grant wakeup is a machine event, not a human reply: it never
+        # auto-resumes an awaiting todo (only human-message provenance or an
+        # explicit `y todo resume` does).
         acceptance = await chat_service.accept_dispatch(
             user_id, chat, grant_message(waiter),
-            trace_id=waiter.trace_id, event_id=waiter.event_id, resume_work=True,
+            trace_id=waiter.trace_id, event_id=waiter.event_id,
         )
         needs_send = force_send or not acceptance.already_running
         release_repo.mark_delivery(waiter.project_key, waiter.waiter_id,
@@ -459,17 +407,10 @@ async def deliver_grant(waiter: DevReleaseWaiter, user_id: int) -> str:
 
 
 async def deliver_granted_waiter(slot: DevRelease) -> Optional[str]:
-    """Deliver the wakeup for the waiter this transition just granted, if any.
-
-    Also unparks the waiters it skipped. A transition that rejects waiters
-    without granting one always still records its own entry (a release does),
-    and an enqueue's own freshly validated waiter is always grantable, so no
-    rejection can escape this hook.
-    """
+    """Deliver the wakeup for the waiter this transition just granted, if any."""
     entry = slot.history[-1] if slot.history else None
     if entry is None:
         return None
-    _unpark_rejected(entry.rejected)
     grant = entry.grant
     if not grant:
         return None

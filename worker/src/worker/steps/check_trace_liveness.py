@@ -1,14 +1,14 @@
-"""Scheduled trace liveness watchdog (todo 3458 phase 4).
+"""Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2).
 
-Observation plus one conditional transition. A trace that is not live, not in
-the inbox, and silent past its grace becomes ``awaiting=stalled`` once, with one
-push to the owner's default Telegram target. The pass writes only ``awaiting``
-(and history) through the shared conditional claim; it never touches status,
-progress, or chats, and never enqueues work. Periodic orphan-running-chat
-maintenance is a separate step run by the scheduled dispatcher before this one.
+Observation plus one conditional transition. A trace that is not live and
+silent past its grace becomes `awaiting` once, with a bounded fault detail
+folded into the shared owner-notice history entry. The pass only claims
+`active` todos (the query already excludes anything already in the awaiting
+inbox); it never touches progress or chats, and never enqueues work. Periodic
+orphan-running-chat maintenance is a separate step run by the scheduled
+dispatcher before this one.
 """
 
-from datetime import datetime
 from typing import Optional
 
 from loguru import logger
@@ -17,6 +17,7 @@ from sqlalchemy import case, func
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.todo import TodoEntity
+from storage.repository import dev_release as dev_release_repo
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import todo as todo_service
 from storage.util import get_unix_timestamp
@@ -24,20 +25,9 @@ from worker.process_manager import get_process, get_running_processes
 
 LOCK_NAME = "check_trace_liveness"
 IDLE_GRACE_SECONDS = 10 * 60
-EXTERNAL_GRACE_SECONDS = 60 * 60
 ZERO_CHAT_BACKSTOP_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 200
-VISIBLE_INBOX = {"question", "review", "stalled"}
 ERROR_TEXT_LIMIT = 1000
-
-
-def _until_ms(awaiting_until: Optional[str]) -> Optional[int]:
-    if not awaiting_until:
-        return None
-    try:
-        return int(datetime.fromisoformat(awaiting_until.replace("Z", "+00:00")).timestamp() * 1000)
-    except ValueError:
-        return None
 
 
 def _last_activity(todo_updated_ms, chat_max_ms) -> Optional[int]:
@@ -45,24 +35,14 @@ def _last_activity(todo_updated_ms, chat_max_ms) -> Optional[int]:
     return max(values) if values else None
 
 
-def classify(*, status, awaiting, awaiting_until, live, chat_count, last_activity_ms,
-             created_at_ms, now_ms) -> Optional[str]:
-    """Pure classifier: the stall reason (idle / external / backstop) or None.
+def classify(*, live, chat_count, last_activity_ms, created_at_ms, now_ms) -> Optional[str]:
+    """Pure classifier: the stall reason (idle / backstop) or None.
 
-    Each suppressor stands alone: a non-active todo, a visible inbox reason, a
-    live process or running chat, or an unexpired grace each prevents a claim.
-    Zero-chat todos only ever fall under the 24-hour backstop.
+    A live process/chat suppresses; zero-chat todos only ever fall under the
+    24-hour backstop; everything else uses the 10-minute idle grace against
+    the newer of the todo's own timestamp and its newest chat's activity.
     """
-    if status != "active" or awaiting in VISIBLE_INBOX or live:
-        return None
-    if awaiting == "external":
-        deadline = _until_ms(awaiting_until)
-        if deadline is None:
-            if last_activity_ms is None:
-                return None
-            deadline = last_activity_ms + EXTERNAL_GRACE_SECONDS * 1000
-        return "external" if now_ms >= deadline else None
-    if awaiting is not None:
+    if live:
         return None
     if chat_count == 0:
         if not created_at_ms:
@@ -96,18 +76,16 @@ def _chat_aggregates(session, user_ids, trace_ids) -> dict:
     return {(r[0], r[1]): (r[2], r[3], int(r[4] or 0)) for r in rows}
 
 
-def _notice(todo, reason, chat_id, outcome, error_text) -> str:
+def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     detail = {
-        "idle": f"no running session and no activity for {IDLE_GRACE_SECONDS // 60}+ minutes.",
-        "external": "the declared external wait expired with no running session.",
-        "backstop": f"active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the trace.",
+        "idle": f"No running session and no activity for {IDLE_GRACE_SECONDS // 60}+ minutes.",
+        "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the trace.",
     }[reason]
-    text = f"Trace {todo.todo_id} ({todo.name}) is stalled: {detail}"
     if chat_id:
-        text += f" Last chat {chat_id}: exit {outcome}."
+        detail += f" Last chat {chat_id}: exit {outcome}."
         if error_text:
-            text += f" {error_text[:ERROR_TEXT_LIMIT]}"
-    return text
+            detail += f" {error_text[:ERROR_TEXT_LIMIT]}"
+    return detail
 
 
 def _last_assistant_text(user_id, chat_id) -> Optional[str]:
@@ -120,20 +98,18 @@ def _last_assistant_text(user_id, chat_id) -> Optional[str]:
     return last.content if last and isinstance(last.content, str) else None
 
 
-def _claim_and_push(todo, reason) -> str:
-    """One conditional claim under the todo lock; only the winner pushes."""
-    from storage.service.telegram import resolve_target
-    from storage.util import send_telegram_message_checked
-
+def _claim_fault(todo, reason) -> str:
+    """One conditional claim under the todo lock; the shared notice hook sends on entry."""
     user_id, todo_id = todo.user_id, todo.todo_id
-    evidence = {}
 
     def recheck(session, row):
+        if dev_release_repo.has_pending_waiter(session, user_id, todo_id):
+            return None
         chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix)
                  .filter_by(user_id=user_id, trace_id=todo_id)
                  .order_by(ChatEntity.updated_at_unix.desc()).all())
         if any(c.status == "running" for c in chats):
-            return False
+            return None
         # Identity, outcome and error text in the notice all come from the
         # newest chat. An older chat's record is only live/not-live evidence;
         # its outcome is never attributed to the newest chat.
@@ -143,46 +119,30 @@ def _claim_and_push(todo, reason) -> str:
             if record.get("user_id") != user_id:
                 continue
             if record.get("status") == "running":
-                return False
+                return None
             if c is chats[0]:
                 newest_record = record
         current = classify(
-            status=row.status, awaiting=row.awaiting, awaiting_until=row.awaiting_until, live=False,
-            chat_count=len(chats),
+            live=False, chat_count=len(chats),
             last_activity_ms=_last_activity(row.updated_at_unix, chats[0].updated_at_unix if chats else None),
             created_at_ms=row.created_at_unix, now_ms=get_unix_timestamp(),
         )
         if current is None:
-            return False
-        evidence["reason"] = current
-        evidence["chat_id"] = chats[0].chat_id if chats else None
-        evidence["outcome"] = (newest_record or {}).get("status") or "unknown"
-        return True
+            return None
+        chat_id = chats[0].chat_id if chats else None
+        outcome = (newest_record or {}).get("status") or "unknown"
+        error_text = (_last_assistant_text(user_id, chat_id)
+                      if chat_id and outcome in {"error", "timeout"} else None)
+        return _fault_detail(current, chat_id, outcome, error_text), chat_id
 
     try:
-        won = todo_service.claim_stalled(
-            user_id, todo_id, expected_updated_at_unix=todo.updated_at_unix,
-            expected_awaiting=todo.awaiting, recheck=recheck,
+        _todo, changed = todo_service.claim_fault(
+            user_id, todo_id, expected_updated_at_unix=todo.updated_at_unix, recheck=recheck,
         )
     except Exception:
         logger.exception("check_trace_liveness: evidence recheck failed, no claim: user_id={} todo_id={}", user_id, todo_id)
         return "failed"
-    if not won:
-        return "suppressed"
-    latest = todo_service.get_todo(user_id, todo_id)
-    if not latest or latest.awaiting != "stalled":
-        return "claimed"
-    error_text = None
-    if evidence.get("chat_id") and evidence["outcome"] in {"error", "timeout"}:
-        error_text = _last_assistant_text(user_id, evidence["chat_id"])
-    text = _notice(todo, evidence.get("reason", reason), evidence.get("chat_id"), evidence.get("outcome", "unknown"), error_text)
-    try:
-        target = resolve_target(user_id)
-        if target and send_telegram_message_checked(target[0], target[1], text):
-            return "pushed"
-    except Exception:
-        logger.exception("check_trace_liveness: push failed, inbox retained: user_id={} todo_id={}", user_id, todo_id)
-    return "claimed"
+    return "claimed" if changed else "suppressed"
 
 
 def run_pass(now_ms: Optional[int] = None) -> dict:
@@ -200,12 +160,12 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
                     .filter(ChatEntity.trace_id.isnot(None)).all())
         live_traces |= {(r.user_id, r.trace_id) for r in rows if (r.user_id, r.chat_id) in live_chats}
 
-    counts = dict(scanned=0, candidates=0, claimed=0, pushed=0, suppressed=0, failed=0)
+    counts = dict(scanned=0, candidates=0, claimed=0, suppressed=0, failed=0)
     last_id = 0
     while True:
         with get_db() as session:
             todos = (session.query(TodoEntity.id, TodoEntity.user_id, TodoEntity.todo_id, TodoEntity.name,
-                                   TodoEntity.status, TodoEntity.awaiting, TodoEntity.awaiting_until,
+                                   TodoEntity.status,
                                    TodoEntity.updated_at_unix, TodoEntity.created_at_unix)
                      .filter(TodoEntity.status == "active", TodoEntity.id > last_id)
                      .order_by(TodoEntity.id.asc()).limit(BATCH_SIZE).all())
@@ -218,7 +178,6 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
             key = (todo.user_id, todo.todo_id)
             chat_count, chat_max, running = aggregates.get(key, (0, None, 0))
             reason = classify(
-                status=todo.status, awaiting=todo.awaiting, awaiting_until=todo.awaiting_until,
                 live=key in live_traces or running > 0, chat_count=chat_count,
                 last_activity_ms=_last_activity(todo.updated_at_unix, chat_max),
                 created_at_ms=todo.created_at_unix, now_ms=now_ms,
@@ -226,9 +185,7 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
             if reason is None:
                 continue
             counts["candidates"] += 1
-            outcome = _claim_and_push(todo, reason)
-            if outcome == "pushed":
-                counts["claimed"] += 1
+            outcome = _claim_fault(todo, reason)
             counts[outcome] += 1
     return {"status": "ok", "action": LOCK_NAME, **counts}
 
