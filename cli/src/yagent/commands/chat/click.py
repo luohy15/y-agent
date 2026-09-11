@@ -151,6 +151,7 @@ def _fire_and_forget(
     bot: Optional[str],
     bot_tier: Optional[str],
     reasoning_effort: Optional[str],
+    resume_work: bool = False,
     wait: bool = False,
     wait_timeout: int = 300,
 ):
@@ -187,6 +188,8 @@ def _fire_and_forget(
         payload["bot_tier"] = bot_tier
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
+    if resume_work:
+        payload["resume_work"] = True
     try:
         resp = api_request("POST", "/api/chat/message", json=payload)
         data = resp.json()
@@ -297,6 +300,7 @@ def _interactive(
 @click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must run on the same backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
 @click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
+@click.option('--resume-work', is_flag=True, help='Reopened-work signal: this dispatch resumes work on the trace and clears awaiting=review')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
 @click.pass_context
 def chat_group(
@@ -318,6 +322,7 @@ def chat_group(
     bot: Optional[str],
     tier: Optional[str],
     reasoning_effort: Optional[str],
+    resume_work: bool,
     prompt: Optional[str],
 ):
     """Chat with AI models.
@@ -351,6 +356,14 @@ def chat_group(
         click.echo("Error: -m and -i are mutually exclusive.", err=True)
         raise SystemExit(2)
 
+    if resume_work and interactive:
+        click.echo("Error: --resume-work cannot be combined with -i.", err=True)
+        raise SystemExit(2)
+
+    if resume_work and not chat_id and not trace_id:
+        click.echo("Error: --resume-work requires --chat-id or --trace-id.", err=True)
+        raise SystemExit(2)
+
     if message is not None:
         _fire_and_forget(
             message=message,
@@ -366,6 +379,7 @@ def chat_group(
             bot=bot,
             bot_tier=tier,
             reasoning_effort=reasoning_effort,
+            resume_work=resume_work,
             wait=wait,
             wait_timeout=wait_timeout,
         )

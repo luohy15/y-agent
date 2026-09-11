@@ -127,7 +127,7 @@ def new_chat_id(user_id: int) -> str:
     )
 
 
-def _insert_generated_chat_sync(user_id: int, build_chat) -> Chat:
+def _insert_generated_chat_sync(user_id: int, build_chat, *, resume_trace_id=None) -> Chat:
     """Allocate a chat_id, build the Chat DTO, and insert; retry on race.
 
     `build_chat(chat_id) -> Chat` must produce a complete create-time DTO for
@@ -139,7 +139,7 @@ def _insert_generated_chat_sync(user_id: int, build_chat) -> Chat:
         chat_id = new_chat_id(user_id)
         chat = build_chat(chat_id)
         try:
-            return chat_repo._insert_chat_sync(user_id, chat)
+            return chat_repo._insert_chat_sync(user_id, chat, resume_trace_id=resume_trace_id)
         except ChatIdCollision as exc:
             last_exc = exc
             continue
@@ -148,9 +148,9 @@ def _insert_generated_chat_sync(user_id: int, build_chat) -> Chat:
     ) from last_exc
 
 
-async def insert_generated_chat(user_id: int, build_chat) -> Chat:
+async def insert_generated_chat(user_id: int, build_chat, *, resume_trace_id=None) -> Chat:
     """Async wrapper around allocate-and-insert with collision retry."""
-    return _insert_generated_chat_sync(user_id, build_chat)
+    return _insert_generated_chat_sync(user_id, build_chat, resume_trace_id=resume_trace_id)
 
 
 async def create_chat(user_id: int, messages: List[Message], external_id: Optional[str] = None, chat_id: Optional[str] = None) -> Chat:
@@ -260,7 +260,7 @@ def dispatch_content(content: str, to_chat_id: str, *, trace_id=None, from_topic
 
 
 async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                           from_topic=None, **kwargs) -> Chat:
+                           from_topic=None, resume_work=False, **kwargs) -> Chat:
     validate_dispatch_target(chat)
     trace_id = kwargs.get("trace_id")
     if trace_id and chat.trace_id and trace_id != chat.trace_id:
@@ -268,7 +268,8 @@ async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_
     return await deliver_user_message(
         user_id, chat, dispatch_content(content, chat.id, trace_id=trace_id,
                                        from_topic=from_topic, topic=kwargs.get("topic"),
-                                       from_chat_id=from_chat_id), **kwargs,
+                                       from_chat_id=from_chat_id),
+        resume_work=resume_work, **kwargs,
     )
 
 
@@ -290,6 +291,7 @@ async def deliver_user_message(
     topic: Optional[str] = None,
     skill: Optional[str] = None,
     backend: Optional[str] = None,
+    resume_work: bool = False,
 ) -> Chat:
     """Append `content` as a user message into `chat` and ensure it gets run.
 
@@ -319,7 +321,7 @@ async def deliver_user_message(
 
     chat, already_running = chat_repo.accept_or_start_chat(
         user_id, chat.id, message=user_msg, human_reply=human_reply,
-        trace_id=trace_id, topic=topic, skill=skill,
+        trace_id=trace_id, topic=topic, skill=skill, resume_work=resume_work,
     )
     clear_attention_on_reply(user_id, chat.id)
 

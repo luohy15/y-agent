@@ -231,10 +231,10 @@ def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
         session, row, {"status": status}, action=STATUS_ACTION.get(status, status)))
 
 
-def clear_awaiting_locked(session, row, reasons):
+def clear_awaiting_locked(session, row, reasons, *, action="updated"):
     """Caller holds the todo lock, optionally alongside an accepted chat write."""
     if row is not None and row.awaiting in reasons:
-        return _apply_fields(session, row, {"awaiting": None}, internal=True)
+        return _apply_fields(session, row, {"awaiting": None}, action=action, internal=True)
     return False
 
 

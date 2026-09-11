@@ -271,16 +271,21 @@ def _chat_status(chat: Chat) -> str:
     return "idle"
 
 
-def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
+def _insert_chat_sync(user_id: int, chat: Chat, *, resume_trace_id=None) -> Chat:
     """Insert a new chat row. Never updates an existing row.
 
     Raises ChatIdCollision on a pre-check hit or on the DB unique constraint
     (IntegrityError), so a collision cannot silently overwrite another chat.
+    A resume_trace_id must match the chat's non-root trace; the conditional
+    review clear and the insert share one transaction so a collision retry
+    cannot double-write history.
     """
     from storage.util import get_utc_iso8601_timestamp
 
     if not chat.id:
         raise ValueError("chat.id is required for insert")
+    if resume_trace_id and (chat.topic == "manager" or chat.trace_id != resume_trace_id):
+        raise ValueError("Chat trace_id mismatch")
     if chat_id_exists(user_id, chat.id):
         raise ChatIdCollision(user_id, chat.id)
 
@@ -309,7 +314,11 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
     try:
         with get_db() as session:
             from storage.repository.todo import lock_todo
-            if chat.trace_id and chat.topic != "manager":
+            from storage.service.todo import clear_awaiting_locked
+            if resume_trace_id:
+                todo = lock_todo(session, user_id, resume_trace_id)
+                clear_awaiting_locked(session, todo, {"review"}, action="resumed")
+            elif chat.trace_id and chat.topic != "manager":
                 lock_todo(session, user_id, chat.trace_id)
             session.add(entity)
     except IntegrityError as exc:
@@ -483,7 +492,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
 
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
-                         human_reply=False, trace_id=None, topic=None, skill=None):
+                         human_reply=False, trace_id=None, topic=None, skill=None,
+                         resume_work=False):
     """Lock todo before chat; append/start and conditional clear commit together.
 
     Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
@@ -529,7 +539,9 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
         reasons = {"stalled", "external"} if message is None else set()
         if human_reply:
             reasons.add("question")
-        clear_awaiting_locked(session, todo, reasons)
+        if resume_work:
+            reasons.add("review")
+        clear_awaiting_locked(session, todo, reasons, action="resumed" if resume_work else "updated")
         session.flush()
         return chat, already_running
 
