@@ -13,6 +13,12 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Todo awaiting inbox and trace liveness (3458)**: atomic awaiting-state
+  transitions (`question` / `review` / `external`), bounded runtime recovery,
+  owner-safe death delivery, new CLI/API filters, and host detail badges. The
+  scheduled watchdog stays disabled pending rollout gates.
+- **Todo auto-unpin on status change (3464)**: any status transition now
+  clears a todo's pinned flag automatically.
 - **Sandboxed HTML note previews (3406)**: shared notes with `.html`/`.htm`
   `content_key` render through a host-owned `HtmlPreview` leaf
   (`sandbox=allow-scripts` only, dvh viewport sizing, scoped client-side
@@ -29,8 +35,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   contract bumped to v15 so modules can read a tag's note creation time.
 
 ### Changed
+- **Telegram delivery retired to manager-DM only (3468)**: dropped the forum
+  group and per-topic `tg_topic` binding surface; only the manager-topic
+  session gets automatic Telegram delivery (final replies, pre-run mirrors,
+  immediate image attachments).
 
 ### Fixed
+- **CLI surfaces API error detail instead of traceback (3467)**: `api_request`
+  now raises with the response's `detail` (or truncated body) instead of a
+  bare `HTTPStatusError`; awaiting-field rejection messages were also
+  sharpened.
+- **Telegram image uploads sent as explicit bytes on Lambda (3474)**: fixes
+  image delivery failing under the Lambda runtime.
 - **Upload duration units (3445)**: advertised POST expiry, worker leases,
   recovery/abandonment, and active discovery now use millisecond timestamps
   matching stored Unix times. API status no longer invents a `failed` job
