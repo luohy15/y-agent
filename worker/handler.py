@@ -28,6 +28,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "recover_upload_jobs":
         from worker.steps.recover_upload_jobs import handle_recover_upload_jobs
         return handle_recover_upload_jobs()
+    if action == "recover_release_grants":
+        from worker.steps.recover_release_grants import handle_recover_release_grants
+        return asyncio.run(handle_recover_release_grants())
     if action == "fetch_rss_links":
         from worker.steps.fetch_rss_links import handle_fetch_rss_links
         return asyncio.run(handle_fetch_rss_links())

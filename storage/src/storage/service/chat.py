@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+from dataclasses import dataclass
 from typing import List, Optional
 
 import boto3
@@ -279,17 +280,132 @@ def dispatch_content(content: str, to_chat_id: str, *, trace_id=None, from_topic
     return f"[{' '.join(f'{key}:{value}' for key, value in fields if value)}]\n{content}"
 
 
-async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                           from_topic=None, resume_work=False, **kwargs) -> Chat:
+@dataclass
+class DispatchAcceptance:
+    """Outcome of accepting a body into a chat, before the worker is enqueued.
+
+    `already_running` is what decides whether a worker invocation is owed: a
+    running chat picks the append up through its own steer polling. A durable
+    sender (todo 3493) persists that decision between the accept and the
+    broker send, so a crash in between can be retried without guessing.
+    """
+
+    chat: Chat
+    already_running: bool
+
+
+def _dispatch_body(chat: Chat, content: str, *, from_chat_id, from_topic, kwargs) -> str:
+    """Validate the dispatch target and build the trace-prefixed body."""
     validate_dispatch_target(chat)
     trace_id = kwargs.get("trace_id")
     if trace_id and chat.trace_id and trace_id != chat.trace_id:
         raise ValueError("Chat trace_id mismatch")
+    return dispatch_content(content, chat.id, trace_id=trace_id, from_topic=from_topic,
+                            topic=kwargs.get("topic"), from_chat_id=from_chat_id)
+
+
+async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
+                           from_topic=None, resume_work=False, **kwargs) -> Chat:
     return await deliver_user_message(
-        user_id, chat, dispatch_content(content, chat.id, trace_id=trace_id,
-                                       from_topic=from_topic, topic=kwargs.get("topic"),
-                                       from_chat_id=from_chat_id),
+        user_id, chat,
+        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
+                       kwargs=kwargs),
         resume_work=resume_work, **kwargs,
+    )
+
+
+async def accept_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
+                          from_topic=None, resume_work=False, **kwargs) -> DispatchAcceptance:
+    """The accept half of `deliver_dispatch`, for a sender that owes the worker
+    enqueue separately (durable grant wakeups, todo 3493)."""
+    return await accept_user_message(
+        user_id, chat,
+        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
+                       kwargs=kwargs),
+        resume_work=resume_work, **kwargs,
+    )
+
+
+async def accept_user_message(
+    user_id: int,
+    chat: Chat,
+    content: str,
+    *,
+    human_reply: bool = False,
+    images: Optional[List[str]] = None,
+    reasoning_effort: Optional[str] = None,
+    source: Optional[str] = None,
+    event_id: Optional[str] = None,
+    resume_work: bool = False,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    skill: Optional[str] = None,
+    **_ignored,
+) -> DispatchAcceptance:
+    """Append `content` into `chat` without enqueueing the worker.
+
+    The accept half of `deliver_user_message`; the enqueue half is
+    `enqueue_chat_run`. Splitting them lets a durable sender persist what it
+    owes between the two, while every ordinary caller keeps using the combined
+    primitive. `_ignored` swallows the enqueue-only keywords so both halves can
+    be handed the same kwargs.
+
+    `event_id` makes the append idempotent for a retried server-side event and
+    is the message id, so a redelivery finds it already present.
+    """
+    msg_content = maybe_append_handoff_reminder(chat, content)
+    msg_dict = {
+        "role": "user",
+        "content": msg_content,
+        "timestamp": get_utc_iso8601_timestamp(),
+        "unix_timestamp": get_unix_timestamp(),
+        "id": f"msg_evt_{event_id}" if event_id else generate_message_id(),
+    }
+    if images:
+        msg_dict["images"] = images
+    if reasoning_effort is not None:
+        msg_dict["reasoning_effort"] = reasoning_effort
+    if source is not None:
+        msg_dict["source"] = source
+    user_msg = Message.from_dict(msg_dict)
+
+    chat, already_running = chat_repo.accept_or_start_chat(
+        user_id, chat.id, message=user_msg, human_reply=human_reply,
+        trace_id=trace_id, topic=topic, skill=skill,
+        event_id=event_id, resume_work=resume_work,
+    )
+    clear_attention_on_reply(user_id, chat.id)
+    return DispatchAcceptance(chat=chat, already_running=already_running)
+
+
+def enqueue_chat_run(
+    chat: Chat,
+    *,
+    user_id: Optional[int] = None,
+    bot_name: Optional[str] = None,
+    bot_tier: Optional[str] = None,
+    vm_name: Optional[str] = None,
+    work_dir: Optional[str] = None,
+    post_hooks: Optional[list] = None,
+    trace_id: Optional[str] = None,
+    topic: Optional[str] = None,
+    skill: Optional[str] = None,
+    backend: Optional[str] = None,
+    **_ignored,
+) -> None:
+    """Hand the accepted chat to the worker (SQS in prod, Celery locally)."""
+    send_chat_message(
+        chat.id,
+        bot_name=bot_name,
+        bot_tier=bot_tier,
+        user_id=user_id,
+        vm_name=vm_name,
+        work_dir=work_dir,
+        post_hooks=post_hooks,
+        trace_id=trace_id,
+        topic=topic,
+        skill=skill,
+        backend=backend,
     )
 
 
@@ -311,6 +427,7 @@ async def deliver_user_message(
     topic: Optional[str] = None,
     skill: Optional[str] = None,
     backend: Optional[str] = None,
+    event_id: Optional[str] = None,
     resume_work: bool = False,
 ) -> Chat:
     """Append `content` as a user message into `chat` and ensure it gets run.
@@ -323,44 +440,18 @@ async def deliver_user_message(
     its own steer polling instead). `reasoning_effort` must already be
     validated/normalized by the caller; this raises no HTTP-shaped errors.
     """
-    msg_content = maybe_append_handoff_reminder(chat, content)
-    msg_dict = {
-        "role": "user",
-        "content": msg_content,
-        "timestamp": get_utc_iso8601_timestamp(),
-        "unix_timestamp": get_unix_timestamp(),
-        "id": generate_message_id(),
-    }
-    if images:
-        msg_dict["images"] = images
-    if reasoning_effort is not None:
-        msg_dict["reasoning_effort"] = reasoning_effort
-    if source is not None:
-        msg_dict["source"] = source
-    user_msg = Message.from_dict(msg_dict)
-
-    chat, already_running = chat_repo.accept_or_start_chat(
-        user_id, chat.id, message=user_msg, human_reply=human_reply,
-        trace_id=trace_id, topic=topic, skill=skill, resume_work=resume_work,
+    acceptance = await accept_user_message(
+        user_id, chat, content, human_reply=human_reply, images=images,
+        reasoning_effort=reasoning_effort, source=source, event_id=event_id,
+        resume_work=resume_work, trace_id=trace_id, topic=topic, skill=skill,
     )
-    clear_attention_on_reply(user_id, chat.id)
-
-    if not already_running:
-        send_chat_message(
-            chat.id,
-            bot_name=bot_name,
-            bot_tier=bot_tier,
-            user_id=user_id,
-            vm_name=vm_name,
-            work_dir=work_dir,
-            post_hooks=post_hooks,
-            trace_id=trace_id,
-            topic=topic,
-            skill=skill,
-            backend=backend,
+    if not acceptance.already_running:
+        enqueue_chat_run(
+            acceptance.chat, user_id=user_id, bot_name=bot_name, bot_tier=bot_tier,
+            vm_name=vm_name, work_dir=work_dir, post_hooks=post_hooks,
+            trace_id=trace_id, topic=topic, skill=skill, backend=backend,
         )
-
-    return chat
+    return acceptance.chat
 
 
 async def create_share(user_id: int, chat_id: str, message_id: str = None, password_hash: Optional[str] = None) -> str:

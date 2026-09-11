@@ -493,12 +493,16 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, topic=None, skill=None,
-                         resume_work=False):
+                         resume_work=False, event_id=None):
     """Lock todo before chat; append/start and conditional clear commit together.
 
     Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
     the legacy warn-and-run behavior. Root queue traces never bind or clear a
     todo; preserve any legacy persisted root metadata rather than repairing it.
+
+    `event_id` marks an append that a durable server-side event may retry
+    (todo 3493): the message is appended at most once for that event, so a
+    delivery retried after a crash or a lost response cannot duplicate it.
     """
     from storage.repository.todo import lock_todo
     from storage.service.todo import clear_awaiting_locked
@@ -522,7 +526,10 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
         chat = _entity_to_chat(row)
         already_running = chat.running
         if message is not None:
-            chat.messages.append(message)
+            duplicate = event_id is not None and any(
+                existing.id == message.id for existing in chat.messages)
+            if not duplicate:
+                chat.messages.append(message)
         chat.trace_id = effective_trace
         chat.topic = effective_topic
         chat.skill = chat.skill or skill or (effective_topic if effective_topic != "manager" else None)

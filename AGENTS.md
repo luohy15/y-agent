@@ -176,6 +176,32 @@ entity + controller + service + CLI slices, and most have a web panel.
   must not link `.venv`. Existing worktrees created before this behavior need a
   one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
   recreation.
+- **Publication ownership** — `dev_release` holds one persistent publication slot per
+  canonical project (`host/owner/repository`, normalized from the checkout's GitHub
+  `origin` by `storage/project_key.py`; never per worktree, branch, environment or
+  module slug). `/api/dev-release/*` + `y dev release` claim / check / hand off /
+  delegate / take over it. Each transition runs in one locked transaction (`INSERT ...
+  ON CONFLICT DO NOTHING` then `SELECT ... FOR UPDATE`) and must carry the expected
+  generation, the current claim id and a caller-generated `request_id`; the slot row
+  is never deleted, so a stale request can never resurrect old ownership. Enforced:
+  competing *claim acquisition* is impossible, transitions are serialized, one account
+  owns a claim, one publisher may be delegated, and release / publisher replacement /
+  takeover require recorded evidence. Not enforced: git, `y dev commit`,
+  `y module publish`, deploy scripts, CI and already-running jobs are unchanged and
+  cooperative, and `check` is a point-in-time observation, not a lease. There is no
+  expiry, no heuristic release and no local fallback -- an unreachable API is an error,
+  never a successful claim. An already-authorized coordinator does not retry a claim in a
+  loop: `y dev release enqueue` is one atomic acquire-or-enqueue that either grants the
+  slot or registers a durable waiter receipt (`dev_release_waiter`) in a bounded FIFO on
+  the slot. Queue edits are ownership-neutral (they never move `generation`, so they
+  cannot invalidate a publisher's in-flight release); a release grants the queue head in
+  the *same* transition, so no free window exists for a direct claim to cut in, and a
+  direct `claim` is refused outright while waiters are pending. The grant writes a wakeup
+  event on the receipt in that same transaction; delivery goes through the
+  `chat_service.accept_dispatch` primitive after commit, is deduplicated by event id, and
+  is retried by the `recover_release_grants` worker action (wired, deployed disabled).
+  Delivery is at-least-once, a stale grant is suppressed rather than reported as live, and
+  a failed wakeup never expires or reassigns the claim.
 - **Email / Calendar** — multi-account Gmail sync: per-account IMAP app passwords live
   in the `email_account` table (`y email account add/list/rm`), `y email sync-gmail`
   fans out over all registered accounts, and `email.account` tags each row with its
@@ -231,7 +257,7 @@ exceptions noted):
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
   coordination, no service)
 - **English learning**: `english_correction`, `english_word`
-- **Dev / trace**: `dev_worktree`, `trace_share`
+- **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **Provider status**: `provider_status_source`, `provider_status_component`,
   `provider_status_incident`, `provider_status_incident_update`, `provider_status_event`
@@ -266,7 +292,9 @@ Grouped by feature area:
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
 - **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
   `provider_status.py` (exact Anthropic Statuspage receiver), `vm_config.py`,
-  `dev_worktree.py`
+  `dev_worktree.py`, `dev_release.py` (publication slot: detail / list / claim /
+  check / release / handoff / publisher / takeover, plus the waiter queue:
+  enqueue / cancel-waiter / waiters)
 
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
@@ -297,7 +325,8 @@ Grouped by feature area:
   registration). `_start_detached` handles Lambda lease + handoff.
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB
-- `steps/` — RSS feed fetch, link batch download, provider-status reconciliation
+- `steps/` — RSS feed fetch, link batch download, provider-status reconciliation,
+  publication-grant wakeup recovery (`recover_release_grants`)
 - `downloaders/` — SSH wrapper that runs `y link fetch --json` on the user's VM
 - `link_downloader.py`, `process_manager.py`
 - `handler.py` — Lambda SQS event handler (in worker root)
@@ -396,6 +425,28 @@ y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 y dev wt add <project_path> <name>
 y dev wt rm <name>
 y dev commit <name> [-m "msg"]
+
+# Publication ownership (one slot per repository; see the subsystem note).
+# Every write carries the expected generation, the current claim id and a
+# caller-generated --request-id that must be reused verbatim on retry.
+y dev release status [--project <host/owner/repo> | --project-path <checkout>]
+y dev release list
+y dev release claim --trace-id <t> --chat-id <c> --generation <n> --request-id <uuid> [--target <ref>]
+y dev release check --trace-id <t> --chat-id <c> --claim-id <id> --generation <n> --role owner|publisher
+y dev release handoff --new-owner-chat-id <c> ...
+y dev release publisher [--publisher-chat-id <c>] [--quiescence-evidence <text>] ...
+y dev release release --outcome-reference <text> --quiescence-evidence <text> ...
+y dev release takeover --new-owner-trace-id <t> --new-owner-chat-id <c> \
+  --authorization-reference <text> --quiescence-evidence <text> ...
+
+# Authorized waiters: take the slot now, or take a place in line and be woken
+# with ownership already held when the predecessor releases. Queued is a
+# success -- end the turn, do not poll and do not ask the user.
+y dev release enqueue --trace-id <t> --chat-id <c> --waiter-id <uuid> --request-id <uuid> \
+  --authorization-reference <text> --baseline-sha <sha> --candidate-sha <sha> \
+  --todo <id> [--todo <id> ...] [--target <ref>]
+y dev release cancel-waiter --trace-id <t> --chat-id <c> --waiter-id <uuid> --request-id <uuid>
+y dev release waiters [--all-projects] [--limit <n>]
 
 # Modules. Canonical source is code/y-module/<slug>/ (module.json + ui/index.tsx;
 # API/CLI/data optional). Domain CLI groups resolve lazily from that source —

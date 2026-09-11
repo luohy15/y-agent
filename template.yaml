@@ -443,6 +443,17 @@ Resources:
           Properties:
             Schedule: rate(5 minutes)
             Input: '{"action": "recover_upload_jobs"}'
+        RecoverReleaseGrantsSchedule:
+          # Outbox recovery for publication-grant wakeups (todo 3493): retries
+          # grant events whose delivery did not confirm. Deployed disabled --
+          # this task is not authorized to deploy it. Enable only after the
+          # dev_release schema is applied and the API half is live, otherwise
+          # every tick reads a table that does not exist yet.
+          Type: Schedule
+          Properties:
+            Schedule: rate(2 minutes)
+            Enabled: false
+            Input: '{"action": "recover_release_grants"}'
         FetchRssLinksSchedule:
           Type: Schedule
           Properties:

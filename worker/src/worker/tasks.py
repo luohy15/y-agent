@@ -56,6 +56,16 @@ def process_chat(chat_id: str, bot_name: str = None, bot_tier: str = None, user_
             logger.exception("Failed to clear stuck running state for chat {}: {}", chat_id, inner_e)
 
 
+@app.task(name="worker.tasks.recover_release_grants")
+def recover_release_grants():
+    """Local scheduling twin of the `recover_release_grants` Lambda action."""
+    try:
+        from worker.steps.recover_release_grants import handle_recover_release_grants
+        asyncio.run(handle_recover_release_grants())
+    except Exception as e:
+        logger.exception("recover_release_grants failed: {}", e)
+
+
 @app.task(name="worker.tasks.trigger_batch_download")
 def trigger_batch_download():
     """Run batch_download_links once; pipeline lock dedupes concurrent runs."""
