@@ -69,7 +69,7 @@ export function topicBadgeClass(topic: string) {
 // --- Status badge (todo status) ---
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-sol-blue/20 text-sol-blue",
-  awaiting: "bg-sol-yellow/20 text-sol-yellow",
+  awaiting: "bg-sol-cyan/20 text-sol-cyan",
   pending: "bg-sol-base02 text-sol-base01",
   completed: "bg-sol-green/20 text-sol-green",
 };
@@ -94,7 +94,7 @@ const ACTION_COLOR: Record<string, string> = {
   created: "bg-sol-cyan/20 text-sol-cyan",
   completed: "bg-sol-green/20 text-sol-green",
   updated: "bg-sol-yellow/20 text-sol-yellow",
-  awaiting: "bg-sol-yellow/20 text-sol-yellow",
+  awaiting: "bg-sol-cyan/20 text-sol-cyan",
   activated: "bg-sol-blue/20 text-sol-blue",
   resumed: "bg-sol-blue/20 text-sol-blue",
   deleted: "bg-sol-red/20 text-sol-red",
