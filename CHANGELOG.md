@@ -13,10 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
-- **Todo awaiting inbox and trace liveness (3458)**: atomic awaiting-state
-  transitions (`question` / `review` / `external`), bounded runtime recovery,
-  owner-safe death delivery, new CLI/API filters, and host detail badges. The
-  scheduled watchdog stays disabled pending rollout gates.
+- **Atomic publication ownership and authorized waiter queue (3493)**: one
+  persistent release slot per canonical repository serializes publication across
+  worktrees. Authorized coordinators can acquire or enter a durable FIFO, with
+  idempotent wakeups, ownership handoff/delegation, and worker recovery.
+- **Todo awaiting inbox and trace liveness (3458, 3484, 3495)**: atomic
+  awaiting-state transitions (`question` / `review` / `external`), bounded runtime
+  recovery, owner-safe death delivery, new CLI/API filters, host detail badges,
+  explicit review-wait reset on resumed work, and concise owner Telegram notices
+  when a todo newly needs a question answered or review. The scheduled watchdog
+  stays disabled pending rollout gates.
 - **Todo auto-unpin on status change (3464)**: any status transition now
   clears a todo's pinned flag automatically.
 - **Sandboxed HTML note previews (3406)**: shared notes with `.html`/`.htm`
@@ -41,6 +47,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   immediate image attachments).
 
 ### Fixed
+- **Completed worker turns no longer replay (3496)**: detached process recovery
+  preserves completed-turn state so a finished user message is not run again.
 - **CLI surfaces API error detail instead of traceback (3467)**: `api_request`
   now raises with the response's `detail` (or truncated body) instead of a
   bare `HTTPStatusError`; awaiting-field rejection messages were also
