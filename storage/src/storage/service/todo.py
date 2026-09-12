@@ -246,7 +246,9 @@ def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
         f"Todo {todo.todo_id} needs you",
         name,
     ]
-    if todo.awaiting_chat:
+    # Fault notices (watchdog/death) keep the optional pointer on the todo
+    # but do not invite a reply into that chat: it is often the dead child.
+    if todo.awaiting_chat and not extra:
         chat = todo.awaiting_chat
         lines.append(f'Answer in chat {chat}: reply here with "/{chat} <your answer>"')
     if extra:
