@@ -398,6 +398,15 @@ y todo list --status awaiting
   reason badge, `awaiting:` query vocabulary and reason colour palette are
   gone. Same-status re-select / re-drop sends no request. Closed todos
   cannot be moved to awaiting from the menu or kanban.
+- **Awaiting is listed first in the module's status orders**, so the inbox is
+  the first thing read on a row of statuses: the sidebar status shortcuts and
+  the table filter row are `awaiting, pending, active, completed, all`
+  (module v19), and the right-click status options are
+  `awaiting, pending, active, completed, deleted` (module v20). The relative
+  order of the other statuses is unchanged. This is a module reading-order
+  choice, not a contract the slices must share: the host's own
+  `TraceTodoDetail` status select deliberately stays in lifecycle order
+  (`pending, active, awaiting, completed, deleted`).
 - `awaiting → active` from the module routes to `POST /api/todo/resume`;
   `* → awaiting` routes to `POST /api/todo/await` without a `chat_id`.
   Functionally the host's generic `update_status` delegates to the same
@@ -422,33 +431,51 @@ y todo list --status awaiting
 
 ### Agent notice and fault-notice wording
 
-Agent notice is compact: todo ID, name, and optional answer-chat pointer,
-with no invented review/question/stalled label.
+Agent notice is compact: todo ID and name, with no invented
+review/question/stalled label and no reply instruction.
 
 ```text
 Todo <id> needs you
 <name>
-Answer in chat <chat_id>: reply here with "/<chat_id> <your answer>"
 ```
 
-The third line is present only when `awaiting_chat` is set and the notice
-is not a fault notice. System fault notice may additionally carry bounded
-fault evidence supplied by the triggering event, not read from a reason
-field.
+A system fault notice may append bounded fault evidence supplied by the
+triggering event, not read from a reason field.
 
-**Neutral fault-notice wording.** When the triggering event supplies fault
-`extra` (watchdog idle/backstop or undeliverable death), the notice must
-not tell Roy to answer in the pointed chat, even if the claim stored the
-newest-chat id as `awaiting_chat`. That pointer is often a dead child.
-Replying there would auto-resume the todo and restart that child. Fault
-notices therefore omit the "Answer in chat … reply here with …" line and
-present the pointer, if shown at all, as inspection context (last chat,
-exit, bounded error text), not as a place to type the next instruction.
-Human-declared awaits (reporting session, optional `--chat`) keep the
-answer-chat line, because that pointer names a live session waiting for
-input. Shipped in `awaiting_notice_text`: the answer-chat line is appended
-only when `todo.awaiting_chat` is set and `extra` is absent
-(`if todo.awaiting_chat and not extra`).
+**No awaiting notice carries a reply instruction.** The notice says a todo
+needs Roy; it never tells him where to type the answer, and it makes no
+distinction between a human-declared await and a fault claim. Shipped in
+`awaiting_notice_text`: header, bounded name, then `extra` when present, and
+nothing else. The chat pointer is not rendered by any writer.
+
+**The `awaiting_chat` pointer and its consumers are retained.** What was
+removed is a rendered instruction, not a column and not a navigation path.
+`y todo await --chat` still stores the pointer and echoes it, `y todo get`
+still prints `Reply in:` when it is set, `y todo list` still carries its
+pointer column, and the host trace todo detail still renders it as a
+chat-navigation control while the viewer is authenticated and
+`status === "awaiting"` (see Schema and Reading above). Only the notice path
+stopped reading it.
+
+This wording changed twice and the reasons are kept as history, because the
+fault-notice argument still explains the shape even though it is no longer
+expressed as a branch:
+
+1. Todo 3495 iteration 2 trimmed the DM to its essential lines but kept an
+   `Answer in chat <chat_id>: reply here with "/<chat_id> <your answer>"`
+   line on question-style awaits, on the grounds that the chat id is not
+   derivable from the todo id.
+2. Todo 3506 S2 (`6ef2766`) scoped that line out of fault notices only
+   (`if todo.awaiting_chat and not extra`). A watchdog idle/backstop claim or
+   an undeliverable death stores the newest-chat id as `awaiting_chat`, that
+   chat is often a dead child, and replying there would auto-resume the todo
+   and restart it. A fault notice is inspection context (last chat, exit,
+   bounded error text), not a place to type the next instruction.
+3. Todo 3506 follow-up (`93da425`) deleted the line outright for every
+   awaiting notice, after Roy read a real human-declared notice and asked for
+   it to go. This is a user-directed override of step 1's visible-instruction
+   decision; step 2's reasoning is unaffected and now simply has nothing to
+   suppress. Record: `pages/impl-3506-awaiting-notice-trim.md`.
 
 ### Runtime death delivery
 
@@ -618,9 +645,12 @@ later silence, which is why leaves must not write it for verification.
 This is a contract decision, not a hidden worker auto-clear.
 
 Agent configuration (`AGENTS.md`, `dev` / `impl` / `review` SKILL.md, tmux
-guidance) activates only after the S4 cutover, when installed CLI and
-deployed API match. Until then the live files still describe the old
-`--awaiting review|none` / `--resume-work` surface.
+guidance) activated only after the S4 cutover, once the installed CLI and the
+deployed API matched. That gate has been passed: the live files now describe
+`y todo await` / `y todo resume` and the `status=awaiting` inbox, applied from
+`pages/hr-3506-awaiting-status-config.md` as home-repo commit `f71d5fb`
+(`dev` skill 9.33 → 9.34). The old `--awaiting review|none` / `--resume-work`
+surface is gone from the contract text as well as from the CLI.
 
 ### Atomicity and notices
 
@@ -809,9 +839,12 @@ Tests are local-only and untracked per repo convention.
 - **A push outbox or exactly-once notice delivery**, global unscoped
   worker-id cleanup, and callback idempotency. The awaiting status
   guarantees durable dedup, not crash-safe Telegram delivery.
-- **Watchdog enablement, production mutation, and automatic todo finish.**
-  Cutover SQL is maintainer-run after authorization. Agent-config activation
-  waits on S4.
+- **Watchdog enablement and automatic todo finish.** The
+  `CheckTraceLivenessSchedule` rule is still deployed with `Enabled: false`;
+  flipping it on is a separately authorized rollout step and no live AWS state
+  was checked here. Production mutation left this list once the cutover SQL was
+  maintainer-run after authorization and the S4 agent-config activation
+  happened; both are recorded under Delivery Records.
 - **Non-blocking review nits** listed in the review notes under Delivery
   Records and deliberately not expanded into this delivery (including stale
   `actionColor` keys and `awaiting-menu.ts` naming).
@@ -827,4 +860,4 @@ Tests are local-only and untracked per repo convention.
 | 3473 | Text-only scoping of `awaiting=review` to the trace's reporting session after the last phase of the trace (leaves never write `review`; no API guard). Root cause: the three-state contract was per-turn, so leaf sessions declared trace-level done when only their phase finished | - | `pages/plan-3473-premature-awaiting.md` | - | - | delivered, text-only, no code change and no deploy. PRD `review` writer scoped in this file; agent config landed on home repo main `df5f22c` (unpushed): `AGENTS.md` 三态工作契约 scopes done/blocked to the reporting session, bars leaves from `review`, limits `external` to real external waits; `dev/SKILL.md` step 12 carries the three literal awaiting commands; `impl`/`review` SKILL.md carry the prohibition. All plan verification greps re-run by the coordinator and passing. Open: behavioural check on the next dev trace (`y todo list --awaiting review` must not list a todo before the coordinator's RELEASE); revisit an API guard only if premature writes recur |
 | 3484 | Opt-in `resume_work` dispatch (`y chat --resume-work`) clears stale `awaiting=review` atomically on existing-chat accept and fresh-chat insert; default behavior unchanged; explicit `--awaiting none` remains mandatory pending rollout | - | `pages/plan-3484-awaiting-reset.md` | - | `pages/review-3484-awaiting-reset.md` | deployed `d7f9ce381828a9e51c7366f906a680ca408a0192` on baseline `b2564051c31a2a2dd0227ca5e2507908e429ab30`; user-authorized publication of todo 3484 only, Actions run `34649539981` succeeded. 45 isolated tests independently passed, no blocking findings; installed CLI help and production rejection-path smoke passed. S8 workflow active locally: `pages/hr-3484-awaiting-reset-s8.md`; explicit awaiting-none remains mandatory on every real reopen, with resume-work required for reopened-work dispatches. Impl: `pages/impl-3484-awaiting-reset.md`. Final evidence: `pages/delivery-3484-awaiting-reset.md`. Worktree removed, release register closed; ready for user verification. Tests and this pre-existing untracked PRD remain local-only; home config edits uncommitted/unpushed. |
 | 3495 | One owner Telegram DM when a todo newly enters `question` or `review`, deduplicated by reason transition; pointer-only / progress-only / clear stay silent | - | `pages/plan-3495-awaiting-telegram-notice.md` | - | `pages/review-3495-awaiting-telegram-notice.md` | shipped in two rounds. Iteration 1 `87de0af` to main/production (deploy run 34650644904, success); iteration 2 `9573887` (deploy run 34651796247, success) trimmed the message to its essential lines after the owner received a real notice and asked for the finish hint and the trace link to be dropped. Final shape: `review` is header plus todo name, `question` additionally keeps its answer-chat pointer because the chat id is not derivable from the todo id. The `template.yaml` API-function `Y_AGENT_WEB_URL` assignment is retained but is now unused by the API (the CLI reads that variable from its own environment); removing it is optional cleanup, reported not done. Review approved round 1, no blocking findings. Iteration 2 (user trim of the v1 DM): drop the review finish hint and the `/trace/<id>` link; keep the question `awaiting_chat` pointer. `Y_AGENT_WEB_URL` SAM/AGENTS wiring stays because `y login` still reads it. |
-| 3506 | `awaiting` is a todo **status** (`pending → active ↔ awaiting → completed`) meaning "needs human intervention"; `y todo await <id> [--chat]` / `y todo resume <id>` + `POST /api/todo/await|resume` are the two transitions, inbox is `status=awaiting`, reason enum, `external` and all `--awaiting*` / `--resume-work` write flags removed, optional navigation-only `awaiting_chat` kept, human message in a bound trace chat auto-resumes, watchdog/death claim faults active→awaiting through one locked `claim_fault`, dev_release parks replaced by pending-waiter evidence, todo module UI and host projections on the status model, cyan awaiting hue on both sides | - | `pages/plan-3506.md` | - | `pages/review-3506-awaiting-status.md` (rounds 1-9, all slices approved) | host candidate `79d5f79` (5 commits on baseline `74279e9`) and module candidate `931770e` (2 commits on `c3d13af`, todo v17) frozen in worktrees; cutover SQL `migration/3506_todo_awaiting_status.sql` + runbook `pages/migration-3506-todo-awaiting-status.md` (migrate before deploy, maintainer-run); agent-config draft `pages/hr-3506-awaiting-status-config.md` applied only after cutover; awaiting publication authorization |
+| 3506 | `awaiting` is a todo **status** (`pending → active ↔ awaiting → completed`) meaning "needs human intervention"; `y todo await <id> [--chat]` / `y todo resume <id>` + `POST /api/todo/await|resume` are the two transitions, inbox is `status=awaiting`, reason enum, `external` and all `--awaiting*` / `--resume-work` write flags removed, optional navigation-only `awaiting_chat` kept, human message in a bound trace chat auto-resumes, watchdog/death claim faults active→awaiting through one locked `claim_fault`, dev_release parks replaced by pending-waiter evidence, todo module UI and host projections on the status model, cyan awaiting hue on both sides | - | `pages/plan-3506.md` | - | `pages/review-3506-awaiting-status.md` (rounds 1-9, all slices approved) | shipped and deployed. Host `8b4fa54` (six 3506 commits, S1-S5, on a `74279e9`-rooted main) plus the notice trim `93da425` (Actions run 34666533639); cutover SQL applied per `pages/migration-3506-todo-awaiting-status.md`. Todo module published through **v20** (v18 the status model, v19 Awaiting first in the status filter row, v20 Awaiting first in the right-click status options); rollback one step `y module activate todo 19`, rollback the whole filter/menu reordering `y module activate todo 18`. S5 agent config applied to AGENTS.md and the dev (9.34) / impl / review skills, committed locally in the home repo as `f71d5fb`, unpushed. Iterative user adjustments after the first deploy: awaiting-first ordering in the status filter row and in the context-menu status options, and removal of the trailing answer-in-chat instruction from awaiting Telegram notices (`pages/impl-3506-awaiting-notice-trim.md`); the underlying `awaiting_chat` pointer and its navigation consumers are retained. Release registers `pages/release-owner-luohy15-y-module.md` (created here) and `pages/release-owner-luohy15-y-agent.md` both closed `DONE`; all worktrees removed. Incident context for the deploy-time worker pause: `pages/audit-3506-worker-sqs-consumption.md`. Requirement prose reconciled against shipped behaviour in a later docs commit on this file: the notice-wording section now records the unconditional removal of the reply instruction plus its two-step history, the module awaiting-first ordering is stated with the host select deliberately left in lifecycle order, and the S4 agent-config activation is recorded as done. Open: y-module `main` still carries unpushed commits across several traces; the `CheckTraceLivenessSchedule` watchdog rule is still deployed disabled |
