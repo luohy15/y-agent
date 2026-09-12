@@ -69,24 +69,13 @@ export function topicBadgeClass(topic: string) {
 // --- Status badge (todo status) ---
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-sol-blue/20 text-sol-blue",
+  awaiting: "bg-sol-yellow/20 text-sol-yellow",
   pending: "bg-sol-base02 text-sol-base01",
   completed: "bg-sol-green/20 text-sol-green",
 };
 
 export function statusBadgeClass(status: string): string {
   return STATUS_COLOR[status] || "bg-sol-base02 text-sol-base01";
-}
-
-// --- Awaiting badge (todo inbox reason) ---
-const AWAITING_COLOR: Record<string, string> = {
-  question: "bg-sol-cyan/20 text-sol-cyan",
-  review: "bg-sol-yellow/20 text-sol-yellow",
-  stalled: "bg-sol-red/20 text-sol-red",
-  external: "bg-sol-blue/20 text-sol-blue",
-};
-
-export function awaitingBadgeClass(awaiting: string): string {
-  return `${BADGE_BASE} ${AWAITING_COLOR[awaiting] || "bg-sol-base02 text-sol-base01"}`;
 }
 
 // --- Priority color ---
@@ -105,7 +94,9 @@ const ACTION_COLOR: Record<string, string> = {
   created: "bg-sol-cyan/20 text-sol-cyan",
   completed: "bg-sol-green/20 text-sol-green",
   updated: "bg-sol-yellow/20 text-sol-yellow",
+  awaiting: "bg-sol-yellow/20 text-sol-yellow",
   activated: "bg-sol-blue/20 text-sol-blue",
+  resumed: "bg-sol-blue/20 text-sol-blue",
   deleted: "bg-sol-red/20 text-sol-red",
 };
 

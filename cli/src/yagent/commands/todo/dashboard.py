@@ -26,7 +26,7 @@ def update_dashboard():
     two_weeks = today + timedelta(days=14)
     urgent = []
     for t in all_todos:
-        if t.get("due_date") and t["status"] in ("pending", "active"):
+        if t.get("due_date") and t["status"] in ("pending", "active", "awaiting"):
             try:
                 due = datetime.strptime(t["due_date"], "%Y-%m-%d").date()
                 if due <= two_weeks:
@@ -36,7 +36,7 @@ def update_dashboard():
     urgent.sort(key=lambda t: t["due_date"])
 
     # Important: high priority, not completed/deleted
-    important = [t for t in all_todos if t.get("priority") == "high" and t["status"] in ("pending", "active")]
+    important = [t for t in all_todos if t.get("priority") == "high" and t["status"] in ("pending", "active", "awaiting")]
 
     # Recent operations: collect from history across all todos (including completed)
     resp_completed = api_request("GET", "/api/todo/list", params={"status": "completed", "limit": 100})

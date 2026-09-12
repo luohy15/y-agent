@@ -30,7 +30,7 @@ class UpdateTodoRequest(BaseModel):
     priority: Optional[str] = None
     awaiting_chat: Optional[str] = None
     progress: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[Literal["pending", "active", "awaiting", "completed", "deleted"]] = None
     awaiting: Optional[str] = None
     awaiting_until: Optional[str] = None
 
@@ -218,7 +218,7 @@ async def update_status(req: UpdateStatusRequest, request: Request):
 
 class BulkUpdateRequest(BaseModel):
     todo_ids: List[str]
-    status: Optional[str] = None
+    status: Optional[Literal["pending", "active", "awaiting", "completed", "deleted"]] = None
     priority: Optional[str] = None
     pinned: Optional[bool] = None
 

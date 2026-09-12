@@ -88,12 +88,10 @@ def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     return detail
 
 
-def _last_assistant_text(user_id, chat_id) -> Optional[str]:
+def _assistant_text_from_entity(row) -> Optional[str]:
     from storage.repository.chat import _entity_to_chat
 
-    with get_db() as session:
-        row = session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id).first()
-        chat = _entity_to_chat(row) if row else None
+    chat = _entity_to_chat(row) if row else None
     last = next((m for m in reversed(chat.messages) if m.role == "assistant"), None) if chat else None
     return last.content if last and isinstance(last.content, str) else None
 
@@ -131,8 +129,11 @@ def _claim_fault(todo, reason) -> str:
             return None
         chat_id = chats[0].chat_id if chats else None
         outcome = (newest_record or {}).get("status") or "unknown"
-        error_text = (_last_assistant_text(user_id, chat_id)
-                      if chat_id and outcome in {"error", "timeout"} else None)
+        error_text = None
+        if chat_id and outcome in {"error", "timeout"}:
+            newest_row = session.query(ChatEntity).filter_by(
+                user_id=user_id, chat_id=chat_id).first()
+            error_text = _assistant_text_from_entity(newest_row)
         return _fault_detail(current, chat_id, outcome, error_text), chat_id
 
     try:

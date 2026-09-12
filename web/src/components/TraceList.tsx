@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
+import { statusBadgeClass } from "./badges";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
 export interface TraceListItem {
@@ -112,11 +113,7 @@ export default function TraceList({ isLoggedIn, selectedTraceId, onSelectTrace }
                   <div className="flex items-center gap-1.5 text-[0.6rem] text-sol-base01">
                     <span>{date} {time}</span>
                     {t.todo_status && (
-                      <span className={`px-1 rounded ${
-                        t.todo_status === "completed" ? "bg-sol-green/20 text-sol-green" :
-                        t.todo_status === "active" ? "bg-sol-blue/20 text-sol-blue" :
-                        "bg-sol-base02 text-sol-base01"
-                      }`}>
+                      <span className={`px-1 rounded ${statusBadgeClass(t.todo_status)}`}>
                         {t.todo_status}
                       </span>
                     )}

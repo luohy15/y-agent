@@ -3,7 +3,7 @@ import useSWR from "swr";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { API, jsonFetcher } from "../api";
-import { actionBadgeClass, awaitingBadgeClass, priorityColorClass } from "./badges";
+import { actionBadgeClass, priorityColorClass } from "./badges";
 import TagsEditor from "./TagsEditor";
 import { tagVocabularyKey, toTagSuggestions } from "./tagVocabulary";
 
@@ -31,9 +31,7 @@ export interface TodoInfo {
   due_date?: string;
   progress?: string;
   completed_at?: string;
-  awaiting?: string | null;
   awaiting_chat?: string | null;
-  awaiting_until?: string | null;
   created_at?: string;
   updated_at?: string;
   history?: TodoHistoryEntry[];
@@ -65,11 +63,11 @@ interface TraceTodoDetailProps {
   /** When provided, a plain left-click on a shared-note link calls this instead of
    *  navigating (the `href`/new-tab still works for cmd-click / right-click). */
   onOpenNote?: (note: TodoNoteInfo) => void;
-  /** Authenticated navigation to the chat holding an awaiting question. */
+  /** Authenticated navigation to the optional awaiting reply chat. */
   onSelectChat?: (chatId: string) => void;
 }
 
-const STATUS_OPTIONS = ["pending", "active", "completed", "deleted"] as const;
+const STATUS_OPTIONS = ["pending", "active", "awaiting", "completed", "deleted"] as const;
 const PRIORITY_OPTIONS = ["none", "high", "medium", "low"] as const;
 
 const inputClass = "y-field w-full text-sol-base1 rounded px-2 py-1 text-xs";
@@ -393,26 +391,21 @@ export default function TraceTodoDetail({
                 )}
               </>
             )}
-            {todoInfo.awaiting && (
+            {todoInfo.status === "awaiting" && todoInfo.awaiting_chat && (
               <>
-                <span className="text-sol-base01">Awaiting</span>
-                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                  <span className={awaitingBadgeClass(todoInfo.awaiting)}>{todoInfo.awaiting}</span>
-                  {todoInfo.awaiting === "question" && todoInfo.awaiting_chat && (
-                    onSelectChat ? (
-                      <button
-                        type="button"
-                        onClick={() => onSelectChat(todoInfo.awaiting_chat!)}
-                        className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
-                        title={`Open chat ${todoInfo.awaiting_chat}`}
-                      >
-                        {todoInfo.awaiting_chat}
-                      </button>
-                    ) : (
-                      <span className="font-mono text-sol-base0 break-all">{todoInfo.awaiting_chat}</span>
-                    )
-                  )}
-                </div>
+                <span className="text-sol-base01">Reply in</span>
+                {onSelectChat ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectChat(todoInfo.awaiting_chat!)}
+                    className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
+                    title={`Open chat ${todoInfo.awaiting_chat}`}
+                  >
+                    {todoInfo.awaiting_chat}
+                  </button>
+                ) : (
+                  <span className="font-mono text-sol-base0 break-all">{todoInfo.awaiting_chat}</span>
+                )}
               </>
             )}
             {todoInfo.created_at && (

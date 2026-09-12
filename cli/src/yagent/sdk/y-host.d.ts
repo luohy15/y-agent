@@ -413,6 +413,7 @@ declare module "@y/host" {
     due_date?: string;
     progress?: string;
     completed_at?: string;
+    awaiting_chat?: string | null;
     created_at?: string;
     updated_at?: string;
     history?: TodoHistoryEntry[];
