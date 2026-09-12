@@ -381,7 +381,7 @@ async def deliver_grant(waiter: DevReleaseWaiter, user_id: int) -> str:
 
         # A grant wakeup is a machine event, not a human reply: it never
         # auto-resumes an awaiting todo (only human-message provenance or an
-        # explicit `y todo resume` does).
+        # explicit `y todo status <id> active` does).
         acceptance = await chat_service.accept_dispatch(
             user_id, chat, grant_message(waiter),
             trace_id=waiter.trace_id, event_id=waiter.event_id,

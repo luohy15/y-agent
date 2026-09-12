@@ -271,7 +271,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     if req.resume_work is not None:
         raise HTTPException(
             status_code=400,
-            detail="resume_work is removed; use y todo resume / POST /api/todo/resume",
+            detail="resume_work is removed; use y todo status <id> active / POST /api/todo/status",
         )
 
     if not dispatch_shaped:

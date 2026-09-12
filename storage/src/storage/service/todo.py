@@ -144,14 +144,12 @@ STATUS_ACTION = {
     "pending": "deactivated", "active": "activated",
     "awaiting": "awaiting", "completed": "completed", "deleted": "deleted",
 }
-OPEN_STATUSES = {"pending", "active", "awaiting"}
-CLOSED_STATUSES = {"completed", "deleted"}
 UNPIN_STATUSES = {"pending", "completed", "deleted"}
 LEGACY_AWAITING_FIELDS = {"awaiting", "awaiting_until"}
 _RESUME_GUIDANCE = {
-    "pending": "Resume cannot activate an unstarted task; use activate",
-    "completed": "Resume cannot revive closed work; use reopen",
-    "deleted": "Resume cannot revive closed work; use reopen",
+    "pending": "Cannot auto-resume an unstarted task; use status=active",
+    "completed": "Cannot auto-resume closed work; use status=active or status=awaiting",
+    "deleted": "Cannot auto-resume closed work; use status=active or status=awaiting",
 }
 
 
@@ -159,7 +157,7 @@ def _legacy_awaiting_rejected(fields) -> None:
     if fields.keys() & LEGACY_AWAITING_FIELDS:
         raise ValueError(
             "awaiting and awaiting_until are no longer writable; "
-            "use await/resume or status=awaiting"
+            "use y todo status <id> awaiting/active or status=awaiting"
         )
 
 
@@ -195,10 +193,6 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
         if status not in STATUS_ACTION:
             raise ValueError("Invalid todo status")
         if status == "awaiting":
-            if row.status in CLOSED_STATUSES:
-                raise ValueError("Closed todos cannot await")
-            if row.status not in OPEN_STATUSES:
-                raise ValueError("Invalid todo status")
             if "awaiting_chat" not in fields:
                 fields["awaiting_chat"] = None
         elif fields.get("awaiting_chat"):
@@ -299,15 +293,17 @@ def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
         session, row, {"pinned": pinned}, action="pinned" if pinned else "unpinned"))
 
 
-def update_status(user_id: int, todo_id: str, status: str) -> Optional[Todo]:
+def update_status(
+    user_id: int, todo_id: str, status: str, chat_id: Optional[str] = None,
+) -> Optional[Todo]:
     if status not in STATUS_ACTION:
         raise ValueError("Invalid todo status")
+    if chat_id is not None and status != "awaiting":
+        raise ValueError("chat_id is only valid when status is awaiting")
 
     def apply(session, row):
-        if status == "active" and row.status == "awaiting":
-            return resume_locked(session, row)
         if status == "awaiting":
-            return _await_locked(session, row, chat_id=None)
+            return _await_locked(session, row, chat_id)
         return _transition_locked(session, row, {"status": status})
 
     todo, entered, _changed = _mutate_transition(user_id, todo_id, apply)
@@ -321,29 +317,17 @@ def _await_locked(session, row, chat_id: Optional[str], *, extra_note: Optional[
 
 
 def resume_locked(session, row) -> bool:
-    """Owner-locked awaiting-to-active transition, shared by explicit resume,
-    generic `status=active`, and human-message auto-resume (chat acceptance)."""
+    """Owner-locked awaiting-to-active helper for human-message auto-resume.
+
+    Explicit status writes use `update_status` / `_transition_locked` and allow
+    every source-to-target pair. Automatic resume stays awaiting-only so a
+    human message cannot revive pending or closed work.
+    """
     if row.status == "active":
         return False
     if row.status != "awaiting":
-        raise ValueError(_RESUME_GUIDANCE.get(row.status, "Resume requires an awaiting todo"))
+        raise ValueError(_RESUME_GUIDANCE.get(row.status, "Auto-resume requires an awaiting todo"))
     return _transition_locked(session, row, {"status": "active"})
-
-
-def await_todo(user_id: int, todo_id: str, chat_id: Optional[str] = None) -> Tuple[Optional[Todo], bool]:
-    def apply(session, row):
-        return _await_locked(session, row, chat_id)
-
-    todo, entered, changed = _mutate_transition(user_id, todo_id, apply)
-    return _maybe_notice(user_id, todo_id, todo, entered), changed
-
-
-def resume_todo(user_id: int, todo_id: str) -> Tuple[Optional[Todo], bool]:
-    def apply(session, row):
-        return resume_locked(session, row)
-
-    todo, _entered, changed = _mutate_transition(user_id, todo_id, apply)
-    return todo, changed
 
 
 def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, recheck) -> Tuple[Optional[Todo], bool]:

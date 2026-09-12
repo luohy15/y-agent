@@ -14,7 +14,7 @@ from yagent.tag_option import resolve_tags
                    '(e.g. -t cli -t "agent-config,tags"); -t "" clears all tags')
 @click.option('--progress', default=None, help='Progress note')
 def todo_update(todo_id, name, desc, due, priority, tags, progress):
-    """Update a todo. Use `y todo await` / `y todo resume` for inbox transitions."""
+    """Update a todo. Use `y todo status <id> awaiting|active` for inbox transitions."""
     body = {"todo_id": todo_id}
     if name is not None:
         body["name"] = name

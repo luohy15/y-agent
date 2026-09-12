@@ -35,10 +35,6 @@ class UpdateTodoRequest(BaseModel):
     awaiting_until: Optional[str] = None
 
 
-class TodoIdRequest(BaseModel):
-    todo_id: str
-
-
 @router.get("/list")
 async def list_todos(
     request: Request,
@@ -144,47 +140,6 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     return todo.to_dict()
 
 
-class AwaitTodoRequest(BaseModel):
-    todo_id: str
-    chat_id: Optional[str] = None
-
-
-class ResumeTodoRequest(BaseModel):
-    todo_id: str
-
-
-def _transition_payload(todo, changed: bool):
-    payload = todo.to_dict()
-    payload["changed"] = changed
-    return payload
-
-
-@router.post("/await")
-async def await_todo(req: AwaitTodoRequest, request: Request):
-    user_id = _get_user_id(request)
-    try:
-        todo, changed = await asyncio.to_thread(
-            todo_service.await_todo, user_id, req.todo_id, req.chat_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    return _transition_payload(todo, changed)
-
-
-@router.post("/resume")
-async def resume_todo(req: ResumeTodoRequest, request: Request):
-    user_id = _get_user_id(request)
-    try:
-        todo, changed = await asyncio.to_thread(todo_service.resume_todo, user_id, req.todo_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    return _transition_payload(todo, changed)
-
-
 class PinTodoRequest(BaseModel):
     todo_id: str
     pinned: bool
@@ -202,13 +157,16 @@ async def pin_todo(req: PinTodoRequest, request: Request):
 class UpdateStatusRequest(BaseModel):
     todo_id: str
     status: Literal["pending", "active", "awaiting", "completed", "deleted"]
+    chat_id: Optional[str] = None
 
 
 @router.post("/status")
 async def update_status(req: UpdateStatusRequest, request: Request):
     user_id = _get_user_id(request)
     try:
-        todo = todo_service.update_status(user_id, req.todo_id, req.status)
+        todo = await asyncio.to_thread(
+            todo_service.update_status, user_id, req.todo_id, req.status, req.chat_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not todo:

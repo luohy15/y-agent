@@ -43,8 +43,10 @@ is historical; past delivery notes remain evidence, not a second authority.
 ## Solution
 
 Make **`awaiting` a todo status meaning "needs human intervention"**,
-alongside pending, active, completed and deleted. Normal work follows
-`pending → active ↔ awaiting → completed`. Review, question and stalled are
+alongside pending, active, completed and deleted. Typical work still follows
+`pending → active ↔ awaiting → completed`, but every explicit source-to-target
+pair among the five statuses is legal, including completed/deleted to
+awaiting as one atomic reopen-to-inbox write. Review, question and stalled are
 explanations in the result / question / error record, not three persistent
 machine states. Status says who has the next action; progress, chat and note
 say what that action is.
@@ -54,10 +56,13 @@ id). One task may spread across many chats, most of them anonymous children;
 Roy handles tasks, not chats. So the inbox is not a new noun and not a new
 table. It is the existing todo list filtered on `status=awaiting`.
 
-Use `y todo await <id> [--chat <chat_id>]` and `y todo resume <id>` for the
-two transitions. Keep one optional navigation pointer, the existing
-`awaiting_chat` column, valid only while status is awaiting. It is not a
-second state, reason, ownership claim, or prerequisite for resume.
+Use `y todo status <id> <status> [--chat <chat_id>]` as the single public
+write. Target `awaiting` with optional `--chat` parks the todo in the inbox;
+target `active` continues work. Keep one optional navigation pointer, the
+existing `awaiting_chat` column, valid only while status is awaiting. It is
+not a second state, reason, ownership claim, or prerequisite for leaving
+awaiting. Dedicated `y todo await` / `y todo resume` commands and
+`POST /api/todo/await|resume` are retired.
 
 Drop the reason enum and the `external` machine-wait plus its deadline field.
 Machine waits remain `active`, not in the human inbox. Existing durable
@@ -68,8 +73,10 @@ limitation is explicit below.
 Any accepted human message in a bound non-root trace chat auto-resumes
 awaiting to active. A callback, server notice, plain dispatch or process
 start can occur while human intervention remains outstanding; only
-human-message provenance or an explicit resume operation moves awaiting to
-active. Resume changes status, not execution: no implicit chat, dispatch,
+human-message provenance or an explicit `status=active` write moves awaiting
+to active. Automatic resume is eligibility-gated: it never activates pending
+or closed work just because explicit transitions are unrestricted. Setting
+status to active changes status, not execution: no implicit chat, dispatch,
 completion, approval or publication permission, and it does not acquire a
 coordinator claim or a publication slot.
 
@@ -99,11 +106,11 @@ live work exists; enablement remains a separate rollout step.
    court, so that "needs human intervention" is a first-class status the
    system can list, not a side field or prose I have to read.
 2. As Roy, I want human verification, a question and a terminal failure to
-   share that one status, so that I have one inbox and one resume operation
-   instead of three machine reasons.
+   share that one status, so that I have one inbox and one `status=active`
+   continuation instead of three machine reasons.
 3. As Roy, I want an optional chat pointer on an awaiting todo, so that I can
    jump straight to the conversation that needs my answer, without making
-   that pointer a second state or a prerequisite for resume.
+   that pointer a second state or a prerequisite for leaving awaiting.
 4. As Roy, I want the chat pointer to be navigation only, so that clearing
    the row never depends on which chat I happened to answer in.
 5. As the trace's reporting session, I want to declare awaiting once after
@@ -121,9 +128,9 @@ live work exists; enablement remains a separate rollout step.
    trace to resume awaiting to active, so that answering is the exit action
    and I never have to clear anything by hand. An informational reply and a
    request for more work are treated the same.
-9. As Roy, I want an explicit `y todo resume` (or generic `status=active`)
-   to do the same transition without dispatching work, so that I can continue
-   in the reporting session or dispatch a later phase independently.
+9. As Roy, I want an explicit `y todo status <id> active` to do the same
+   transition without dispatching work, so that I can continue in the
+   reporting session or dispatch a later phase independently.
 10. As Roy, I want callbacks, generated notices, worker starts and
     read/unread updates never to resume an awaiting todo, so that a child
     finishing a phase, or a process starting, cannot pretend the human
@@ -215,19 +222,19 @@ live work exists; enablement remains a separate rollout step.
 ### Contract alignment
 
 37. As a reporting session, I want the three-state contract in the agent
-    configuration to name the exact commands for the two legal trace-level
-    endings (`y todo await` with optional `--chat`), so that "put the todo in
-    the inbox" is executable and not a paraphrase.
+    configuration to name the exact command for the two legal trace-level
+    endings (`y todo status <id> awaiting` with optional `--chat`), so that
+    "put the todo in the inbox" is executable and not a paraphrase.
 38. As Roy, I want the existing chat attention flag left untouched and
     unused by this feature, so that no removal migration or contract bump is
     spent on dead code here.
 39. As a leaf session, I never declare the whole trace awaiting for
     verification; my legal turn ending is the callback, so that a finished
     phase does not put the whole trace in the inbox.
-40. As the reporting session, I want to write await with a pointer to my
-    own chat when the trace ends on a decision only Roy can make, so that a
-    genuine block is not labelled as verification in the progress/note even
-    though the machine status is the same.
+40. As the reporting session, I want to write `status=awaiting` with a
+    pointer to my own chat when the trace ends on a decision only Roy can
+    make, so that a genuine block is not labelled as verification in the
+    progress/note even though the machine status is the same.
 41. As Roy, I want no API guard on which session may write awaiting for
     now, so that the correction stays in contract text until premature writes
     are shown to recur.
@@ -240,12 +247,15 @@ live work exists; enablement remains a separate rollout step.
 ### Schema
 
 `status` is the write target. Valid values are `pending`, `active`,
-`awaiting`, `completed`, `deleted`. Lifecycle is
-`pending → active ↔ awaiting → completed`, with the last step always
-performed by Roy (or explicit completion authority). Await is also allowed
-from pending so a not-yet-started task can genuinely need input. Resume
-always goes to active, never back to a remembered previous status; there is
-no previous-status column.
+`awaiting`, `completed`, `deleted`. Typical work still follows
+`pending → active ↔ awaiting → completed`, with completion always performed
+by Roy (or explicit completion authority), but every explicit pair among the
+five statuses is legal. Completed/deleted to awaiting is one atomic
+reopen-to-inbox write, not two requests. Automatic human resume and fault
+claims stay eligibility-gated: a human message or watchdog/death claim never
+activates or reopens work that is not currently awaiting (human) or active
+(fault). There is no previous-status column; leaving awaiting always goes to
+the requested target.
 
 One optional navigation column remains on the kernel `todo` table:
 
@@ -266,51 +276,59 @@ untracked tmux waits.
 ### Command and API contract
 
 ```text
-y todo await <todo_id> [--chat <same-owner-same-trace-chat>]
-y todo resume <todo_id>
+y todo status <todo_id> <pending|active|awaiting|completed|deleted> [--chat <same-owner-same-trace-chat>]
 y todo list --status awaiting
 ```
 
 | Surface | Meaning |
 |---|---|
-| `await ID [--chat CHAT]` | Move pending/active to awaiting, or replace the optional pointer on an already-awaiting todo. |
-| `resume ID` | Move awaiting to active and clear the pointer; active is an idempotent no-op. |
-| `POST /api/todo/await` | Body: public `todo_id`, optional public `chat_id`; same transition as CLI. |
-| `POST /api/todo/resume` | Body: public `todo_id` only; same transition as CLI. |
-| Status APIs and bulk changes | Accept awaiting and reuse the same transition helper; they are not a second state writer. |
+| `status ID awaiting [--chat CHAT]` | Move any current status to awaiting (including completed/deleted as one atomic reopen-to-inbox write), or replace/clear the optional pointer on an already-awaiting todo. |
+| `status ID active` | Move any current status to active and clear the pointer; identical resulting state is a no-op. |
+| `POST /api/todo/status` | Body: public `todo_id`, enum `status`, optional public `chat_id`; same transition as CLI. Keep the existing public todo response shape (no `changed` field). |
+| Generic update and bulk | Accept awaiting and reuse the same transition helper; they are not a second state writer. Bulk does not take `chat_id`. |
+| Retired | `y todo await` / `y todo resume` and `POST /api/todo/await` / `POST /api/todo/resume` are gone. Stale calls fail without mutation (CLI unknown command; HTTP 404/405). No thin aliases. |
 
-- Require an explicit todo ID; no implicit environment fallback. Await takes
-  no reason or deadline. Omitted `--chat` / `chat_id` clears an old pointer;
-  an identical resulting state is a no-op.
-- Resume on pending, completed or deleted is an explicit error with guidance
-  to activate/reopen as appropriate. It must not silently revive closed work
-  or activate an unstarted task. Await on completed/deleted is also rejected.
+- Require an explicit todo ID; no implicit environment fallback. Status
+  writes take no reason or deadline. `--chat` / `chat_id` is valid only for
+  target awaiting; a supplied non-null chat with any other target is
+  rejected before mutation (CLI before the request). API null/omitted chat
+  on other targets is harmless.
+- Omitted or null chat on target awaiting clears an old pointer, including
+  when already awaiting. Target awaiting plus a chat sets or replaces the
+  pointer. Identical resulting state is a no-op. UI same-status
+  re-select / re-drop remains no-write to preserve an existing pointer.
+- Automatic human resume still requires current `status=awaiting`; it must
+  not silently revive closed work or activate an unstarted task. Fault
+  claims still require current `status=active` plus a matching timestamp.
+  Explicit `status=active` / `status=awaiting` may reopen closed work.
 - Supplied chat must exist for the owner and have this persisted trace ID.
   No root-manager pointer inferred from dispatch metadata. Missing pointer
   still leaves todo-to-trace navigation available.
-- Generic `status=awaiting` has await semantics without a pointer; changing
-  status away from awaiting clears the pointer. Metadata-only edits do not
-  change status or erase a pointer. A repeated generic `status=awaiting`
-  write on an already-awaiting todo therefore clears an existing pointer;
-  UI writers must not issue a no-op status write on re-drop / re-select.
+- Changing status away from awaiting clears the pointer. Metadata-only
+  edits do not change status or erase a pointer. A repeated generic
+  `status=awaiting` write on an already-awaiting todo therefore clears an
+  existing pointer; UI writers must not issue a no-op status write on
+  re-drop / re-select.
 - Keep activate/deactivate/reopen/finish/delete as ordinary status
-  conveniences. `activate` on awaiting delegates to the same
-  awaiting-to-active transition, not a side path. Await/resume are the
-  canonical agent wording, not redundant required calls.
-- Await/resume preserve pin, priority, progress and tags. They do not
-  populate `completed_at`. Existing completion/reopen semantics continue;
-  the generic status side-effect code must not auto-unpin on active/awaiting
-  transitions merely because status changed.
-- New endpoints return the public todo and `changed`; CLI reports the actual
-  status/no-op. Errors apply no partial changes. The API remains
-  owner-scoped; no public integer IDs.
+  conveniences, not additional transition authorities. `activate` /
+  `reopen` remain `status=active`. The canonical agent wording is
+  `y todo status`.
+- Status writes preserve pin, priority, progress and tags except for the
+  existing unpin-on-pending/completed/deleted side effect. They do not
+  populate `completed_at` except when the target is completed; leaving
+  completed clears it. The generic status side-effect code must not
+  auto-unpin on active/awaiting transitions merely because status changed.
+- `/status` returns the public todo. CLI reports the returned current
+  status neutrally (`Todo ...: active/awaiting`) and shows the pointer when
+  present; it does not claim a mutation on a no-op. Errors apply no
+  partial changes. The API remains owner-scoped; no public integer IDs.
 - `todo update --awaiting/--awaiting-chat/--awaiting-until`, `chat
   --resume-work`, list `--awaiting`, API awaiting filters, UI `awaiting:`
-  query vocabulary and dispatch resume plumbing are removed. Old request
+  query vocabulary and dispatch resume plumbing remain removed. Old request
   keys fail clearly with no mutation (`awaiting filter is removed; use
-  status=awaiting`, `resume_work is removed; use y todo resume / POST
-  /api/todo/resume`). No permanent aliases or automatic interpretation of
-  old reason values.
+  status=awaiting`, `resume_work is removed; use y todo status <id> active /
+  POST /api/todo/status`). No permanent aliases or automatic interpretation
+  of old reason values.
 
 ### Writers and clearing
 
@@ -321,12 +339,13 @@ y todo list --status awaiting
   is validated and applied in one transaction: a rejected request applies
   nothing. Preserve todo-before-chat lock order; no detached DTO can restore
   an older status.
-- **Sessions write awaiting through `y todo await` / `POST /api/todo/await`**
-  (or generic `status=awaiting`). The API does not distinguish a reporting
-  session from a leaf: any session on the trace may still write awaiting.
-  Contract text, not the API, restricts verification-await to the reporting
-  session after the last phase. A leaf may await with its own pointer only
-  for a decision neither it nor its parent can resolve.
+- **Sessions write awaiting through `y todo status <id> awaiting [--chat]`
+  / `POST /api/todo/status`** (or generic `status=awaiting`). The API does
+  not distinguish a reporting session from a leaf: any session on the trace
+  may still write awaiting. Contract text, not the API, restricts
+  verification-await to the reporting session after the last phase. A leaf
+  may write awaiting with its own pointer only for a decision neither it
+  nor its parent can resolve.
 - **The watchdog and the worker write awaiting** through one internal
   `claim_fault` primitive that holds the todo lock, requires the expected
   todo timestamp and current `active` status, and runs a mandatory
@@ -358,8 +377,8 @@ y todo list --status awaiting
   resolved" or "push authorized".
 - **No callback / run-entry auto-resume.** Chat acceptance of a dispatch,
   generated notice, or worker start shares the locked transaction for the
-  chat write but does not call resume. `resume_work` is rejected before any
-  delivery, enqueue, or todo mutation.
+  chat write but does not call `resume_locked`. `resume_work` is rejected
+  before any delivery, enqueue, or todo mutation.
 - **Conflicting trace identity is rejected, not reconciled.** An existing
   non-root chat that receives an explicitly conflicting trace id fails before
   acceptance: the API returns 400 with no append, enqueue, or mutation; the
@@ -397,7 +416,8 @@ y todo list --status awaiting
   defaults, and demo fixture. The independent Awaiting shortcut, submenu,
   reason badge, `awaiting:` query vocabulary and reason colour palette are
   gone. Same-status re-select / re-drop sends no request. Closed todos
-  cannot be moved to awaiting from the menu or kanban.
+  can be moved to awaiting from the menu or kanban as one `/status`
+  write; that is an explicit reopen-to-inbox, not a disabled option.
 - **Awaiting is listed first in the module's status orders**, so the inbox is
   the first thing read on a row of statuses: the sidebar status shortcuts and
   the table filter row are `awaiting, pending, active, completed, all`
@@ -407,10 +427,10 @@ y todo list --status awaiting
   choice, not a contract the slices must share: the host's own
   `TraceTodoDetail` status select deliberately stays in lifecycle order
   (`pending, active, awaiting, completed, deleted`).
-- `awaiting → active` from the module routes to `POST /api/todo/resume`;
-  `* → awaiting` routes to `POST /api/todo/await` without a `chat_id`.
-  Functionally the host's generic `update_status` delegates to the same
-  helpers; the module uses the canonical surface.
+- Every changed status pair from the module, including awaiting-to-active
+  and closed-to-awaiting, routes to `POST /api/todo/status` with the target
+  enum and no `chat_id`. Same-status re-select / re-drop still sends no
+  request. The host generic update and bulk reuse the same transition.
 - Host `TraceTodoDetail` adds awaiting to the status select and deletes the
   patch key when the selected value equals the current status, so the host
   detail never issues the no-op status write that would clear a pointer.
@@ -450,7 +470,7 @@ nothing else. The chat pointer is not rendered by any writer.
 
 **The `awaiting_chat` pointer and its consumers are retained.** What was
 removed is a rendered instruction, not a column and not a navigation path.
-`y todo await --chat` still stores the pointer and echoes it, `y todo get`
+`y todo status <id> awaiting --chat` still stores the pointer and echoes it, `y todo get`
 still prints `Reply in:` when it is set, `y todo list` still carries its
 pointer column, and the host trace todo detail still renders it as a
 chat-navigation control while the viewer is authenticated and
@@ -621,50 +641,53 @@ expressed as a branch:
 `done` and `blocked` are trace-level states. Only the trace's reporting
 session declares them: a topic-bound coordinator, or any session whose
 dispatch prefix says it came from the root manager topic. That session
-writes `y todo await <id> [--chat <reporting_chat>]` after the last phase
-of the trace (implementation, review, commit, and deploy when the todo
+writes `y todo status <id> awaiting [--chat <reporting_chat>]` after the last
+phase of the trace (implementation, review, commit, and deploy when the todo
 requires it), having first recorded the actual result or question in
-progress/note. It writes `y todo resume <id>` when continuing directly
+progress/note. It writes `y todo status <id> active` when continuing directly
 after input received elsewhere, then independently dispatches if a later
-phase is needed. Dispatch and resume are separate transactions by design:
-dispatch failure leaves active because the caller took responsibility.
+phase is needed. Dispatch and status=active are separate transactions by
+design: dispatch failure leaves active because the caller took
+responsibility.
 
 A leaf never declares the whole trace ready. Its legal turn ending is the
 callback, which wakes the parent and keeps the trace live. Stopping without
-a callback is the forbidden third ending. A leaf may await with its own
-pointer (or hand the question to the parent via callback) only for a
-decision that neither it nor the parent can make.
+a callback is the forbidden third ending. A leaf may write `status=awaiting`
+with its own pointer (or hand the question to the parent via callback) only
+for a decision that neither it nor the parent can make.
 
 There is no API guard: any session on the trace can still write awaiting.
 Ownership is contract text, owned by the `hr` role. A server-side rejection
-of await from topic-less chats is out of scope unless premature writes
+of awaiting from topic-less chats is out of scope unless premature writes
 recur.
 
-The watchdog scans only `active` rows, so a premature leaf await would hide
-later silence, which is why leaves must not write it for verification.
+The watchdog scans only `active` rows, so a premature leaf awaiting write
+would hide later silence, which is why leaves must not write it for
+verification.
 This is a contract decision, not a hidden worker auto-clear.
 
 Agent configuration (`AGENTS.md`, `dev` / `impl` / `review` SKILL.md, tmux
-guidance) activated only after the S4 cutover, once the installed CLI and the
-deployed API matched. That gate has been passed: the live files now describe
-`y todo await` / `y todo resume` and the `status=awaiting` inbox, applied from
-`pages/hr-3506-awaiting-status-config.md` as home-repo commit `f71d5fb`
-(`dev` skill 9.33 → 9.34). The old `--awaiting review|none` / `--resume-work`
-surface is gone from the contract text as well as from the CLI.
+guidance) still currently describes `y todo await` / `y todo resume` as
+applied from `pages/hr-3506-awaiting-status-config.md` (home-repo commit
+`f71d5fb`, `dev` skill 9.33 → 9.34). Todo 3514 retires those commands in
+host/CLI/module first; the live-config sweep to `y todo status <id>
+awaiting|active` is a separately sequenced step (plan S4) and must not
+activate until the installed CLI and deployed API match. The old `--awaiting
+review|none` / `--resume-work` surface remains gone.
 
 ### Atomicity and notices
 
 - One owner-scoped locked transition function owns status, pointer cleanup,
-  history, completed_at and pin semantics for await/resume, ordinary status
-  APIs, human acceptance and fault claims.
-- Explicit resume and subsequent dispatch are separate transactions. It
-  self-recovers or records the final inability and awaits again; a crashed
-  caller is covered by the watchdog only when enabled. No rollback to an
-  old wait after intervening work.
+  history, completed_at and pin semantics for explicit status writes,
+  ordinary update/bulk APIs, human acceptance and fault claims.
+- Explicit `status=active` and subsequent dispatch are separate
+  transactions. It self-recovers or records the final inability and writes
+  awaiting again; a crashed caller is covered by the watchdog only when
+  enabled. No rollback to an old wait after intervening work.
 - Identical operations are idempotent, not generation-scoped requests: a
-  later explicit resume can consume a newly declared await. Do not blindly
-  replay an ambiguous request after intervening work. No generation
-  column/outbox framework is proposed for todo lifecycle.
+  later explicit `status=active` can consume a newly declared awaiting row.
+  Do not blindly replay an ambiguous request after intervening work. No
+  generation column/outbox framework is proposed for todo lifecycle.
 
 ### Migration and rollout
 
@@ -736,22 +759,27 @@ Recorded so they are not mistaken for regressions:
 Tests are local-only and untracked per repo convention.
 
 - **Awaiting status transitions** are table-driven over the service layer:
-  await from pending/active; resume to active; closed/unstarted resume
-  rejected; pointer replace vs identical no-op; generic `status=awaiting`
-  without a pointer; metadata-only edits; pin/completion semantics; bulk
-  behaviour; rejected legacy `awaiting` / `awaiting_until` / `resume_work`
-  requests.
+  all 25 explicit pairs; completed/deleted to awaiting as one atomic
+  reopen-to-inbox write; pointer replace vs omitted-chat clear vs identical
+  no-op; invalid owner/trace pointer rejected with no mutation; `--chat` /
+  `chat_id` rejected for non-awaiting targets before mutation; generic
+  `status=awaiting` without a pointer; metadata-only edits; pin/completion
+  semantics; bulk completed/deleted-to-awaiting; rejected legacy `awaiting`
+  / `awaiting_until` / `resume_work` requests. Automatic resume still
+  refuses pending/closed work.
 - **List filtering** at the service and API level: `status=awaiting` is the
   inbox; `status=active` excludes awaiting; open-work queries include
   pending/active/awaiting; unknown awaiting filter keys 400.
 - **Human auto-resume** on an accepted human message in a non-root persisted
-  trace chat, atomic with the append; rejected/rolled-back append preserves
-  awaiting; dispatch, callback and run-entry never resume; no cross-owner
-  resume.
+  trace chat, including a different same-trace chat than the pointer, atomic
+  with the append; rejected/rolled-back append preserves awaiting; dispatch,
+  callback, run-entry and root-manager messages never resume; no
+  cross-owner resume; completed/deleted human replies do not reopen.
 - **Fault claims** enter awaiting with fault text in history plus one
   notice; abstain on `recheck=None`; skip recheck on stale `updated_at_unix`
-  or non-active; never repeat. Pending waiter suppresses; granted /
-  cancelled / rejected receipts do not.
+  or non-active, including completed/deleted; never repeat and never reopen
+  closed work. Pending waiter suppresses; granted / cancelled / rejected
+  receipts do not.
 - **Resume widening** extends the existing resume tests: 429 and
   throttling-class 403 error text with no usable output resumes; permanent
   403 does not; the same with usable output (including an error line that
@@ -773,9 +801,9 @@ Tests are local-only and untracked per repo convention.
 - **Owner scoping** follows the chat-core precedent: two todos sharing a
   public id under different users, asserting every awaiting read and write
   touches only the owner's row.
-- **Web / module** unit tests cover status shortcuts, kanban, closed-todo
-  refusal, same-status no-write, and await/resume routing against fixture
-  rows; no browser-driven runtime check by default.
+- **Web / module** unit tests cover status shortcuts, kanban, enabled
+  closed-to-awaiting options, same-status no-write, and `/status`-only
+  routing against fixture rows; no browser-driven runtime check by default.
 - **Verification isolation is mandatory.** Every Python verification sets
   the database URL environment variables before application imports and
   installs a fail-closed SQLAlchemy connection guard: mocked suites permit
@@ -861,3 +889,4 @@ Tests are local-only and untracked per repo convention.
 | 3484 | Opt-in `resume_work` dispatch (`y chat --resume-work`) clears stale `awaiting=review` atomically on existing-chat accept and fresh-chat insert; default behavior unchanged; explicit `--awaiting none` remains mandatory pending rollout | - | `pages/plan-3484-awaiting-reset.md` | - | `pages/review-3484-awaiting-reset.md` | deployed `d7f9ce381828a9e51c7366f906a680ca408a0192` on baseline `b2564051c31a2a2dd0227ca5e2507908e429ab30`; user-authorized publication of todo 3484 only, Actions run `34649539981` succeeded. 45 isolated tests independently passed, no blocking findings; installed CLI help and production rejection-path smoke passed. S8 workflow active locally: `pages/hr-3484-awaiting-reset-s8.md`; explicit awaiting-none remains mandatory on every real reopen, with resume-work required for reopened-work dispatches. Impl: `pages/impl-3484-awaiting-reset.md`. Final evidence: `pages/delivery-3484-awaiting-reset.md`. Worktree removed, release register closed; ready for user verification. Tests and this pre-existing untracked PRD remain local-only; home config edits uncommitted/unpushed. |
 | 3495 | One owner Telegram DM when a todo newly enters `question` or `review`, deduplicated by reason transition; pointer-only / progress-only / clear stay silent | - | `pages/plan-3495-awaiting-telegram-notice.md` | - | `pages/review-3495-awaiting-telegram-notice.md` | shipped in two rounds. Iteration 1 `87de0af` to main/production (deploy run 34650644904, success); iteration 2 `9573887` (deploy run 34651796247, success) trimmed the message to its essential lines after the owner received a real notice and asked for the finish hint and the trace link to be dropped. Final shape: `review` is header plus todo name, `question` additionally keeps its answer-chat pointer because the chat id is not derivable from the todo id. The `template.yaml` API-function `Y_AGENT_WEB_URL` assignment is retained but is now unused by the API (the CLI reads that variable from its own environment); removing it is optional cleanup, reported not done. Review approved round 1, no blocking findings. Iteration 2 (user trim of the v1 DM): drop the review finish hint and the `/trace/<id>` link; keep the question `awaiting_chat` pointer. `Y_AGENT_WEB_URL` SAM/AGENTS wiring stays because `y login` still reads it. |
 | 3506 | `awaiting` is a todo **status** (`pending → active ↔ awaiting → completed`) meaning "needs human intervention"; `y todo await <id> [--chat]` / `y todo resume <id>` + `POST /api/todo/await|resume` are the two transitions, inbox is `status=awaiting`, reason enum, `external` and all `--awaiting*` / `--resume-work` write flags removed, optional navigation-only `awaiting_chat` kept, human message in a bound trace chat auto-resumes, watchdog/death claim faults active→awaiting through one locked `claim_fault`, dev_release parks replaced by pending-waiter evidence, todo module UI and host projections on the status model, cyan awaiting hue on both sides | - | `pages/plan-3506.md` | - | `pages/review-3506-awaiting-status.md` (rounds 1-9, all slices approved) | shipped and deployed. Host `8b4fa54` (six 3506 commits, S1-S5, on a `74279e9`-rooted main) plus the notice trim `93da425` (Actions run 34666533639); cutover SQL applied per `pages/migration-3506-todo-awaiting-status.md`. Todo module published through **v20** (v18 the status model, v19 Awaiting first in the status filter row, v20 Awaiting first in the right-click status options); rollback one step `y module activate todo 19`, rollback the whole filter/menu reordering `y module activate todo 18`. S5 agent config applied to AGENTS.md and the dev (9.34) / impl / review skills, committed locally in the home repo as `f71d5fb`, unpushed. Iterative user adjustments after the first deploy: awaiting-first ordering in the status filter row and in the context-menu status options, and removal of the trailing answer-in-chat instruction from awaiting Telegram notices (`pages/impl-3506-awaiting-notice-trim.md`); the underlying `awaiting_chat` pointer and its navigation consumers are retained. Release registers `pages/release-owner-luohy15-y-module.md` (created here) and `pages/release-owner-luohy15-y-agent.md` both closed `DONE`; all worktrees removed. Incident context for the deploy-time worker pause: `pages/audit-3506-worker-sqs-consumption.md`. Requirement prose reconciled against shipped behaviour in a later docs commit on this file: the notice-wording section now records the unconditional removal of the reply instruction plus its two-step history, the module awaiting-first ordering is stated with the host select deliberately left in lifecycle order, and the S4 agent-config activation is recorded as done. Open: y-module `main` still carries unpushed commits across several traces; the `CheckTraceLivenessSchedule` watchdog rule is still deployed disabled |
+| 3514 | Unify status writes: every explicit source-to-target pair is legal, including completed/deleted to awaiting as one atomic reopen-to-inbox write; retire dedicated await/resume CLI and REST; pointer replace/clear stays on `/status`; `--chat` valid only for target awaiting | - | `pages/plan-3514-todo-status-unify.md` | - | - | in progress: host S1/S2/S5/S6 implemented in worktree `todo-status-3514`; module UI (S3) and live-config sweep (S4) sequenced separately |
