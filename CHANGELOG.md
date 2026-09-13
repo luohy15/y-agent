@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Awaiting as a first-class todo status (3506)**: `awaiting` transitions
+  (owner-locked liveness/fault claims, human-reply auto-resume in the accept
+  transaction) now live directly on todo status, with host list/detail
+  projections, open-work filters, and a cyan status badge.
+- **Opt-in compact tool-output snapshots (3515)**: `GET /api/chat/messages`
+  and `/messages/snapshot` accept `tool_content_limit=<n>` to truncate large
+  `role="tool"` results, with a new `GET /api/chat/messages/content` route to
+  fetch the full result for one `tool_call_id` on demand; `y chat --wait`
+  polls at a 4096-char limit and resolves a truncated last tool message in
+  full before printing.
 - **Atomic publication ownership and authorized waiter queue (3493)**: one
   persistent release slot per canonical repository serializes publication across
   worktrees. Authorized coordinators can acquire or enter a durable FIFO, with
@@ -41,12 +51,21 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   contract bumped to v15 so modules can read a tag's note creation time.
 
 ### Changed
+- **Todo await/resume unified into status (3514)**: every explicit
+  source/target status transition is now legal through the single
+  `update_status` writer; the dedicated `await_todo`/`resume_todo` wrappers,
+  the `/api/todo/await` + `/api/todo/resume` routes, and the `y todo
+  await`/`y todo resume` CLI commands were removed in favor of `y todo
+  status <id> awaiting|active`.
 - **Telegram delivery retired to manager-DM only (3468)**: dropped the forum
   group and per-topic `tg_topic` binding surface; only the manager-topic
   session gets automatic Telegram delivery (final replies, pre-run mirrors,
   immediate image attachments).
 
 ### Fixed
+- **Awaiting notices drop the reply-in-chat hint (3506)**: fault and
+  awaiting notice text no longer tells the owner to answer inside a chat
+  that may already be dead.
 - **Completed worker turns no longer replay (3496)**: detached process recovery
   preserves completed-turn state so a finished user message is not run again.
 - **CLI surfaces API error detail instead of traceback (3467)**: `api_request`
