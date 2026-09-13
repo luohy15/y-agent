@@ -13,12 +13,13 @@ from loguru import logger
 
 from storage.repository import model_usage_hourly as repo
 from storage.service.model_usage_daily import (
-    _BROWSER_UA,
     _aggregate_basis,
-    _crs_key_basis,
     _crs_targets,
     _derive_provider,
     _local_today,
+    _run_bounded,
+    new_http_client,
+    resolve_key_basis,
 )
 from storage.util import get_utc_iso8601_timestamp, local_today
 
@@ -67,12 +68,12 @@ def default_hourly_dates() -> list[str]:
 
 # --- CRS pull ---------------------------------------------------------------
 
-def _fetch_crs_key_hourly(origin: str, api_key: str, usage_date: str) -> list[dict]:
+def _fetch_crs_key_hourly(client: httpx.Client, origin: str, api_key: str, usage_date: str) -> list[dict]:
     """Per-model hourly items for one CRS key on one local date (raises on error)."""
-    resp = httpx.post(
+    resp = client.post(
         f"{origin}/apiStats/api/user-model-stats",
         json={"apiKey": api_key, "period": "hourly", "date": usage_date},
-        headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
+        headers={"Content-Type": "application/json"},
         timeout=30,
     )
     resp.raise_for_status()
@@ -103,10 +104,26 @@ def sync_crs_hourly(
     user_id: int,
     dates: list[str] | None = None,
     synced_at: str | None = None,
+    *,
+    client: httpx.Client | None = None,
+    key_basis: dict[tuple[str, str], str] | None = None,
+    targets: list[tuple[str, str]] | None = None,
+    fetched: dict[tuple[str, str, str], list[dict]] | None = None,
 ) -> dict:
     """Pull per-model hourly usage across all distinct CRS keys for each date,
-    SUM per (model, hour), and upsert as source='crs' scope='aggregate' rows."""
-    targets = _crs_targets(user_id)
+    SUM per (model, hour), and upsert as source='crs' scope='aggregate' rows.
+
+    `client` / `key_basis` / `targets` let `sync()` share one connection-pooled
+    client, one already-resolved basis map, and one target enumeration with
+    the daily grain of the same call; a standalone caller (tests, the CLI
+    `backfill --hourly-days`) that omits them gets an owned client and
+    resolves its own basis exactly as before. `fetched` additionally lets
+    `sync()` submit this grain's (date, key) reads into one merged bounded
+    batch alongside basis and daily reads instead of a separate wave; a
+    standalone caller that omits it still fetches (with the same bounded
+    concurrency) on its own.
+    """
+    targets = targets if targets is not None else _crs_targets(user_id)
     if not targets:
         return {
             "source": "crs-hourly",
@@ -119,29 +136,39 @@ def sync_crs_hourly(
     if not date_list:
         return {"source": "crs-hourly", "status": "ok", "rows": 0, "dates": []}
 
-    # (model, hour, usage_date) -> summed totals across every distinct key.
-    agg: dict[tuple[str, int, str], dict] = {}
-    agg_basis: dict[tuple[str, int, str], set] = {}
-    # Resolve cost basis once per key for the whole multi-date run.
-    key_basis = {(origin, api_key): _crs_key_basis(origin, api_key) for origin, api_key in targets}
+    owns_client = client is None
+    client = client or new_http_client()
+    try:
+        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets)
 
-    for usage_date in date_list:
-        for origin, api_key in targets:
-            basis = key_basis[(origin, api_key)]
-            try:
-                items = _fetch_crs_key_hourly(origin, api_key, usage_date)
-            except Exception as e:
-                logger.exception(
-                    "sync_crs_hourly: fetch failed for a key on {}: {}", usage_date, e,
+        # Every (date, target) pull is independent; run them with bounded
+        # concurrency and check failures in the original nested-loop order
+        # below so a failing key aborts deterministically with no
+        # partial-grain upsert, same as the prior sequential fail-fast loop.
+        pairs = [(usage_date, origin, api_key) for usage_date in date_list for origin, api_key in targets]
+        if fetched is None:
+            fetch_work = {pair: (lambda p=pair: _fetch_crs_key_hourly(client, p[1], p[2], p[0])) for pair in pairs}
+            fetched = _run_bounded(fetch_work)
+        for pair in pairs:
+            result = fetched[pair]
+            if isinstance(result, Exception):
+                logger.opt(exception=result).error(
+                    "sync_crs_hourly: fetch failed for a key on {}: {}", pair[0], result,
                 )
                 return {
                     "source": "crs-hourly",
                     "status": "error",
-                    "reason": str(e),
+                    "reason": str(result),
                     "rows": 0,
                     "dates": date_list,
                 }
-            for item in items:
+
+        # (model, hour, usage_date) -> summed totals across every distinct key.
+        agg: dict[tuple[str, int, str], dict] = {}
+        agg_basis: dict[tuple[str, int, str], set] = {}
+        for usage_date, origin, api_key in pairs:
+            basis = basis_map.get((origin, api_key), "real")
+            for item in fetched[(usage_date, origin, api_key)]:
                 hour = _item_hour(item)
                 if hour is None:
                     continue
@@ -161,6 +188,9 @@ def sync_crs_hourly(
                 row["all_tokens"] += item.get("allTokens") or 0
                 row["requests"] += item.get("requests") or 0
                 row["cost"] += costs.get("real", costs.get("total", 0.0)) or 0.0
+    finally:
+        if owns_client:
+            client.close()
 
     rows = [{
         "usage_date": day,

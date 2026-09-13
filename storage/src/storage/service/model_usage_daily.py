@@ -10,6 +10,7 @@ One source in scope:
   invisible impl detail — no per-key rows). Today-only (no history); we pull daily.
 """
 
+import concurrent.futures
 import os
 from datetime import date, timedelta
 from urllib.parse import urlsplit
@@ -27,6 +28,38 @@ _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120 Safari/537.36"
 )
+
+# Independent per-key CRS reads (basis lookups, daily/hourly stat pulls) run
+# concurrently up to this bound, sharing one connection-pooled client per
+# sync() call instead of one fresh connection per request (todo 3520).
+_MAX_CONCURRENT_SOURCE_READS = 4
+
+
+def new_http_client(timeout: float = 30) -> httpx.Client:
+    """One pooled client for every CRS request in a sync() call (daily +
+    hourly), reusing TCP/TLS connections per origin instead of dialing fresh
+    for each of the historically ~15 sequential requests."""
+    return httpx.Client(headers={"User-Agent": _BROWSER_UA}, timeout=timeout)
+
+
+def _run_bounded(work: dict) -> dict:
+    """Run each zero-arg callable in `work` (keyed by whatever the caller
+    wants to look results up by) with bounded concurrency, returning a dict
+    of the same keys to either the result or the raised exception (never
+    re-raised here, so callers can apply their own fixed-order fail-fast
+    policy after every independent read has settled)."""
+    if not work:
+        return {}
+    max_workers = min(_MAX_CONCURRENT_SOURCE_READS, len(work))
+    results: dict = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(fn): key for key, fn in work.items()}
+        for future, key in futures.items():
+            try:
+                results[key] = future.result()
+            except Exception as e:  # noqa: BLE001 - surfaced to caller, not swallowed
+                results[key] = e
+    return results
 
 
 # --- thin storage passthroughs ---------------------------------------------
@@ -133,19 +166,19 @@ def _crs_targets(user_id: int) -> list[tuple[str, str]]:
     return out
 
 
-def _fetch_crs_key(origin: str, api_key: str) -> list[dict]:
+def _fetch_crs_key(client: httpx.Client, origin: str, api_key: str) -> list[dict]:
     """Today's per-model items for one CRS key (raises on transport/HTTP error)."""
-    resp = httpx.post(
+    resp = client.post(
         f"{origin}/apiStats/api/user-model-stats",
         json={"apiKey": api_key, "period": "daily"},
-        headers={"Content-Type": "application/json", "User-Agent": _BROWSER_UA},
+        headers={"Content-Type": "application/json"},
         timeout=30,
     )
     resp.raise_for_status()
     return resp.json().get("data") or []
 
 
-def _crs_key_basis(origin: str, api_key: str) -> str:
+def _crs_key_basis(client: httpx.Client, origin: str, api_key: str) -> str:
     """Whether a relay key rides a flat-fee subscription (`notional` list-price
     cost) or pay-per-token billing (`real`). The relay exposes each key's name
     at GET {origin}/openai/key-info; the y-agent subscription key is literally
@@ -153,9 +186,9 @@ def _crs_key_basis(origin: str, api_key: str) -> str:
     dollars charged. Failures and any non-subscription name default to `real`
     (conservative: never downgrade a spend figure to notional on uncertainty)."""
     try:
-        resp = httpx.get(
+        resp = client.get(
             f"{origin}/openai/key-info",
-            headers={"x-api-key": api_key, "User-Agent": _BROWSER_UA},
+            headers={"x-api-key": api_key},
             timeout=15,
         )
         resp.raise_for_status()
@@ -166,6 +199,18 @@ def _crs_key_basis(origin: str, api_key: str) -> str:
     return "notional" if name.strip().lower() == "subscription" else "real"
 
 
+def resolve_key_basis(client: httpx.Client, targets: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """One basis lookup per distinct (origin, api_key), bounded concurrency,
+    computed once and shared across the daily + hourly grains of the same
+    sync() call instead of each grain re-resolving every key's basis.
+    `_crs_key_basis` already defaults to "real" on its own failures, so
+    nothing here can raise."""
+    if not targets:
+        return {}
+    work = {target: (lambda t=target: _crs_key_basis(client, *t)) for target in targets}
+    return _run_bounded(work)
+
+
 def _aggregate_basis(bases: set[str]) -> str:
     """Roll a per-model set of contributing key bases into one label: `notional`
     only when every contributing key is subscription-backed, else `real` (a
@@ -173,38 +218,72 @@ def _aggregate_basis(bases: set[str]) -> str:
     return "notional" if bases == {"notional"} else "real"
 
 
-def sync_crs(user_id: int, synced_at: str | None = None) -> dict:
+def sync_crs(
+    user_id: int,
+    synced_at: str | None = None,
+    *,
+    client: httpx.Client | None = None,
+    key_basis: dict[tuple[str, str], str] | None = None,
+    targets: list[tuple[str, str]] | None = None,
+    fetched: dict[tuple[str, str], list[dict]] | None = None,
+) -> dict:
     """Pull today's per-model usage across all distinct CRS keys, SUM per model, and
-    upsert as global source='crs' scope='aggregate' rows (one row per model)."""
-    targets = _crs_targets(user_id)
+    upsert as global source='crs' scope='aggregate' rows (one row per model).
+
+    `client` / `key_basis` / `targets` let `sync()` share one connection-pooled
+    client, one already-resolved basis map, and one target enumeration across
+    the daily + hourly grains of a single sync() call; a standalone caller
+    (tests, CLI) that omits them gets an owned client and resolves its own
+    basis exactly as before. `fetched` additionally lets `sync()` submit this
+    grain's per-key reads into one merged bounded batch alongside basis and
+    hourly reads instead of a separate wave; a standalone caller that omits it
+    still fetches (with the same bounded concurrency) on its own.
+    """
+    targets = targets if targets is not None else _crs_targets(user_id)
     if not targets:
         return {"source": "crs", "status": "skip", "reason": "no cr_ keys in bot_configs", "rows": 0}
 
-    # model -> summed totals across every distinct key (the global per-model aggregate).
-    agg: dict[str, dict] = {}
-    agg_basis: dict[str, set] = {}
-    for origin, api_key in targets:
-        basis = _crs_key_basis(origin, api_key)
-        try:
-            items = _fetch_crs_key(origin, api_key)
-        except Exception as e:
-            logger.exception("sync_crs: fetch failed for a key: {}", e)
-            return {"source": "crs", "status": "error", "reason": str(e), "rows": 0}
-        for item in items:
-            model = item.get("model") or "*"
-            costs = item.get("costs") or {}
-            agg_basis.setdefault(model, set()).add(basis)
-            row = agg.setdefault(model, {
-                "input_tokens": 0, "output_tokens": 0, "cache_create_tokens": 0,
-                "cache_read_tokens": 0, "all_tokens": 0, "requests": 0, "cost": 0.0,
-            })
-            row["input_tokens"] += item.get("inputTokens") or 0
-            row["output_tokens"] += item.get("outputTokens") or 0
-            row["cache_create_tokens"] += item.get("cacheCreateTokens") or 0
-            row["cache_read_tokens"] += item.get("cacheReadTokens") or 0
-            row["all_tokens"] += item.get("allTokens") or 0
-            row["requests"] += item.get("requests") or 0
-            row["cost"] += costs.get("real", costs.get("total", 0.0)) or 0.0
+    owns_client = client is None
+    client = client or new_http_client()
+    try:
+        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets)
+
+        # Independent per-key reads run with bounded concurrency; failures are
+        # collected and checked in original target order below so a failing
+        # key aborts the sync deterministically, same as the prior sequential
+        # fail-fast loop (no partial-grain upsert on any key's failure).
+        if fetched is None:
+            fetch_work = {target: (lambda t=target: _fetch_crs_key(client, *t)) for target in targets}
+            fetched = _run_bounded(fetch_work)
+        for target in targets:
+            result = fetched[target]
+            if isinstance(result, Exception):
+                logger.opt(exception=result).error("sync_crs: fetch failed for a key: {}", result)
+                return {"source": "crs", "status": "error", "reason": str(result), "rows": 0}
+
+        # model -> summed totals across every distinct key (the global per-model aggregate).
+        agg: dict[str, dict] = {}
+        agg_basis: dict[str, set] = {}
+        for target in targets:
+            basis = basis_map.get(target, "real")
+            for item in fetched[target]:
+                model = item.get("model") or "*"
+                costs = item.get("costs") or {}
+                agg_basis.setdefault(model, set()).add(basis)
+                row = agg.setdefault(model, {
+                    "input_tokens": 0, "output_tokens": 0, "cache_create_tokens": 0,
+                    "cache_read_tokens": 0, "all_tokens": 0, "requests": 0, "cost": 0.0,
+                })
+                row["input_tokens"] += item.get("inputTokens") or 0
+                row["output_tokens"] += item.get("outputTokens") or 0
+                row["cache_create_tokens"] += item.get("cacheCreateTokens") or 0
+                row["cache_read_tokens"] += item.get("cacheReadTokens") or 0
+                row["all_tokens"] += item.get("allTokens") or 0
+                row["requests"] += item.get("requests") or 0
+                row["cost"] += costs.get("real", costs.get("total", 0.0)) or 0.0
+    finally:
+        if owns_client:
+            client.close()
 
     usage_date = _local_today()
     rows = [{
@@ -371,14 +450,46 @@ def sync(user_id: int, source: str | None = None) -> dict:
     When CRS is enabled, also pulls hourly for [yesterday, today] into
     model_usage_hourly (todo 3165). Daily-only filtering is still available
     via the same `source` switch — there is no separate hourly source value.
+
+    Completes synchronously after both grains persist (no background
+    enqueue). Basis lookups, the daily grain's per-key fetch, and the hourly
+    grain's per-(date, key) fetch are all independent of each other (basis is
+    only consumed at aggregation time), so they are submitted into one merged
+    bounded batch here instead of three sequential bounded waves (todo 3520
+    review round 1): resolving basis, then fetching daily, then fetching
+    hourly one after another cost roughly a full extra wave of upstream
+    latency for no semantic benefit. Each grain still checks and aggregates
+    only its own fetch results afterwards, so a failing daily key cannot
+    block the hourly upsert (or vice versa) — same per-grain independence as
+    before, just resolved from one shared batch instead of three.
     """
     synced_at = get_utc_iso8601_timestamp()
     results = []
     if source in (None, "crs"):
-        results.append(sync_crs(user_id, synced_at))
-        # Hourly runs in the same envelope so CLI/API/worker all report both
-        # grains from one call. Import lazily to avoid a circular import at
-        # module load (hourly imports daily helpers for key/basis).
+        # Import lazily to avoid a circular import at module load (hourly
+        # imports daily helpers for key/basis).
         from storage.service import model_usage_hourly as hourly_service
-        results.append(hourly_service.sync_crs_hourly(user_id, synced_at=synced_at))
+
+        targets = _crs_targets(user_id)
+        date_list = hourly_service.default_hourly_dates()
+        with new_http_client() as client:
+            basis_work = {("basis", *t): (lambda t=t: _crs_key_basis(client, *t)) for t in targets}
+            daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
+            hourly_work = {
+                ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))
+                for d in date_list for t in targets
+            }
+            settled = _run_bounded({**basis_work, **daily_work, **hourly_work})
+
+            key_basis = {t: settled[("basis", *t)] for t in targets}
+            daily_fetched = {t: settled[("daily", *t)] for t in targets}
+            hourly_fetched = {(d, *t): settled[("hourly", d, *t)] for d in date_list for t in targets}
+
+            results.append(sync_crs(
+                user_id, synced_at, client=client, key_basis=key_basis, targets=targets, fetched=daily_fetched,
+            ))
+            results.append(hourly_service.sync_crs_hourly(
+                user_id, dates=date_list, synced_at=synced_at, client=client,
+                key_basis=key_basis, targets=targets, fetched=hourly_fetched,
+            ))
     return {"status": "ok", "results": results}
