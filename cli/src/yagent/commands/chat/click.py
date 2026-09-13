@@ -9,6 +9,7 @@ from yagent.api_client import api_request
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
+from yagent.time_util import utc_to_local
 from yagent.util.images import stage_image_path
 from yagent.commands.module._local import import_local_cli
 from yagent.commands.module._paths import source_dir
@@ -175,6 +176,22 @@ def _wait_for_reply(chat_id: str, timeout: int):
         time.sleep(2)
 
 
+def _resume_candidate_note(trace_id: Optional[str], candidate: dict) -> str:
+    updated_at = candidate.get("updated_at") or "unknown"
+    if updated_at != "unknown":
+        try:
+            updated_at = utc_to_local(updated_at)
+        except (TypeError, ValueError):
+            pass
+    return (
+        f"note: trace {trace_id} has a possible resume target: chat {candidate.get('chat_id')} "
+        f"(skill={candidate.get('skill')}, work_dir={candidate.get('work_dir')}, "
+        f"last activity {updated_at}). It may already be retired or handed off; "
+        f"the system cannot tell. Resume with --chat-id {candidate.get('chat_id')}, "
+        "or pass --fresh to suppress this note."
+    )
+
+
 def _fire_and_forget(
     message: str,
     images: tuple[str, ...],
@@ -184,6 +201,7 @@ def _fire_and_forget(
     work_dir: Optional[str],
     trace_id: Optional[str],
     force_new: bool,
+    fresh: bool,
     from_topic: str,
     from_chat_id: Optional[str],
     bot: Optional[str],
@@ -205,6 +223,8 @@ def _fire_and_forget(
         "force_new": force_new,
         "from_topic": from_topic,
     }
+    if fresh:
+        payload["fresh"] = True
     if images:
         payload["images"] = [stage_image_path(image) for image in images]
     if topic:
@@ -228,6 +248,9 @@ def _fire_and_forget(
     try:
         resp = api_request("POST", "/api/chat/message", json=payload)
         data = resp.json()
+        candidate = data.get("resume_candidate")
+        if candidate and not fresh:
+            click.echo(_resume_candidate_note(trace_id, candidate), err=True)
         if wait:
             _wait_for_reply(data["chat_id"], wait_timeout)
         else:
@@ -325,6 +348,7 @@ def _interactive(
 @click.option('--work-dir', default=None, help='Working directory for the chat')
 @click.option('--trace-id', default=None, help='Trace ID')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
+@click.option('--fresh', is_flag=True, help='Suppress the possible same-trace resume-target lookup and note')
 @click.option('--from-topic', default='manager', help='Caller topic name (default: manager)')
 @click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
@@ -347,6 +371,7 @@ def chat_group(
     work_dir: Optional[str],
     trace_id: Optional[str],
     force_new: bool,
+    fresh: bool,
     from_topic: str,
     from_chat_id: Optional[str],
     wait: bool,
@@ -399,6 +424,7 @@ def chat_group(
             work_dir=work_dir,
             trace_id=trace_id,
             force_new=force_new,
+            fresh=fresh,
             from_topic=from_topic,
             from_chat_id=from_chat_id,
             bot=bot,

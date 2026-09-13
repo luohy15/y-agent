@@ -70,6 +70,7 @@ class SendMessageRequest(BaseModel):
     from_topic: Optional[str] = None
     from_chat_id: Optional[str] = None
     force_new: Optional[bool] = False
+    fresh: Optional[bool] = False
     resume_work: Optional[bool] = None
 
 
@@ -77,6 +78,7 @@ class SendMessageResponse(BaseModel):
     ok: bool = True
     chat_id: str
     trace_id: Optional[str] = None
+    resume_candidate: Optional[dict] = None
 
 
 class StopChatRequest(BaseModel):
@@ -362,6 +364,18 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         )
         return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
 
+    resume_candidate = None
+    if not req.fresh:
+        try:
+            resume_candidate = chat_service.find_resume_candidate(
+                user_id, req.trace_id, skill, work_dir,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Resume-candidate advisory failed for trace_id={} skill={}: {}",
+                req.trace_id, skill, exc,
+            )
+
     # create_chat mints + inserts with race retry; rebuild the message so
     # to_chat: matches the final id.
     def build(new_id: str):
@@ -395,7 +409,11 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill)
 
-    return SendMessageResponse(chat_id=chat_id, trace_id=req.trace_id)
+    return SendMessageResponse(
+        chat_id=chat_id,
+        trace_id=req.trace_id,
+        resume_candidate=resume_candidate,
+    )
 
 
 @router.post("/attach-image")

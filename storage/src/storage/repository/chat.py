@@ -1,11 +1,11 @@
 """Chat repository using SQLAlchemy ORM."""
 
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from loguru import logger
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer
 
@@ -79,6 +79,15 @@ class ChatSummary:
     status: str = "idle"
     unread: bool = False
     needs_attention: bool = False
+
+
+@dataclass
+class ResumeCandidateRow:
+    chat: Chat
+    topic: Optional[str]
+    status: str
+    updated_at: str
+    updated_at_unix: int
 
 
 def _entity_to_chat(entity: ChatEntity) -> Chat:
@@ -680,7 +689,6 @@ def stop_orphan_running_chat(user_id: int, chat_id: str, cutoff_unix: int, is_li
 
 def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str = None) -> list:
     """List distinct trace_ids, ordered by most recently updated."""
-    from sqlalchemy import func
     with get_db() as session:
         q = (session.query(
                 ChatEntity.trace_id,
@@ -734,6 +742,86 @@ def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
         return (session.query(ChatEntity)
                 .filter_by(user_id=user_id, bot_name=old_name)
                 .update({"bot_name": new_name}))
+
+
+def find_resume_candidate_row(
+    user_id: int,
+    trace_id: str,
+    skill: str,
+    eligible: Callable[[Chat, Optional[str]], bool],
+    *,
+    limit: int,
+    max_json_chars: int,
+) -> Optional[ResumeCandidateRow]:
+    """Return the first eligible row inside a bounded newest-first window.
+
+    Each body SELECT enforces the remaining character budget against its current
+    row version, and the actual returned length is accounted before hydration.
+    Eligibility is checked before the next row is read. Exhausting either budget
+    intentionally returns no candidate rather than delaying the dispatch.
+    """
+    if limit <= 0 or max_json_chars <= 0:
+        return None
+    with get_db() as session:
+        metadata_rows = (session.query(
+                    ChatEntity.id,
+                    ChatEntity.topic,
+                    ChatEntity.status,
+                    ChatEntity.updated_at,
+                    ChatEntity.updated_at_unix,
+                    ChatEntity.external_id,
+                    ChatEntity.trace_id,
+                    ChatEntity.backend,
+                    ChatEntity.bot_name,
+                    ChatEntity.tier,
+                    ChatEntity.skill,
+                    ChatEntity.routine_id,
+                    func.length(ChatEntity.json_content).label("json_chars"),
+                )
+                .filter_by(user_id=user_id, trace_id=trace_id, skill=skill)
+                .filter(ChatEntity.status != "running")
+                .order_by(ChatEntity.updated_at_unix.desc(), ChatEntity.id.desc())
+                .limit(limit)
+                .all())
+        hydrated_json_chars = 0
+        for metadata in metadata_rows:
+            json_chars = metadata.json_chars or 0
+            if hydrated_json_chars + json_chars > max_json_chars:
+                return None
+            remaining_json_chars = max_json_chars - hydrated_json_chars
+            body = (session.query(ChatEntity.json_content)
+                    .filter_by(id=metadata.id)
+                    .filter(func.length(ChatEntity.json_content) <= remaining_json_chars)
+                    .first())
+            if body is None:
+                return None
+            json_content = body.json_content
+            actual_json_chars = len(json_content)
+            if actual_json_chars > remaining_json_chars:
+                return None
+            row = ChatEntity(
+                id=metadata.id,
+                topic=metadata.topic,
+                external_id=metadata.external_id,
+                trace_id=metadata.trace_id,
+                backend=metadata.backend,
+                bot_name=metadata.bot_name,
+                tier=metadata.tier,
+                skill=metadata.skill,
+                routine_id=metadata.routine_id,
+                json_content=json_content,
+            )
+            chat = _entity_to_chat(row)
+            hydrated_json_chars += actual_json_chars
+            if eligible(chat, metadata.topic):
+                return ResumeCandidateRow(
+                    chat=chat,
+                    topic=metadata.topic,
+                    status=metadata.status or "idle",
+                    updated_at=metadata.updated_at or "",
+                    updated_at_unix=metadata.updated_at_unix or 0,
+                )
+        return None
 
 
 def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Optional[Chat]:
@@ -845,7 +933,7 @@ def find_latest_chat_by_trace_id(user_id: int, trace_id: str) -> Optional[Chat]:
 
 def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
     """Return {trace_id: {"has_running": bool, "has_unread": bool}} for given trace_ids."""
-    from sqlalchemy import func, case
+    from sqlalchemy import case
     if not trace_ids:
         return {}
     with get_db() as session:

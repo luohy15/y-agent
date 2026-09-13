@@ -51,6 +51,18 @@ def get_worktree_by_name(user_id: int, name: str) -> Optional[DevWorktree]:
         return None
 
 
+def find_active_worktree_by_path(user_id: int, path: str) -> Optional[DevWorktree]:
+    with get_db() as session:
+        row = session.query(DevWorktreeEntity).filter_by(
+            user_id=user_id,
+            worktree_path=path,
+            status="active",
+        ).first()
+        if row:
+            return _entity_to_dto(row)
+        return None
+
+
 def save_worktree(user_id: int, worktree: DevWorktree) -> DevWorktree:
     with get_db() as session:
         entity = session.query(DevWorktreeEntity).filter_by(user_id=user_id, worktree_id=worktree.worktree_id).first()

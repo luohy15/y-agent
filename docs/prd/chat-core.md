@@ -194,6 +194,13 @@ mode (`-i`) serves a human at a terminal.
 29. As an agent session, I want `--new` to force a fresh chat even when the
     topic has an existing one, so that a new trace never leaks into an old
     chat's history.
+29a. As an agent session creating a phase chat, I want `y chat` to note a
+     possible non-running resume target when the same trace, skill, and live
+     registered worktree already have one, so that I can avoid an accidental
+     duplicate.
+     The note is advisory because retirement and handoff state are not stored:
+     the requested chat is still created, stdout stays the chat id, and
+     `--fresh` suppresses only the stderr note when a new phase is deliberate.
 30. As an agent session, I want the dispatch to stamp a machine-readable
     metadata prefix (`[trace:... from:... to:... from_chat:... to_chat:...]`)
     onto the delivered message, so that the receiver can identify the trace
@@ -446,6 +453,20 @@ mode (`-i`) serves a human at a terminal.
   `--skill` overrides. A new chat claiming a topic without a trace id is a
   root claim and releases the topic from any previous holder (singleton root
   topic).
+- **Same-trace phase-chat advice is bounded and fail-quiet (todo 3528).** Only
+  the dispatch branch that will create a chat checks for a possible predecessor,
+  and `--fresh` skips the check. The owner-scoped exact `work_dir` must be an
+  active registered worktree. Candidate SQL narrows by owner, trace, skill, and
+  non-running status, newest first; at most 20 rows and 1M transcript JSON
+  characters are hydrated, with early exit on the first matching non-archived
+  row. Every body SELECT enforces its current remaining character budget and
+  the actual returned length is accounted before parsing, so concurrent growth
+  fails quiet. A PostgreSQL-local one-second timeout applies per statement, not
+  end to end. These are work budgets, never retirement or age inference:
+  exhausting either budget or any
+  lookup error returns no advice and chat creation proceeds. The response's
+  nullable candidate is rendered only as a qualified stderr note; stdout and
+  addressing/creation semantics are unchanged.
 - **`POST /api/chat/notify` was removed outright, not kept as an alias**: Roy
   confirmed every CLI install upgrades in lockstep with the API deploy (no
   out-of-band PyPI consumer to protect), so the CLI's `_fire_and_forget` was
@@ -712,3 +733,4 @@ mode (`-i`) serves a human at a terminal.
 | 3167 | Collapse the duplicated "accept a user message into a chat" body (five existing-chat write sites) behind one primitive, `storage.service.chat.deliver_user_message`, and one authoritative route, `POST /api/chat/message`, with a dispatch-shape predicate (`trace_id`/`from_topic`/`from_chat_id`/`topic`/`skill`/`force_new`) gating the prefix/root-topic/create-without-chat_id behavior formerly unique to `/notify`. Per Roy's confirmed decision, `POST /api/chat/notify` was deleted outright (no deprecation alias) since every CLI install upgrades in lockstep with the API; the CLI's `_fire_and_forget` now posts `prompt` to `/api/chat/message`. Closes an authorization gap (explicit-`chat_id` arm now owner-scoped) and a double-write bug in the former notify existing-chat arm. Telegram's DM steer and DM append sites merged into one call site; the primitive's own running check now steers a busy chat on any topic, not just `manager` (deliberate behavior change). Upload prefix unified to `chat-upload` (drops `chat-notify-upload`) | - | `pages/plan-3167-chat-message-notify-unification.md` | - | `pages/review-3167-chat-message-notify-unification.md` | reviewed and committed locally; not pushed or deployed |
 | 3496 | Stop a second monitor Lambda from re-tailing a finished run: lease acquire is conditioned on `status=running` (and the snapshot `started_at`), `_monitor_loop` tails from a consistent `get_process` re-read of the same generation, and `append_message_sync` is idempotent on `(id, tool_call_id)` so a multi-result user event is not collapsed. Display and historical rows are unchanged | - | `pages/plan-3496-duplicate-turn-replay.md` | - | `pages/review-3496-duplicate-turn-replay.md` | reviewed and approved (round 2); uncommitted worktree, not published |
 | 3515 | Opt-in snapshot/SSE tool-output previews with owner-scoped full retrieval, CLI interrupted-output fallback, and chat module full-output disclosure with guarded request lifecycle. Host fallback/share retain full payloads. Implementation: `pages/impl-3515-snapshot-latency.md`, `pages/impl-3515-snapshot-ui.md` | - | `pages/plan-3515-snapshot-latency.md` | - | `pages/review-3515-snapshot-latency.md` (host round 2), `pages/review-3515-snapshot-ui.md` (module round 3) | reviewed and approved; uncommitted isolated worktrees, not published; production comparison pending authorized deployment |
+| 3528 | Add a bounded, fail-quiet, nonblocking same-trace phase-chat resume advisory for matching skill and active registered worktree; `--fresh` suppresses only the stderr note while chat creation and stdout remain unchanged | - | `pages/plan-3528-same-trace-phase-chat-guard.md` | - | `pages/review-3528-same-trace-phase-chat-guard.md` | reviewed and approved (round 3); implementation evidence: `pages/impl-3528-same-trace-phase-chat-guard.md`; local commit authorized, not integrated or published |
