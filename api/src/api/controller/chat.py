@@ -14,6 +14,13 @@ from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_uni
 from storage.entity.dto import Chat, Message
 from storage.repository.chat import ChatIdCollision
 from api.util.images import resolve_message_image_paths
+from api.util.tool_content import (
+    TOOL_CONTENT_LIMIT_MAX,
+    TOOL_CONTENT_LIMIT_MIN,
+    apply_tool_content_limit,
+    duplicate_tool_call_ids,
+    truncate_tool_content,
+)
 
 router = APIRouter(prefix="/chat")
 
@@ -583,18 +590,23 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
 
 
 @router.get("/messages/snapshot")
-async def get_chat_messages_snapshot(chat_id: str = Query(...), request: Request = None):
+async def get_chat_messages_snapshot(
+    chat_id: str = Query(...),
+    request: Request = None,
+    tool_content_limit: Optional[int] = Query(None, ge=TOOL_CONTENT_LIMIT_MIN, le=TOOL_CONTENT_LIMIT_MAX),
+):
     user_id = _get_user_id(request)
     chat = await chat_service.get_chat(user_id, chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
+    limit = tool_content_limit
 
     # Auto mark as read when messages are fetched
     chat_service.mark_chat_read(chat_id)
 
-    messages = []
-    for idx, msg in enumerate(chat.messages):
-        messages.append({"index": idx, "type": "message", "data": msg.to_dict()})
+    payload = [msg.to_dict() for msg in chat.messages]
+    payload = apply_tool_content_limit(payload, limit)
+    messages = [{"index": idx, "type": "message", "data": data} for idx, data in enumerate(payload)]
 
     return {
         "messages": messages,
@@ -603,8 +615,45 @@ async def get_chat_messages_snapshot(chat_id: str = Query(...), request: Request
     }
 
 
+@router.get("/messages/content")
+async def get_chat_message_content(
+    chat_id: str = Query(...),
+    tool_call_id: str = Query(...),
+    request: Request = None,
+):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+
+    matches = [
+        msg for msg in chat.messages
+        if msg.role == "tool" and msg.tool_call_id == tool_call_id
+    ]
+    if not matches:
+        raise HTTPException(status_code=404, detail="tool result not found")
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="duplicate tool_call_id")
+
+    msg = matches[0]
+    content = msg.content if isinstance(msg.content, str) else ""
+    return {
+        "chat_id": chat.id,
+        "tool_call_id": tool_call_id,
+        "role": msg.role,
+        "content": content,
+        "content_length": len(content) if isinstance(msg.content, str) else 0,
+    }
+
+
 @router.get("/messages")
-async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0, ge=0)):
+async def get_chat_messages(
+    chat_id: str = Query(...),
+    last_index: int = Query(0, ge=0),
+    tool_content_limit: Optional[int] = Query(None, ge=TOOL_CONTENT_LIMIT_MIN, le=TOOL_CONTENT_LIMIT_MAX),
+):
+    limit = tool_content_limit
+
     async def event_stream():
         # Auto mark as read when messages are fetched
         chat_service.mark_chat_read(chat_id)
@@ -617,9 +666,10 @@ async def get_chat_messages(chat_id: str = Query(...), last_index: int = Query(0
                 return
 
             messages = chat.messages
+            dupes = duplicate_tool_call_ids(messages) if limit is not None else set()
             while idx < len(messages):
                 msg = messages[idx]
-                msg_data = msg.to_dict()
+                msg_data = truncate_tool_content(msg.to_dict(), limit, dupes)
                 idx_val = idx
                 idx += 1
                 yield {

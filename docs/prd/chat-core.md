@@ -307,6 +307,35 @@ mode (`-i`) serves a human at a terminal.
     the same generation, so that a finished run's record can never be
     re-tailed and a replayed stream event is never stored twice, while
     distinct tool results that share one event uuid still persist (todo 3496).
+58. As a web or CLI client, I want `GET /api/chat/messages/snapshot` and
+    `GET /api/chat/messages` to accept an optional `tool_content_limit=<n>`
+    (`n` an integer in `0..1000000` characters; anything else is 422) so that
+    large `role="tool"` results can be truncated on an explicit opt-in. Absent
+    the parameter, the payload is field-for-field identical to the untruncated
+    response. Truncation applies only to a tool message that has a non-empty
+    `tool_call_id` unique within the chat and whose `content` is a string
+    longer than `n`; that message then carries `content_truncated: true`,
+    `content_length` (full character count), and a shortened `content` (first
+    `n` characters plus a one-line marker). User and assistant prose,
+    `tool_calls`, `arguments`, ordering, indexes, `running`, and `interrupted`
+    are untouched. A tool message without a `tool_call_id`, or whose id
+    matches more than one message, is never truncated, because the content
+    route could not retrieve it (404 / 409).
+59. As a client that opted into truncation, I want
+    `GET /api/chat/messages/content?chat_id=&tool_call_id=` to return
+    `{chat_id, tool_call_id, role, content, content_length}` for that one
+    stored tool result so I can load the full output on demand. Lookup is
+    owner-scoped through `chat_service.get_chat(user_id, chat_id)`: 404 for an
+    unknown or other-owner chat and for an unmatched id, 409 if the id matches
+    more than one message, 401 without a token. Retrieval returns whatever
+    that `tool_call_id` currently holds; nothing is spliced into a stale
+    string.
+60. As an agent session using `y chat --wait`, I want snapshot polls to opt
+    in at `tool_content_limit=4096` so large chats stay cheap to wait on, and
+    I want an interrupted wait whose last message is a truncated tool result
+    to fetch that result in full through the content route before printing, so
+    the terminal still shows the complete partial output. A completed wait
+    still prints the last assistant message (unchanged by truncation).
 
 ## Implementation Decisions
 
@@ -514,11 +543,24 @@ mode (`-i`) serves a human at a terminal.
   cadence) applying the shared completion predicate; the server has no
   blocking-wait API. Timeout and interrupt both exit nonzero, printing the
   chat id (timeout) or partial reply (interrupt) so callers can degrade to
-  fire-and-forget semantics.
+  fire-and-forget semantics. Wait polls pass `tool_content_limit=4096`; only
+  the interrupted branch resolves a truncated last tool message through
+  `/api/chat/messages/content` before printing (todo 3515).
 - **Web streaming**: detail view loads the snapshot, then opens SSE only when
   the chat is running; the SSE stream re-polls the chat row and emits new
   messages by index, ending with a done event from the completion predicate.
-  On done the client re-fetches the snapshot as ground truth.
+  On done the client re-fetches the snapshot as ground truth. Host
+  fallback/share views omit `tool_content_limit` and keep the legacy full
+  payload. The chat module may opt in at 8192 on both URLs and load full
+  tool output via the content route (todo 3515; module half is a later
+  delivery).
+- **Opt-in tool-result truncation** (todo 3515): `tool_content_limit`,
+  `content_length`, and the slice are all Python `str` code points (on
+  measured tool output, 1.00 to 1.14 bytes per character). Identity is
+  `tool_call_id`, never list index: `Chat.from_dict` re-sorts by
+  `unix_timestamp` on every read. Duplicate ids stay untruncated so the 409
+  content-route branch cannot hide full output. Host share
+  (`/api/chat/share`) is unchanged and still returns full messages.
 - **Sharing** copies the chat (optionally truncated to a message path) under
   a public share id owned by the default user, deduplicated by origin chat and
   message; password protection stores only a hash and rate-limits attempts.
@@ -560,7 +602,20 @@ mode (`-i`) serves a human at a terminal.
   running/interrupted flags) since three consumers depend on it agreeing.
 - CLI `--wait` behavior (reply ready, interrupted, timeout: what is printed,
   exit code) tested against a faked snapshot endpoint; the 2s cadence is an
-  implementation detail, the terminal outcomes are the contract.
+  implementation detail, the terminal outcomes are the contract. Wait also
+  asserts `tool_content_limit=4096` on the snapshot poll and that an
+  interrupted truncated last tool message is resolved through the content
+  route; HTTP 404/409/5xx and transport errors keep the truncated preview,
+  print a stderr notice, and still exit 1 with no traceback (todo 3515).
+- Tool-content truncation (todo 3515) is API-layer, table-driven against
+  fixtures: absent parameter is byte-identical; `abc` / `-1` are 422;
+  uniquely addressable long tool strings gain `content_truncated` /
+  `content_length` (character units, including Unicode); missing
+  `tool_call_id` and duplicate ids stay full; the content route is
+  owner-scoped (404 / 409 / 401); SSE frames with the same limit match the
+  snapshot fields for the same id. A privacy-safe synthetic payload
+  benchmark records before/after size; production after-deploy measurement
+  is a later authorized step.
 - Worker runner tests stub the SSH/tmux launchers and assert the observable
   contract: prompt assembly from trailing user messages, resume vs fresh
   decision, env propagation, failure path (running cleared + error message
@@ -656,3 +711,4 @@ mode (`-i`) serves a human at a terminal.
 | 3152 | Add server-side chat-list sorting by updated/created time ascending or descending via separate closed `sort_by` / `sort_order` parameters on host `list_chats` and `chat_list` (backend contract 6→7); chat module API/UI request the selected order and stop sorting loaded pages locally. Round-2 host fix: `created_at` order uses `NULLS LAST` so historical NULL `created_at_unix` rows sink instead of leading "Created ↓". Round-4 correction: sort controls live only in the left activity-bar panel; the right drawer always requests `updated_at`/`desc` and ignores any earlier drawer-local sort keys | - | `pages/plan-3152-chat-list-backend-sorting.md` | - | `pages/review-3152-chat-list-sort-controls.md` | host + module implemented in worktrees; left-only UI correction and chat-core docs update; deploy host first then publish chat (not yet authorized from this chat) |
 | 3167 | Collapse the duplicated "accept a user message into a chat" body (five existing-chat write sites) behind one primitive, `storage.service.chat.deliver_user_message`, and one authoritative route, `POST /api/chat/message`, with a dispatch-shape predicate (`trace_id`/`from_topic`/`from_chat_id`/`topic`/`skill`/`force_new`) gating the prefix/root-topic/create-without-chat_id behavior formerly unique to `/notify`. Per Roy's confirmed decision, `POST /api/chat/notify` was deleted outright (no deprecation alias) since every CLI install upgrades in lockstep with the API; the CLI's `_fire_and_forget` now posts `prompt` to `/api/chat/message`. Closes an authorization gap (explicit-`chat_id` arm now owner-scoped) and a double-write bug in the former notify existing-chat arm. Telegram's DM steer and DM append sites merged into one call site; the primitive's own running check now steers a busy chat on any topic, not just `manager` (deliberate behavior change). Upload prefix unified to `chat-upload` (drops `chat-notify-upload`) | - | `pages/plan-3167-chat-message-notify-unification.md` | - | `pages/review-3167-chat-message-notify-unification.md` | reviewed and committed locally; not pushed or deployed |
 | 3496 | Stop a second monitor Lambda from re-tailing a finished run: lease acquire is conditioned on `status=running` (and the snapshot `started_at`), `_monitor_loop` tails from a consistent `get_process` re-read of the same generation, and `append_message_sync` is idempotent on `(id, tool_call_id)` so a multi-result user event is not collapsed. Display and historical rows are unchanged | - | `pages/plan-3496-duplicate-turn-replay.md` | - | `pages/review-3496-duplicate-turn-replay.md` | reviewed and approved (round 2); uncommitted worktree, not published |
+| 3515 | Opt-in snapshot/SSE tool-output previews with owner-scoped full retrieval, CLI interrupted-output fallback, and chat module full-output disclosure with guarded request lifecycle. Host fallback/share retain full payloads. Implementation: `pages/impl-3515-snapshot-latency.md`, `pages/impl-3515-snapshot-ui.md` | - | `pages/plan-3515-snapshot-latency.md` | - | `pages/review-3515-snapshot-latency.md` (host round 2), `pages/review-3515-snapshot-ui.md` (module round 3) | reviewed and approved; uncommitted isolated worktrees, not published; production comparison pending authorized deployment |

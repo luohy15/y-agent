@@ -97,6 +97,39 @@ def _references_block(msg: dict) -> str:
     return block
 
 
+_WAIT_TOOL_CONTENT_LIMIT = 4096
+
+
+def _resolve_truncated_tool_content(chat_id: str, msg: dict) -> dict:
+    """Replace truncated tool content with the full body from the content route.
+
+    HTTP and transport failures keep the truncated preview so an interrupted
+    ``--wait`` still prints something and exits 1 (todo 3515 review).
+    """
+    if not msg.get("content_truncated"):
+        return msg
+    tool_call_id = msg.get("tool_call_id")
+    if not tool_call_id:
+        return msg
+    try:
+        resp = api_request(
+            "GET",
+            "/api/chat/messages/content",
+            params={"chat_id": chat_id, "tool_call_id": tool_call_id},
+        )
+        body = resp.json()
+        content = body.get("content", "")
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        click.echo("failed to load full tool output; showing truncated text", err=True)
+        return msg
+    resolved = dict(msg)
+    resolved["content"] = content
+    resolved["content_truncated"] = False
+    if isinstance(body, dict) and "content_length" in body:
+        resolved["content_length"] = body["content_length"]
+    return resolved
+
+
 def _wait_for_reply(chat_id: str, timeout: int):
     """Poll the chat snapshot until the assistant reply is ready, then print it.
 
@@ -107,12 +140,17 @@ def _wait_for_reply(chat_id: str, timeout: int):
     """
     deadline = time.monotonic() + timeout
     while True:
-        resp = api_request("GET", "/api/chat/messages/snapshot", params={"chat_id": chat_id})
+        resp = api_request(
+            "GET",
+            "/api/chat/messages/snapshot",
+            params={"chat_id": chat_id, "tool_content_limit": _WAIT_TOOL_CONTENT_LIMIT},
+        )
         data = resp.json()
         messages = data.get("messages", [])
 
         if data.get("interrupted"):
             last = messages[-1]["data"] if messages else {}
+            last = _resolve_truncated_tool_content(chat_id, last)
             text = _message_text(last)
             if text:
                 click.echo(text)
