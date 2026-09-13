@@ -46,7 +46,10 @@ export function applyItemPatch<T>(data: unknown, idKey: keyof T, id: string, pat
  * 1. Synchronously patches every cache entry whose key matches `matcher`.
  * 2. Fires `request`.
  * 3. Regardless of the outcome, revalidates every matching key so the
- *    eventual server truth corrects any wrong optimistic state.
+ *    eventual server truth corrects any wrong optimistic state. Uses the
+ *    one-argument exact-key `mutate(key)` form: passing explicit `undefined`
+ *    is a cache write in SWR 2.4 (`populateCache` defaults true) and would
+ *    clear loaded infinite pages before the refetch completes.
  *
  * Keys are mutated one-by-one via their exact key rather than SWR's
  * filter-function `mutate(matcherFn, ...)` overload: that overload silently
@@ -71,6 +74,8 @@ export async function optimisticListMutate<T>(
   try {
     await request();
   } finally {
-    keys.forEach((key) => swr.mutate(key, undefined, { revalidate: true }));
+    keys.forEach((key) => {
+      void swr.mutate(key);
+    });
   }
 }
