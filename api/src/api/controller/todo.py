@@ -158,6 +158,7 @@ class UpdateStatusRequest(BaseModel):
     todo_id: str
     status: Literal["pending", "active", "awaiting", "completed", "deleted"]
     chat_id: Optional[str] = None
+    notice: Optional[str] = None
 
 
 @router.post("/status")
@@ -165,7 +166,7 @@ async def update_status(req: UpdateStatusRequest, request: Request):
     user_id = _get_user_id(request)
     try:
         todo = await asyncio.to_thread(
-            todo_service.update_status, user_id, req.todo_id, req.status, req.chat_id,
+            todo_service.update_status, user_id, req.todo_id, req.status, req.chat_id, req.notice,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -83,8 +83,9 @@ def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     }[reason]
     if chat_id:
         detail += f" Last chat {chat_id}: exit {outcome}."
-        if error_text:
-            detail += f" {error_text[:ERROR_TEXT_LIMIT]}"
+        excerpt = todo_service.notice_excerpt(error_text)
+        if excerpt:
+            detail += f" {excerpt[:ERROR_TEXT_LIMIT]}"
     return detail
 
 

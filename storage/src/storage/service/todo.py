@@ -1,6 +1,7 @@
 """Todo service."""
 
 import ast
+import re
 from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
@@ -179,12 +180,13 @@ def _status_side_effects(row, fields, status: str) -> None:
         fields["pinned"] = False
 
 
-def _transition_locked(session, row, fields, *, action="updated", extra_note=None):
+def _transition_locked(session, row, fields, *, action="updated", extra_note=None, notice=None):
     """Owner-locked status/pointer transition. Returns whether the row changed.
 
     `extra_note` is bounded fault evidence (watchdog/death claims only) folded
     into the same history entry as the status change, never a separate reason
-    field or a synthetic agent progress message.
+    field or a synthetic agent progress message. `notice` is a writer-supplied
+    awaiting summary, labelled separately so the DM's content is auditable.
     """
     fields = dict(fields)
     _legacy_awaiting_rejected(fields)
@@ -195,6 +197,11 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
         if status == "awaiting":
             if "awaiting_chat" not in fields:
                 fields["awaiting_chat"] = None
+            if notice and row.status == "awaiting":
+                raise ValueError(
+                    "notice is only sent when a todo newly enters awaiting; "
+                    "no new notice was sent. Resume to active, then await with --note"
+                )
         elif fields.get("awaiting_chat"):
             raise ValueError("awaiting_chat is only valid while status is awaiting")
         _status_side_effects(row, fields, status)
@@ -218,6 +225,8 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
     note = f"changed: {', '.join(f'{k}={v!r}' for k, v in changed.items())}"
     if extra_note:
         note = f"{note}; fault: {extra_note[:FAULT_TEXT_LIMIT]}"
+    if notice and "status" in changed:
+        note = f"{note}; notice: {notice}"
     row.history = [*(row.history or []), TodoHistoryEntry(
         timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
         action=action, note=note,
@@ -226,14 +235,85 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
 
 
 _NOTICE_NAME_LIMIT = 120
+NOTICE_LIMIT = 200
 FAULT_TEXT_LIMIT = 1000
+_CREDENTIAL_RES = (
+    re.compile(r"(?<![A-Za-z0-9])sk-"),
+    re.compile(r"(?<![A-Za-z0-9])ghp_"),
+    re.compile(r"(?<![A-Za-z0-9])gho_"),
+    re.compile(r"(?<![A-Za-z0-9])github_pat_"),
+    re.compile(r"(?<![A-Za-z0-9])AKIA"),
+    re.compile(r"(?<![A-Za-z0-9])xoxb-"),
+    re.compile(r"Bearer "),
+    re.compile(r"Authorization:"),
+    re.compile(r"://user:pass@"),
+)
+_MIXED_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9+/_\-]{40,}(?![A-Za-z0-9])")
+_HEX_TOKEN = re.compile(r"^[0-9a-fA-F]+$")
+_HAS_LETTER = re.compile(r"[A-Za-z]")
+_HAS_DIGIT = re.compile(r"[0-9]")
+
+
+def _collapse_notice(text: Optional[str]) -> Optional[str]:
+    if text is None:
+        return None
+    collapsed = " ".join(str(text).split())
+    return collapsed or None
+
+
+def _matches_credential_shape(text: str) -> bool:
+    if any(pattern.search(text) for pattern in _CREDENTIAL_RES):
+        return True
+    return any(
+        not _HEX_TOKEN.fullmatch(token) and _HAS_LETTER.search(token) and _HAS_DIGIT.search(token)
+        for token in _MIXED_TOKEN.findall(text)
+    )
+
+
+def validate_notice(text: Optional[str]) -> Optional[str]:
+    """Collapse and accept a writer-supplied awaiting summary, or raise.
+
+    Omitted notice stays None. An explicit empty/whitespace summary is
+    rejected so the writer cannot think a blank --note was recorded.
+    Over-long or credential-shaped text is rejected before any mutation so
+    the writer can retry with a shorter, non-secret sentence. Truncating
+    or dropping would hide the loss.
+    """
+    if text is None:
+        return None
+    collapsed = _collapse_notice(text)
+    if collapsed is None:
+        raise ValueError("notice must be a non-empty sentence after whitespace collapse")
+    if len(collapsed) > NOTICE_LIMIT:
+        raise ValueError(
+            f"notice must be at most {NOTICE_LIMIT} characters after whitespace collapse; shorten and retry"
+        )
+    if _matches_credential_shape(collapsed):
+        raise ValueError("notice matches a credential shape; omit secrets and retry")
+    return collapsed
+
+
+def notice_excerpt(text: Optional[str]) -> Optional[str]:
+    """Bounded machine-fed excerpt, or None when it matches a credential shape.
+
+    Watchdog/death claims cannot retry, so a matching tail is omitted rather
+    than rejected. Length is still bounded by FAULT_TEXT_LIMIT.
+    """
+    collapsed = _collapse_notice(text)
+    if collapsed is None:
+        return None
+    excerpt = collapsed[:FAULT_TEXT_LIMIT]
+    if _matches_credential_shape(excerpt):
+        return None
+    return excerpt
 
 
 def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
     """Plain-text owner DM for a new awaiting inbox entry.
 
-    `extra` is bounded fault evidence supplied by the triggering watchdog/death
-    event, never read back from a persisted reason field.
+    `extra` is bounded context from the triggering event: watchdog/death
+    evidence, or a writer-supplied awaiting summary. It is never read back
+    from a persisted reason field.
     """
     name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
     lines = [
@@ -295,24 +375,32 @@ def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
 
 def update_status(
     user_id: int, todo_id: str, status: str, chat_id: Optional[str] = None,
+    notice: Optional[str] = None,
 ) -> Optional[Todo]:
     if status not in STATUS_ACTION:
         raise ValueError("Invalid todo status")
     if chat_id is not None and status != "awaiting":
         raise ValueError("chat_id is only valid when status is awaiting")
+    if notice is not None and status != "awaiting":
+        raise ValueError("notice is only valid when status is awaiting")
+    summary = validate_notice(notice)
 
     def apply(session, row):
         if status == "awaiting":
-            return _await_locked(session, row, chat_id)
+            return _await_locked(session, row, chat_id, notice=summary)
         return _transition_locked(session, row, {"status": status})
 
     todo, entered, _changed = _mutate_transition(user_id, todo_id, apply)
-    return _maybe_notice(user_id, todo_id, todo, entered)
+    return _maybe_notice(user_id, todo_id, todo, entered, extra=summary)
 
 
-def _await_locked(session, row, chat_id: Optional[str], *, extra_note: Optional[str] = None) -> bool:
+def _await_locked(
+    session, row, chat_id: Optional[str], *, extra_note: Optional[str] = None,
+    notice: Optional[str] = None,
+) -> bool:
     return _transition_locked(
-        session, row, {"status": "awaiting", "awaiting_chat": chat_id}, extra_note=extra_note,
+        session, row, {"status": "awaiting", "awaiting_chat": chat_id},
+        extra_note=extra_note, notice=notice,
     )
 
 

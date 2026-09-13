@@ -276,27 +276,34 @@ untracked tmux waits.
 ### Command and API contract
 
 ```text
-y todo status <todo_id> <pending|active|awaiting|completed|deleted> [--chat <same-owner-same-trace-chat>]
+y todo status <todo_id> <pending|active|awaiting|completed|deleted> [--chat <same-owner-same-trace-chat>] [--note "<sentence>"]
 y todo list --status awaiting
 ```
 
 | Surface | Meaning |
 |---|---|
-| `status ID awaiting [--chat CHAT]` | Move any current status to awaiting (including completed/deleted as one atomic reopen-to-inbox write), or replace/clear the optional pointer on an already-awaiting todo. |
+| `status ID awaiting [--chat CHAT] [--note TEXT]` | Move any current status to awaiting (including completed/deleted as one atomic reopen-to-inbox write), or replace/clear the optional pointer on an already-awaiting todo. `--note` is the optional one-sentence DM context, valid only with awaiting, and only on entry into awaiting. A nonempty note on an already-awaiting row is rejected with no pointer or history mutation and no new DM (the error says no new notice was sent). Pointer-only already-awaiting writes without `--note` stay idempotent. |
 | `status ID active` | Move any current status to active and clear the pointer; identical resulting state is a no-op. |
-| `POST /api/todo/status` | Body: public `todo_id`, enum `status`, optional public `chat_id`; same transition as CLI. Keep the existing public todo response shape (no `changed` field). |
+| `POST /api/todo/status` | Body: public `todo_id`, enum `status`, optional public `chat_id`, optional `notice`; same transition as CLI. Keep the existing public todo response shape (no `changed` field). |
 | Generic update and bulk | Accept awaiting and reuse the same transition helper; they are not a second state writer. Bulk does not take `chat_id`. |
 | Retired | `y todo await` / `y todo resume` and `POST /api/todo/await` / `POST /api/todo/resume` are gone. Stale calls fail without mutation (CLI unknown command; HTTP 404/405). No thin aliases. |
 
 - Require an explicit todo ID; no implicit environment fallback. Status
-  writes take no reason or deadline. `--chat` / `chat_id` is valid only for
-  target awaiting; a supplied non-null chat with any other target is
-  rejected before mutation (CLI before the request). API null/omitted chat
-  on other targets is harmless.
+  writes take no reason or deadline. `--chat` / `chat_id` and `--note` /
+  `notice` are valid only for target awaiting; a supplied non-null chat or
+  notice with any other target is rejected before mutation (CLI before the
+  request). API null/omitted chat or notice on other targets is harmless.
 - Omitted or null chat on target awaiting clears an old pointer, including
   when already awaiting. Target awaiting plus a chat sets or replaces the
   pointer. Identical resulting state is a no-op. UI same-status
   re-select / re-drop remains no-write to preserve an existing pointer.
+  `--note` / `notice` is entry-only: it is folded into history and sent as
+  the DM third line only when status newly becomes awaiting. An already-
+  awaiting row that also carries a nonempty notice is rejected inside the
+  locked transition before any pointer or history write, so the writer
+  cannot lose a sentence against a stale fault DM. The write does not
+  auto-resume to active and does not resend. An explicit empty or
+  whitespace-only note is rejected the same way as an over-long note.
 - Automatic human resume still requires current `status=awaiting`; it must
   not silently revive closed work or activate an unstarted task. Fault
   claims still require current `status=active` plus a matching timestamp.
@@ -451,16 +458,40 @@ y todo list --status awaiting
 
 ### Agent notice and fault-notice wording
 
-Agent notice is compact: todo ID and name, with no invented
-review/question/stalled label and no reply instruction.
+Agent notice is compact: todo ID, name, and optional bounded context from
+the triggering event. There is still no invented review/question/stalled
+label and no reply instruction. A missing third line is still valid: the
+two-line notice of header plus name.
 
 ```text
 Todo <id> needs you
 <name>
+[<one-line context>]
 ```
 
-A system fault notice may append bounded fault evidence supplied by the
-triggering event, not read from a reason field.
+The third line is evidence, not a reason enum. It is supplied by the
+writer (`y todo status <id> awaiting --note "<sentence>"` /
+`POST /api/todo/status` `notice`) or by a watchdog/death claim's
+structural sentence plus optional error tail. The renderer
+(`awaiting_notice_text`) still just prints `extra` when present; it does
+not invent urgency, completion, or a decision.
+
+Writer-supplied text is never silently altered. Validation runs before
+any mutation and raises (API 400, clean CLI `Error:` line) when the
+whitespace-collapsed summary exceeds 200 characters, is empty, or
+matches a credential shape (`sk-`, `ghp_`, `gho_`, `github_pat_`,
+`AKIA`, `xoxb-`, `Bearer `, `Authorization:`, `://user:pass@`, and
+unbroken 40+ character mixed tokens that contain both a letter and a
+digit, excluding pure hex so git SHAs and content digests stay allowed).
+A nonempty `--note` on an already-awaiting row is also rejected inside
+the locked transition, before pointer or history mutation, because a
+notice is sent only on entry; the error says no new notice was sent.
+Truncating would drop the ask; silent dropping would hide the loss.
+Machine-fed fault text uses conservative omission instead
+(`notice_excerpt`): a matching tail is dropped and the structural
+sentence survives, because a watchdog or death claim cannot retry. The
+accepted summary is folded into the same history entry as the status
+change, labelled `notice:` (fault claims keep `fault:`).
 
 **No awaiting notice carries a reply instruction.** The notice says a todo
 needs Roy; it never tells him where to type the answer, and it makes no
@@ -496,6 +527,10 @@ expressed as a branch:
    it to go. This is a user-directed override of step 1's visible-instruction
    decision; step 2's reasoning is unaffected and now simply has nothing to
    suppress. Record: `pages/impl-3506-awaiting-notice-trim.md`.
+4. Todo 3523 adds the optional third line as writer-supplied or
+   sanitized fault evidence. Deriving it from the newest progress write was
+   rejected: truncation drops the ask, the newest write is often a child
+   phase note, and progress is not authored for this DM.
 
 ### Runtime death delivery
 
@@ -753,6 +788,16 @@ Recorded so they are not mistaken for regressions:
 - **SQL and DynamoDB are not one transaction.** A SQL failure after the
   process record is completed can leave an orphan SQL-running row; periodic
   orphan maintenance is the required cover.
+- **Awaiting notice is entry-only.** A later `status=awaiting --note`
+  against an already-awaiting row is rejected rather than replacing the
+  original DM. The realistic path after a watchdog claim is resume to
+  active, then await again with `--note`.
+- **Credential-shape filtering is conservative, not a secret scanner.**
+  Unbroken 40+ character mixed tokens that contain both a letter and a
+  digit (including path and URL fragments with `/`) can omit a useful
+  machine-fed error tail or reject an otherwise honest writer sentence.
+  Slash-containing tokens are not exempted, because credentials can
+  contain slashes. The structural fault sentence still survives.
 
 ## Testing Decisions
 
@@ -780,6 +825,17 @@ Tests are local-only and untracked per repo convention.
   or non-active, including completed/deleted; never repeat and never reopen
   closed work. Pending waiter suppresses; granted / cancelled / rejected
   receipts do not.
+- **Awaiting notice context** is a pure renderer plus validation suite:
+  representative three-line outputs byte-for-byte (ready / publication /
+  blocked / idle fault / credential-omitted fault / missing `--note`);
+  200/201 length boundary; each credential shape rejected and hex SHA /
+  digest accepted; whitespace collapse; explicit empty note rejected;
+  `notice` rejected for non-awaiting targets with no mutation; nonempty
+  `notice` on an already-awaiting row rejected inside the locked
+  transition with no pointer or history mutation; pointer-only already-
+  awaiting writes without notice remain no-op / replace as before;
+  machine-fed `notice_excerpt` drops a credential tail and keeps the
+  structural sentence.
 - **Resume widening** extends the existing resume tests: 429 and
   throttling-class 403 error text with no usable output resumes; permanent
   403 does not; the same with usable output (including an error line that

@@ -63,6 +63,13 @@ async def persist_terminal(chat_id, proc, result, outcome="error"):
         return chat
 
 
+def inbox_fault_detail(prefix: str, error_text: str) -> str:
+    """Owner-notice detail for the inbox arm: keep the structural prefix, drop a credential-shaped tail."""
+    from storage.service import todo as todo_service
+    excerpt = todo_service.notice_excerpt(error_text)
+    return f"{prefix} {excerpt}" if excerpt else prefix
+
+
 async def deliver_death(chat_id, proc, outcome, error):
     from storage.service import todo as todo_service
     from storage.service.telegram import resolve_target
@@ -75,7 +82,9 @@ async def deliver_death(chat_id, proc, outcome, error):
             or not current_run(chat_id, proc)):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
-    text = f"Trace {chat.trace_id or 'unknown'}, child {chat_id}: observed {outcome}. {str(error or 'No error detail available.')[:1800]}"
+    prefix = f"Trace {chat.trace_id or 'unknown'}, child {chat_id}: observed {outcome}."
+    error_text = str(error or "No error detail available.")[:1800]
+    text = f"{prefix} {error_text}"
     if chat.topic == "manager":
         try:
             target = resolve_target(user_id, topic=chat.topic)
@@ -121,7 +130,7 @@ async def deliver_death(chat_id, proc, outcome, error):
                 return None
         if any(r.chat_id != chat_id and (r.updated_at_unix or 0) >= proc["started_at"] * 1000 for r in rows):
             return None
-        return text, chat_id
+        return inbox_fault_detail(prefix, error_text), chat_id
 
     try:
         _todo, changed = todo_service.claim_fault(
