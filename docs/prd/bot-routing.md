@@ -235,6 +235,16 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   asymmetry is deliberate: for a live conversation a silent permanent
   downgrade is worse than ignoring the request, which is exactly the
   pre-2930 behavior.
+- **Usage-driven Fable admission (todo 3573, owned by bot-usage).** The
+  owner's named `fable` bot is enabled or disabled by the subscription
+  refresh success path when Claude usage crosses 95% (see
+  [`bot-usage.md`](bot-usage.md)). This feature still owns routing:
+  `_universe` filters `cfg.enabled` before tier or name selection, so a
+  disabled Fable is out of normal tier pools and is not an affirmative name
+  pin (the pin falls back to tier2; `resolve_pinned_bot_config` returns
+  none). Alias dereference (`_resolve_filters`) and `_global_default` still
+  do not re-check the final target's enabled bit; that remaining bypass is
+  an admission boundary, not a 3573 fix.
 - **Re-bot continuity is free** because for claude_code the model and the
   relay credentials are per-invocation flags/env while the session lives in
   Claude Code's own store keyed by `external_id` + work dir: a re-botted chat
@@ -358,3 +368,4 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 | 3202 | Audit-only: document the actual bot-switch state matrix for running / queued / interrupted / idle chats. Result: a bot pin sent to a busy chat is silently discarded (not deferred to the next run, as this doc and `--bot` help claim), and a tier-only request on an existing chat can execute a fallback bot without persisting it. Recommendation (unimplemented): reject routing fields on busy chats with 409 and preflight named pins on idle re-bots | - | `pages/plan-3202.md` | - | - | audited, no code change |
 | 3206 | Make model-type inline search bots explicitly pin-reachable while excluding them from tier routing (px reclassified to `type=model` without disrupting `--bot px` or `--backend perplexity`), then land the `xai_web` / `xai_x` search backends behind that rule and drop the now-dead perplexity tier clause, so bot type alone gates tier candidacy | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` (Deploy A routing), `pages/review-3206-deploy-b-inline-search.md` (Deploy B backends) | Deploy A and Deploy B shipped; Bots module v30 active; live `grok-web` smoke `30184b` and `grok-x` smoke `afc8e6` succeeded |
 | 3569 | Correct route-weight documentation: tier pools use smooth weighted round-robin for new-chat draws, non-tier pools remain weighted random, and neither allocation equalizes per-session turns, relay requests, tokens, or cost | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD | `pages/review-3569-chat-model-activity-host.md` | reviewed; unpublished |
+| 3573 | Fable usage gate: refresh success toggles the named `fable` enabled bit; normal tier/direct-name routing observes it. Alias and global-default disabled-target bypasses stay as documented admission boundary | - | `pages/plan-3573-fable-usage-gate.md` | [`bot-usage.md`](bot-usage.md) | - | implemented |

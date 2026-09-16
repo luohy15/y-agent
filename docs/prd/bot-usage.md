@@ -179,6 +179,11 @@ expired-login card tells the user to run.
     while the cross-provider comparison stays consistent.
 27. As a user, I want a status read to never spend model tokens, so that
     looking at my remaining allowance never consumes it.
+27a. As a user, I want the named `fable` bot automatically disabled when a
+    successful Claude usage refresh shows any required window above 95%, and
+    re-enabled below 95% even if I had disabled it, so new dispatches stop
+    landing on an exhausted Fable subscription without a separate polling
+    service.
 
 ### Provider credentials
 
@@ -718,6 +723,35 @@ expired-login card tells the user to run.
   consequence: `READ_FRESH_SECONDS` stays 600, so provider rows read `fresh`
   for 10 minutes after each refresh and `stale` for the other 20, and they
   read `stale` with a `vm_unreachable` attempt error while the VM sleeps.
+- **Fable routing gate at 95% (todo 3573).** After `record_refresh_success`
+  persists the incoming envelope, that same function reconciles the refresh
+  owner's existing named `fable` bot. The evaluator uses only that incoming
+  envelope, never the merged snapshot and never `last_attempt_status == ok`
+  alone. Required windows from the same new Claude row are
+  `windows.five_hour`, `windows.one_week`, and `extra_windows.one_week_fable`.
+  Comparison is the maximum of those three used percents, never a sum or
+  average: `max > 95` disables, `max < 95` enables (including when the bot
+  was manually disabled), `max == 95` leaves state unchanged. Incomplete,
+  missing, or malformed windows, stale or future observations, the wrong
+  provider/source, a Claude-tagged error, or an unscoped malformed payload
+  are no-ops in both directions; other providers' isolated errors do not
+  veto. Eligibility is a complete fresh Claude row (`claude_code` /
+  `anthropic` / `claude_tui_usage`, `available`, no row error, observation
+  age in `[0, DEFAULT_TTL_SECONDS]`). The 240s on-VM Claude cache is
+  permitted and keeps its original timestamp; the wider ten-minute display
+  TTL does not grant gate eligibility. The write is owner+name scoped: it
+  never creates a bot, never updates fields other than `enabled`, and never
+  fans out. A bot-write failure propagates after a successful snapshot
+  persist so the next refresh retries rather than reporting a false gate
+  success. This is periodic admission control on the existing 30-minute
+  refresh path: already-running processes are not interrupted. Normal tier
+  and direct-name routing observe `enabled` via `agent.config._universe`.
+  Alias dereference and the global-default fallback still do not re-check
+  the final target's enabled bit; those remaining bypasses are a
+  routing-policy admission boundary documented in
+  [`bot-routing.md`](bot-routing.md), not closed here. Binding the named
+  Fable bot to the owner's default usage-VM subscription is a load-bearing
+  unverified operational assumption.
 - **Refresh is owner-scoped, and the sweep is bounded (todo 3226 defect
   fix).** A subscription-limit read reports the provider logins of whatever
   machine it runs on, so it runs only on the user's *own* `default` VM config
@@ -1254,6 +1288,19 @@ expired-login card tells the user to run.
   only `force` differing; the CLI timeout stays the existing 30s bound; and a
   user with no successful refresh yet reads a bounded `snapshot_unavailable`
   envelope without any VM probe.
+- **Fable gate contracts (todo 3573) are asserted on the incoming envelope
+  and the named bot row, not on display merge:** the evaluator table covers
+  94.9 / 95 / 95.1, mixed windows, zero, over-100, numeric strings, bool,
+  negative, NaN/Infinity, missing extra, stale/future/bad observation, wrong
+  provider/source, and unrelated versus Claude/unscoped errors; reconciliation
+  covers enable, disable (including a prior manual disable), equality no-op,
+  absent/wrong-backend/ref/other-owner no-ops, and unchanged unrelated
+  fields; `record_refresh_success` uses the new envelope so retained old low
+  Claude readings after a failed/missing Claude row do not re-enable, a
+  persistence failure does not mutate the bot, and a bot-write failure is
+  not a silent success; scheduled `force=False` and manual `force=True`
+  share that success seam while asleep/no-VM/CLI-failure/held-lock/ordinary
+  reads never call it. Cadence stays 1800s and read freshness 600s.
 - **Credential write safety is tested on the file, not the code path:** a
   failed refresh leaves the vendor file byte-identical (hash before/after); a
   successful refresh preserves every unrelated field, the file mode, and Grok's
@@ -1330,6 +1377,7 @@ expired-login card tells the user to run.
 | 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" and Over-time `H` granularity; delivered Live layout was a wide two-column stack (left Run rate → Subscription limits with a normal gap, right donut → Today by hour, both columns equal-height with the right column's bottom card pinned to the shared bottom edge), narrow stack Run rate → Subscription limits → Today by hour → donut (narrow order intentional, supersedes v24 below-donut); the wide card placement was later superseded by todo 3261; stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md`, `pages/review-3165-bot-usage-prd-live-layout.md` | shipped (`23974833` CRS, `3bea917` backend; bot v29 `0066018dbe1a…`, compact left stack later superseded by todo 3261; api unchanged since v24 (`208a45568b7c…`); v25-v28 were intermediate layout iterations, see review note for the version-by-version history); first complete post-deploy-day reconciliation pending |
 | 3226 | `GET /api/usage/limits` was one of the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99 15.46s, synchronous VM/SSH/CLI on every poll). Ordinary polls now read a persisted latest snapshot (`user_preference` key `usage_limits_latest`) instead: a five-minute worker schedule (`refresh_usage_limits` action, `worker/steps/refresh_usage_limits.py`) calls the new `agent.usage_limits.refresh_and_persist_snapshot`, the same function `?refresh=true` now calls forced, guarded by a per-user pipeline lock (`refresh_usage_limits:<user_id>`) so the schedule and a manual retry can never overlap. Failure retention: a failed attempt updates only attempt metadata and never discards the last successful providers; a successful attempt merges per backend (`storage.service.model_usage_limits.merge_providers`), falling back to the previous row for a same-attempt read failure (`parse_failed` / `transport_error`) or a backend absent from the new attempt, and always surfacing a durable state (`reauth_required` / `not_logged_in`) or a normal reading. Freshness is recomputed on every read from each row's own `observed_at` against a ten-minute read TTL, `observed_at` itself is never restamped, and a user with no successful refresh yet reads a bounded `snapshot_unavailable` envelope with no VM probe. The public route contract, provider row shape, and closed error vocabulary are unchanged (`snapshot_unavailable` and `refresh_in_progress` are additive). EventBridge schedule wiring (`template.yaml` `RefreshUsageLimitsSchedule`, `rate(5 minutes)`) is deployed and the rule is verified enabled in production (Actions run 32211434242, 2026-08-19). The production before/after latency window (plan sub-task 7) is still outstanding. Tag-route and monitor-route-detail work from the same plan ship under `code/y-module/tag/README.md` and this repo's `docs/prd/api-latency-monitoring.md` respectively, not here | - | `pages/plan-3226-slowest-api-routes.md` | this PRD | `pages/review-3226-usage-limits-snapshot.md` | shipped in 622ebed, deployed 2026-08-19; production latency verification (plan sub-task 7) outstanding; cadence superseded by todo 3564: 5 min -> 30 min |
 | 3564 | Move the subscription-limit refresh from 5 minutes to 30 minutes so an awake sweep no longer renews the VM SSH idle marker inside the host's 900s hibernation window; asleep-skip, freshness TTL and wake semantics unchanged; residual probe race and jitter/stall tail remain documented limitations | - | `pages/plan-3564-usage-refresh-cadence.md` | this PRD; `pages/plan-3564-auto-hibernation-diagnosis.md`; `pages/impl-3564-usage-refresh-cadence.md` | `pages/review-3564-usage-refresh-cadence.md` | reviewed, pending publication |
+| 3573 | After a successful subscription refresh, reconcile the owner's existing named `fable` bot at 95% of max(`five_hour`, `one_week`, `one_week_fable`) from a complete fresh Claude row; enable below 95% even if manually disabled; no-op at exactly 95% and on incomplete/failed input; alias/global-default routing bypasses remain an admission boundary | - | `pages/plan-3573-fable-usage-gate.md` | this PRD | - | implemented |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, and add distinct y-agent sessions, answered turns, and average turns/chat per model to the Live usage table | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | reviewed; unpublished |
 

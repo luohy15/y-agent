@@ -62,6 +62,24 @@ def get_config(user_id: int, name: str = "default") -> Optional[BotConfig]:
         return None
 
 
+def set_enabled(user_id: int, name: str, enabled: bool) -> bool:
+    """Update only `enabled` on an existing owner/name row.
+
+    Returns False when the row does not exist (never inserts). Returns True
+    when the row exists, including when it already has the desired value, in
+    which case no other columns are written.
+    """
+    with get_db() as session:
+        entity = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).first()
+        if entity is None:
+            return False
+        if entity.enabled == enabled:
+            return True
+        entity.enabled = enabled
+        session.flush()
+        return True
+
+
 def add_config(user_id: int, config: BotConfig) -> BotConfig:
     with get_db() as session:
         entity = session.query(BotConfigEntity).filter_by(user_id=user_id, name=config.name).first()

@@ -25,12 +25,29 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
+from storage.service import bot_config as bot_config_service
 from storage.service import user_preference as user_pref_service
 
 # TTL passed to normalize_envelope for a single live CLI attempt (todo 3226:
 # still used at refresh time; no longer used to gate an ordinary read, see
-# READ_FRESH_SECONDS).
+# READ_FRESH_SECONDS). Also the eligibility window for the Fable routing gate
+# (todo 3573): a Claude observation older than this, or in the future, is not
+# fresh enough to mutate enabled state.
 DEFAULT_TTL_SECONDS = 300
+
+# Owner-scoped named bot reconciled after a successful Claude usage refresh.
+FABLE_BOT_NAME = "fable"
+FABLE_GATE_THRESHOLD = 95.0
+_FABLE_REQUIRED_WINDOWS = ("five_hour", "one_week")
+_FABLE_REQUIRED_EXTRA = "one_week_fable"
+_FABLE_CLAUDE_BACKEND = "claude_code"
+_FABLE_CLAUDE_PROVIDER = "anthropic"
+_FABLE_CLAUDE_SOURCE = "claude_tui_usage"
+_CLAUDE_ERROR_ORIGINS = frozenset({
+    "claude_tui_usage", "claude_code", "anthropic",
+})
+_MALFORMED_PAYLOAD_CODES = frozenset({"malformed_item", "bad_payload"})
+_UNSCOPED_ERROR_ORIGINS = frozenset({None, "", "vm", "snapshot"})
 
 _WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
 
@@ -88,9 +105,11 @@ ERROR_CODES = frozenset({
 
 def _valid_percent(value) -> float | None:
     """Coerce to a finite float, or None for anything malformed (missing,
-    non-numeric, NaN, +/-Infinity) — malformed input must never masquerade as
-    a real 0-100 percent."""
-    if value is None:
+    non-numeric, bool, NaN, +/-Infinity) — malformed input must never
+    masquerade as a real 0-100 percent. Booleans are rejected even though
+    they are numeric in Python (`float(False) == 0.0`), so a JSON `false`
+    cannot become a genuine zero. Numeric strings remain accepted."""
+    if value is None or isinstance(value, bool):
         return None
     try:
         f = float(value)
@@ -346,11 +365,122 @@ def read_snapshot(user_id: int) -> dict:
     }
 
 
+def _used_percent(window) -> float | None:
+    """Finite nonnegative used_percent, else None. Values above 100 stay
+    valid exhausted readings; negatives and bools do not."""
+    if not isinstance(window, dict):
+        return None
+    used = _valid_percent(window.get("used_percent"))
+    if used is None or used < 0:
+        return None
+    return used
+
+
+def _fable_errors_veto(errors) -> bool:
+    """True when the envelope cannot prove a complete Claude read.
+
+    Other providers' isolated errors do not veto. A Claude-tagged error, or
+    an unscoped malformed-payload error, does: either means this attempt
+    cannot be trusted as a complete fresh Claude observation.
+    """
+    for entry in errors or []:
+        if not isinstance(entry, dict):
+            continue
+        origin = entry.get("origin")
+        code = entry.get("error")
+        if not code:
+            continue
+        if origin in _CLAUDE_ERROR_ORIGINS:
+            return True
+        if origin in _UNSCOPED_ERROR_ORIGINS and code in _MALFORMED_PAYLOAD_CODES:
+            return True
+    return False
+
+
+def _incoming_claude_row(envelope: dict) -> dict | None:
+    for item in envelope.get("providers") or []:
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("backend") == _FABLE_CLAUDE_BACKEND
+            and item.get("provider") == _FABLE_CLAUDE_PROVIDER
+            and item.get("source") == _FABLE_CLAUDE_SOURCE
+        ):
+            return item
+    return None
+
+
+def evaluate_fable_desired_enabled(envelope: dict) -> bool | None:
+    """Map a *new* normalized usage envelope to a Fable enabled bit.
+
+    Returns True to enable, False to disable, None to leave the current
+    state unchanged. Uses only the incoming envelope (never a merged
+    snapshot): the three required Claude windows, max-not-sum comparison
+    against 95, and a complete fresh Claude row. Incomplete, stale, future,
+    malformed, or untrustworthy input is a no-op in both directions.
+    """
+    if not isinstance(envelope, dict):
+        return None
+    if _fable_errors_veto(envelope.get("errors")):
+        return None
+    row = _incoming_claude_row(envelope)
+    if row is None:
+        return None
+    if row.get("availability") != "available" or row.get("error"):
+        return None
+    observed_at = row.get("observed_at")
+    if not isinstance(observed_at, str) or not observed_at:
+        return None
+    age = _age_seconds(observed_at)
+    if age is None or age < 0 or age > DEFAULT_TTL_SECONDS:
+        return None
+    windows = row.get("windows") or {}
+    extra = row.get("extra_windows") or {}
+    if not isinstance(windows, dict) or not isinstance(extra, dict):
+        return None
+    values = [
+        _used_percent(windows.get(kind)) for kind in _FABLE_REQUIRED_WINDOWS
+    ]
+    values.append(_used_percent(extra.get(_FABLE_REQUIRED_EXTRA)))
+    if any(value is None for value in values):
+        return None
+    peak = max(values)
+    if peak > FABLE_GATE_THRESHOLD:
+        return False
+    if peak < FABLE_GATE_THRESHOLD:
+        return True
+    return None
+
+
+def reconcile_fable_enabled(user_id: int, envelope: dict) -> None:
+    """Apply evaluate_fable_desired_enabled to the owner's existing `fable`
+    bot. Never creates a config, never fans out, never writes fields other
+    than enabled. A write error propagates to the caller.
+    """
+    desired = evaluate_fable_desired_enabled(envelope)
+    if desired is None:
+        return
+    config = bot_config_service.get_config(user_id, FABLE_BOT_NAME)
+    if config is None or config.ref_bot_name:
+        return
+    if (config.backend or config.api_type) != _FABLE_CLAUDE_BACKEND:
+        return
+    if config.enabled == desired:
+        return
+    bot_config_service.set_enabled(user_id, FABLE_BOT_NAME, desired)
+
+
 def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dict:
     """Persist a structurally valid attempt (a well-formed envelope, even one
     carrying isolated provider-level errors) as the new snapshot, merged with
     whatever was previously stored so one bad provider row in an otherwise
-    good run never destroys good data for the others."""
+    good run never destroys good data for the others.
+
+    After the snapshot write succeeds, reconcile the owner's `fable` bot
+    against this *incoming* envelope (todo 3573), not the merged snapshot.
+    A bot-write failure propagates; the stored usage may remain valid and
+    the next refresh retries.
+    """
     pref = user_pref_service.get_preference(user_id, SNAPSHOT_PREFERENCE_KEY)
     previous = pref.value if pref and pref.value else {}
     merged_providers = merge_providers(previous.get("providers") or [], envelope.get("providers") or [])
@@ -363,6 +493,7 @@ def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dic
         "last_attempt_error": None,
     }
     user_pref_service.upsert_preference(user_id, SNAPSHOT_PREFERENCE_KEY, stored)
+    reconcile_fable_enabled(user_id, envelope)
     return read_snapshot(user_id)
 
 

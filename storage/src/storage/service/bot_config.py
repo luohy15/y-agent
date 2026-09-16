@@ -22,13 +22,14 @@ def add_config(user_id: int, config: BotConfig) -> BotConfig:
 def set_enabled(user_id: int, name: str, enabled: bool) -> bool:
     """Enable or disable a bot config. Disabled bots are excluded from the
     dispatch universe entirely, including an explicit name pin (which
-    degrades to a tier2 fallback instead of resolving the disabled bot)."""
-    config = bot_repo.get_config(user_id, name=name)
-    if config is None:
-        return False
-    config.enabled = enabled
-    bot_repo.add_config(user_id, config)
-    return True
+    degrades to a tier2 fallback instead of resolving the disabled bot).
+
+    Writes only the `enabled` column on the existing owner/name row: never
+    inserts, and never rewrites unrelated fields via a full-config round trip.
+    Returns False when the row is absent; True when it exists, including a
+    no-op when the value is already desired.
+    """
+    return bot_repo.set_enabled(user_id, name, enabled)
 
 
 def delete_config(user_id: int, name: str) -> bool:
