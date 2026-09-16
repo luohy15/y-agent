@@ -490,15 +490,18 @@ Resources:
         RefreshUsageLimitsSchedule:
           # Keeps each eligible user's persisted usage_limits_latest snapshot
           # current so ordinary GET /api/usage/limits reads never touch
-          # VM/SSH/CLI (todo 3226). Per-user pipeline locks make this safe to
-          # run every five minutes without overlapping a still-running sweep
-          # or a concurrent manual ?refresh=true. The step also sizes its own
-          # run budget against this interval (_SCHEDULE_INTERVAL_SECONDS in
+          # VM/SSH/CLI (todo 3226). Cadence is 30 minutes because each awake
+          # refresh renews the VM's SSH idle marker, and that marker's host
+          # hibernation threshold is 900s; 5 minutes was shorter than 900s so
+          # auto-hibernate.sh could never fire (todo 3564). Per-user pipeline
+          # locks still make this safe against a still-running sweep or a
+          # concurrent manual ?refresh=true. The step also sizes its own run
+          # budget against this interval (_SCHEDULE_INTERVAL_SECONDS in
           # worker/steps/refresh_usage_limits.py) so a tick always ends before
           # the next one starts; change that constant alongside this rate.
           Type: Schedule
           Properties:
-            Schedule: rate(5 minutes)
+            Schedule: rate(30 minutes)
             Input: '{"action": "refresh_usage_limits"}'
         CheckTraceLivenessSchedule:
           # Trace liveness watchdog plus periodic orphan-running-chat

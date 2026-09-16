@@ -12,7 +12,7 @@ The live provider read itself still happens in the `y` CLI on the user's VM
 and is still SSH'd into from the `agent` package (which needs `agent.config` /
 `agent.tool_base`, and `storage` must not depend on `agent`, the reverse of
 the existing dependency direction) — but only from
-`agent.usage_limits.refresh_and_persist_snapshot`, called by the five-minute
+`agent.usage_limits.refresh_and_persist_snapshot`, called by the 30-minute
 worker sweep and by the explicit `?refresh=true` retry, not from every poll.
 This module normalizes the CLI's raw per-provider readings into a stable
 contract, computes derived fields (remaining percent, freshness), selects one
@@ -36,7 +36,7 @@ _WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
 
 # --- persisted snapshot (todo 3226) ---------------------------------------
 #
-# Ordinary `GET /api/usage/limits` reads no longer run the CLI: a five-minute
+# Ordinary `GET /api/usage/limits` reads no longer run the CLI: a 30-minute
 # worker sweep (agent.usage_limits.refresh_and_persist_snapshot) is the only
 # writer, persisting one normalized snapshot per user under this
 # user_preference key. Reads only look up that row and recompute freshness
@@ -45,9 +45,11 @@ _WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
 
 SNAPSHOT_PREFERENCE_KEY = "usage_limits_latest"
 
-# Fresh classification window for a *read* of the persisted snapshot. Wider
-# than DEFAULT_TTL_SECONDS's 5 minutes so the 5-minute refresh cadence's
-# ordinary scheduler jitter never flips a just-refreshed snapshot to stale.
+# Fresh classification window for a *read* of the persisted snapshot.
+# Narrower than the 30-minute refresh cadence (todo 3564): a successful
+# snapshot reads `fresh` for 10 minutes after each refresh and `stale` for
+# the other 20, and `observed_at` is never restamped. Age stays truthful
+# rather than stretching "fresh" across the whole idle-preserving interval.
 READ_FRESH_SECONDS = 600
 
 # Startup / never-refreshed state: no successful snapshot exists yet.
@@ -306,8 +308,9 @@ def merge_providers(old_providers: list, new_providers: list) -> list:
 def _with_read_freshness(providers: list) -> list:
     """Recompute each row's freshness from its own observed_at at read time
     (never restamped) against READ_FRESH_SECONDS, rather than trusting a
-    freshness value frozen at refresh time — the same row read nine minutes
-    after a five-minute-old refresh must not still claim `fresh`."""
+    freshness value frozen at refresh time — the same row read past
+    READ_FRESH_SECONDS after a successful refresh must not still claim
+    `fresh`."""
     return [
         {
             **p,

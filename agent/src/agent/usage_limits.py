@@ -9,7 +9,7 @@ todo 3226: ordinary `GET /api/usage/limits` reads no longer land here at all
 — they read the persisted snapshot directly (storage.service.model_usage_
 limits.read_snapshot). This module now exists only to *produce* that
 snapshot: `refresh_and_persist_snapshot` is the one refresh function shared
-by the worker's five-minute scheduled sweep and the explicit `?refresh=true`
+by the worker's 30-minute scheduled sweep and the explicit `?refresh=true`
 API retry. Each call is guarded by a per-user pipeline lock
 (`refresh_usage_limits:<user_id>`) so the sweep and a manual retry — or two
 manual retries — can never launch overlapping CLI runs for the same user. A
@@ -116,8 +116,9 @@ _CLI_TIMEOUT_SECONDS = 30.0
 # The guarded work is bounded at ~_CLI_TIMEOUT_SECONDS; pipeline_lock's own
 # default (840s) would leave a user locked out of both the sweep and a manual
 # refresh for up to 14 minutes if a worker invocation died before `finally`
-# ran. 120s bounds that to one or two missed five-minute ticks instead, while
-# still comfortably covering the CLI timeout plus SSH/connect overhead.
+# ran. 120s is far below the 30-minute cadence, so at most one tick is
+# skipped if a worker dies before `finally` (todo 3564); it still
+# comfortably covers the CLI timeout plus SSH/connect overhead.
 _LOCK_TTL_SECONDS = 120
 
 # Releasing the lock is the last thing a cancelled attempt does, so it must
@@ -196,7 +197,7 @@ async def _record_failure(user_id: int, error_code: str, attempt_at: str) -> dic
 
 
 async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dict | None:
-    """The one refresh function shared by the five-minute scheduled worker
+    """The one refresh function shared by the 30-minute scheduled worker
     sweep and the explicit `?refresh=true` API path. Acquires this user's
     pipeline lock so the sweep and a manual retry (or two manual retries)
     never overlap; returns None when the lock is already held, so the caller
@@ -279,7 +280,7 @@ async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dic
 async def get_limit_status(user_id: int, refresh: bool = False) -> dict:
     """`GET /api/usage/limits` read path. An ordinary poll (`refresh=False`)
     only reads the persisted snapshot: preference lookup plus freshness
-    normalization, never VM/SSH/CLI — the five-minute worker sweep is what
+    normalization, never VM/SSH/CLI — the 30-minute worker sweep is what
     keeps it current. `refresh=True` is an explicit user-initiated retry: it
     runs one bounded refresh through the same function the sweep uses and
     returns the resulting snapshot; if another refresh already owns this

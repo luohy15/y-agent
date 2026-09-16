@@ -48,7 +48,7 @@ report rolling windows, `five_hour` / `one_week`; Grok reports its current
 billing period), with percent used, percent remaining, reset time, freshness,
 and explicit unavailable / stale / re-auth states. The three reads run in the
 `y` CLI **on the user's VM** (stable source IP, already known to these
-vendors), behind one `y usage limits --json` envelope. A five-minute worker
+vendors), behind one `y usage limits --json` envelope. A 30-minute worker
 schedule SSH-execs that command per user, normalizes the result, and persists
 the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
 3226); ordinary `GET /api/usage/limits` polls read only that persisted
@@ -562,7 +562,7 @@ expired-login card tells the user to run.
   migration SQL. The original "every read is live, nothing is persisted"
   design was replaced because `GET /api/usage/limits` was consistently one of
   the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99
-  15.46s, VM/SSH/CLI on every request): a five-minute worker schedule now
+  15.46s, VM/SSH/CLI on every request): a 30-minute worker schedule now
   writes the one latest normalized snapshot per user into the existing
   `user_preference` table (key `usage_limits_latest`, no new table), and an
   ordinary poll reads only that row. The live VM/SSH/CLI path still exists —
@@ -614,7 +614,7 @@ expired-login card tells the user to run.
   shape this reader originally shipped against, todo 2872).
 - **Execution on the VM, not in Lambda.** All provider HTTP and the scrape live
   in `y usage limits [--json] [--refresh]`, which runs on the user's VM. Two
-  callers SSH-exec it and normalize the returned envelope: the five-minute
+  callers SSH-exec it and normalize the returned envelope: the 30-minute
   worker schedule (`refresh_and_persist_snapshot`, unforced) and
   `GET /api/usage/limits?refresh=true` (the same function, forced). The
   reason for VM execution is source IP: shared cloud egress already drew a
@@ -665,7 +665,7 @@ expired-login card tells the user to run.
   key `usage_limits_latest`: `providers` (merged per backend), the latest
   attempt's `errors[]`, and `last_attempt_at` / `last_success_at` /
   `last_attempt_status` / `last_attempt_error`. A worker schedule calls
-  `agent.usage_limits.refresh_and_persist_snapshot` every five minutes for
+  `agent.usage_limits.refresh_and_persist_snapshot` every 30 minutes for
   every *eligible* user (see "Refresh is owner-scoped" below); `?refresh=true`
   calls the identical function, forced, so the schedule and a manual retry
   share exactly one refresh path rather than two implementations that could
@@ -688,12 +688,27 @@ expired-login card tells the user to run.
   its previous row unchanged (there is nothing new to overwrite it with).
   `observed_at` is never restamped; freshness is instead
   **recomputed on every read** from each row's own `observed_at` against a
-  ten-minute read TTL (`READ_FRESH_SECONDS`, wider than the five-minute
-  refresh cadence so ordinary scheduler jitter never flips a just-refreshed
-  snapshot to stale). Before the first successful refresh for a user, reads
+  ten-minute read TTL (`READ_FRESH_SECONDS`, now narrower than the
+  30-minute cadence, so a successful snapshot deliberately reads `stale`
+  between refreshes and `observed_at` is never restamped). Before the first
+  successful refresh for a user, reads
   return a bounded `{"providers": [], "errors": [{"origin": "snapshot",
   "error": "snapshot_unavailable"}]}` envelope — startup is fail-fast and
   never wakes or probes the VM from an ordinary poll.
+- **Refresh cadence is 30 minutes so the sweep cannot keep the VM awake
+  (todo 3564).** Each awake refresh still opens two short SSH sessions and
+  renews `/tmp/ec2-ssh-last-seen`. The host idle threshold is 900s, so the
+  original 5-minute cadence (todo 3226) never let `auto-hibernate.sh`
+  fire. The schedule is now `rate(30 minutes)` / `_SCHEDULE_INTERVAL_SECONDS
+  = 1800`, strictly longer than that threshold. An asleep VM still records
+  `vm_unreachable` and is not woken. Under an isolated idle window the
+  awake tail after the last genuine activity is typically 15-30 minutes;
+  scheduler jitter, a stalled process, or other SSH work can stretch that
+  tail, and the remaining sub-second probe race is not closed. Once asleep
+  the VM stays asleep until a genuine interactive wake. Freshness
+  consequence: `READ_FRESH_SECONDS` stays 600, so provider rows read `fresh`
+  for 10 minutes after each refresh and `stale` for the other 20, and they
+  read `stale` with a `vm_unreachable` attempt error while the VM sleeps.
 - **Refresh is owner-scoped, and the sweep is bounded (todo 3226 defect
   fix).** A subscription-limit read reports the provider logins of whatever
   machine it runs on, so it runs only on the user's *own* `default` VM config
@@ -706,7 +721,7 @@ expired-login card tells the user to run.
   active user, which in production spent ~15s per user on an SSH connect
   timeout against the inherited dead host, never reached the one real user
   (position 111 of 124) inside the 900s Lambda timeout, and therefore left
-  overlapping five-minute invocations that advanced no snapshot at all
+  overlapping 5-minute invocations that advanced no snapshot at all
   (diagnosis: `pages/plan-3226-usage-limits-refresh-production-defect.md`).
   Execution is bounded on three axes so one slow user can never starve another
   and invocations can never accumulate: eligible users are attempted
@@ -714,7 +729,7 @@ expired-login card tells the user to run.
   CLI's own 30s timeout, and no attempt starts once less than one such cap
   remains of the attempt budget, which together with the eligibility and
   overhead allowances sits inside the run budget, which sits inside the
-  five-minute cadence.
+  30-minute cadence.
 - **What the sweep does and does not guarantee about coverage (todo 3226).**
   One run attempts *every* eligible user within the schedule interval as long
   as the eligible set fits one run's guaranteed capacity — concurrency ceiling
@@ -1259,7 +1274,8 @@ expired-login card tells the user to run.
 | 3121 | `GET /api/usage/rate` under 1s via a direct Relay proxy: store CRS admin credentials in `user_preference` key `crs_admin`, share `storage.service.usage_rate.read_rate` between the API and `y usage rate`, cache the admin session token (~23h, re-login on 401), retire the VM precompute path (`--store`, `scripts/usage-rate-store.sh`, `usage_rate_latest`, `stale` / `vm_unreachable`). UI contract changes add `auth_failed` and drop VM wording | - | `pages/plan-3121-usage-rate-latency.md` | this PRD | `pages/review-3121-usage-rate-latency.md` | shipped (`86afe27` backend; bot artifact v20, `cbb0450b400b…`; production latency 0.283 / 0.578 / 0.702s; cron absent; orphan rows removed) |
 | 3122 | "Tokens over time" and "Tokens history" could show disagreeing top lists. Root cause was neither window, aggregation, cache tokens, nor chart filter: both surfaces fetch identical rows, but the history table re-ordered its rows by its own todo-3047-persisted sort state, so after a reload with a persisted period-column / alphabetical / ascending sort the leading rows no longer matched the chart legend. The chart's range-wide selected-metric ranking was judged correct — letting a single period column or an ascending table sort redefine chart membership would pick globally insignificant series. `rankModelsByMetric()` is now the one ranking authority (metric summed per model over the range, descending, ascending model name for ties, zeros excluded); chart membership, the top-5 legend fold, and the canonical history order all derive from it via `modelSeriesFromRanking()` / `usageTableRows()`. `presentUsageTableRows()` returns base rows untouched for canonical `Range Σ ↓` instead of re-sorting by an independently recomputed table sum, which had been a second ordering authority that could disagree at float precision on cost totals and had no model-name tie-break. Todo 3047's persisted sort survives as an explicit presentation override, with a compact inline reset to canonical order shown only in non-canonical state. Both established `Other` meanings (chart/table ranks 8+, legend ranks 6+) unchanged | - | `pages/plan-3122-bot-usage-top-lists.md` | this PRD | `pages/review-3122-bot-usage-top-lists.md` (2 rounds) | shipped (`bot` artifact v19, `1573ff5c75bd…`; source `23aa4ba`) |
 | 3165 | Hourly grain: CRS `period=hourly` exposure, y-agent `model_usage_hourly` table + sync/API/CLI/schedule, bot Live "Today by hour" and Over-time `H` granularity; delivered Live layout was a wide two-column stack (left Run rate → Subscription limits with a normal gap, right donut → Today by hour, both columns equal-height with the right column's bottom card pinned to the shared bottom edge), narrow stack Run rate → Subscription limits → Today by hour → donut (narrow order intentional, supersedes v24 below-donut); the wide card placement was later superseded by todo 3261; stored real cost (incl. zero) is authoritative; exact cost reconciliation accepted from the first complete Asia/Shanghai day after that deploy (legacy pre-deploy Redis window excluded; no `isLegacy` persistence) | - | `pages/plan-3165-hourly-bot-usage.md` | this PRD | `pages/review-3165-crs-hourly-model-stats.md`, `pages/review-3165-yagent-hourly-backend.md`, `pages/review-3165-bot-hourly-usage-ui.md`, `pages/review-3165-bot-usage-prd-live-layout.md` | shipped (`23974833` CRS, `3bea917` backend; bot v29 `0066018dbe1a…`, compact left stack later superseded by todo 3261; api unchanged since v24 (`208a45568b7c…`); v25-v28 were intermediate layout iterations, see review note for the version-by-version history); first complete post-deploy-day reconciliation pending |
-| 3226 | `GET /api/usage/limits` was one of the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99 15.46s, synchronous VM/SSH/CLI on every poll). Ordinary polls now read a persisted latest snapshot (`user_preference` key `usage_limits_latest`) instead: a five-minute worker schedule (`refresh_usage_limits` action, `worker/steps/refresh_usage_limits.py`) calls the new `agent.usage_limits.refresh_and_persist_snapshot`, the same function `?refresh=true` now calls forced, guarded by a per-user pipeline lock (`refresh_usage_limits:<user_id>`) so the schedule and a manual retry can never overlap. Failure retention: a failed attempt updates only attempt metadata and never discards the last successful providers; a successful attempt merges per backend (`storage.service.model_usage_limits.merge_providers`), falling back to the previous row for a same-attempt read failure (`parse_failed` / `transport_error`) or a backend absent from the new attempt, and always surfacing a durable state (`reauth_required` / `not_logged_in`) or a normal reading. Freshness is recomputed on every read from each row's own `observed_at` against a ten-minute read TTL, `observed_at` itself is never restamped, and a user with no successful refresh yet reads a bounded `snapshot_unavailable` envelope with no VM probe. The public route contract, provider row shape, and closed error vocabulary are unchanged (`snapshot_unavailable` and `refresh_in_progress` are additive). EventBridge schedule wiring (`template.yaml` `RefreshUsageLimitsSchedule`, `rate(5 minutes)`) is deployed and the rule is verified enabled in production (Actions run 32211434242, 2026-08-19). The production before/after latency window (plan sub-task 7) is still outstanding. Tag-route and monitor-route-detail work from the same plan ship under `code/y-module/tag/README.md` and this repo's `docs/prd/api-latency-monitoring.md` respectively, not here | - | `pages/plan-3226-slowest-api-routes.md` | this PRD | `pages/review-3226-usage-limits-snapshot.md` | shipped in 622ebed, deployed 2026-08-19; production latency verification (plan sub-task 7) outstanding |
+| 3226 | `GET /api/usage/limits` was one of the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99 15.46s, synchronous VM/SSH/CLI on every poll). Ordinary polls now read a persisted latest snapshot (`user_preference` key `usage_limits_latest`) instead: a five-minute worker schedule (`refresh_usage_limits` action, `worker/steps/refresh_usage_limits.py`) calls the new `agent.usage_limits.refresh_and_persist_snapshot`, the same function `?refresh=true` now calls forced, guarded by a per-user pipeline lock (`refresh_usage_limits:<user_id>`) so the schedule and a manual retry can never overlap. Failure retention: a failed attempt updates only attempt metadata and never discards the last successful providers; a successful attempt merges per backend (`storage.service.model_usage_limits.merge_providers`), falling back to the previous row for a same-attempt read failure (`parse_failed` / `transport_error`) or a backend absent from the new attempt, and always surfacing a durable state (`reauth_required` / `not_logged_in`) or a normal reading. Freshness is recomputed on every read from each row's own `observed_at` against a ten-minute read TTL, `observed_at` itself is never restamped, and a user with no successful refresh yet reads a bounded `snapshot_unavailable` envelope with no VM probe. The public route contract, provider row shape, and closed error vocabulary are unchanged (`snapshot_unavailable` and `refresh_in_progress` are additive). EventBridge schedule wiring (`template.yaml` `RefreshUsageLimitsSchedule`, `rate(5 minutes)`) is deployed and the rule is verified enabled in production (Actions run 32211434242, 2026-08-19). The production before/after latency window (plan sub-task 7) is still outstanding. Tag-route and monitor-route-detail work from the same plan ship under `code/y-module/tag/README.md` and this repo's `docs/prd/api-latency-monitoring.md` respectively, not here | - | `pages/plan-3226-slowest-api-routes.md` | this PRD | `pages/review-3226-usage-limits-snapshot.md` | shipped in 622ebed, deployed 2026-08-19; production latency verification (plan sub-task 7) outstanding; cadence superseded by todo 3564: 5 min -> 30 min |
+| 3564 | Move the subscription-limit refresh from 5 minutes to 30 minutes so an awake sweep no longer renews the VM SSH idle marker inside the host's 900s hibernation window; asleep-skip, freshness TTL and wake semantics unchanged; residual probe race and jitter/stall tail remain documented limitations | - | `pages/plan-3564-usage-refresh-cadence.md` | this PRD; `pages/plan-3564-auto-hibernation-diagnosis.md`; `pages/impl-3564-usage-refresh-cadence.md` | `pages/review-3564-usage-refresh-cadence.md` | reviewed, pending publication |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
 
 ## Out of Scope

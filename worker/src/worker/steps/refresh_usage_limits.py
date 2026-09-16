@@ -9,8 +9,9 @@ The first version walked every active user through the general
 `resolve_vm_config`, which silently inherits the global default user's VM, so
 in production ~123 users without a config of their own each burned ~15s on an
 SSH connect timeout against a dead host and the one real user (position 111
-of 124) was never reached before the 900s Lambda timeout — with a five-minute
-cadence that meant permanently overlapping invocations and a snapshot that
+of 124) was never reached before the 900s Lambda timeout — with the then
+five-minute cadence that meant permanently overlapping invocations and a
+snapshot that
 never advanced. Diagnosis:
 pages/plan-3226-usage-limits-refresh-production-defect.md.
 
@@ -81,10 +82,15 @@ _MAX_CONCURRENCY = 8
 # not consume the run's budget.
 _USER_TIMEOUT_SECONDS = 45.0
 
-# rate(5 minutes), from template.yaml's RefreshUsageLimitsSchedule. Not read
+# rate(30 minutes), from template.yaml's RefreshUsageLimitsSchedule. Not read
 # from the event: the schedule is the contract, and the sweep only needs it to
-# size its own budget and its fairness rotation.
-_SCHEDULE_INTERVAL_SECONDS = 300
+# size its own budget and its fairness rotation. Must stay longer than the
+# host VM's 900s SSH-idle hibernation threshold (todo 3564): an awake tick
+# renews /tmp/ec2-ssh-last-seen, so a 5-minute cadence never let the idle
+# window mature. The 900s figure lives in the host script, not in this
+# process; tests and docs assert the inequality against that external
+# assumption rather than duplicating it as an unused production constant.
+_SCHEDULE_INTERVAL_SECONDS = 1800
 
 # Whole-run budget for the handler, end to end: eligibility, every attempt,
 # and bookkeeping. A tick always ends before the next one starts (no
