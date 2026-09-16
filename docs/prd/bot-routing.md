@@ -22,9 +22,10 @@ Bots carry a capability tier as data: a four-level ladder from tier0
 (strongest, most expensive) to tier3 (baseline). Bot targeting on a dispatch
 is a set of filters: bot name, backend, and tier, all of the same kind.
 Resolution is one simple rule: intersect the given filters over the pool of
-runnable bot configs to get candidates; exactly one candidate is used
-directly; multiple candidates are picked among by weighted random selection;
-no filters at all, or filters that produce an empty set, fall back to tier2,
+runnable bot configs to get candidates; exactly one candidate is used directly;
+multiple-candidate tier pools use smooth weighted round-robin, while other
+multiple-candidate pools use weighted random selection; no filters at all, or
+filters that produce an empty set, fall back to tier2,
 the system default. Skills are never statically bound to tiers. An empty
 tier2 fallback pool falls back to the global default bot with a warning
 rather than failing.
@@ -67,7 +68,7 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 8. As an admin, I want to clear a bot's explicit tier back to unset, so that
    redundant labels matching the bot-side default can be removed.
 9. As an admin, I want to weight bots within a candidate pool, so that I
-   control the probability split when the filters leave multiple members.
+   control the long-run new-chat draw split when filters leave multiple members.
 10. As an admin, I want a bot with no positive route weight to never win a
     draw against weighted peers, so that adding a bot config never silently
     takes traffic from explicitly weighted bots.
@@ -153,7 +154,11 @@ inspectable and editable through the bot CLI, never memorized in instructions.
      value is special-cased, so every inline query bot is kept out of the
      pools by being model-type.
   3. Exactly one candidate: used directly; weight is not consulted.
-  4. Multiple candidates: weighted random selection by route weight.
+  4. Multiple candidates: a tier-filtered pool uses smooth weighted round-robin
+     by route weight. Its route state is owner-scoped and persisted between
+     draws, so integer-equivalent weights converge deterministically without
+     clustering from random chance. A non-tier pool uses weighted random
+     selection by route weight.
   5. No filters given, or an empty intersection: resolve again as a tier2
      filter (the system default) through the same selection logic, with a
      logged warning when filters produced an empty set.
@@ -162,11 +167,16 @@ inspectable and editable through the bot CLI, never memorized in instructions.
      hard error if nothing exists). Routing never fails a chat over a mere
      data gap.
 - **Route weight gates the draw, not membership.** Weight is consulted only
-  when the filters produce multiple candidates: probability equals the
-  bot's weight divided by the pool's total, unset weight counts as zero,
-  and a zero-weight bot never wins a draw against weighted peers (a pool
-  whose total weight is zero counts as empty). A sole candidate is used
-  regardless of weight. This supersedes the earlier contract where unset
+  when the filters produce multiple candidates: smooth weighted round-robin in
+  a tier pool, weighted random selection in any other pool. Both allocate
+  *new-chat draws* in proportion to positive route weights; unset weight counts
+  as zero, and a zero-weight bot never wins a draw against weighted peers (a
+  pool whose total weight is zero counts as empty). A sole
+  candidate is used regardless of weight. A draw happens when a new chat is
+  resolved; later turns reuse that chat's persisted bot unless explicitly
+  re-botted. Weight therefore does not equalize turns, relay requests, tokens,
+  or cost, and old or explicitly pinned chats do not consume a pool draw. This
+  supersedes the earlier contract where unset
   weight excluded a bot from tier pools entirely (itself decided after
   reverting a code default of 1.0); the opt-in spirit survives as "a
   weightless bot never wins a multi-candidate draw", while single-candidate
@@ -347,3 +357,4 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 | 2930 | Collapse the agentic backends to claude_code only, then lift the sticky-bot rule: naming a different bot on an existing chat re-bots it (bot_name + tier persisted, `external_id` kept so the Claude session resumes), while a cross-backend change is refused and the chat keeps its bot; surfaced via `y chat --chat-id ... --bot` and the web bot picker | - | `pages/plan-2930-single-backend.md` | - | `pages/review-2930-single-backend.md` (Track A), `pages/review-2930-track-c-rebot.md` (Track C) | in progress |
 | 3202 | Audit-only: document the actual bot-switch state matrix for running / queued / interrupted / idle chats. Result: a bot pin sent to a busy chat is silently discarded (not deferred to the next run, as this doc and `--bot` help claim), and a tier-only request on an existing chat can execute a fallback bot without persisting it. Recommendation (unimplemented): reject routing fields on busy chats with 409 and preflight named pins on idle re-bots | - | `pages/plan-3202.md` | - | - | audited, no code change |
 | 3206 | Make model-type inline search bots explicitly pin-reachable while excluding them from tier routing (px reclassified to `type=model` without disrupting `--bot px` or `--backend perplexity`), then land the `xai_web` / `xai_x` search backends behind that rule and drop the now-dead perplexity tier clause, so bot type alone gates tier candidacy | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` (Deploy A routing), `pages/review-3206-deploy-b-inline-search.md` (Deploy B backends) | Deploy A and Deploy B shipped; Bots module v30 active; live `grok-web` smoke `30184b` and `grok-x` smoke `afc8e6` succeeded |
+| 3569 | Correct route-weight documentation: tier pools use smooth weighted round-robin for new-chat draws, non-tier pools remain weighted random, and neither allocation equalizes per-session turns, relay requests, tokens, or cost | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD | `pages/review-3569-chat-model-activity-host.md` | reviewed; unpublished |

@@ -2,9 +2,10 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent import usage_limits as limits_service
+from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
 from storage.service import usage_rate as rate_service
@@ -66,6 +67,45 @@ async def list_model_daily(
         {k: v for k, v in row.to_dict().items() if k not in _INTERNAL_FIELDS}
         for row in rows
     ]
+
+
+@router.get("/model-activity")
+async def get_model_activity(
+    request: Request,
+    time: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    tz: Optional[str] = Query(None),
+):
+    """Distinct y-agent chat sessions and answered turns by assistant model.
+
+    The response uses the same inclusive, optionally unbounded date-window
+    mapping as model-daily. `coverage_from` is null until an explicit historical
+    backfill creates facts; callers must treat a later coverage date than a
+    non-null `from_date` as partial.
+    """
+    if time is not None:
+        start, end = parse_time_range(time, tz=tz)
+        from_date = start.isoformat() if start else None
+        to_date = (end - timedelta(days=1)).isoformat() if end else None
+    else:
+        today = local_today(tz).isoformat()
+        from_date = from_date or today
+        to_date = to_date or today
+
+    try:
+        start_date = datetime.fromisoformat(from_date).date() if from_date else None
+        end_date = datetime.fromisoformat(to_date).date() if to_date else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid model activity date range") from exc
+    if start_date is not None and end_date is not None and end_date < start_date:
+        raise HTTPException(status_code=422, detail="to_date must be on or after from_date")
+    result = activity_service.aggregate(request.state.user_id, start_date, end_date)
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        **result,
+    }
 
 
 @router.get("/model-hourly")

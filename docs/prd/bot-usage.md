@@ -271,6 +271,15 @@ expired-login card tells the user to run.
 
 ### Live view
 
+41a. As a web user, I want each model row to show distinct y-agent chat sessions
+    with attributed assistant output in the selected period, so that route
+    allocation is visible separately from relay workload.
+41b. As a web user, I want each model row to show answered prompt groups (turns),
+    so that a long agent loop is not mistaken for many user turns.
+41c. As a web user, I want average turns per chat for the same model and period,
+    with unavailable shown when there are no sessions, so that session reuse is
+    comparable without dividing by zero.
+
 42. As a web user, I want a donut chart of each model's share of the selected
     metric over the selected time range, top seven models plus an "Other"
     slice, sorted by share descending, so that I can see at a glance which
@@ -1130,6 +1139,51 @@ expired-login card tells the user to run.
   cost as dollars with two decimals; requests as locale-formatted integers;
   tabular numerals everywhere.
 
+### Chat session and answered-turn activity (todo 3569)
+
+- **Chat-derived, not relay-derived.** Sessions and turns come from persisted
+  y-agent chat messages. Relay requests remain a separate workload measure that
+  can include many model calls inside one agent turn, retries, internal calls,
+  and traffic with no y-agent chat attribution.
+- **One output clock.** A session is one distinct chat with at least one
+  attributed assistant message from the model in the selected local-date
+  period. A pending prompt group opens on the first user message after the
+  previous attributed answer and stays open across later user messages, tool
+  results, and unattributed assistant messages; the first later attributed
+  assistant response closes it and assigns one turn to that response's local
+  date and model. A steer that receives its own attributed output opens another
+  turn. A trailing unanswered prompt does not count yet. All three values use
+  the assistant output clock and `Y_AGENT_TIMEZONE` buckets.
+- **Multi-model and zero-turn facts are intentional.** A re-botted chat counts
+  once in every model row where it produced output, while the Total row counts
+  distinct chats across all models, so row sessions need not sum to the total.
+  A model that continues producing output on a later date without a new prompt
+  contributes a session with zero turns on that date.
+- **Attribution is explicit.** Empty model ids and Claude Code's `<synthetic>`
+  placeholder are skipped and do not close a pending prompt group. Chat model
+  `grok-4.6` is stored under relay usage id `grok-4.6-build`; other ids currently
+  match. Relay-only models with no attributed y-agent output correctly read as
+  zero sessions and zero turns, with average turns/chat unavailable (`-`).
+- **Persisted fact and aggregation contract.** Host-owned
+  `chat_model_activity` stores `(user_id, chat_id, usage_date, model, turns)`
+  with one unique row per tuple. Recompute replaces one chat's derived facts in
+  one transaction; each incremental pass replaces every changed chat, sweeps
+  deleted-chat orphans, and advances its chat-update watermark atomically, with
+  an overlap on the next pass. `GET /api/usage/model-activity?time=&tz=` uses
+  the same optionally unbounded date-window handling as `model-daily` and
+  returns `{from_date, to_date, coverage_from, models, total}`. Average
+  turns/chat is turns divided by sessions; the Total row divides total turns by
+  distinct total chats and is not the mean of model averages.
+- **Coverage is declared, never inferred from the oldest incidental fact.** A
+  fresh install records incremental activity but returns `coverage_from: null`
+  until `y usage backfill-activity --days N` explicitly establishes a historical
+  lower bound. A bounded requested window starting before non-null
+  `coverage_from` is partial and the UI marks the three columns accordingly.
+  An unbounded response preserves null bounds and still exposes
+  `coverage_from`; it does not pretend the facts predate that declared bound.
+  The migration and historical backfill are maintainer-run actions, never
+  automatic deployment mutations.
+
 ## Testing Decisions
 
 - **Idempotency is the storage contract to test:** upserting the same
@@ -1277,6 +1331,7 @@ expired-login card tells the user to run.
 | 3226 | `GET /api/usage/limits` was one of the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99 15.46s, synchronous VM/SSH/CLI on every poll). Ordinary polls now read a persisted latest snapshot (`user_preference` key `usage_limits_latest`) instead: a five-minute worker schedule (`refresh_usage_limits` action, `worker/steps/refresh_usage_limits.py`) calls the new `agent.usage_limits.refresh_and_persist_snapshot`, the same function `?refresh=true` now calls forced, guarded by a per-user pipeline lock (`refresh_usage_limits:<user_id>`) so the schedule and a manual retry can never overlap. Failure retention: a failed attempt updates only attempt metadata and never discards the last successful providers; a successful attempt merges per backend (`storage.service.model_usage_limits.merge_providers`), falling back to the previous row for a same-attempt read failure (`parse_failed` / `transport_error`) or a backend absent from the new attempt, and always surfacing a durable state (`reauth_required` / `not_logged_in`) or a normal reading. Freshness is recomputed on every read from each row's own `observed_at` against a ten-minute read TTL, `observed_at` itself is never restamped, and a user with no successful refresh yet reads a bounded `snapshot_unavailable` envelope with no VM probe. The public route contract, provider row shape, and closed error vocabulary are unchanged (`snapshot_unavailable` and `refresh_in_progress` are additive). EventBridge schedule wiring (`template.yaml` `RefreshUsageLimitsSchedule`, `rate(5 minutes)`) is deployed and the rule is verified enabled in production (Actions run 32211434242, 2026-08-19). The production before/after latency window (plan sub-task 7) is still outstanding. Tag-route and monitor-route-detail work from the same plan ship under `code/y-module/tag/README.md` and this repo's `docs/prd/api-latency-monitoring.md` respectively, not here | - | `pages/plan-3226-slowest-api-routes.md` | this PRD | `pages/review-3226-usage-limits-snapshot.md` | shipped in 622ebed, deployed 2026-08-19; production latency verification (plan sub-task 7) outstanding; cadence superseded by todo 3564: 5 min -> 30 min |
 | 3564 | Move the subscription-limit refresh from 5 minutes to 30 minutes so an awake sweep no longer renews the VM SSH idle marker inside the host's 900s hibernation window; asleep-skip, freshness TTL and wake semantics unchanged; residual probe race and jitter/stall tail remain documented limitations | - | `pages/plan-3564-usage-refresh-cadence.md` | this PRD; `pages/plan-3564-auto-hibernation-diagnosis.md`; `pages/impl-3564-usage-refresh-cadence.md` | `pages/review-3564-usage-refresh-cadence.md` | reviewed, pending publication |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
+| 3569 | Explain why equal tier route weights do not imply equal tokens or spend, and add distinct y-agent sessions, answered turns, and average turns/chat per model to the Live usage table | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | reviewed; unpublished |
 
 ## Out of Scope
 

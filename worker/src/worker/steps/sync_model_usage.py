@@ -12,6 +12,7 @@ hour is repaired after midnight (todo 3165).
 
 from loguru import logger
 
+from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service.user import list_users
@@ -28,8 +29,18 @@ async def handle_sync_model_usage() -> dict:
     try:
         results = []
         for user in list_users():
-            # Full sync envelope: daily + hourly (crs-hourly) results.
-            results.append(usage_service.sync(user.id))
+            # Full relay sync envelope: daily + hourly (crs-hourly) results.
+            envelope = usage_service.sync(user.id)
+            try:
+                envelope["activity"] = activity_service.sync(user.id)
+            except Exception as exc:
+                logger.opt(exception=exc).error(
+                    "sync_model_usage: chat activity sync failed for user {}: {}",
+                    user.id,
+                    exc,
+                )
+                envelope["activity"] = {"status": "error", "rows": 0}
+            results.append(envelope)
 
         total_rows = 0
         for envelope in results:

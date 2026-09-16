@@ -1,6 +1,7 @@
 import click
 
 from .backfill import backfill
+from .activity_backfill import backfill_activity
 from .credentials_cmd import credentials
 from .crs_creds import crs_creds
 from .limits import limits
@@ -17,6 +18,7 @@ def usage_group():
 
 usage_group.add_command(sync)
 usage_group.add_command(backfill)
+usage_group.add_command(backfill_activity)
 usage_group.add_command(credentials)
 usage_group.add_command(crs_creds)
 usage_group.add_command(limits)
