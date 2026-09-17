@@ -342,6 +342,11 @@ monitoring queries and UI evolution on the module publish loop.
   or overlap.
 - Buckets and range boundaries are UTC. The configured user timezone affects labels
   only. The current incomplete bucket is included and identified as partial.
+- Resolved range label (todo 3580, display-only): the range selector shows the
+  applied `summary.start` / `summary.end` in `summary.timezone` via the host
+  `@y/host` v14 `ResolvedRangeLabel`. Longer presets (`30d` / `90d` / `1y`) keep
+  their bucket-aligned start; the label names the server zone rather than the
+  browser zone. No query or seam change.
 
 ### Query and UI contract
 

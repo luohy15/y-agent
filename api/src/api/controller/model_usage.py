@@ -9,7 +9,7 @@ from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
 from storage.service import usage_rate as rate_service
-from storage.service.time_range import parse_time_range
+from storage.service.time_range import describe_time_range, parse_time_range
 from storage.util import local_today
 
 router = APIRouter(prefix="/usage")
@@ -159,15 +159,13 @@ async def get_range(
     time: Optional[str] = Query(None),
     tz: Optional[str] = Query(None),
 ):
-    """Resolve the shared time grammar to inclusive `{from_date, to_date}` bounds
-    without fetching any rows (same fava-exclusive-end -> inclusive conversion as
-    `model-daily`/`model-hourly`; null/unbounded tokens like `all` pass through as
-    null). Lets a client size its own fetch window (D7's Over-time hybrid
-    rebucketing) without duplicating `parse_time_range`'s grammar client-side."""
-    start, end = parse_time_range(time, tz=tz)
-    from_date = start.isoformat() if start else None
-    to_date = (end - timedelta(days=1)).isoformat() if end else None
-    return {"from_date": from_date, "to_date": to_date}
+    """Resolve the shared time grammar to inclusive display bounds without
+    fetching any rows. Additive superset of `{from_date, to_date}` (todo 3580):
+    also `input` and `recognized`. Same fava-exclusive-end -> inclusive
+    conversion as `model-daily`/`model-hourly`. A malformed literal date that
+    used to 500 is `recognized=false` with null bounds. Null/unbounded tokens
+    like `all` stay recognized with null bounds."""
+    return describe_time_range(time, tz=tz)
 
 
 @router.get("/daily-totals")

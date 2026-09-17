@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import { API, authFetch, jsonFetcher as fetcher } from "../api";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
+import ResolvedRangeLabel from "./ResolvedRangeLabel";
 import { ALL_RSS_FEEDS_ID } from "./RssFeedList";
+import type { ResolvedDateRange } from "../utils/resolvedRange";
 
 interface Link {
   activity_id: string;
@@ -58,6 +60,21 @@ function filterToParams(state: FilterState): { on?: string; from?: string; to?: 
   if (state.from) out.from = state.from;
   if (state.to) out.to = state.to;
   return out;
+}
+
+function resolvedRangeFromParams(
+  mode: FilterMode,
+  params: { on?: string; from?: string; to?: string },
+): ResolvedDateRange | null {
+  if (mode !== "chip") return null;
+  const from_date = params.on ?? params.from ?? null;
+  const to_date = params.on ?? params.to ?? null;
+  if (!from_date && !to_date) return null;
+  return { recognized: true, from_date, to_date };
+}
+
+function resolvedRangeFromFilter(state: FilterState): ResolvedDateRange | null {
+  return resolvedRangeFromParams(state.mode, filterToParams(state));
 }
 
 function loadFilter(): FilterState {
@@ -356,6 +373,8 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
 
   const grouped = useMemo(() => groupByDay(allLinks), [allLinks]);
   const showRangeRow = rangeExpanded || filter.mode === "range";
+  const resolvedRange = resolvedRangeFromParams(filter.mode, timeParams);
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
   // Injected-data path: presentational grouped list fed from a prop (no self-fetch).
   // Clicking a row opens the original URL in a new tab (link-out).
@@ -466,6 +485,9 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
               Downloaded
             </button>
           </div>
+          {resolvedRange && (
+            <ResolvedRangeLabel range={resolvedRange} zone={browserTz} />
+          )}
           {showRangeRow && (
             <div className="flex gap-1 items-center text-[0.6rem]">
               <input
@@ -558,3 +580,5 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
 }
 
 export type { Link };
+export { filterToParams, resolvedRangeFromFilter };
+export type { FilterState, Chip };

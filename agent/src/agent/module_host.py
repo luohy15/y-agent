@@ -70,7 +70,8 @@ is_external_table() / owned_tables() are host tooling (publish preflight,
 module only ever needs the constant.
 
 Allowlist (pure functions, no DB, no entity, no repository):
-  - storage.service.time_range  (parse_time_range, TIME_RANGE_ALIASES)
+  - storage.service.time_range  (parse_time_range, describe_time_range,
+    TIME_RANGE_ALIASES)
   - storage.util timestamp helpers
     (get_utc_iso8601_timestamp, get_unix_timestamp, local_today)
 
@@ -123,6 +124,12 @@ it renders the field. Todo 3397 adds owner-bound `tag_delete_vocabulary`
 (empty-only, exact spelling) and vocabulary-aware rename plans with
 `source_exists`, bumping it from 15 to 16. The tag module requires v16 for
 these operations; deploy the host before publishing the module.
+Todo 3580 adds `describe_time_range` to the existing `storage.service.time_range`
+allowlist (inclusive `{input, recognized, from_date, to_date}` for a grammar
+token, with optional `effective=` override). That is a named-export surface
+addition, so it bumps the version from 16 to 17. Finance raises its floor to
+17 when it writes `meta["time_range"]`; deploy this host before publishing
+that module. `parse_time_range` stays byte-identical.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -141,7 +148,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 16
+BACKEND_CONTRACT_VERSION = 17
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).

@@ -1007,6 +1007,15 @@ expired-login card tells the user to run.
   window: a given calendar year, or the month-aligned past 12 months (the
   first of the month 11 months back through today). This decoupling exists so
   the heatmap always renders its full window regardless of the Live filter.
+- **Resolved window labels (todo 3580).** `GET /api/usage/range` is an additive
+  superset of `{from_date, to_date}`: it also returns `input` and `recognized`
+  from host `describe_time_range`. A malformed literal date (`2026-13-45`) that
+  used to 500 is now 200 with `recognized=false` and null bounds. The Usage
+  filter label reads this payload; the heatmap card has its own label from
+  `heatmapWindowBounds`, because that window ignores the grammar except for a
+  bare year. Zone attribution stays tooltip-only next to the existing
+  `displayTz` chip. The todo 3346 browser-zone contract is unchanged: relative
+  tokens still resolve in the browser timezone the client sends as `tz`.
 - **Generous default limit.** The default row limit is high (100k) so wide
   ranges never truncate; per-model daily rows are small enough that this is
   safe.
@@ -1399,6 +1408,7 @@ expired-login card tells the user to run.
 | 3573 | After a successful subscription refresh, reconcile the owner's existing named `fable` bot at 95% of max(`five_hour`, `one_week`, `one_week_fable`) from a complete fresh Claude row; enable below 95% even if manually disabled; no-op at exactly 95% and on incomplete/failed input; alias/global-default routing bypasses remain an admission boundary | - | `pages/plan-3573-fable-usage-gate.md` | this PRD | `pages/review-3573-fable-usage-gate.md` | deployed |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
+| 3580 | Display-only resolved-date labels beside the Usage filter and heatmap. Host `GET /api/usage/range` returns `describe_time_range`; browser contract v14 exports the shared formatter. Query timezone stays the browser zone (todo 3346). Module labels land in a later publish | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/feature-y-agent-resolved-date-range-display.md`; `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module labels pending |
 
 ## Out of Scope
 

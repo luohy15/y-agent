@@ -378,6 +378,47 @@ declare module "@y/host" {
   }
   export function HtmlPreview(props: HtmlPreviewProps): any;
 
+  // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
+  // host-owned inclusive date/instant range formatter and presentational
+  // label. Calendar `from_date`/`to_date` are YYYY-MM-DD and are never
+  // reinterpreted into another zone. `zone` is an optional visible suffix;
+  // bot usage omits it (tooltip-only via `zoneTitle`).
+  export interface ResolvedDateRange {
+    input?: string | null;
+    recognized?: boolean;
+    from_date?: string | null;
+    to_date?: string | null;
+  }
+  export interface ResolvedInstantRange {
+    recognized?: boolean;
+    input?: string | null;
+    start?: string | Date | number | null;
+    end?: string | Date | number | null;
+  }
+  export interface FormatResolvedRangeOptions {
+    zone?: string | null;
+    zoneTitle?: string | null;
+    locale?: string;
+  }
+  export interface FormattedResolvedRange {
+    text: string;
+    title: string;
+  }
+  export function formatResolvedDateRange(
+    range: ResolvedDateRange | null | undefined,
+    options?: FormatResolvedRangeOptions,
+  ): FormattedResolvedRange | null;
+  export function formatResolvedInstantRange(
+    range: ResolvedInstantRange | null | undefined,
+    options?: FormatResolvedRangeOptions,
+  ): FormattedResolvedRange | null;
+  export interface ResolvedRangeLabelProps extends FormatResolvedRangeOptions {
+    range?: ResolvedDateRange | null;
+    instantRange?: ResolvedInstantRange | null;
+    className?: string;
+  }
+  export function ResolvedRangeLabel(props: ResolvedRangeLabelProps): any;
+
   // TraceView.tsx (contract v10, todo 3179 H1) — host-owned authenticated todo
   // detail / public-trace leaf. One physical implementation; modules mount it
   // rather than copying waterfall / share / todo-detail code.

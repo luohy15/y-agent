@@ -675,6 +675,18 @@ source is a no-op after stale-hash validation and cannot create a target.
 The tag module must require v16; deploy the host before publishing that module.
 The browser contract is unchanged, and membership `rm` is not vocabulary delete.
 
+Todo 3580 adds `describe_time_range` to the existing `storage.service.time_range`
+allowlist (inclusive `{input, recognized, from_date, to_date}` for a grammar
+token, with optional exclusive-end `effective=` override). That named-export
+addition bumps `BACKEND_CONTRACT_VERSION` from 16 to **17**. Finance raises its
+floor to 17 when it writes `meta["time_range"]`; deploy this host before
+publishing that module. `parse_time_range` stays byte-identical. The same todo
+bumps the `@y/host` browser contract from 13 to **14** by exporting
+`formatResolvedDateRange`, `formatResolvedInstantRange`, and
+`ResolvedRangeLabel` (one physical copy for host LinkList and the six y-module
+surfaces). Every later module publish is stamped with min_host_version 14, so
+the host deploy cannot be rolled back independently once modules republish.
+
 Todo 3384 enriches the existing `tag_get` todo row shape with a nullable
 `created_at` ISO timestamp (the todo row's own creation time, distinct from
 the existing `updated_at_unix` field added by todo 3169), bumping
@@ -1349,3 +1361,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3107 | File History now resolves the containing Git repository on the selected VM, including linked worktrees, and builds a GitHub commits URL from a usable remote-backed ref plus the path relative to that repository root. Home-workspace files continue to resolve through y-history. Non-repository, untracked, non-GitHub-remote, detached, local-only, and ref/path-mismatch cases omit the action instead of guessing a likely 404. Published as file v12 (`ui=2b11f051f3ef…` / `api=522b9fc5d3d0…`) from y-module `bbfff23`; rollback target is v11 via `y module rollback file`. No host contract change or migration. | - | `pages/plan-3107-repository-aware-file-history.md` | - | `pages/review-3107-repository-aware-file-history.md` | shipped; runtime UI verification pending |
 | 3119 | Made file downloads byte-exact by classifying `/read` content on the VM, carrying accepted UTF-8 text as base64, and reserving `/raw` for binary bytes. Binary and files over 10 MB now render a download-only pane instead of an editor or unsupported preview. Published atomically as file v14 (`ui=d22c4779cb76…` / `api=e9626790a071…`) from y-module `66568cc`; v1–v13 remain unsafe rollback targets for binary downloads. The reported ZIP matched production `/raw` byte-for-byte: 12,312 bytes and SHA-256 `81aa33e1882bdf4c8e4bfe85bedc229ff15be1ca63dfe52d1ddbb6d2d79c1c67`. No host contract change, host deploy, or migration. | - | `pages/plan-3119-file-viewer-binary.md` | - | `pages/review-3119-file-viewer-binary.md` | shipped; runtime UI verification pending |
 | 3093 | Module documentation ownership split: each module's domain description lives in `code/y-module/<slug>/README.md`; y-agent keeps host architecture, the module-system contract, public user docs, and one pointer per module. Active version numbers/hashes leave prose (queryable via `y module list`); known-bad version ranges stay in module READMEs. PRD gains *Documentation ownership* (D1/D3/D6) and this row. | - | `pages/plan-3093-module-docs-ownership.md` | - | `pages/review-3093-y-module-docs.md`, `pages/review-3093-y-agent-docs-trim.md` | reviewed |
+| 3580 | Host-only contract bump for resolved-date labels: backend **v16 → v17** adds `describe_time_range` to the `storage.service.time_range` allowlist; browser **v13 → v14** exports `formatResolvedDateRange`, `formatResolvedInstantRange`, and `ResolvedRangeLabel` on `@y/host`. Exact payload and component signatures: `pages/decision-3580-host-sdk-backend-contract.md`. Module labels (finance/bot/monitor/household) wait on this host deploy. | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module publish pending |

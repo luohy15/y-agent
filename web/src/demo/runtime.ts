@@ -301,6 +301,11 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "selectMessagesByIndices",
   // sanitizeEmailHtml.ts (contract v11) — pure DOMPurify wrapper, no network.
   "sanitizeEmailHtml",
+  // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14) — pure formatter
+  // plus presentational label, no network.
+  "formatResolvedDateRange",
+  "formatResolvedInstantRange",
+  "ResolvedRangeLabel",
 ];
 
 /** The `@y/host` object published to module bytes on a demo page. Same key set

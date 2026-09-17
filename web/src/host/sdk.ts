@@ -30,8 +30,13 @@ import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import HtmlPreview from "../components/HtmlPreview";
 import ImageLightbox from "../components/ImageLightbox";
+import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
 import TagsEditor from "../components/TagsEditor";
 import TraceView from "../components/TraceView";
+import {
+  formatResolvedDateRange,
+  formatResolvedInstantRange,
+} from "../utils/resolvedRange";
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain, citationHostname } from "../components/citationDomain";
@@ -130,6 +135,14 @@ export const hostSdk = {
   // preview and the public shared-note HTML viewer.
   HtmlPreview,
 
+  // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
+  // host-owned inclusive date/instant range formatter plus the presentational
+  // label. One physical copy for host LinkList and the six y-module surfaces;
+  // `code/y-module/shared/ui/` cannot serve the host.
+  formatResolvedDateRange,
+  formatResolvedInstantRange,
+  ResolvedRangeLabel,
+
   // remarkStripComments.ts / localFileLinks.ts / citationDomain.ts /
   // citationLinks.ts (contract v5, R2) — markdown rendering helpers shared
   // with HostMessageView.
@@ -172,3 +185,10 @@ export type {
 } from "../components/TraceView";
 export type { TagsEditorProps } from "../components/TagsEditor";
 export type { HtmlPreviewProps } from "../components/HtmlPreview";
+export type { ResolvedRangeLabelProps } from "../components/ResolvedRangeLabel";
+export type {
+  FormatResolvedRangeOptions,
+  FormattedResolvedRange,
+  ResolvedDateRange,
+  ResolvedInstantRange,
+} from "../utils/resolvedRange";

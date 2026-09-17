@@ -62,3 +62,48 @@ def parse_time_range(
         finally:
             _fava_date.local_today = original
     return parse_date(value)
+
+
+def describe_time_range(
+    time_filter: str | None,
+    *,
+    default: str | None = None,
+    tz: str | None = None,
+    effective: tuple[datetime.date | None, datetime.date | None] | None = None,
+) -> dict:
+    """Inclusive display bounds for a time-grammar input (todo 3580).
+
+    Reuses `parse_time_range` (byte-identical parser). Returns
+    `{input, recognized, from_date, to_date}` where the dates are inclusive
+    ISO `YYYY-MM-DD` (`end_exclusive - 1 day`). `recognized` is false only
+    when a non-empty input (after aliases) parses to nothing or raises;
+    `all` / empty stay recognized with both bounds null. `effective` is an
+    exclusive-end `(start, end)` pair that replaces the parsed window, for
+    callers that substituted a fallback (finance history's trailing year).
+    """
+    raw = (time_filter or "").strip()
+    value = (time_filter or default or "").strip()
+    aliased = TIME_RANGE_ALIASES.get(value.lower(), value)
+
+    recognized = True
+    start: datetime.date | None = None
+    end: datetime.date | None = None
+    if aliased:
+        try:
+            start, end = parse_time_range(time_filter, default=default, tz=tz)
+        except ValueError:
+            recognized = False
+            start, end = None, None
+        else:
+            if start is None and end is None:
+                recognized = False
+
+    if effective is not None:
+        start, end = effective
+
+    return {
+        "input": raw,
+        "recognized": recognized,
+        "from_date": start.isoformat() if start else None,
+        "to_date": (end - datetime.timedelta(days=1)).isoformat() if end else None,
+    }
