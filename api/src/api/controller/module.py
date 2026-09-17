@@ -43,6 +43,15 @@ from storage.service import module as module_service
 router = APIRouter(prefix="/module")
 
 S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
+_S3_CLIENT = None
+
+
+def _s3_client():
+    """Reuse one boto3 S3 client per process (todo 3579)."""
+    global _S3_CLIENT
+    if _S3_CLIENT is None:
+        _S3_CLIENT = boto3.client("s3")
+    return _S3_CLIENT
 
 
 def _get_user_id(request: Request) -> int:
@@ -154,7 +163,7 @@ def _bundle_dir() -> Path:
 
 def _write_bundle(storage_key: str, content: bytes, *, content_type: str = "text/javascript") -> None:
     if S3_BUCKET:
-        boto3.client("s3").put_object(
+        _s3_client().put_object(
             Bucket=S3_BUCKET,
             Key=storage_key,
             Body=content,
@@ -172,7 +181,7 @@ def _write_bundle(storage_key: str, content: bytes, *, content_type: str = "text
 def _read_bundle(storage_key: str) -> bytes:
     if S3_BUCKET:
         try:
-            obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=storage_key)
+            obj = _s3_client().get_object(Bucket=S3_BUCKET, Key=storage_key)
             return obj["Body"].read()
         except ClientError as exc:
             raise HTTPException(status_code=404, detail="Bundle not found") from exc
@@ -187,7 +196,7 @@ def _delete_bundle(storage_key: str) -> None:
     failure here just orphans bytes rather than leaving a broken row."""
     if S3_BUCKET:
         try:
-            boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=storage_key)
+            _s3_client().delete_object(Bucket=S3_BUCKET, Key=storage_key)
         except Exception:
             # Anything (ClientError, a BotoCoreError, a credential failure)
             # must stay best-effort: the rows are already gone, so raising
