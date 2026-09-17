@@ -15,7 +15,7 @@ from storage.service import vm_config
 from storage.upload_timing import POST_TTL_MS, POST_TTL_SECONDS
 from storage.util import get_unix_timestamp
 
-MAX_SIZE_BYTES = 20_000_000
+MAX_SIZE_BYTES = 200_000_000
 DID_NOT_FINISH = "The upload did not finish. Select the file again."
 STAGED_EXPIRED = "The staged copy expired. Select the file again."
 ATTEMPTS_EXHAUSTED = "The transfer did not complete after 5 attempts."
@@ -86,7 +86,7 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
             or len(filename.encode("utf-8")) > 255):
         raise UploadError("Choose a filename without separators and no longer than 255 bytes.")
     if type(size_bytes) is not int or not 0 <= size_bytes <= MAX_SIZE_BYTES:
-        raise UploadError("Each file must be no larger than 20 MB (20,000,000 bytes).")
+        raise UploadError("Each file must be no larger than 200 MB (200,000,000 bytes).")
     try:
         digest = base64.b64decode(checksum_sha256_b64, validate=True)
         if len(digest) != 32 or base64.b64encode(digest).decode() != checksum_sha256_b64:

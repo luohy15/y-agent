@@ -3,9 +3,12 @@
 DB timestamps (`created_at_unix`, leases, enqueue watermarks) are epoch
 milliseconds from `storage.util.get_unix_timestamp`. boto3 `ExpiresIn` and SQS
 `DelaySeconds` stay in seconds and are not converted here.
+
+`ABANDON_SECONDS` is `POST_TTL_SECONDS` plus a 600 s grace so a still-POSTing
+browser is not marked `failed` while the authorization remains valid.
 """
 
-POST_TTL_SECONDS = 1800
+POST_TTL_SECONDS = 3600
 POST_TTL_MS = POST_TTL_SECONDS * 1000
 
 LEASE_SECONDS = 15 * 60
@@ -14,7 +17,7 @@ LEASE_MS = LEASE_SECONDS * 1000
 REENQUEUE_SECONDS = 15 * 60
 REENQUEUE_MS = REENQUEUE_SECONDS * 1000
 
-ABANDON_SECONDS = 40 * 60
+ABANDON_SECONDS = 70 * 60
 ABANDON_MS = ABANDON_SECONDS * 1000
 
 ACTIVE_RETENTION_SECONDS = 24 * 60 * 60
