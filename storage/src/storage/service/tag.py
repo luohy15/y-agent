@@ -39,8 +39,11 @@ from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.note import NoteEntity
 from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.entity.todo import TodoEntity
+from storage.repository import entity as entity_repo
 from storage.repository import entity_tag as tag_repo
+from storage.repository import note as note_repo
 from storage.repository import tag_vocabulary as vocabulary_repo
+from storage.repository import todo as todo_repo
 # Re-export write-time normalizers so carriers can keep authoring surfaces
 # (todo.tags / front_matter.tags) in the same canonical form as entity_tag.
 from storage.repository.entity_tag import normalize_tag, normalize_tags  # noqa: F401
@@ -107,15 +110,7 @@ def _resolve_todos(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
     # Present so presentation clients (tag module) can sort without a second fetch.
     # created_at (todo 3384) is the row's own nullable ISO creation timestamp, so
     # presentation clients can render it without deriving it from the todo ID.
-    return {
-        todo_id: {
-            "id": todo.todo_id,
-            "title": todo.name,
-            "updated_at_unix": todo.updated_at_unix,
-            "created_at": todo.created_at,
-        }
-        for todo_id, todo in todo_service.find_todos_by_ids(user_id, entity_ids).items()
-    }
+    return todo_repo.find_tag_rows_by_ids(user_id, entity_ids)
 
 
 def _resolve_notes(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
@@ -124,23 +119,13 @@ def _resolve_notes(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
     # created_at (todo 3387) is the row's own nullable ISO creation timestamp,
     # so presentation clients can sort notes by creation time without a
     # separate fetch, matching the todo row's created_at (todo 3384).
-    return {
-        note.note_id: {
-            "id": note.note_id,
-            "title": note.content_key,
-            "created_at": note.created_at,
-        }
-        for note in note_service.get_notes_by_ids(user_id, entity_ids)
-    }
+    return note_repo.find_tag_rows_by_ids(user_id, entity_ids)
 
 
 def _resolve_entities(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
     if not entity_ids:
         return {}
-    return {
-        entity.entity_id: {"id": entity.entity_id, "title": entity.name}
-        for entity in entity_service.get_entities_by_ids(user_id, entity_ids)
-    }
+    return entity_repo.find_tag_rows_by_ids(user_id, entity_ids)
 
 
 # Built-in resolvers for the three existing authoring-surface carriers (S0).

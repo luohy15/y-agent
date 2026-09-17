@@ -1,7 +1,7 @@
 """Function-based todo repository using SQLAlchemy sessions."""
 
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 from sqlalchemy import case, func
 from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
@@ -213,6 +213,32 @@ def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
                 .filter(TodoEntity.todo_id.in_(todo_ids))
                 .all())
         return {row.todo_id: _entity_to_dto(row) for row in rows}
+
+
+def find_tag_rows_by_ids(user_id: int, todo_ids: List[str]) -> Dict[str, Dict]:
+    """Column-projected tag hydration: {todo_id: {id, title, updated_at_unix, created_at}}."""
+    if not todo_ids:
+        return {}
+    with get_db() as session:
+        rows = (
+            session.query(
+                TodoEntity.todo_id,
+                TodoEntity.name,
+                TodoEntity.updated_at_unix,
+                TodoEntity.created_at,
+            )
+            .filter(TodoEntity.user_id == user_id, TodoEntity.todo_id.in_(todo_ids))
+            .all()
+        )
+        return {
+            todo_id: {
+                "id": todo_id,
+                "title": name,
+                "updated_at_unix": updated_at_unix,
+                "created_at": created_at,
+            }
+            for todo_id, name, updated_at_unix, created_at in rows
+        }
 
 
 def get_all_todo_ids(user_id: int) -> List[str]:

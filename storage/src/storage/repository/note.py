@@ -1,7 +1,7 @@
 """Function-based note repository."""
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 from sqlalchemy import or_
 from storage.entity.note import NoteEntity
 from storage.entity.entity_tag import EntityTagEntity
@@ -118,6 +118,34 @@ def get_notes_by_ids(user_id: int, note_ids: List[str], include_deleted: bool = 
             query = query.filter(NoteEntity.deleted_at.is_(None))
         rows = query.all()
         return [_entity_to_dto(r) for r in rows]
+
+
+def find_tag_rows_by_ids(user_id: int, note_ids: List[str]) -> Dict[str, Dict]:
+    """Column-projected live-note tag hydration: {note_id: {id, title, created_at}}."""
+    if not note_ids:
+        return {}
+    with get_db() as session:
+        rows = (
+            session.query(
+                NoteEntity.note_id,
+                NoteEntity.content_key,
+                NoteEntity.created_at,
+            )
+            .filter(
+                NoteEntity.user_id == user_id,
+                NoteEntity.note_id.in_(note_ids),
+                NoteEntity.deleted_at.is_(None),
+            )
+            .all()
+        )
+        return {
+            note_id: {
+                "id": note_id,
+                "title": content_key,
+                "created_at": created_at,
+            }
+            for note_id, content_key, created_at in rows
+        }
 
 
 def save_note(user_id: int, note: Note) -> Note:

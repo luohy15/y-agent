@@ -1,6 +1,6 @@
 """Function-based entity repository."""
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 from storage.entity.entity import EntityEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.entity import Entity
@@ -84,6 +84,22 @@ def get_entities_by_ids(user_id: int, entity_ids: List[str]) -> List[Entity]:
             .all()
         )
         return [_entity_to_dto(r) for r in rows]
+
+
+def find_tag_rows_by_ids(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
+    """Column-projected tag hydration: {entity_id: {id, title}}."""
+    if not entity_ids:
+        return {}
+    with get_db() as session:
+        rows = (
+            session.query(EntityEntity.entity_id, EntityEntity.name)
+            .filter(EntityEntity.user_id == user_id, EntityEntity.entity_id.in_(entity_ids))
+            .all()
+        )
+        return {
+            entity_id: {"id": entity_id, "title": name}
+            for entity_id, name in rows
+        }
 
 
 def save_entity(user_id: int, entity: Entity) -> Entity:
