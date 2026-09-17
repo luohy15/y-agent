@@ -281,9 +281,11 @@ expired-login card tells the user to run.
     allocation is visible separately from relay workload.
 41b. As a web user, I want each model row to show answered prompt groups (turns),
     so that a long agent loop is not mistaken for many user turns.
-41c. As a web user, I want average turns per chat for the same model and period,
-    with unavailable shown when there are no sessions, so that session reuse is
-    comparable without dividing by zero.
+41c. As a web user, I want each model row to show average relay requests per
+    attributed answered turn (`Requests / Turns`) for the same period, with
+    unavailable shown when Turns is zero or activity is unavailable, so that
+    agent-loop depth is visible without dividing by zero or implying matched
+    per-prompt request telemetry.
 
 42. As a web user, I want a donut chart of each model's share of the selected
     metric over the selected time range, top seven models plus an "Other"
@@ -1116,7 +1118,12 @@ expired-login card tells the user to run.
 - **Live table.** Percent column relative to the active numeric sort column's
   total; metric-first column order; sticky header and sticky Total row over an
   internal scroll area sized to about five data rows; progressive column
-  reveal driven by container (panel) width, not viewport width.
+  reveal driven by container (panel) width, not viewport width. The activity
+  columns follow Requests as compact `Sessions`, `Turns`, and `Avg requests`
+  headers with reduced horizontal padding so Cache Hit remains readable. They
+  carry no partial-coverage asterisks. Loading, unavailable, and partial states
+  appear in the shared tooltip and in a status line only while one of those
+  states applies; there is no permanent total-scope caption.
 - **Cache-hit share is a first-class column.** The one number that makes
   bridged-model caching diagnosable (`cache_read / all_tokens`, already on
   every row) is rendered as a per-model percentage alongside the tokens/cost
@@ -1175,19 +1182,25 @@ expired-login card tells the user to run.
 
 ### Chat session and answered-turn activity (todo 3569)
 
-- **Chat-derived, not relay-derived.** Sessions and turns come from persisted
-  y-agent chat messages. Relay requests remain a separate workload measure that
-  can include many model calls inside one agent turn, retries, internal calls,
-  and traffic with no y-agent chat attribution.
-- **One output clock.** A session is one distinct chat with at least one
-  attributed assistant message from the model in the selected local-date
-  period. A pending prompt group opens on the first user message after the
-  previous attributed answer and stays open across later user messages, tool
-  results, and unattributed assistant messages; the first later attributed
-  assistant response closes it and assigns one turn to that response's local
-  date and model. A steer that receives its own attributed output opens another
-  turn. A trailing unanswered prompt does not count yet. All three values use
-  the assistant output clock and `Y_AGENT_TIMEZONE` buckets.
+- **Two sources stay explicit.** Sessions and Turns come from persisted y-agent
+  chat messages. Requests comes from relay usage and can include many model
+  calls inside one answered turn, retries, internal calls, and traffic with no
+  y-agent chat attribution. `Avg requests` is therefore a descriptive
+  model/period aggregate ratio (`relay Requests / attributed Turns`), not exact
+  matched API requests for an individual prompt.
+- **Activity output clock and ratio boundary.** A session is one distinct chat
+  with at least one attributed assistant message from the model in the selected
+  local-date period. A pending prompt group opens on the first user message
+  after the previous attributed answer and stays open across later user
+  messages, tool results, and unattributed assistant messages; the first later
+  attributed assistant response closes it and assigns one turn to that
+  response's local date and model. A steer that receives its own attributed
+  output opens another turn. A trailing unanswered prompt does not count yet.
+  Sessions and Turns use the assistant output clock and host `Y_AGENT_TIMEZONE`
+  buckets. In the default live-today view, Requests can be rebuilt from
+  browser-timezone hourly rows, so
+  the two sides of `Avg requests` use identical day boundaries only when the
+  browser timezone equals `Y_AGENT_TIMEZONE` (the normal configured case).
 - **Multi-model and zero-turn facts are intentional.** A re-botted chat counts
   once in every model row where it produced output, while the Total row counts
   distinct chats across all models, so row sessions need not sum to the total.
@@ -1197,7 +1210,9 @@ expired-login card tells the user to run.
   placeholder are skipped and do not close a pending prompt group. Chat model
   `grok-4.6` is stored under relay usage id `grok-4.6-build`; other ids currently
   match. Relay-only models with no attributed y-agent output correctly read as
-  zero sessions and zero turns, with average turns/chat unavailable (`-`).
+  zero sessions and zero Turns, with `Avg requests` unavailable (`-`) because
+  its denominator is zero. If the activity request itself is unavailable, all
+  three activity cells render `-` rather than fabricated zeros.
 - **Persisted fact and aggregation contract.** Host-owned
   `chat_model_activity` stores `(user_id, chat_id, usage_date, model, turns)`
   with one unique row per tuple. Recompute replaces one chat's derived facts in
@@ -1205,9 +1220,13 @@ expired-login card tells the user to run.
   deleted-chat orphans, and advances its chat-update watermark atomically, with
   an overlap on the next pass. `GET /api/usage/model-activity?time=&tz=` uses
   the same optionally unbounded date-window handling as `model-daily` and
-  returns `{from_date, to_date, coverage_from, models, total}`. Average
-  turns/chat is turns divided by sessions; the Total row divides total turns by
-  distinct total chats and is not the mean of model averages.
+  returns `{from_date, to_date, coverage_from, models, total}`. The UI computes
+  row `Avg requests` as that usage row's Requests divided by its attributed
+  Turns. The Total cell is the ratio of totals, total Requests divided by the
+  endpoint's all-model Turns, never a mean of row ratios. Because the Live table
+  is usage-row anchored, endpoint Turns from activity-only models can contribute
+  to the Total denominator without creating a visible model row; this and the
+  cross-source scope are disclosed in the shared header tooltip.
 - **Coverage is declared, never inferred from the oldest incidental fact.** A
   fresh install records incremental activity but returns `coverage_from: null`
   until `y usage backfill-activity --days N` explicitly establishes a historical
@@ -1379,7 +1398,7 @@ expired-login card tells the user to run.
 | 3564 | Move the subscription-limit refresh from 5 minutes to 30 minutes so an awake sweep no longer renews the VM SSH idle marker inside the host's 900s hibernation window; asleep-skip, freshness TTL and wake semantics unchanged; residual probe race and jitter/stall tail remain documented limitations | - | `pages/plan-3564-usage-refresh-cadence.md` | this PRD; `pages/plan-3564-auto-hibernation-diagnosis.md`; `pages/impl-3564-usage-refresh-cadence.md` | `pages/review-3564-usage-refresh-cadence.md` | reviewed, pending publication |
 | 3573 | After a successful subscription refresh, reconcile the owner's existing named `fable` bot at 95% of max(`five_hour`, `one_week`, `one_week_fable`) from a complete fresh Claude row; enable below 95% even if manually disabled; no-op at exactly 95% and on incomplete/failed input; alias/global-default routing bypasses remain an admission boundary | - | `pages/plan-3573-fable-usage-gate.md` | this PRD | `pages/review-3573-fable-usage-gate.md` | deployed |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
-| 3569 | Explain why equal tier route weights do not imply equal tokens or spend, and add distinct y-agent sessions, answered turns, and average turns/chat per model to the Live usage table | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | reviewed; unpublished |
+| 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
 
 ## Out of Scope
 
