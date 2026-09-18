@@ -29,6 +29,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import HtmlPreview from "../components/HtmlPreview";
+import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
 import TagsEditor from "../components/TagsEditor";
@@ -106,6 +107,13 @@ export const hostSdk = {
   ArtifactView,
   PatchDiff,
   ImageLightbox,
+
+  // ChatImage.tsx (contract v15, todo 3612) — visibility-gated chat image
+  // scope, markdown leaf, and attachment gallery. One physical copy for host
+  // fallback/share/snapshot and the chat module bubbles.
+  ChatImageScope,
+  ChatImage,
+  ChatMessageImages,
 
   // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
   // Keeps lazy per-language loading (codeEditorLangs.ts) inside the host so a
@@ -192,3 +200,4 @@ export type {
   ResolvedDateRange,
   ResolvedInstantRange,
 } from "../utils/resolvedRange";
+export type { ChatImageProps, ChatImageScopeMode } from "../components/ChatImage";

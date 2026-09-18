@@ -10,6 +10,7 @@ interface ImageLightboxProps {
   onClose: () => void;
   onNext: () => void;
   onPrev: () => void;
+  prefetchNeighbors?: boolean;
 }
 
 function CloseIcon() {
@@ -45,7 +46,7 @@ function SpinnerIcon() {
   );
 }
 
-export default function ImageLightbox({ images, index, onClose, onNext, onPrev }: ImageLightboxProps) {
+export default function ImageLightbox({ images, index, onClose, onNext, onPrev, prefetchNeighbors = true }: ImageLightboxProps) {
   const [loading, setLoading] = useState(true);
   const [transform, setTransform] = useState(INITIAL_TRANSFORM);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -73,22 +74,22 @@ export default function ImageLightbox({ images, index, onClose, onNext, onPrev }
   const src = isOpen ? images[index] : null;
 
   useEffect(() => {
-    if (!src) return;
+    if (!isOpen) return;
     setLoading(true);
     setTransform(INITIAL_TRANSFORM);
-  }, [src]);
+  }, [isOpen, src]);
 
   useEffect(() => {
-    if (!isOpen || images.length <= 1) return;
+    if (!prefetchNeighbors || !isOpen || images.length <= 1) return;
     const neighbors = [images[(index + 1) % images.length], images[(index - 1 + images.length) % images.length]];
     neighbors.forEach((url) => {
       if (!url) return;
       const img = new Image();
       img.src = url;
     });
-  }, [isOpen, images, index]);
+  }, [prefetchNeighbors, isOpen, images, index]);
 
-  if (!src) return null;
+  if (!isOpen) return null;
 
   const hasMultiple = images.length > 1;
 
@@ -126,29 +127,31 @@ export default function ImageLightbox({ images, index, onClose, onNext, onPrev }
       )}
 
       <div ref={wrapperRef} className="relative flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-        {loading && <SpinnerIcon />}
-        <TransformWrapper
-          key={src}
-          minScale={1}
-          maxScale={8}
-          limitToBounds={false}
-          doubleClick={{ mode: "reset" }}
-          smooth={false}
-          wheel={{ step: 0.05 }}
-          onTransform={(_, state) => setTransform(state)}
-        >
-          <TransformComponent wrapperClass="!max-w-[95vw] !max-h-[90vh] !overflow-hidden" contentClass="!flex !items-center !justify-center">
-            <img
-              src={src}
-              alt=""
-              className={`max-w-[95vw] max-h-[90vh] object-contain select-none transition-opacity duration-200 ${loading ? "opacity-0" : "opacity-100"}`}
-              draggable={false}
-              onLoad={() => setLoading(false)}
-              onError={() => setLoading(false)}
-            />
-          </TransformComponent>
-        </TransformWrapper>
-        {transform.scale > 1.01 && !loading && <MiniMap src={src} transform={transform} wrapperRef={wrapperRef} />}
+        {(loading || !src) && <SpinnerIcon />}
+        {src && (
+          <TransformWrapper
+            key={src}
+            minScale={1}
+            maxScale={8}
+            limitToBounds={false}
+            doubleClick={{ mode: "reset" }}
+            smooth={false}
+            wheel={{ step: 0.05 }}
+            onTransform={(_, state) => setTransform(state)}
+          >
+            <TransformComponent wrapperClass="!max-w-[95vw] !max-h-[90vh] !overflow-hidden" contentClass="!flex !items-center !justify-center">
+              <img
+                src={src}
+                alt=""
+                className={`max-w-[95vw] max-h-[90vh] object-contain select-none transition-opacity duration-200 ${loading ? "opacity-0" : "opacity-100"}`}
+                draggable={false}
+                onLoad={() => setLoading(false)}
+                onError={() => setLoading(false)}
+              />
+            </TransformComponent>
+          </TransformWrapper>
+        )}
+        {src && transform.scale > 1.01 && !loading && <MiniMap src={src} transform={transform} wrapperRef={wrapperRef} />}
       </div>
 
       {hasMultiple && (

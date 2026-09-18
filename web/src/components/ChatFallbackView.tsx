@@ -186,6 +186,7 @@ export default function ChatFallbackView({
           <HostMessageView
             messages={displayMessages}
             running={!completed}
+            scopeId={chatId}
             scrollContainerRef={scrollRef}
           />
         </div>

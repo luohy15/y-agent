@@ -13,6 +13,11 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Visibility-triggered chat images (3612)**: message attachments and
+  markdown images in a chat transcript start loading only on positive
+  overlap with the chat scrollport (`@y/host` contract v15:
+  `ChatImageScope`, `ChatImage`, `ChatMessageImages`). Preview no longer
+  prefetches neighbors; PNG export waits for deferred local images.
 - **Awaiting as a first-class todo status (3506)**: `awaiting` transitions
   (owner-locked liveness/fault claims, human-reply auto-resume in the accept
   transaction) now live directly on todo status, with host list/detail

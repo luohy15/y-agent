@@ -338,7 +338,33 @@ declare module "@y/host" {
     onClose: () => void;
     onNext: () => void;
     onPrev: () => void;
+    prefetchNeighbors?: boolean;
   }): any;
+
+  // ChatImage.tsx (contract v15, todo 3612) — visibility-gated chat image
+  // scope, markdown leaf, and attachment gallery. Host fallback/share/snapshot
+  // and the chat module bubbles share this physical copy. Consumers MUST wrap
+  // ChatImage / ChatMessageImages in ChatImageScope and MUST remount the
+  // scope with `key={scopeId}` when conversation/share identity changes;
+  // changing `scopeId` in place does not re-arm already-mounted slots.
+  // Without a scope, ChatImage returns null and ChatMessageImages never loads.
+  export type ChatImageScopeMode = "visible" | "export";
+  export function ChatImageScope(props: {
+    scopeId: string;
+    root?: HTMLElement | null;
+    rootRef?: { current: HTMLElement | null };
+    mode?: ChatImageScopeMode;
+    children?: any;
+  }): any;
+  export function ChatImage(props: {
+    src?: string;
+    alt?: string;
+    width?: string | number;
+    height?: string | number;
+    className?: string;
+    title?: string;
+  }): any;
+  export function ChatMessageImages(props: { images?: string[] }): any;
 
   // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
   // Language grammars stay host-lazy via codeEditorLangs.ts; modules only pass

@@ -61,7 +61,8 @@ None of the four receives props. Host state reaches a surface through
 A `shell` module owns everything that decides what the centre column looks like;
 the host keeps the leaves whose dependencies are measured in megabytes
 (`ArtifactView`, `PatchDiff`, `ImageLightbox`, `CodeEditor`, `exportElementToPng`)
-and exports them on `@y/host`. See `docs/prd/module-system.md`, *The `shell`
+plus the visibility-gated chat image leaves (`ChatImageScope`, `ChatImage`,
+`ChatMessageImages`; contract v15) and exports them on `@y/host`. See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in
 `docs/prd/public-module-demos.md`.

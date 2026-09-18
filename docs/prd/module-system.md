@@ -686,6 +686,10 @@ bumps the `@y/host` browser contract from 13 to **14** by exporting
 `ResolvedRangeLabel` (one physical copy for host LinkList and the six y-module
 surfaces). Every later module publish is stamped with min_host_version 14, so
 the host deploy cannot be rolled back independently once modules republish.
+Todo 3612 bumps the browser contract from 14 to **15** by exporting
+`ChatImageScope`, `ChatImage`, and `ChatMessageImages` (visibility-gated chat
+image loading). Chat-module publish that consumes those leaves waits on this
+host deploy.
 
 Todo 3384 enriches the existing `tag_get` todo row shape with a nullable
 `created_at` ISO timestamp (the todo row's own creation time, distinct from

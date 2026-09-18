@@ -275,6 +275,12 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "PatchDiff",
   "ImageLightbox",
   "CodeEditor",
+  // Chat image leaves (contract v15). Demo-safe because anonymous visitors have
+  // no token, so local-file authFetch never fires; demo runtime also denies
+  // global fetch. Not pure presentational leaves.
+  "ChatImageScope",
+  "ChatImage",
+  "ChatMessageImages",
   // TagsEditor.tsx (contract v12) — presentational chip editor, no network.
   "TagsEditor",
   // TraceView is intentionally NOT demo-safe: authenticated fetches would hit

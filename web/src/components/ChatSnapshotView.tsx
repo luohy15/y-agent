@@ -17,7 +17,7 @@ export default function ChatSnapshotView({ chatId, messages: rawMessages, onRefr
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden">
-      <HostMessageView messages={messages} centered scrollContainerRef={scrollRef} />
+      <HostMessageView messages={messages} centered scopeId={chatId} scrollContainerRef={scrollRef} />
       {onRefresh && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2">
           <button onClick={onRefresh} className="inline-flex items-center gap-1 px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30" title="Refresh trace">

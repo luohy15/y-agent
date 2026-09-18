@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { domToPng } from "modern-screenshot";
+import { CHAT_IMAGE_PENDING_ATTR } from "../components/ChatImage";
 import { buildExportFilename, pickImageDelivery } from "./messageExport";
 
 function nextFrame(): Promise<void> {
@@ -12,10 +13,17 @@ function delay(ms: number): Promise<void> {
 }
 
 // Wait until every <img> in the subtree has finished loading (or errored — a broken
-// cross-origin image must not block export). Bounded by `timeoutMs`.
+// cross-origin image must not block export). Also wait out chat-image pending
+// markers (authenticated local fetches that have no <img> yet). Gated on the
+// pending marker only, so a text-only export does not sleep. Bounded by `timeoutMs`.
 async function waitForImages(root: HTMLElement, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs && root.querySelector(`[${CHAT_IMAGE_PENDING_ATTR}]`)) {
+    await delay(50);
+  }
   const imgs = Array.from(root.querySelectorAll("img"));
   if (imgs.length === 0) return;
+  const remaining = Math.max(0, timeoutMs - (Date.now() - start));
   await Promise.race([
     Promise.all(
       imgs.map((img) =>
@@ -27,7 +35,7 @@ async function waitForImages(root: HTMLElement, timeoutMs = 5000): Promise<void>
             }),
       ),
     ),
-    delay(timeoutMs),
+    delay(remaining),
   ]);
 }
 

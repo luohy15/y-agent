@@ -164,6 +164,18 @@ mode (`-i`) serves a human at a terminal.
 21. As a web user, I want a table of contents and a scroll-to-bottom button
     on long chats, so that navigation stays manageable at hundreds of
     messages.
+21a. As a web user, I want message attachment images and assistant markdown
+     images in a chat transcript to start loading only once their slot has
+     positive overlap with the chat scrollport, so that a long image-heavy
+     conversation does not fetch every offscreen image up front (todo 3612).
+     Initially visible images load normally. Scrolling away and back within
+     the same mounted conversation must not refetch an already admitted
+     image. Opening a preview may admit the selected attachment even if it
+     has not yet been seen in the transcript, without prefetching neighbors.
+     Explicit PNG export of selected messages loads those images offscreen
+     and waits for them before capture. Switching chats may release
+     resources; a hidden public-trace snapshot pane must not fetch while it
+     is not shown. Native `loading="lazy"` is not this contract.
 
 ### GUI: sending
 
@@ -640,6 +652,17 @@ mode (`-i`) serves a human at a terminal.
   payload. The chat module may opt in at 8192 on both URLs and load full
   tool output via the content route (todo 3515; module half is a later
   delivery).
+- **Visibility-triggered chat images** (todo 3612): host-owned
+  `ChatImageScope` / `ChatImage` / `ChatMessageImages` (`@y/host` contract
+  v15) gate attachment fetches and markdown `src` on IntersectionObserver
+  against the actual overflow element (`rootMargin: "0px"`, threshold 0,
+  positive intersection width and height). Resource identity is source kind
+  plus exact path/URL within one conversation/share scope. Preview admits
+  only the selected target; PNG export uses an explicit export scope and
+  waits on pending image markers plus `img` load/error, bounded like the
+  existing capture wait. Host fallback, public share, and public trace
+  snapshots share the same leaves. The chat module consumes them; that half
+  is a separate candidate.
 - **Opt-in tool-result truncation** (todo 3515): `tool_content_limit`,
   `content_length`, and the slice are all Python `str` code points (on
   measured tool output, 1.00 to 1.14 bytes per character). Identity is
@@ -730,6 +753,16 @@ mode (`-i`) serves a human at a terminal.
   authenticated `user_id` is the one threaded into the mutation call).
 - Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
+- Visibility-triggered chat images (todo 3612) are host Vitest/jsdom tests
+  with a mocked IntersectionObserver, `authFetch`, and `URL.createObjectURL`:
+  zero request/source before positive overlap, exact root and zero margin,
+  edge-only exclusion, initially intersecting load, per-slot admission, one
+  load after repeated enter/exit, equal-array retention, source replacement,
+  duplicate coalescing, isolated failure, abort/late-completion cleanup,
+  anonymous-local and unsupported-S3 no-fetch, hidden snapshot no-load, chat
+  switch isolation, unpinned scroll on completion, preview no-neighbor
+  prefetch, and bounded export pending-image wait. No browser-driven
+  verification.
 
 ## Out of Scope
 
@@ -800,3 +833,4 @@ mode (`-i`) serves a human at a terminal.
 | 3515 | Opt-in snapshot/SSE tool-output previews with owner-scoped full retrieval, CLI interrupted-output fallback, and chat module full-output disclosure with guarded request lifecycle. Host fallback/share retain full payloads. Implementation: `pages/impl-3515-snapshot-latency.md`, `pages/impl-3515-snapshot-ui.md` | - | `pages/plan-3515-snapshot-latency.md` | - | `pages/review-3515-snapshot-latency.md` (host round 2), `pages/review-3515-snapshot-ui.md` (module round 3) | reviewed and approved; uncommitted isolated worktrees, not published; production comparison pending authorized deployment |
 | 3528 | Add a bounded, fail-quiet, nonblocking same-trace phase-chat resume advisory for matching skill and active registered worktree; `--fresh` suppresses only the stderr note while chat creation and stdout remain unchanged | - | `pages/plan-3528-same-trace-phase-chat-guard.md` | - | `pages/review-3528-same-trace-phase-chat-guard.md` | reviewed and approved (round 3); implementation evidence: `pages/impl-3528-same-trace-phase-chat-guard.md`; local commit authorized, not integrated or published |
 | 3597 | Host/CLI slice of the A-class closed-choice cleanup from `pages/audit-3595-closed-choice-decisions.md`: `--trace-id`/`--from-topic` now resolve at invocation time with precedence explicit flag > `$Y_TRACE_ID`/`$Y_TOPIC` > terminal default (A1, matching the pre-existing `--from-chat-id`/`$Y_CHAT_ID` behavior), confined to the `-m` dispatch path; `--tier` is a `click.Choice(['tier0','tier1','tier2','tier3'])` failing usage exit 2 before any HTTP/image call (A4); an explicit `--skill` is validated against `SKILL.md`-bearing immediate child directories of `~/.agents/skills`, resolved fresh per invocation, before image staging or network calls (A5); and story 29 / the dispatch-shaped resolution paragraph are corrected to state the actual mechanism (topic+trace join lookup, so `--new` cannot be what prevents cross-trace resume: that is structurally impossible once a trace id is passed) instead of the prior inaccurate framing (A8, config counterpart in the y-history worktree). Companion y-history/config-leaf slice (A2/A3/A8 outside this doc, obsolete env-copy boilerplate removal) tracked separately under the same todo | - | `pages/plan-3597-closed-choice-decisions.md` | `pages/impl-3597-host-cli-chat-core.md` | `pages/review-3597-host-cli.md`; `pages/review-3597-config.md` (companion config, round 2) | reviewed and approved; isolated release candidate; CLI installation, integration and publication pending authorization |
+| 3612 | Visibility-triggered chat image loading: offscreen transcript attachments and markdown images stay unrequested until positive overlap with the chat scrollport; preview admits the selected target only; PNG export waits for selected images. Host shared leaves + contract v14→v15; chat module consumes them in a separate candidate | - | `pages/plan-3612-visible-chat-images.md` | - | - | host implemented; module + review + publication pending |

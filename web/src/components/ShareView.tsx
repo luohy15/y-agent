@@ -117,7 +117,7 @@ export default function ShareView() {
           <span className="text-xs text-sol-base01">Shared conversation</span>
         </div>
       </div>
-      <HostMessageView messages={messages} centered />
+      <HostMessageView messages={messages} centered scopeId={`share:${shareId}`} />
       <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-1 flex items-center justify-center gap-2 text-xs select-none">
         <button
           onClick={() => { navigator.clipboard.writeText(window.location.href); setShareLabel("copied!"); setTimeout(() => setShareLabel("share"), 1500); }}

@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PatchDiff } from "@pierre/diffs/react";
-import { API, authFetch, getToken } from "../api";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
-import ImageLightbox from "./ImageLightbox";
+import { ChatImage, ChatImageScope, ChatMessageImages } from "./ChatImage";
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 
@@ -117,35 +116,6 @@ function buildDiff(path: string, oldText: string, newText: string): string {
   return `--- a/${path}\n+++ b/${path}\n@@ -1,${oldLines.length} +1,${newLines.length} @@\n${oldLines.map((line) => `-${line}`).join("\n")}\n${newLines.map((line) => `+${line}`).join("\n")}`;
 }
 
-function MessageImages({ images }: { images?: string[] }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const [lightbox, setLightbox] = useState(-1);
-  useEffect(() => {
-    let cancelled = false;
-    const blobs: string[] = [];
-    const load = async () => {
-      const entries: [string, string][] = [];
-      for (const path of images || []) {
-        if (/^https?:\/\//.test(path)) entries.push([path, path]);
-        else if (path.startsWith("s3://luohy15/")) entries.push([path, `https://cdn.luohy15.com/${path.slice(13)}`]);
-        else if (getToken()) {
-          const response = await authFetch(`${API}/api/module/file/raw?path=${encodeURIComponent(path)}`);
-          if (response.ok) { const url = URL.createObjectURL(await response.blob()); blobs.push(url); entries.push([path, url]); }
-        }
-      }
-      if (!cancelled) setUrls(Object.fromEntries(entries));
-    };
-    void load();
-    return () => { cancelled = true; blobs.forEach(URL.revokeObjectURL); };
-  }, [images]);
-  if (!images?.length) return null;
-  const resolved = images.map((path) => urls[path]).filter(Boolean);
-  return <div className="mt-2 flex flex-wrap gap-2">
-    {images.map((path) => urls[path] ? <button key={path} type="button" onClick={() => setLightbox(resolved.indexOf(urls[path]))} className="block cursor-zoom-in"><img src={urls[path]} alt={path.split("/").pop() || "attached image"} className="max-h-64 max-w-full rounded border border-sol-base02 object-contain" /></button> : <div key={path} className="h-24 w-24 rounded border border-sol-base02 bg-sol-base02" />)}
-    <ImageLightbox images={resolved} index={lightbox} onClose={() => setLightbox(-1)} onNext={() => setLightbox((i) => (i + 1) % resolved.length)} onPrev={() => setLightbox((i) => (i - 1 + resolved.length) % resolved.length)} />
-  </div>;
-}
-
 export interface HostTurnItem { key: string; message?: HostMessage; process?: HostMessage[] }
 
 // Compact a flat message stream into one item per user/final-assistant pair,
@@ -209,7 +179,7 @@ function ProcessSummary({ messages }: { messages: HostMessage[] }) {
 
 function HostBubble({ message }: { message: HostMessage }) {
   const [modes, setModes] = useState<Record<string, ArtifactMode>>({});
-  if (message.role === "user") return <div className="rounded bg-sol-base02 px-2 py-1.5 text-sm text-sol-base1 whitespace-pre-wrap break-words"><span className="mr-2 font-mono text-sol-base01">&gt;</span>{message.content}<MessageImages images={message.images} /></div>;
+  if (message.role === "user") return <div className="rounded bg-sol-base02 px-2 py-1.5 text-sm text-sol-base1 whitespace-pre-wrap break-words"><span className="mr-2 font-mono text-sol-base01">&gt;</span>{message.content}<ChatMessageImages images={message.images} /></div>;
   if (message.role === "tool_pending") return <div className="font-mono text-xs text-sol-blue">● {message.toolName || "tool"}</div>;
   if (message.role === "tool_result" || message.role === "tool_denied") {
     const args = message.arguments || {};
@@ -232,16 +202,41 @@ function HostBubble({ message }: { message: HostMessage }) {
           const file = parseLocalFileReference(href);
           return file ? <a href={href} title={file.path} {...props}>{children}</a> : <a href={href} {...props}>{children}</a>;
         },
+        img: ChatImage,
       }}
     >{message.content}</ReactMarkdown>
-    <MessageImages images={message.images} />
+    <ChatMessageImages images={message.images} />
   </div>;
 }
 
-export default function HostMessageView({ messages, running = false, centered = false, scrollContainerRef }: { messages: HostMessage[]; running?: boolean; centered?: boolean; scrollContainerRef?: React.RefObject<HTMLDivElement | null> }) {
+export default function HostMessageView({ messages, running = false, centered = false, scopeId, scrollContainerRef }: { messages: HostMessage[]; running?: boolean; centered?: boolean; scopeId: string; scrollContainerRef?: React.RefObject<HTMLDivElement | null> }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const ref = scrollContainerRef || ownRef;
-  useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [messages, ref]);
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
+  const setScroller = (el: HTMLDivElement | null) => {
+    ref.current = el;
+    setRootEl((prev) => (prev === el ? prev : el));
+  };
+  const atBottomRef = useRef(true);
+  useEffect(() => { atBottomRef.current = true; }, [scopeId]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const stick = () => { if (atBottomRef.current) el.scrollTop = el.scrollHeight; };
+    const onScroll = () => {
+      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const inner = el.firstElementChild;
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(stick) : null;
+    ro?.observe(el);
+    if (inner) ro?.observe(inner);
+    stick();
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro?.disconnect();
+    };
+  }, [messages, ref]);
   const items = buildTurnDisplay(messages);
-  return <div ref={ref} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{items.map((item) => item.message ? <HostBubble key={item.key} message={item.message} /> : <ProcessSummary key={item.key} messages={item.process!} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></div>;
+  return <div ref={setScroller} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><ChatImageScope key={scopeId} scopeId={scopeId} root={rootEl}><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{items.map((item) => item.message ? <HostBubble key={item.key} message={item.message} /> : <ProcessSummary key={item.key} messages={item.process!} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></ChatImageScope></div>;
 }
