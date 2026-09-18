@@ -252,6 +252,27 @@ expired-login card tells the user to run.
     that Subscription limits can show three provider cards in one row at the
     widths where that previously worked, short-horizon activity stays visible,
     and daily / weekly / monthly views stay unchanged.
+37g. As a web user, I want the Over-time `H` granularity to replace the daily
+    contribution card with a seven-day grid of the last seven local calendar
+    dates (oldest at top, today at bottom) by 24 hour columns, driven by the
+    same selected metric and summed across every model, so that the short
+    hourly window is readable hour by hour instead of as a year of day cells.
+37h. As a web user, I want each hourly cell to distinguish a recorded zero from
+    an hour with no stored row and from an hour that has not happened yet, and
+    to mark the in-progress hour from the server's `partial` flag, so that a
+    gap in ingestion is never displayed as a quiet hour.
+37i. As a web user, I want the hourly grid readable without relying on color:
+    every hour label, seven unambiguous date labels, a state legend, and a
+    hover/focus readout carrying the full date, hour range, timezone, value or
+    state, and any partial marker, so that keyboard and assistive-technology
+    use reads the same facts as hovering.
+37j. As a web user, I want an empty but successful hourly response to still
+    render the seven-day window as no-data / future cells rather than hiding
+    the view, and loading and error states to stay visibly distinct from it,
+    so that "nothing recorded" is never confused with "nothing fetched".
+37k. As a web user in Hangzhou or anywhere else, I want the hourly grid's
+    dates, hour columns, and zone label to follow my browser timezone exactly
+    like the rest of Over-time, so that one panel never mixes two calendars.
 
 ### Usage API
 
@@ -310,11 +331,13 @@ expired-login card tells the user to run.
     width, so that the layout adapts to the resizable panel rather than the
     viewport.
 48. As a web user, I want a GitHub-style daily contribution heatmap (one cell
-    per day, weeks as columns left to right, Monday at top, a five-bucket
-    sequential color scale on absolute per-metric thresholds, month labels,
-    weekday gutter, hover tooltip with date and exact value, and a legend of
-    numeric swatches rather than a Less-to-More row), so that heavy and idle
-    days are visible over a year at a glance.
+    per day, weeks as columns left to right, Monday at top, a sequential color
+    scale whose occupied bins are nice-rounded quintiles of the non-empty cells
+    in the currently rendered window, month labels, weekday gutter, hover
+    tooltip with date and exact value, and a legend of numeric boundary swatches
+    that states the scale is relative to this window), so that heavy and idle
+    days stay distinguishable as usage grows and as the hourly grid uses a
+    different magnitude.
 49. As a web user, I want the heatmap driven by the same selected metric as the
     donut and table, so that switching Tokens / Cost / Requests re-colors
     everything consistently.
@@ -345,8 +368,10 @@ expired-login card tells the user to run.
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
 57. As a web user, I want the Daily tokens contribution widget to appear in
-    the Over-time tab rather than the Live tab, so that all day-by-day trend
-    analysis is grouped with the other historical analytics.
+    the Over-time tab rather than the Live tab at daily / weekly / monthly
+    granularity (story 37g replaces it with the hourly grid at `H`), so that
+    all day-by-day trend analysis is grouped with the other historical
+    analytics.
 58. As a web user, I want the Over-time tab to omit Subscription limits
     entirely, so that it remains focused on spend history instead of current
     provider capacity.
@@ -401,6 +426,26 @@ expired-login card tells the user to run.
     dollars with cents, and requests as plain numbers, consistently across
     cards, charts, tooltips, and tables, so that numbers are readable at every
     scale.
+
+### Over-time averages (todo 3571)
+
+71. As a web user, I want Avg daily, Avg weekly (x7) and Avg monthly (x30.44)
+    summaries of the selected metric on the Over-time chart card, so that I can
+    read a typical day's usage without averaging the heatmap by eye.
+72. As a web user, I want those figures to be a mean per recorded day (distinct
+    dates present in the already-clipped rows after excluding browser-today and
+    any date with a server `partial` hour), so that unknown missing dates and
+    an in-progress day are never treated as observed zeros.
+73. As a web user, I want weekly and monthly values disclosed as the daily rate
+    times 7 and 30.4375 for every window, with a `~` when the unit is longer
+    than the recorded span, so that I do not read them as calendar-week or
+    calendar-month means.
+74. As a web user, I want the caption to name the recorded-day count, date
+    span, any dates in that span without rows, that recorded days may be
+    partial, that ingestion coverage is unknown, and that the strip is all
+    models, without hovering, so that I can judge how far the figure may sit
+    from a calendar-day mean. Today-excluded and partial-dates-excluded copy
+    appear only when those exclusions actually happened.
 
 ## Implementation Decisions
 
@@ -565,9 +610,63 @@ expired-login card tells the user to run.
   `grid-cols-3`. Narrow panels keep the same DOM order — Run rate →
   Subscription limits → Today by hour → donut — so the earlier
   `display:contents` + `order` machinery is gone. Over-time gains an `H`
-  granularity that fetches `model-hourly` and clamps the range to 7 days.
-  Active-hours analytics, an hourly heatmap, and per-key/per-bot hourly
-  attribution stay out of scope.
+  granularity that fetches `model-hourly` and clamps the range to 7 days; what
+  `H` renders below the stacked chart was later superseded by todo 3566 (next
+  section). Active-hours analytics and per-key/per-bot hourly attribution stay
+  out of scope; todo 3165's broader exclusion of any hourly grid holds except
+  for the single surface todo 3566 reopened.
+
+### Seven-day hourly grid decisions (todo 3566)
+
+- **`H` swaps the card, it does not add one.** At `H` granularity the Over-time
+  tab mounts an hourly card of seven calendar-date rows by 24 hour columns
+  (00-23) *instead of* the daily contribution card, never both. Daily / weekly /
+  monthly keep the daily card unchanged, and `H` neither fetches daily totals
+  nor mounts the year-window heatmap.
+- **One fetch, no synthesis.** The grid consumes the hourly rows the `H`
+  granularity already fetches and re-buckets (the `day-6 to day` window resolved
+  through `GET /api/usage/range`, with the existing one-date fetch padding).
+  Hourly values are never derived from daily rows, and already-converted rows
+  are not re-bucketed a second time.
+- **Seven local dates including today**, oldest at top and today at bottom, with
+  all 168 slots generated from the resolved window rather than from the dates
+  that happen to appear in the data.
+- **All models, always.** The grid sums the selected metric across every
+  returned model. Like the daily card it takes no model filter: the over-time
+  legend's model / "Other" toggles still narrow only the stacked chart, and the
+  history table is untouched. Per-bot and per-key attribution remain excluded.
+- **Absence is not zero.** A present row whose summed metric is 0 is a recorded
+  zero and keeps the existing filled neutral cell. A slot with no row reads as
+  missing (unfilled cell plus a dash), a slot after the current instant reads as
+  future (unfilled cell plus a distinct dot), and the in-progress state comes
+  only from the server's `partial` flag. The browser clock may distinguish an
+  unobserved future slot; it never invents, clears, or overrides `partial`, and
+  the grid never claims ingestion failed.
+- **Window-derived magnitude scale, per card (todo 3571).** The theme-derived
+  neutral-zero/green ramp is shared with the daily card rather than copied. Bin
+  boundaries are nice-rounded quintiles of that card's own non-empty cells
+  (drop `<= 0`, 0.2/0.4/0.6/0.8 linear quantiles, round each up to `1/2/5 x
+  10^k`, keep a candidate only when it opens an occupied bin below the window
+  max). Daily and hourly each bin independently and are never on screen
+  together; colors are comparable within a card, not across granularity, metric
+  or time filter, which is why the legend prints real boundaries and states
+  that the scale is relative to this window. This is not share-of-window-max
+  normalization: an idle window stays pale when its own distribution is low,
+  and a single outlier moves a quantile rather than the whole ramp. The former
+  absolute 100M / $100 / 1,000 steps, 5x ceiling and above-ceiling ramp are
+  gone. Value 0 keeps the todo-2980 gray and stays out of the quantile domain;
+  missing / future / `partial` marks are unchanged.
+- **Readable without color.** Title is `Hourly tokens` / `Hourly cost` /
+  `Hourly requests`; every hour column and all seven dates are labelled, the
+  state legend names recorded zero, missing and future, and focus exposes the
+  same full readout as hover on a semantic grid with row and column headers.
+- **Compact, not redesigned.** Existing card tokens, rounded cells, quiet gaps
+  and the fit-to-panel approach are retained with a wider date gutter; no new
+  chart library, palette or dashboard control is introduced.
+- **Empty stays a seven-day window.** A successful but empty hourly response
+  renders the full 168-slot no-data / future grid (lower content keeps its empty
+  state) instead of hiding the view; loading and error states remain distinct
+  from it.
 
 ### Subscription limit-window status
 
@@ -1053,6 +1152,21 @@ expired-login card tells the user to run.
   display text. Provider failures are isolated, the envelope's error list shows
   as a partial-read badge, and the limit refresh control is visually and
   behaviorally separate from spend refresh.
+- **Display timezone: ingestion stamps Shanghai, Over-time reads the browser
+  zone (todo 3346, shipped).** Storage and the API keep stamping rows in the
+  configured `Y_AGENT_TIMEZONE` (`Asia/Shanghai`) as story 8 requires; that is a
+  write-path fact, not a display rule. On the client, Live "today by hour",
+  the Over-time chart and table, the contribution card and the todo 3566 hourly
+  grid all label and bucket in `browserTimeZone()`: hourly rows are reinterpreted
+  as instants and re-bucketed into browser days (and browser hours), while a
+  Shanghai date with no hourly coverage falls back to its daily row under its own
+  label, so every date is sourced from exactly one grain and the boundary between
+  the two carries a `mixed` marker. Range bounds for that re-bucketing are
+  resolved server-side through `GET /api/usage/range?time=&tz=`, and the panel's
+  zone label follows the browser zone; the stored-bucket zone is surfaced only on
+  the Shanghai-labelled fallback days. For the user's own browser in Hangzhou
+  both zones resolve to `Asia/Shanghai`, so the rule is visible only from another
+  zone: it exists so one panel never mixes two calendars.
 - **Metric selector.** One metric at a time (Tokens default, Cost, Requests),
   shared by the donut, heatmap, over-time chart, and tables' default sort.
   Tokens means total tokens including cache.
@@ -1157,23 +1271,22 @@ expired-login card tells the user to run.
   actually are without retroactively asserting attribution the source lacks.
 - **Heatmap.** GitHub contribution semantics: week columns left to right,
   Monday to Sunday top to bottom, month labels on the column containing each
-  month's first day, Mon/Wed/Fri gutter labels, five-bucket sequential
-  Solarized-green scale where bucket boundaries are absolute per-metric
-  thresholds (100M tokens / $100 cost / 1,000 requests per step, five steps to
-  a `5x` ceiling), hover tooltip with date and exact metric value, and a
-  legend of numeric-labeled swatches (0 plus the five step values) rather than
-  a Less-to-More row. Days above the ceiling leave the discrete scale for a
-  linear ramp interpolated toward the window's maximum, with the legend
-  showing an extra ramp swatch only when that maximum exceeds the ceiling.
-  Colors are opaque greens sampled off one gradient per theme mode rather than
-  alpha-over-card steps, since alpha flips direction with the theme and cannot
-  continue past `alpha=1`. Because the thresholds are absolute, a quiet window
-  no longer self-normalizes: an idle month renders uniformly pale instead of
-  spreading across the full scale, which is intended. The grid scales to the
-  panel width (never scrolls horizontally; scales up to a cap on wide panels)
-  with the wrapper height set explicitly since CSS transforms do not shrink
-  layout boxes. The Daily tokens widget belongs in the Over-time tab, alongside
-  the stacked chart and period table; it is absent from Live.
+  month's first day, Mon/Wed/Fri gutter labels, hover tooltip with date and
+  exact metric value. The sequential Solarized-green scale (todo 3571) bins
+  each rendered card independently: nice-rounded quintiles of that window's
+  non-empty cells, every legend swatch occupied, no share-of-window-max
+  renormalization, no absolute 100M / $100 / 1,000 steps and no above-ceiling
+  ramp. The legend is mandatory because colors are only comparable within the
+  card: `0`, one `<=b` swatch per kept bound, an open `>b_last` swatch, a quiet
+  `max` readout, and visible copy that the scale is relative to this window.
+  Endpoints remain Roy's two greens (`#7bd992` / `#126329`); mode still picks
+  the gradient direction; the todo-2980 zero gray is unchanged. Fewer than four
+  interior bounds is a normal outcome when the data lacks contrast. The grid
+  scales to the panel width (never scrolls horizontally; scales up to a cap on
+  wide panels) with the wrapper height set explicitly since CSS transforms do
+  not shrink layout boxes. The Daily tokens widget belongs in the Over-time
+  tab, alongside the stacked chart and period table; it is absent from Live
+  and is replaced by the hourly grid at `H`.
 - **Over-time.** Client-side bucketing of the fetched daily rows into daily /
   weekly (Monday-start) / monthly periods; stacked chart plus a
   model-by-period table with a range-sum column and a totals row; the table
@@ -1182,6 +1295,26 @@ expired-login card tells the user to run.
   (palette, period labels, tooltip) are small local copies rather than a
   refactor of the finance viewer; extracting a shared chart library is an
   acknowledged follow-up.
+- **Over-time averages (todo 3571).** A compact strip inside the existing
+  Over-time chart card, between the title row and the stacked chart: Avg daily,
+  Avg weekly (x7), Avg monthly (x30.44). Daily is `total / recordedDays` for
+  the selected metric across all models; weekly and monthly are that same rate
+  times 7 and 30.4375 (`365.25 / 12`, an adopted convention). They are
+  normalized estimates, not observed calendar-week or calendar-month means, and
+  the multiplier is disclosed for every window. `recordedDays` is distinct
+  `usage_date` values in the already range-clipped rows after two
+  evidence-based exclusions: the browser-tz current date, and any date holding
+  a server `partial` hourly row. Dates without rows are unknown, never scored
+  as zero; when the remaining recorded dates do not fill their own calendar
+  span the caption shows the gap count. Zone-offset mismatch is not treated as
+  truncation. The visible caption always carries `mean per recorded day`, the
+  recorded-day count, the span, `recorded days may be partial`, `ingestion
+  coverage unknown`, and `all models`; `today excluded` / `partial dates
+  excluded` and the gap count appear only when true. A unit longer than the
+  recorded span is prefixed `~`. Zero recorded days render `-` with `needs one
+  recorded day`. The chart legend filter does not apply. D / W / M print the
+  same numbers on one `requestedTime`; H must not, because it clamps to
+  `day-6 to day` and has no daily fallback.
 - **State persistence.** View toggle, mode, granularity, and the two
   independent time inputs (Live and Over-time) persist in local storage under
   stable keys; renames keep old key strings so persisted values survive.
@@ -1391,6 +1524,9 @@ expired-login card tells the user to run.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3584 | Removed the usage averages methodology caption from the over-time views | - | - | - | `pages/review-3584-methodology-caption.md` | shipped: bot v45 active from `0e61114`, UI `8a7a12adfd44...`, API `59318933a0b4...` unchanged; source digest `51090cb4...` matches the reviewed worktree; charts, averages tiles, labels and `usageAverages` semantics unchanged; no module Git push; ready for user verification |
+| 3569 | Explain equal-weight usage disparity and add model Sessions, Turns and Avg turns/chat | - | `pages/plan-3569-bot-usage-sessions.md`; `pages/plan-3569-module-publication-path.md` | `pages/handoff-3569-bot-module-ui.md`; `pages/release-3569-bot-usage.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | shipped: host `80101ce`, SQL applied, bot v43 active from `446da28`; no historical backfill or module Git push; ready for user verification |
+| 3571 | Adaptive per-window heatmap bins and recorded-day usage averages with normalized weekly/monthly estimates | - | `pages/plan-3571-heatmap-adaptive-scale.md` | this PRD; `pages/prd-3571-bot-usage-patch.md`; `pages/impl-3571-heatmap-adaptive-scale.md` | `pages/review-3571-heatmap-adaptive-scale.md` (3 rounds) | shipped `e412b07`, bot v42 enabled; UI `8ea65613c9f0...`, API `59318933a0b4...` unchanged; 424 assertions passed, no new typecheck diagnostics; canonical build matches published UI, source digest matches review; feature-home edits local only; ready for user verification |
 | 2887 | Stacked bar segments ordered by per-bar descending share | - | - | - | `pages/review-2887-usage-stack-order.md` | shipped |
 | 2890 | Daily tokens heatmap weeks start Monday instead of Sunday | - | - | - | - | shipped |
 | 2872 | Subscription limit windows read directly from Anthropic / OpenAI / xAI instead of claude-relay-service: three providers, per-provider window kinds, VM-side CLI reads, and read-through of each vendor CLI's own credential file | - | `pages/plan-2872-direct-provider-usage.md` (supersedes `pages/plan-2872-provider-usage-window-ownership.md`) | this PRD | `pages/review-2872-backend-usage-limits.md`, `pages/review-2872-backend-usage-limits-round2.md`, `pages/review-2872-web-usage-cards.md` | shipped (`09df56b` backend, `dfd75a2` web, `0c2c773` CLI, `3acdbc7` read-through) |
@@ -1411,6 +1547,9 @@ expired-login card tells the user to run.
 | 3564 | Move the subscription-limit refresh from 5 minutes to 30 minutes so an awake sweep no longer renews the VM SSH idle marker inside the host's 900s hibernation window; asleep-skip, freshness TTL and wake semantics unchanged; residual probe race and jitter/stall tail remain documented limitations | - | `pages/plan-3564-usage-refresh-cadence.md` | this PRD; `pages/plan-3564-auto-hibernation-diagnosis.md`; `pages/impl-3564-usage-refresh-cadence.md` | `pages/review-3564-usage-refresh-cadence.md` | reviewed, pending publication |
 | 3573 | After a successful subscription refresh, reconcile the owner's existing named `fable` bot at 95% of max(`five_hour`, `one_week`, `one_week_fable`) from a complete fresh Claude row; enable below 95% even if manually disabled; no-op at exactly 95% and on incomplete/failed input; alias/global-default routing bypasses remain an admission boundary | - | `pages/plan-3573-fable-usage-gate.md` | this PRD | `pages/review-3573-fable-usage-gate.md` | deployed |
 | 3261 | Restore Subscription limits to a full-width Live dashboard row so its existing `repeat(auto-fit, minmax(260px, 1fr))` grid can show three provider cards in one row at the pre-3165 viewport thresholds; Live wide layout becomes Run rate → Subscription limits → Today by hour \| donut, superseding the todo 3165 left-column placement without a fixed-width override | - | `pages/plan-3261-subscription-limits-row.md` | this PRD | `pages/review-3261-subscription-limits-row.md` | shipped (`bot` artifact v31, UI `4442e0aefc90…`, API `4327967043d4…`; source `9ea80f8`) |
+| 3403 | Read-only audit of why Fable 5.1 and Astra showed lower cache-hit percentages. Displayed % is R/(U+W+R+O), so output inflates the denominator by under 1 point. Fable 5.1 sits at 85.88% displayed / 86.74% prompt reuse over Sep 4-6: warm tool-result continuations reuse 96.73%, text-triggered starts/resumes only 44.32%, and 58 same-model continuations with 5-60 minute gaps read 6.47% of their prompts, consistent with 5-minute TTL expiry. Live claude-relay-service strips block-level `ttl`, so a harness-only 1h flag would not take effect. Astra is not persistently low: 85.85% on its first day, 92.50% the next, 92.07% over the window. No code changes; recommendations reported only | - | `pages/audit-3403-cache-hit-rate.md` | - | - | audit delivered, ready for user verification |
+| 3431 | Fable dispatches failed with a CRS-generated Chinese 403 naming a per-account rate limit. Audit established that the model dimension is real: the VM's provider snapshot already carried a separate `one_week_fable` window at 100% while the shared weekly window sat at 58%, both resetting at the same time quoted in the error, and CRS keys its block state as account x model-family (`${family}RateLimitedAt`) while collapsing that dimension out of the HTTP 403, so the same message covers account-wide and family-only blocks. Anthropic's API docs confirm per-model rate limits at org level, but those are token buckets, not subscription windows; a purported 50% Fable weekly sublimit could not be re-retrieved and was not built on. Spend already had a per-model dimension, so no schema change was needed: the gap was that `extra_windows` was collected and persisted but never rendered. S1 renders observed model-scoped windows beside the shared ones on the Claude card, with `limit reached` at >=100%, absent data reading `not reported` rather than 0%, no combining of percentages across windows (different denominators), fill clamped for display only, and coverage labelled as the VM Claude login rather than a promise of relay-bot readiness | - | `pages/plan-3431-fable-usage-limits.md` | this PRD | `pages/review-3431-fable-usage-limits.md` | shipped S1 (`bot` artifact v37, `96f83a3bbfca...`, `f421592`); S2 (multi-window parser, `claude_usage.py` stops at the first optional weekly row) and S3/S4 planned, not authorized |
+| 3566 | Over-time `H` granularity replaces the daily contribution card with a seven-day by 24-hour grid built from the hourly rows `H` already fetches: seven local calendar dates (oldest first, today last) x 24 columns, all 168 slots generated from the resolved window, summed across every model, driven by the existing metric selector and the shared absolute-threshold color scale applied per hourly cell. Recorded zero, missing row, future slot and server `partial` are four distinct states readable without color; a successful empty response still renders the window instead of hiding the view. Dates, hour columns and the zone label follow the shipped todo 3346 browser-timezone contract. D / W / M, the model filter's chart-only scope, the history table, the API and the schema are unchanged | - | `pages/plan-3566-bot-hourly-grid.md` | this PRD; `pages/plan-3346-date-range-timezone-audit.md` (D7) | `pages/review-3566-bot-hourly-grid.md` (4 rounds) | shipped `38df195`, bot v41 enabled; UI `f765f176398b...`, API `59318933a0b4...` unchanged; 237 checks passed, build passed, 183 unchanged typecheck diagnostics; canonical build reproduces published digest, worktree difference is source-path comments only; ready for user verification |
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
 | 3580 | Display-only resolved-date labels beside the Usage filter and heatmap. Host `GET /api/usage/range` returns `describe_time_range`; browser contract v14 exports the shared formatter. Query timezone stays the browser zone (todo 3346). Module labels land in a later publish | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/feature-y-agent-resolved-date-range-display.md`; `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module labels pending |
 
@@ -1443,9 +1582,12 @@ expired-login card tells the user to run.
   side does have one, `y usage limits`, because the backend is built on it.
 - **Rated / list-price cost reporting** (only real billed cost is stored and
   shown).
-- **Active-hours analytics and an hourly contribution heatmap.** The daily
-  heatmap stays daily; hour-of-day analytics are explicitly excluded by todo
-  3165.
+- **Active-hours analytics**, and any hourly grid beyond the seven-day `H`
+  card. Todo 3165 excluded hour-of-day presentation outright; todo 3566
+  superseded that exclusion for exactly one surface, the seven-day by 24-hour
+  grid shown at `H` granularity. The year-window contribution heatmap stays
+  daily, and hour-of-day aggregation (busiest hours across the window), longer
+  hourly windows and per-bot / per-key hourly attribution remain excluded.
 - **Hourly history older than the relay's ~7-day hourly TTL** (expired in Redis,
   unrecoverable) and Postgres-side hourly retention/pruning (row volume does not
   justify a policy yet).

@@ -275,6 +275,44 @@ monitoring queries and UI evolution on the module publish loop.
     owner-bound, and versioned, so that the module can evolve its views without
     direct access to unrelated host state.
 
+### Daily latency review routine
+
+71. As a user, I want a scheduled daily routine to review API latency against a
+    P95-below-one-second objective, so that slow routes become optimization work
+    without me reading the Monitor overview every day.
+72. As a user, I want a route qualified only when a representative 7d window and a
+    corroborating 24h window both meet fixed sample floors and both show P95 at or
+    above the threshold, so that one slow request or a stale week cannot open work.
+73. As a user, I want the routine to use exact raw-backed percentiles and to create
+    nothing when the evidence is approximate, empty, or unreadable, so that a
+    finding is never invented from degraded metrics.
+74. As a user, I want a clean day to produce no todo, no dispatch, and no message,
+    so that the routine is silent unless there is evidence-qualified work.
+75. As a user, I want at most one new optimization todo per Asia/Shanghai calendar
+    day and at most two routine-created todos open at once, enforced against the
+    todo database rather than a log file, so that the work queue cannot flood.
+76. As a user, I want candidate routes deduplicated against the full text of every
+    pending, active, and awaiting todo, so that routes already owned by open work
+    (including todo 3520's eight endpoints) are excluded rather than duplicated.
+77. As a user, I want the routine never to modify, resume, dispatch into, or finish
+    a user-owned todo, so that automatic creation stays the only automatic write.
+78. As a user, I want shared-tail groupings stated as an unproven hypothesis with
+    every member route's own numbers preserved in the todo, so that the generated
+    task reports evidence without asserting a cause.
+79. As a user, I want the generated todo dispatched to dev coordination at tier1 on
+    its own new trace, so that optimization work is planned and reviewed like any
+    other delivery instead of running inside the routine session.
+80. As a user, I want optimization work to stop at local verification plus an
+    awaiting handoff with a valid chat pointer, so that no integration,
+    publication, deployment, rollback, or production mutation happens without my
+    approval.
+81. As a user, I want the awaiting report to state that production P95 is not yet
+    verified and to name the post-publication Monitor check as my follow-up, so
+    that local replay numbers are never presented as the deployed outcome.
+82. As a user, I want a hard failure of the routine (CLI missing, auth failure,
+    unreadable payload) to send exactly one Telegram line, so that a broken routine
+    cannot go silent forever while a clean run still sends nothing.
+
 ## Implementation Decisions
 
 ### Product and module boundary
@@ -394,6 +432,113 @@ monitoring queries and UI evolution on the module publish loop.
   privacy, cardinality, retention, and overhead checks. Earlier time ranges show an
   explicit collection-start boundary.
 
+### Daily latency review routine
+
+- The routine is one skill (`api-latency-review`) plus one scheduled routine
+  registration, run as a chat dispatch. It reads evidence only through a read-only
+  Monitor CLI half over the published Monitor API: no publish, host change,
+  contract bump, migration, or worker step. The CLI resolves only from the
+  canonical module source checkout, so the routine cannot run until that change
+  is integrated there.
+- Objective is P95 below 1000 ms. This supersedes the earlier P50 goal for both
+  eligibility and the acceptance of generated work. P50, a single fast request,
+  or an under-sampled window never substitutes for P95.
+- Eligibility requires both windows on raw exact percentiles: `7d` with at least
+  100 requests and P95 at or above 1000 ms, and `24h` with at least 20 requests
+  and P95 at or above 1000 ms. `7d` is the representative window; `24h` only
+  corroborates that the problem is present today. Approximate percentiles in
+  either window end the run with a logged limitation and no todo.
+- Routes with P95 at or above 1000 ms and P50 below 250 ms are tail-dominated.
+  Three or more such routes form one candidate whose description states only that
+  their medians are fast while they share a P95 band, and that a common cause is
+  an unproven hypothesis to investigate. When that candidate does not form, because
+  fewer than three tail-dominated routes survive or because the shared-tail grouping
+  is switched off, those routes are not discarded: they group ordinarily like any
+  other eligible route. Ordinary grouping is by owning surface when two or more
+  routes share it, and a route that shares its surface with no other becomes its own
+  single-route candidate. Every eligible route therefore belongs to exactly one
+  candidate, and one or two evidence-qualified fast-median routes can never end a run
+  as clean. Already-owned routes are trimmed before grouping, so no grouping threshold
+  is re-evaluated afterwards. Candidates rank by 7d P95 and one run takes the top one.
+- Caps: `max_new_per_day=1` counted by Asia/Shanghai creation date across all todo
+  statuses including completed and deleted, and `max_open=2` routine-created todos
+  in pending, active, or awaiting. A routine-created todo is identified by a
+  `latency-candidate: <key>` marker line in its description, so both caps are
+  derived from the todo database and survive retries, re-runs, and ledger loss.
+  Both counts are trusted only after every list and every record read passes the
+  same validation: a list is accepted only as the exact empty sentinel or a known
+  table shape, any unexplained row rejects the run rather than being filtered
+  away, and each record must carry the requested id. A command that exits
+  successfully with malformed output is an uncertainty, not an empty result, for
+  the open dump and the day dump alike.
+- Deduplication scans the full text of every pending, active, and awaiting todo,
+  matching route identity literally and delimiter-aware rather than by substring or
+  regex, and retaining the owning todo id. A route that appears only inside a
+  previously generated todo's exclusion line is not owned by it, so work is not
+  suppressed indefinitely after the real owner closes. A matched member route is
+  removed from the eligible set before grouping and recorded as covered by that
+  todo. Todo 3520 is a dedup source only: it is never modified, resumed, or
+  dispatched into, and a shared-tail candidate never claims to cover or supersede
+  its per-endpoint work.
+- The ledger `start`/terminal lines and the run-overlap guard are advisory only.
+  Two runs starting inside the same read/append window both proceed; the caps are
+  therefore best-effort and must never be described as guaranteed. There is no
+  time-based guard expiry and no liveness inference from chat text, which shows
+  assistant commentary while tools are still running: an unterminated start line
+  always skips the run. Every ledger line carries its run id so a healthy run is
+  never mistaken for a crashed one. Repeated blocking surfaces as a hard failure
+  on the fourth consecutive invocation blocked by the same run, after three
+  prior skips, for the user to clear by hand; that count is a notification trigger
+  and never a liveness conclusion. If a race ever fires in practice, a routine
+  guard function would narrow the window but is not an atomic reservation across
+  scheduler and manual invocations, so it stays a tentative suggestion rather
+  than a planned fix.
+- Dispatch recovery is pending-only: a routine-created pending todo with the
+  marker, the authorization-boundary clause, and zero chats on its trace is
+  dispatched once. The routine never recovers, resumes, or finishes an awaiting
+  or active todo, and never auto-finishes any user-owned todo. Any failure to
+  obtain dedup or recovery inputs creates nothing (skip on uncertainty).
+- Creation and dispatch each require a confirmed receipt: a parsed todo id and a
+  parsed chat id. A failed or unparsable creation is reported as unconfirmed and is
+  never retried, since the write may have landed. A dispatch error is an
+  unconfirmed handoff, not proof that the todo was left pending: the enqueue may
+  have succeeded before the receipt was lost. The run therefore keeps the known
+  todo id in both the ledger line and the notification, never retries, and leaves
+  the next run's zero-chat check to decide whether recovery applies. A success
+  outcome is never reported from an unconfirmed write.
+- The ranking the API returns is capped at 100 rows per window, so a window that
+  returns a full page of rows all meeting the sample floor is treated as possibly
+  truncated and the run stops without a verdict. A clean or under-sampled result is
+  never claimed from a possibly capped list.
+- The generated todo is dispatched to `dev` at tier1 on its own new trace
+  (trace id equals the new todo id). Its description carries every member
+  route's 7d and 24h P95, P50, and count, the window bounds and source, the
+  marker line, the two-tier acceptance, and the authorization boundary.
+- Acceptance is two-tiered. Local: a stated replay protocol (at least 30
+  requests, named parameters, cache state, measurement boundary) with before and
+  after P95 and explicit sample and window limits. Production: P95 below 1000 ms
+  in Monitor over a window meeting the same sample floors, observable only after
+  publication and never claimed at awaiting time.
+- Optimization work stops at local verification plus `awaiting` with a valid chat
+  pointer. Integration into shared branches, publication, deployment, rollback,
+  and production mutation each need the user's approval; the routine's
+  registration, enabling, and the module CLI integration are likewise not
+  authorized by this feature and remain the user's steps.
+- Notification: the platform notifies only when the routine's dispatch itself
+  raises, never on a session outcome, so the session sends exactly one Telegram
+  line on hard failure and nothing on creation or on a clean day. Every run
+  appends one ledger outcome line.
+- Default schedule is 09:45 in the configured Asia/Shanghai timezone, after the
+  morning changelog routines. The 24h window is a rolling span ending at observation
+  time, so it covers only part of the previous calendar day. The overview bounds
+  are fetched in separate calls after the ranking and each call resolves its own
+  range, so the generated description labels them as separately fetched context
+  for the range labels, keeps the ranking's own observation time as uncertain
+  rather than claiming exact bounds for the route metrics, and records the
+  collection-start limitation when it applies.
+  The routine session runs at the default tier; only its `dev` dispatch is pinned
+  tier1.
+
 ## Testing Decisions
 
 - Test the external event and query contracts rather than middleware internals.
@@ -434,11 +579,38 @@ monitoring queries and UI evolution on the module publish loop.
   requests, reconciles them through raw and aggregate views, confirms cleanup is
   scheduled, and records the collection start. Browser-driven visual verification
   remains opt-in unless explicitly requested.
+- The review routine is verified in dry-run shape: every prescribed command runs
+  once by hand and exits cleanly with no todo, dispatch, Telegram, or ledger
+  write; the open-todo dump passes a completeness check; dedup finds every
+  endpoint named by an open todo; the day and open caps count zero markers; and
+  the read-only Monitor CLI has unit coverage with a mocked API client plus a
+  module-boundary test that keeps the CLI half out of the API half.
+- The routine's failure paths are verified against mocks rather than live runs,
+  because most of them cannot be produced safely on purpose: a failing list, a
+  failing or unparsable todo record, an empty status, a status at the row cap, a
+  day count spanning completed and deleted records, one record carrying the marker
+  twice, sub-route and near-miss route identities, an exclusion line that must not
+  confer ownership, a terminated versus unterminated ledger run, repeated skips
+  reaching the stuck-guard threshold, and every failed or unconfirmed create and
+  dispatch receipt. The shell cases must run the command blocks extracted from the
+  skill file itself, not a separately maintained helper that may be stricter than
+  the shipped prose, and must include a successful command returning a malformed
+  list and a successful malformed day-record read, both of which have to end the
+  run as uncertain. The grouping and truncation rules are regression-tested against
+  a reference model, including one, two, and three tail-dominated routes, the
+  switched-off shared-tail case, and trimming before grouping.
 
 ## Out of Scope
 
-- Automated performance recommendations, root-cause diagnosis, anomaly detection,
-  regression alerts, SLO enforcement, or automatic optimization.
+- Automatic optimization *inside the routine session*, root-cause diagnosis, anomaly
+  detection, regression alerts, or SLO enforcement. This does not cancel the `dev`
+  execution phase: the generated todo still authorizes local optimization and local
+  verification before awaiting. The daily review routine only qualifies routes
+  against fixed thresholds and creates bounded todos; it never changes code,
+  publishes, deploys, or claims a cause.
+- Concurrency-safe caps for the review routine. The overlap guard is advisory
+  and a guard function stays a tentative suggestion, not an atomic reservation
+  and not planned work; a real lock is out of scope for the first version.
 - Trace monitoring, trace waterfalls, session-tree health, logs, infrastructure
   metrics, database query profiling, worker latency, queue latency, VM metrics, and
   third-party dependency tracing. These may become separately specified areas of
@@ -470,7 +642,15 @@ monitoring queries and UI evolution on the module publish loop.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3561 | Reject import-time DB warm-up after paired local replay of all seven routes; evidence in `pages/delivery-3561-shared-tail-experiment.md` | - | `pages/plan-3561-shared-cold-path-tail.md` | `pages/delivery-3561-shared-tail-experiment.md` (no-go) | `pages/review-3561-shared-tail-no-go-evidence.md` (approve rejection/report, not performance acceptance) | Local experiment concluded, no application delta retained. N=30 per route/arm/cold-or-warm cohort; startup-to-response proxy P95 increased 0.6% to 26.4% in sequential, confounded arms despite lower Monitor timings. No commit, integration or publication; production P95 not verified and the objective remains unachieved. |
+| 3542 | Skip OpenRouter catalog fetching for bot list/config when no returned configuration needs it; local evidence in `pages/impl-3542-bot-list-latency.md` | - | `pages/plan-3542-bot-list-latency.md` | - | `pages/review-3542-bot-list-catalog-guard.md` (approve, round 3, local-only) | Locally verified, uncommitted API-only candidate on baseline `c9d9daf`; API blob `f41b2db`, API zip `59318933` (baseline `ff108e3b`). Local C1/C2-before/C3 P95 139.130/5.496/3.284 ms, N=30 each; 48 tests pass. No integration or publication; production P95 not verified. Worktree UI is pre-v38 and must not ship; future publication requires a fresh authorized baseline preserving then-active UI. |
 | 3211 | Establish the `monitor` module with privacy-safe API latency capture, bounded raw/hourly/daily retention, percentile and error aggregation, recent overview, and route-level drill-down | - | `pages/plan-3211-api-latency-monitoring.md` | `pages/decision-3211-retained-window-rollup.md` | `pages/review-3211-api-latency-monitoring-host.md` (approve, round 8), `pages/review-3211-monitor-module.md` (approve) | Shipped: host capture/rollup/capability deployed (y-agent `b2d5c5d`, durable `collection_start` marker `a82e658`); migration `3211_api_latency.sql` applied; E4 production baseline PASS (`pages/verification-3211-api-latency-baseline.md`); `monitor` module published as v1 from y-module `951f577` |
 | 3224 | Exclude the SSE chat stream `/api/chat/messages` from API latency capture and delete its raw/rollup history so global percentiles reflect request latency | - | `pages/plan-3224-exclude-sse-latency.md` | - | `pages/review-3224-exclude-sse-latency.md` (approve) | implemented; deploy and production cleanup pending |
 | 3226 | Push route/method/status/completion/module-slug predicates into raw and rollup repository queries for monitor route detail (and shared summary/routes seams), keep payloads and percentile semantics identical, and avoid instrumentation recursion | - | `pages/plan-3226-slowest-api-routes.md` | - | `pages/review-3226-monitor-detail-filter-pushdown.md` | shipped in ba411ad, deployed 2026-08-19; production latency verification (plan sub-task 7) outstanding |
 | 3227 | Make the Monitor center view self-sufficient: render the overview (summary metrics, percentile trend, route ranking) at wide-column size with no route selected, and drill into a route in place | `pages/design-3227.html` | - | - | `pages/review-3227-monitor-center-overview.md` (approve, round 2) | Shipped: `monitor` module published as v4 from y-module `e5fb9c0` (ui `73f8a680d7d7…`, api `af646a43a3bb…`); UI-only, no host or migration change |
+| 3518 | Sort the Monitor slowest-routes table by any applicable column header, with ascending/descending toggling, an active-sort indicator, and numeric comparison on raw values | - | - | - | `pages/review-3518-monitor-route-sort.md` (approve, round 1) | Shipped: `monitor` module published as v6 from y-module `6418b25` (ui `3576f4599b94…`, api `af646a43a3bb…`); UI-only, no host or migration change |
+| 3521 | Stack the Monitor wide overview vertically so the percentile trend chart sits above the slowest-routes table and the table gets the full column width, superseding the two-column "trend and ranking share the frame at roughly 54/46" rule in `pages/design-3227.html` | - | - | - | `pages/review-3521-monitor-wide-overview-stack.md` (approve, round 1) | Shipped: `monitor` module published as v7 from y-module `3bdd240` (ui `01d4b112da0b…`, api `af646a43a3bb…`); UI-only, no host or migration change |
+| 3520 | Reduce P50 below 1000 ms for eight slow API endpoints: batch income-statement FX and reuse the narrow posting projection, fetch the holdings realtime overlay once per request, batch live balance-sheet liability FX, collapse `file/list` into one VM call, return note inventories as `JSONResponse`, and share usage-sync target/basis resolution across one bounded concurrent batch | - | `pages/plan-3520-endpoint-latency.md` | `pages/decision-3520-link-content-meta-no-consolidation.md` | `pages/review-3520-file-list-single-vm-call.md` (approve, round 2), `pages/review-3520-note-browse-serialization.md` (approve), `pages/review-3520-usage-sync-shared-basis.md` (approve, round 2), `pages/review-3520-finance-endpoint-latency.md` (approve, round 2) | Partial: published y-module `6e64cfa` as note v12 / file v39 / finance v42 and deployed y-agent `6fd82d9` (Actions run 34731153553); six GET endpoints pass their controlled production cohorts (`pages/verification-3520-production-acceptance.md`, note pages passes narrowly at 983.69 ms, holdings provisional at 19/20 events); `link/content-meta` ships no code by measured decision; `usage/sync` and `link/content-meta` remain above target and pending authorized POST replay; no disjoint natural-traffic window established |
+| 3524 | Add a bounded daily API latency review routine: read-only `y monitor` CLI half in the `monitor` module, the `api-latency-review` skill (P95 < 1000 ms objective, 7d n>=100 / 24h n>=20 raw floors, `max_new_per_day=1`, `max_open=2`, full open-todo dedup, pending-only dispatch recovery, awaiting-only handoff), and a disabled registration package | - | `pages/plan-3524-daily-latency-routine.md` | `pages/decision-3524-staged-integration.md` | `pages/review-3524-monitor-cli.md` (approve, CLI only), `pages/review-3524-latency-review-routine.md` (approve, round 4) | Staged delivery: CLI locally integrated as `6e2f4f5`, canonical meta smoke passed; skill v0.3.1 locally committed as `894fa9f`; routine `6d76f8` registered disabled at 09:45 Asia/Shanghai. Initial dry-run `d2b2cb` required one continuation prompt; additional skill execution `18b96f` completed unattended in 6m28s with `ok:created dry_run=true`, proposing finance holdings/balance-sheet without optimization writes. Evidence: `pages/delivery-3524-latency-review-skill.md`, `pages/decision-3524-staged-integration.md`. Scheduler fire path was not retested; route matching was re-derived inline rather than using the shipped block. Routine `6d76f8` enabled by explicit user authorization on 2026-09-14 08:15 Asia/Shanghai with unchanged `dry_run=false` configuration, verified by readback; no immediate manual fire. No push or module publication; first scheduled execution and real creation/dispatch remain unverified |
+| 3579 | Hydrate `/api/module/tag/` lookup members from column projections (todo/note/entity) instead of full DTOs, and memoize the module bundle S3 client; local evidence in `pages/delivery-3579-tag-lookup-latency.md` | - | `pages/plan-3579-tag-lookup-latency.md` | - | `pages/review-3579-tag-lookup-latency.md` (approve, round 1, local-only) | Shipped: y-agent `bde0e0c` (commits `ce66231` projection + `bde0e0c` S3 memo, rebased onto `9abd02e`) pushed to main, Deploy run 35174682562 succeeded 2026-09-17. Replay n=36 per arm (six tags, user 85, warm pool, service-call boundary): pooled P95 54.9 -> 25.2 ms (impl), 54.2 -> 20.2 ms (independent review), identical payload fingerprints, 3 SQL statements. Production P95 not verified (Roy's follow-up in Monitor); 7d window judged not route-reachable (shared cold band, todo 3561) |
+| 3591 | Overlap the two independent `/api/module/note/list` inventory sources by acquiring the VM root scan and the DB note read concurrently via `asyncio.gather(return_exceptions=True)`, offloading the synchronous read with `asyncio.to_thread`; local evidence in `pages/verification-3591.md` | - | `pages/plan-3591.md` | - | `pages/review-3591-note-source-concurrency.md` (approve, round 3, local-only) | Locally verified, unpublished module candidate `0637932` on clean baseline `e412b07` (worktree `note-perf-3591`, browse sha256 `5ffeaca5…`); module-only, no host, UI, schema or contract change. Local replay at the `ApiLatencyMiddleware` boundary against a synthetic fixture (4000 registered rows / 2000 file-only, local-subprocess VM path, no SSH or wake): default-inventory cohorts improve repeatably across four runs, e.g. A n=200 P95 619.30 -> 559.70 and 504.53 -> 457.45 ms, B n=40 507.04 -> 397.28 ms, D n=40 391.61 -> 352.80 ms; tag cohort C and tail maxima are inconclusive (C regressed 141.20 -> 174.55 ms in one n=40 run) and the todo-scoped cohort E is unchanged. 78 tests pass; 57 differential cases byte-identical through the real dispatcher. Cancellation drains the owned read through repeated parent cancellation with no request-level deadline, so a stuck read can delay cancellation indefinitely (accepted: matches the serial baseline and avoids introducing DB timeout policy here). Remaining local bottleneck is the VM scan call, whose production SSH/wake cost the fixture excludes; wake-branch counts are counts, not latencies, and select no host candidate. No integration, publication or deployment; production P95 not verified and remains Roy's qualified Monitor-window follow-up (7d n>=100 or 24h n>=20) against the 1878.4/1826.5 ms qualifying observation |

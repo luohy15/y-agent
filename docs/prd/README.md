@@ -6,7 +6,7 @@ near-duplicate.
 
 | PRD | Scope |
 |-----|-------|
-| [api-latency-monitoring](api-latency-monitoring.md) | Owns privacy-safe server-boundary latency capture and bounded raw/hourly/daily evidence for y-agent API routes, plus the API Latency overview and route drill-down inside the extensible `monitor` module. |
+| [api-latency-monitoring](api-latency-monitoring.md) | Owns privacy-safe server-boundary latency capture and bounded raw/hourly/daily evidence for y-agent API routes, plus the API Latency overview and route drill-down inside the extensible `monitor` module, and the bounded daily latency review routine that turns evidence-qualified slow routes into at most one optimization todo per day. |
 | [bot-config-detail-modal](bot-config-detail-modal.md) | Owns the Bot viewer Config-tab detail interaction: open a bot's editor in a modal with standard dismissal, and always seed/refresh editable fields from the authoritative per-bot config payload with cache invalidation on write. |
 | [bot-routing](bot-routing.md) | Routes each dispatched session to a bot via unified filters (bot name, backend, tier) intersected over the config pool: one candidate is used directly, several are weighted-drawn, and no filters or an empty result falls back to tier2 (never a skill-derived tier); a documented tier-role policy (tier2 default, tier1 judgment work, tier0 user escalation only, tier3 cheap volume) governs tier requests. |
 | [bot-usage](bot-usage.md) | Owns bot-page usage visibility: durable per-model spend analytics (metered through the relay) plus current Claude / GPT (Codex) / Grok subscription limit-window status read directly from each provider, including the read-through lifecycle of the vendor CLIs' own credential files. |
