@@ -3,6 +3,7 @@ import sys
 import time
 import click
 import httpx
+from pathlib import Path
 from typing import Optional
 
 from yagent.api_client import api_request
@@ -176,6 +177,42 @@ def _wait_for_reply(chat_id: str, timeout: int):
         time.sleep(2)
 
 
+def _installed_skill_names() -> list[str]:
+    """List immediate child directories of ~/.agents/skills that have a SKILL.md.
+
+    Resolved fresh on every call (not frozen at import time) so a skill
+    installed after process start is visible on the next invocation.
+    """
+    skills_root = Path.home() / '.agents' / 'skills'
+    entries = skills_root.iterdir()
+    return sorted(entry.name for entry in entries if (entry / 'SKILL.md').is_file())
+
+
+def _validate_skill_name(skill: str) -> None:
+    """Validate an explicit ``--skill`` value against locally installed skills.
+
+    This is a caller-local preflight (exact match against `~/.agents/skills`
+    directory names), not proof of remote/runtime capability: it does not
+    verify project/plugin skills, topic-inferred skills, or unsynchronized
+    remote installations.
+    """
+    skills_root = Path.home() / '.agents' / 'skills'
+    try:
+        installed = _installed_skill_names()
+    except OSError as exc:
+        raise click.BadParameter(
+            f"cannot read installed skills under {skills_root}: {exc}",
+            param_hint="'--skill'",
+        )
+    if skill in installed:
+        return
+    raise click.BadParameter(
+        f"unknown skill '{skill}'; not found under {skills_root}. "
+        f"Installed skills: {', '.join(installed)}",
+        param_hint="'--skill'",
+    )
+
+
 def _resume_candidate_note(trace_id: Optional[str], candidate: dict) -> str:
     updated_at = candidate.get("updated_at") or "unknown"
     if updated_at != "unknown":
@@ -202,7 +239,7 @@ def _fire_and_forget(
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
-    from_topic: str,
+    from_topic: Optional[str],
     from_chat_id: Optional[str],
     bot: Optional[str],
     bot_tier: Optional[str],
@@ -214,7 +251,20 @@ def _fire_and_forget(
 
     With ``wait`` set, block until the assistant reply is ready and print its
     content instead of just the chat_id.
+
+    Precedence for ``trace_id`` / ``from_topic`` / ``from_chat_id`` is:
+    nonempty explicit flag > nonempty environment value (``Y_TRACE_ID`` /
+    ``Y_TOPIC`` / ``Y_CHAT_ID``) > terminal default (absent / ``'manager'`` /
+    absent). Resolved here, at invocation time, not as a static option
+    default, so a value exported after process start is still honored.
     """
+    if skill is not None:
+        _validate_skill_name(skill)
+
+    if not trace_id:
+        trace_id = os.environ.get('Y_TRACE_ID') or None
+    if not from_topic:
+        from_topic = os.environ.get('Y_TOPIC') or 'manager'
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
@@ -346,18 +396,18 @@ def _interactive(
 @click.option('--topic', default=None, help='Target topic (named persistent address)')
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to topic for non-manager topics)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
-@click.option('--trace-id', default=None, help='Trace ID')
+@click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--fresh', is_flag=True, help='Suppress the possible same-trace resume-target lookup and note')
-@click.option('--from-topic', default='manager', help='Caller topic name (default: manager)')
-@click.option('--from-chat-id', default=None, help='Caller chat ID (defaults to Y_CHAT_ID env var)')
+@click.option('--from-topic', default=None, help="Caller topic name. Precedence: explicit flag > $Y_TOPIC env var > 'manager'")
+@click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
 @click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must run on the same backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
-@click.option('--tier', default=None, help='Bot tier for tier-based selection (tier0|tier1|tier2|tier3; no filter or empty match defaults to tier2)')
+@click.option('--tier', type=click.Choice(['tier0', 'tier1', 'tier2', 'tier3']), default=None, help='Bot tier for tier-based selection (no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
 @click.pass_context
@@ -372,7 +422,7 @@ def chat_group(
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
-    from_topic: str,
+    from_topic: Optional[str],
     from_chat_id: Optional[str],
     wait: bool,
     wait_timeout: int,

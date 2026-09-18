@@ -188,12 +188,28 @@ mode (`-i`) serves a human at a terminal.
     persistent address), by explicit chat id, or by skill (anonymous session),
     each independently optional, so that one command covers named, direct, and
     ephemeral targets.
+27a. As an agent session, I want `--trace-id` and `--from-topic` to resolve
+     from `$Y_TRACE_ID` / `$Y_TOPIC` when the flag is omitted or empty, so
+     that a dispatched child inherits its parent's trace context without the
+     caller re-templating environment variables into every command (todo
+     3597 / A1). Precedence is nonempty explicit flag > nonempty env var >
+     terminal default (absent for trace id, the literal `manager` for
+     from-topic), matching the pre-existing `--from-chat-id` / `$Y_CHAT_ID`
+     behavior. Resolution happens at invocation, not at CLI process import,
+     so a value exported between two `y chat` calls in the same shell is
+     honored on the next call.
 28. As an agent session, I want a topic dispatch that carries a trace id to
     resume that topic's existing chat for the same trace, so that one trace
     maps to one chat per topic.
 29. As an agent session, I want `--new` to force a fresh chat even when the
-    topic has an existing one, so that a new trace never leaks into an old
-    chat's history.
+    same trace's topic dispatch would otherwise resume an existing chat, so
+    that I can deliberately start a new phase chat under an ongoing trace.
+    Target resolution is a topic **+ trace** join (`find_chat_by_topic_and_trace`),
+    never a topic-only lookup, so a dispatch that carries a genuinely new
+    trace id cannot resume a different trace's chat regardless of `--new`;
+    the flag's only effect is on same-trace re-dispatch (todo 3597 / A8
+    corrects an earlier "prevents cross-trace leakage" framing that had
+    diagnosed the wrong mechanism).
 29a. As an agent session creating a phase chat, I want `y chat` to note a
      possible non-running resume target when the same trace, skill, and live
      registered worktree already have one, so that I can avoid an accidental
@@ -225,6 +241,22 @@ mode (`-i`) serves a human at a terminal.
 36. As a dispatcher, I want a work-dir that conflicts with the target chat's
     existing work-dir rejected with an explicit error, so that a session never
     silently changes its filesystem context mid-conversation.
+36a. As a dispatcher, I want an explicit `--tier` value validated against the
+     closed set (`tier0`/`tier1`/`tier2`/`tier3`) before any HTTP call, so
+     that a typo (or wrong case) fails loudly at my terminal instead of
+     silently degrading to `tier2` on the backend (todo 3597 / A4). Omitting
+     `--tier` still permits normal default routing; the validation is
+     CLI-local and does not change the backend's own empty-pool tier
+     fallback.
+36b. As a dispatcher, I want an explicit `--skill` value checked against the
+     locally installed skills (immediate child directories of
+     `~/.agents/skills` that contain a `SKILL.md`) before image staging or
+     any network call, so that a misspelled skill name fails at my terminal
+     instead of silently producing a session with no skill loaded on the
+     receiving end (todo 3597 / A5). This is a caller-local preflight, not
+     proof of remote capability: it does not validate an omitted skill,
+     topic-inferred skill selection, project/plugin skills, or an
+     unsynchronized remote installation.
 
 ### CLI: interactive and query
 
@@ -443,8 +475,10 @@ mode (`-i`) serves a human at a terminal.
   a fresh chat, and may create a chat without an explicit `chat_id`.
   Non-dispatch requests (web send, `y chat -i`) require `chat_id` and behave
   exactly as the pre-unification `/message` route always did. The CLI always
-  sends `from_topic` (default `manager`), so every `y chat` dispatch stays
-  dispatch-shaped. Dispatch-shaped target resolution order: explicit chat id
+  sends `from_topic`, resolved (todo 3597 / A1) from an explicit
+  `--from-topic` flag, else `$Y_TOPIC`, else the literal `manager`, so every
+  `y chat` dispatch stays dispatch-shaped even with no trace, parent, topic,
+  or skill. Dispatch-shaped target resolution order: explicit chat id
   (404 if missing, 400 on topic mismatch, owner-scoped lookup so a chat owned
   by someone else 404s identically to a missing one — closing a pre-3167 gap
   where the explicit-`chat_id` arm used an unscoped lookup) > topic + trace
@@ -453,6 +487,37 @@ mode (`-i`) serves a human at a terminal.
   `--skill` overrides. A new chat claiming a topic without a trace id is a
   root claim and releases the topic from any previous holder (singleton root
   topic).
+- **CLI-local closed-choice validation, confined to the `-m` dispatch path
+  (todo 3597 / A4, A5).** `--tier` is `click.Choice(['tier0', 'tier1',
+  'tier2', 'tier3'])`, exact spelling, case-sensitive; an invalid value fails
+  with Click usage exit 2 before any HTTP or image-staging call, independent
+  of whether `--bot` is also given. This only catches "wrote it wrong":
+  the backend's own empty-pool fallback to `tier2` for an unmatched tier is
+  unchanged, and choosing which tier to use is out of scope (a B-class,
+  judgment-shaped classifier per `pages/audit-3595-closed-choice-decisions.md`).
+  An explicit `--skill` is checked against the immediate child directories of
+  `Path.home() / '.agents' / 'skills'` that contain a `SKILL.md`, resolved
+  fresh on every invocation (not frozen at CLI import), before image staging
+  or any network call; an unknown/empty name or an unreadable inventory root
+  raises `click.BadParameter` naming the option, the resolved root, and (when
+  available) the installed names. This repo carries no server-side or
+  Python skill-discovery helper, so the CLI owns a small local directory
+  scan rather than calling into one. It is a caller-local preflight, not
+  proof that the receiving process can actually load the skill: an omitted
+  `--skill`, topic-inferred skill selection, project/plugin skills, and an
+  unsynchronized remote installation remain unverified.
+- **Trace/topic dispatch env precedence, confined to the `-m` dispatch path
+  (todo 3597 / A1).** `--trace-id`, `--from-topic`, and the pre-existing
+  `--from-chat-id` all resolve as nonempty explicit flag > nonempty
+  environment value (`$Y_TRACE_ID` / `$Y_TOPIC` / `$Y_CHAT_ID`) > terminal
+  default (absent / the literal `manager` / absent). Resolution happens
+  inside `_fire_and_forget` at invocation time, not as a static Click option
+  default, so a value exported between two `y chat` calls in the same
+  process is honored on the next call; an empty string is treated as unset,
+  matching the pre-existing `--from-chat-id` behavior. `-i`, `-p`, and the
+  browse/runtime subcommands are unaffected: they never read this trio.
+  `--chat-id` (the destination) is never inferred from `$Y_CHAT_ID`; only
+  the caller-identity field (`--from-chat-id`) reads it.
 - **Same-trace phase-chat advice is bounded and fail-quiet (todo 3528).** Only
   the dispatch branch that will create a chat checks for a possible predecessor,
   and `--fresh` skips the check. The owner-scoped exact `work_dir` must be an
@@ -734,3 +799,4 @@ mode (`-i`) serves a human at a terminal.
 | 3496 | Stop a second monitor Lambda from re-tailing a finished run: lease acquire is conditioned on `status=running` (and the snapshot `started_at`), `_monitor_loop` tails from a consistent `get_process` re-read of the same generation, and `append_message_sync` is idempotent on `(id, tool_call_id)` so a multi-result user event is not collapsed. Display and historical rows are unchanged | - | `pages/plan-3496-duplicate-turn-replay.md` | - | `pages/review-3496-duplicate-turn-replay.md` | reviewed and approved (round 2); uncommitted worktree, not published |
 | 3515 | Opt-in snapshot/SSE tool-output previews with owner-scoped full retrieval, CLI interrupted-output fallback, and chat module full-output disclosure with guarded request lifecycle. Host fallback/share retain full payloads. Implementation: `pages/impl-3515-snapshot-latency.md`, `pages/impl-3515-snapshot-ui.md` | - | `pages/plan-3515-snapshot-latency.md` | - | `pages/review-3515-snapshot-latency.md` (host round 2), `pages/review-3515-snapshot-ui.md` (module round 3) | reviewed and approved; uncommitted isolated worktrees, not published; production comparison pending authorized deployment |
 | 3528 | Add a bounded, fail-quiet, nonblocking same-trace phase-chat resume advisory for matching skill and active registered worktree; `--fresh` suppresses only the stderr note while chat creation and stdout remain unchanged | - | `pages/plan-3528-same-trace-phase-chat-guard.md` | - | `pages/review-3528-same-trace-phase-chat-guard.md` | reviewed and approved (round 3); implementation evidence: `pages/impl-3528-same-trace-phase-chat-guard.md`; local commit authorized, not integrated or published |
+| 3597 | Host/CLI slice of the A-class closed-choice cleanup from `pages/audit-3595-closed-choice-decisions.md`: `--trace-id`/`--from-topic` now resolve at invocation time with precedence explicit flag > `$Y_TRACE_ID`/`$Y_TOPIC` > terminal default (A1, matching the pre-existing `--from-chat-id`/`$Y_CHAT_ID` behavior), confined to the `-m` dispatch path; `--tier` is a `click.Choice(['tier0','tier1','tier2','tier3'])` failing usage exit 2 before any HTTP/image call (A4); an explicit `--skill` is validated against `SKILL.md`-bearing immediate child directories of `~/.agents/skills`, resolved fresh per invocation, before image staging or network calls (A5); and story 29 / the dispatch-shaped resolution paragraph are corrected to state the actual mechanism (topic+trace join lookup, so `--new` cannot be what prevents cross-trace resume: that is structurally impossible once a trace id is passed) instead of the prior inaccurate framing (A8, config counterpart in the y-history worktree). Companion y-history/config-leaf slice (A2/A3/A8 outside this doc, obsolete env-copy boilerplate removal) tracked separately under the same todo | - | `pages/plan-3597-closed-choice-decisions.md` | `pages/impl-3597-host-cli-chat-core.md` | `pages/review-3597-host-cli.md`; `pages/review-3597-config.md` (companion config, round 2) | reviewed and approved; isolated release candidate; CLI installation, integration and publication pending authorization |
