@@ -2,6 +2,7 @@
 
 import io
 import socket
+import threading
 import time
 
 import boto3
@@ -136,7 +137,14 @@ def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 36, interval: float =
 
 
 def ensure_vm_running(vm_config: VmConfig, user_id: int | None = None) -> bool:
-    """If the VM has EC2 config and last_up is stale, wake the instance."""
+    """If the VM has EC2 config and last_up is stale, wake the instance.
+
+    The throwaway SSH readiness probe still runs on the whole stale branch,
+    including already-`running`. EC2 reports running before sshd accepts, and
+    callers that connect once with no retry (detach, telegram delivery, images)
+    need that gate. Burst cost is cut by single-flighting this prelude, not by
+    skipping the probe (todo 3616 C1, review round 1).
+    """
     if not vm_config.ec2_instance_id or not vm_config.ec2_region:
         return False
 
@@ -158,8 +166,95 @@ def touch_last_up(vm_config: VmConfig) -> None:
     vm_config.last_up = now
 
 
+# Process-local single-flight for the stale-last_up prelude (todo 3616 C1).
+# Concurrent callers against one VM share one describe, one readiness probe
+# and one last_up write. `_CONFIRMED_UP` covers late joiners that miss the
+# in-flight window (a burst larger than the ssh-exec pool).
+# `clear_prelude_state` drops both so a caller that has just forced last_up
+# stale (tests / replay) still takes the prelude.
+_FLIGHTS_GUARD = threading.Lock()
+_FLIGHTS: dict[str, dict] = {}
+_CONFIRMED_UP: dict[str, int] = {}
+# Bound a follower's wait to the documented SSH-ready envelope (~3 minutes).
+_PRELUDE_WAIT_SECONDS = 180.0
+
+
+def _vm_key(vm_config: VmConfig) -> str:
+    return vm_config.ec2_instance_id or vm_config.vm_name or ""
+
+
+def clear_prelude_state(instance_id: str | None = None) -> None:
+    """Drop in-flight and confirmed prelude state. Test / replay helper."""
+    with _FLIGHTS_GUARD:
+        if instance_id is None:
+            _FLIGHTS.clear()
+            _CONFIRMED_UP.clear()
+            return
+        _FLIGHTS.pop(instance_id, None)
+        _CONFIRMED_UP.pop(instance_id, None)
+
+
+def _run_prelude(vm_config: VmConfig) -> None:
+    if ensure_vm_running(vm_config):
+        touch_last_up(vm_config)
+        if vm_config.last_up:
+            with _FLIGHTS_GUARD:
+                _CONFIRMED_UP[_vm_key(vm_config)] = vm_config.last_up
+
+
 def ensure_and_touch_vm(vm_config: VmConfig) -> None:
-    """Ensure the EC2 VM is running and update last_up timestamp."""
-    if vm_config.vm_name and vm_config.vm_name.startswith("ssh:"):
-        if ensure_vm_running(vm_config):
-            touch_last_up(vm_config)
+    """Ensure the EC2 VM is running and update last_up timestamp.
+
+    Concurrent callers for the same VM join one in-flight prelude (describe,
+    SSH readiness, last_up write). last_up is still written on the whole
+    stale branch, as it was before this change.
+    """
+    if not (vm_config.vm_name and vm_config.vm_name.startswith("ssh:")):
+        return
+    if not vm_config.ec2_instance_id or not vm_config.ec2_region:
+        return
+    if not _is_stale(vm_config.last_up):
+        return
+
+    key = _vm_key(vm_config)
+    with _FLIGHTS_GUARD:
+        confirmed = _CONFIRMED_UP.get(key)
+        if confirmed and not _is_stale(confirmed):
+            vm_config.last_up = confirmed
+            return
+        flight = _FLIGHTS.get(key)
+        if flight is None:
+            flight = {"event": threading.Event(), "error": None, "last_up": None}
+            _FLIGHTS[key] = flight
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        done = flight["event"].wait(timeout=_PRELUDE_WAIT_SECONDS)
+        if done and flight["error"] is None:
+            if flight["last_up"]:
+                vm_config.last_up = flight["last_up"]
+            return
+        # Leader still running, or it failed: do not re-raise its exception
+        # on this thread. Take the prelude independently so a burst is not
+        # all-or-nothing.
+        with _FLIGHTS_GUARD:
+            confirmed = _CONFIRMED_UP.get(key)
+            if confirmed and not _is_stale(confirmed):
+                vm_config.last_up = confirmed
+                return
+        _run_prelude(vm_config)
+        return
+
+    try:
+        _run_prelude(vm_config)
+        flight["last_up"] = vm_config.last_up
+    except Exception as exc:
+        flight["error"] = exc
+        raise
+    finally:
+        flight["event"].set()
+        with _FLIGHTS_GUARD:
+            if _FLIGHTS.get(key) is flight:
+                del _FLIGHTS[key]
