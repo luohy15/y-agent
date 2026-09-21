@@ -80,6 +80,9 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     for chat_id, title, topic, skill, backend, bot_name, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
+        # Message bodies are served by the chat module. This authenticated
+        # payload keeps only message-derived segments; get_share retains bodies
+        # (tool results stripped) for the public projection.
         result_chats.append({
             "chat_id": chat_id,
             "title": title,
@@ -88,7 +91,6 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "backend": backend,
             "bot_name": bot_name,
             "segments": segments,
-            "messages": messages,
         })
 
     # Lookup todo info (trace_id = todo_id)

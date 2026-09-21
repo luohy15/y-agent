@@ -14,6 +14,8 @@ export interface TraceChat {
   backend?: string;
   bot_name?: string;
   segments: Segment[];
+  // Populated by GET /api/trace/share only. Authenticated GET /api/trace/chats
+  // omits bodies; the chat module fetches them on click.
   messages?: unknown[];
 }
 
