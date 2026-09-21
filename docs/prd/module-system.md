@@ -686,6 +686,16 @@ bumps the `@y/host` browser contract from 13 to **14** by exporting
 `ResolvedRangeLabel` (one physical copy for host LinkList and the six y-module
 surfaces). Every later module publish is stamped with min_host_version 14, so
 the host deploy cannot be rolled back independently once modules republish.
+Todo 3627 bumps the backend contract from 17 to **18** with
+`run_vm_command(..., wake=False)` and `ModuleVmAsleepError`. The host checks
+EC2 sleep state off-loop only when the authenticated owner's `last_up` is
+stale, refuses non-running instances, and always skips the wake prelude.
+Fresh `last_up` skips the probe, matching the wake path; a subsequent SSH
+failure never falls back to waking. Non-EC2 VMs execute normally. File
+requires backend v18 for History's null-on-asleep behavior; deploy the host
+before publishing File. `/read` keeps its blocking wake behavior. Older File
+versions remain compatible but restore waking for History.
+
 Todo 3612 bumps the browser contract from 14 to **15** by exporting
 `ChatImageScope`, `ChatImage`, and `ChatMessageImages` (visibility-gated chat
 image loading). Chat-module publish that consumes those leaves waits on this

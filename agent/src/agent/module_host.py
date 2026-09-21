@@ -130,6 +130,9 @@ token, with optional `effective=` override). That is a named-export surface
 addition, so it bumps the version from 16 to 17. Finance raises its floor to
 17 when it writes `meta["time_range"]`; deploy this host before publishing
 that module. `parse_time_range` stays byte-identical.
+Todo 3627 adds `run_vm_command(wake=False)` with an owner-bound read-only
+EC2 sleep probe, typed `ModuleVmAsleepError`, and no wake prelude. This bumps
+17 to 18; File requires v18 and must be published after the host deployment.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -148,7 +151,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 17
+BACKEND_CONTRACT_VERSION = 18
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -190,6 +193,10 @@ class ModuleHostAuthError(ModuleHostError):
     """run_vm_command was asked to act for a user other than the authenticated
     request's owner. Module code must never steer VM execution at an arbitrary
     user-chosen identity (review finding 2)."""
+
+
+class ModuleVmAsleepError(ModuleHostError):
+    """A no-wake command refused an EC2 VM that is not running."""
 
 
 class ModuleVmNotConfiguredError(ModuleHostError):
@@ -247,6 +254,7 @@ async def run_vm_command(
     timeout: float = 30,
     work_dir: Optional[str] = None,
     stdin: Optional[str] = None,
+    wake: bool = True,
 ) -> str:
     """Run argv on the authenticated owner's VM (local when no api_token, SSH otherwise).
 
@@ -258,7 +266,11 @@ async def run_vm_command(
     fallback to another user's VM. `work_dir` overrides the configured directory
     when provided; `stdin` is passed without placing bytes in argv. Raises a
     typed error on a non-zero local or SSH exit status (or timeout); callers
-    decide how to surface it.
+    decide how to surface it. `wake=False` probes the owner's EC2 state
+    off-loop when last_up is stale and raises ModuleVmAsleepError unless running,
+    then skips the wake prelude. Fresh last_up skips the probe, like the wake
+    path. Non-EC2 VMs execute normally. A stop after confirmation still fails
+    through the command timeout; it never falls back to waking.
     """
     if not argv:
         raise ValueError("argv must be a non-empty list")
@@ -283,6 +295,13 @@ async def run_vm_command(
 
     from agent.vm_command import execute_vm_command
 
+    if not wake:
+        from agent.ec2_wake import _is_stale, is_vm_asleep
+        from agent.tools.ssh_exec import _offload
+
+        if _is_stale(vm_config.last_up) and await _offload(is_vm_asleep, vm_config):
+            raise ModuleVmAsleepError("the selected EC2 VM is not running")
+
     return await execute_vm_command(
         vm_config,
         list(argv),
@@ -290,6 +309,7 @@ async def run_vm_command(
         timeout=timeout,
         work_dir=work_dir,
         check=True,
+        wake=wake,
     )
 
 

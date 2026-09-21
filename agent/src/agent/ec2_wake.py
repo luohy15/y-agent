@@ -8,6 +8,7 @@ import time
 import boto3
 import paramiko
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 from loguru import logger
 
 from storage.entity.dto import VmConfig
@@ -29,15 +30,9 @@ _EC2_CLIENT_CONFIG = BotoConfig(
     retries={"max_attempts": 2, "mode": "standard"},
 )
 
-# How long a *single* readiness probe may hang. Deliberately only the
-# per-connection bound: the number of attempts and the interval between them
-# are the wake path's acceptance envelope for a legitimately slow cold boot
-# (interactive chat, terminal, image transfer and Telegram delivery all wake
-# VMs this way), not a transport bound, and are left as they were: a hung
-# probe now costs one attempt instead of most of the envelope, and the
-# envelope itself still accepts the same slow boots. The usage-limit sweep
-# never reaches here at all — it checks `is_vm_asleep` and reports
-# `vm_unreachable` instead of waking anything.
+# Per-stage connection bound. Readiness retries use a 180s monotonic budget;
+# an already-started probe may finish up to its transport timeouts after it.
+# The usage-limit sweep checks is_vm_asleep and never reaches this wake path.
 _SSH_READY_CONNECT_TIMEOUT_SECONDS = 5
 
 
@@ -87,9 +82,26 @@ def _start_and_wait(instance_id: str, region: str) -> None:
     logger.info("ec2_wake: {} is {}, starting...", instance_id, state)
     ec2.start_instances(InstanceIds=[instance_id])
 
-    waiter = ec2.get_waiter("instance_running")
-    waiter.wait(InstanceIds=[instance_id])
-    logger.info("ec2_wake: {} is now running", instance_id)
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        try:
+            response = ec2.describe_instance_status(
+                InstanceIds=[instance_id], IncludeAllInstances=True,
+            )
+        except ClientError as exc:
+            logger.warning("ec2_wake: describe failed while waiting: {}", exc)
+        else:
+            statuses = response.get("InstanceStatuses", [])
+            state = statuses[0]["InstanceState"]["Name"] if statuses else "unknown"
+            if state == "running":
+                logger.info("ec2_wake: {} is now running", instance_id)
+                return
+            if state in ("terminated", "shutting-down"):
+                raise RuntimeError(f"ec2_wake: instance entered {state}")
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(1, remaining))
+    raise TimeoutError("ec2_wake: instance did not become running within 600s")
 
 
 def _parse_ssh_target(vm_name: str) -> tuple:
@@ -107,12 +119,16 @@ def _parse_ssh_target(vm_name: str) -> tuple:
     return user, host, port
 
 
-def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 36, interval: float = 5) -> None:
+def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 180, interval: float = 1) -> None:
     """Try connecting via SSH until successful, up to roughly three minutes."""
     user, host, port = _parse_ssh_target(vm_config.vm_name)
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
 
+    deadline = time.monotonic() + 180
     for attempt in range(1, max_attempts + 1):
+        if time.monotonic() >= deadline:
+            break
+        client = None
         try:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -125,15 +141,18 @@ def _wait_for_ssh(vm_config: VmConfig, max_attempts: int = 36, interval: float =
                 banner_timeout=_SSH_READY_CONNECT_TIMEOUT_SECONDS,
                 auth_timeout=_SSH_READY_CONNECT_TIMEOUT_SECONDS,
             )
-            client.close()
             logger.info("ec2_wake: SSH ready after {} attempt(s)", attempt)
             return
         except (paramiko.SSHException, socket.error, OSError) as e:
             logger.info("ec2_wake: SSH not ready (attempt {}/{}): {}", attempt, max_attempts, e)
-            if attempt < max_attempts:
-                time.sleep(interval)
+        finally:
+            if client is not None:
+                client.close()
+        remaining = deadline - time.monotonic()
+        if attempt < max_attempts and remaining > 0:
+            time.sleep(min(interval, remaining))
 
-    raise TimeoutError(f"ec2_wake: SSH did not become ready after {max_attempts} attempts")
+    raise TimeoutError("ec2_wake: SSH did not become ready within the readiness budget")
 
 
 def ensure_vm_running(vm_config: VmConfig, user_id: int | None = None) -> bool:
