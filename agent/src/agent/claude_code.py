@@ -27,6 +27,7 @@ from loguru import logger
 
 from storage.entity.dto import Message, VmConfig
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+from agent.input_ledger import InputLedger, native_input_uuid
 from agent.poll_loop import PollLoop
 
 
@@ -773,14 +774,21 @@ def _read_s3_image_for_claude(uri: str) -> tuple[str, str]:
     return base64.b64encode(body).decode("ascii"), media_type
 
 
-def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None) -> None:
-    """Write the prompt to /tmp/cc-<chat_id>.stdin as stream-json via SFTP."""
+def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None,
+                        input_uuid: Optional[str] = None) -> None:
+    """Write the prompt to /tmp/cc-<chat_id>.stdin as stream-json via SFTP.
+
+    `input_uuid` is the launch input's native identity: the CLI echoes it back
+    as `command_lifecycle.command_uuid`, and emits no lifecycle events at all
+    for an input sent without one (see `agent.input_ledger`).
+    """
     content = [{"type": "text", "text": prompt}]
     for image_path in images or []:
         content.append(_claude_image_block(image_path, client))
 
     payload = json.dumps({
         "type": "user",
+        "uuid": input_uuid or native_input_uuid(chat_id, "launch"),
         "message": {
             "role": "user",
             "content": content,
@@ -823,10 +831,14 @@ def _claude_parse_initial(obj: Dict) -> Optional[str]:
     return None
 
 
-def _claude_spec() -> "DetachBackendSpec":
+def _claude_spec(input_uuid: Optional[str] = None) -> "DetachBackendSpec":
     from agent.detach import DetachBackendSpec
+
+    def setup(client, chat_id, prompt, images):
+        _claude_write_stdin(client, chat_id, prompt, images, input_uuid=input_uuid)
+
     return DetachBackendSpec(
-        setup=_claude_write_stdin,
+        setup=setup,
         build_exec=_claude_build_exec,
         parse_initial=_claude_parse_initial,
         upload_images=False,
@@ -842,6 +854,7 @@ async def start_detached_ssh(
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
+    input_uuid: Optional[str] = None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
 
@@ -859,7 +872,7 @@ async def start_detached_ssh(
         cwd=cwd,
         chat_id=chat_id,
         vm_config=vm_config,
-        spec=_claude_spec(),
+        spec=_claude_spec(input_uuid),
         env=env,
         images=images,
         ssh_client=ssh_client,
@@ -876,11 +889,19 @@ async def tail_ssh_output(
     check_deadline_fn: Optional[Callable[[], bool]] = None,
     ssh_client=None,
     check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
+    input_ledger: Optional[InputLedger] = None,
+    pending_result: Optional[dict] = None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
     If ssh_client is provided, reuses that connection (from a pool).
     Otherwise creates and closes its own connection.
+
+    `input_ledger` carries this run's native input delivery state (see
+    `agent.input_ledger`), seeded by the caller from the process record so a
+    Lambda handoff neither re-writes a submitted input nor forgets one already
+    answered. It is mutated in place and returned in `delivery_states` /
+    `input_groups`.
 
     Returns dict with:
       - offset: new line offset
@@ -889,6 +910,7 @@ async def tail_ssh_output(
       - is_done: True if process exited
       - result_data: the "result" stream-json object (if process completed)
       - status: "completed" | "error" | "interrupted" | "monitoring"
+      - delivery_states / input_groups: the input ledger, for the next invocation
     """
     owns_client = ssh_client is None
     if owns_client:
@@ -908,10 +930,10 @@ async def tail_ssh_output(
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
     converter = StreamConverter(last_message_id=last_message_id)
-    result_data = None
+    ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
+    result_data = pending_result
     session_id = None
     current_offset = offset
-    consumed_steer_ids = []
     stream_error = None
     # Guards the race between a live steer write and turn-end teardown: both
     # _on_steer_detached and _kill_tmux fire independent fire-and-forget SSH
@@ -920,6 +942,7 @@ async def tail_ssh_output(
     # silently no-op (see plan-2662-steer-race.md).
     steer_lock = threading.RLock()
     torn_down = False
+    reader_stop = threading.Event()
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
@@ -928,22 +951,31 @@ async def tail_ssh_output(
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
         def _kill_detached():
+            nonlocal torn_down
             logger.info("interrupt watchdog (detached): killing tmux session cc-{}", chat_id)
-            _kill_session_marking_self_killed(client, chat_id)
-            try:
-                stdout_ch.channel.close()
-            except Exception:
-                pass
+            with steer_lock:
+                torn_down = True
+                _kill_session_marking_self_killed(client, chat_id)
+                try:
+                    stdout_ch.channel.close()
+                except Exception:
+                    pass
 
         def _write_steer(text, msg_id, images=None) -> bool:
-            """Write a steer message to the remote stdin pipe and block until
-            the write is confirmed to have landed. Must be called while
-            holding steer_lock."""
+            """Append a steer message to the remote stdin pipe.
+
+            A zero exit status means the bytes reached the file, nothing more:
+            the message is recorded as *submitted*, and only the CLI's own
+            `command_lifecycle` events promote it to acknowledged/completed.
+            Must be called while holding steer_lock.
+            """
             content = [{"type": "text", "text": text}]
             for image_path in images or []:
                 content.append(_claude_image_block(image_path, client))
+            input_uuid = native_input_uuid(chat_id, msg_id)
             payload = json.dumps({
                 "type": "user",
+                "uuid": input_uuid,
                 "message": {
                     "role": "user",
                     "content": content,
@@ -956,12 +988,12 @@ async def tail_ssh_output(
             if exit_code != 0:
                 return False
             converter.last_message_id = msg_id
-            consumed_steer_ids.append(msg_id)
+            ledger.mark_submitted(input_uuid, [msg_id])
             return True
 
         def _on_steer_detached(text, msg_id, images=None) -> bool:
             with steer_lock:
-                if torn_down:
+                if torn_down or reader_stop.is_set():
                     return False
                 return _write_steer(text, msg_id, images)
 
@@ -973,6 +1005,32 @@ async def tail_ssh_output(
         )
         poll.start()
 
+        def _teardown_locked(self_killed: bool = False):
+            """Kill the tmux session. Must be called while holding steer_lock.
+
+            Teardown submits no new work: it used to drain check_steer_fn and
+            printf one last message in before the kill, and count that write as
+            delivery even though the CLI was about to die unread. An input that
+            is not written here stays pending and is picked up by the locked
+            closeout instead.
+            """
+            nonlocal torn_down
+            torn_down = True
+            if self_killed:
+                _kill_session_marking_self_killed(client, chat_id)
+            else:
+                try:
+                    client.exec_command(
+                        f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
+                    )
+                    client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
+                except Exception:
+                    pass
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
         def _kill_tmux(self_killed: bool = False):
             """Tear down the tmux session at turn end.
 
@@ -982,45 +1040,39 @@ async def tail_ssh_output(
             for a crash. `self_killed=False` (default) is the normal
             result-completion path: the turn already produced result_data,
             so no no-result branch will run for it and no sentinel is
-            needed. Both share the final steer drain/lock behavior.
+            needed.
             """
-            nonlocal torn_down
             with steer_lock:
-                # Final drain: catch any steer message that landed in the
-                # checker between the last poll pass and turn-end, and
-                # deliver it before the session goes away.
-                if check_steer_fn:
-                    try:
-                        stragglers = check_steer_fn()
-                    except Exception:
-                        stragglers = []
-                    for msg in stragglers:
-                        text, msg_id, images = msg if len(msg) == 3 else (msg[0], msg[1], [])
-                        delivered = _write_steer(text, msg_id, images)
-                        if not delivered:
-                            unclaim = getattr(check_steer_fn, "unclaim", None)
-                            if unclaim:
-                                unclaim(msg_id)
-                torn_down = True
-                if self_killed:
-                    _kill_session_marking_self_killed(client, chat_id)
-                else:
-                    try:
-                        client.exec_command(
-                            f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                        )
-                        client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
-                    except Exception:
-                        pass
-            try:
-                stdout_ch.channel.close()
-            except Exception:
-                pass
+                _teardown_locked(self_killed)
+
+        def _try_finish_turn() -> bool:
+            """Tear down only once no written input still owes a response.
+
+            A `result` event is a native turn boundary, not the end of the
+            process: the CLI keeps reading its stdin pipe and starts a fresh
+            turn for anything still queued. Killing at the first result is what
+            loses an input that was read (or was about to be) in that instant,
+            so teardown waits for every submitted/acknowledged input to reach a
+            terminal `command_lifecycle` state. The decision is taken under the
+            steer lock, so no write can slip in behind it.
+
+            Missing lifecycle events never authorize write-confirmation
+            fallback: submitted inputs remain outstanding.
+            """
+            with steer_lock:
+                if reader_stop.is_set() or ledger.outstanding():
+                    return False
+                _teardown_locked()
+                return True
 
         def _read_lines():
             nonlocal result_data, session_id, current_offset, stream_error
             try:
+                if result_data is not None and not ledger.outstanding() and _try_finish_turn():
+                    return None
                 for raw_line in stdout_ch:
+                    if reader_stop.is_set():
+                        return "deadline"
                     if check_interrupted_fn and check_interrupted_fn():
                         _kill_tmux(self_killed=True)
                         return "interrupted"
@@ -1046,10 +1098,26 @@ async def tail_ssh_output(
                     if obj.get("type") == "system":
                         session_id = obj.get("session_id")
                         continue
+                    if obj.get("type") == "command_lifecycle":
+                        with steer_lock:
+                            # A newly started command needs a result from that
+                            # turn, not a result cached from an earlier turn.
+                            # Folded inputs complete before their turn's result.
+                            if (obj.get("state") == "started"
+                                    and obj.get("command_uuid") in ledger.groups):
+                                result_data = None
+                            ledger.observe_lifecycle(obj)
+                            if result_data is not None and _try_finish_turn():
+                                return None
+                        continue
                     if obj.get("type") == "result":
+                        # Keep the newest result: a run that answers several
+                        # queued inputs emits one per native turn, and the
+                        # monitor persists metadata from the last.
                         result_data = obj
-                        _kill_tmux()
-                        return None
+                        if _try_finish_turn():
+                            return None
+                        continue
 
                     if message_callback:
                         for msg in converter.process_line(line):
@@ -1067,32 +1135,44 @@ async def tail_ssh_output(
             return None
 
         loop = asyncio.get_event_loop()
-        cancelled_result = None
+        cancelled = False
+        reader = loop.run_in_executor(None, _read_lines)
         try:
-            exit_reason = await loop.run_in_executor(None, _read_lines)
+            exit_reason = await asyncio.shield(reader)
         except asyncio.CancelledError:
             logger.info("tail_ssh_output cancelled: chat_id={} offset={}", chat_id, current_offset)
+            reader_stop.set()
             try:
                 stdout_ch.channel.close()
             except Exception:
                 pass
-            cancelled_result = {
-                "offset": current_offset,
-                "last_message_id": converter.last_message_id,
-                "session_id": session_id,
-                "is_done": False,
-                "result_data": None,
-                "status": "monitoring",
-                "consumed_steer_ids": consumed_steer_ids,
-                "has_usable_output": converter.has_usable_output,
-            }
+            cancelled = True
+            reader_stop.set()
+            # Closing a channel does not stop a buffered-line callback. Join
+            # the shielded reader before checkpointing its offset and ledger.
+            while not reader.done():
+                try:
+                    await asyncio.shield(reader)
+                except asyncio.CancelledError:
+                    continue
+            reader.result()
 
-        poll.stop()
+        poll.stop(timeout=None)
+        with steer_lock:
+            # Prevent a poll callback waiting behind an in-flight write from
+            # submitting after the handoff snapshot is taken.
+            torn_down = True
 
-        if cancelled_result:
+        if cancelled:
             if owns_client:
                 client.close()
-            return cancelled_result
+            return {
+                "offset": current_offset, "last_message_id": converter.last_message_id,
+                "session_id": session_id, "is_done": False, "result_data": None,
+                "status": "monitoring", "delivery_states": ledger.states,
+                "input_groups": ledger.groups, "lifecycle_observed": ledger.lifecycle_observed,
+                "pending_result": result_data, "has_usable_output": converter.has_usable_output,
+            }
 
         # Resolve the no-result outcome while the client is still open: the
         # self-kill sentinel check, tmux liveness check, and exit-code read
@@ -1112,6 +1192,18 @@ async def tail_ssh_output(
                         resume_refused=resume_refused,
                     )
 
+        if (exit_reason is None and result_data is not None and ledger.outstanding()
+                and _tmux_session_alive(client, chat_id)):
+            if owns_client:
+                client.close()
+            return {
+                "offset": current_offset, "last_message_id": converter.last_message_id,
+                "session_id": session_id, "is_done": False, "result_data": None,
+                "status": "monitoring", "delivery_states": ledger.states,
+                "input_groups": ledger.groups, "lifecycle_observed": ledger.lifecycle_observed,
+                "pending_result": result_data, "has_usable_output": converter.has_usable_output,
+            }
+
         if owns_client:
             client.close()
 
@@ -1123,7 +1215,10 @@ async def tail_ssh_output(
                 "is_done": True,
                 "result_data": None,
                 "status": "interrupted",
-                "consumed_steer_ids": consumed_steer_ids,
+                "delivery_states": ledger.states,
+                "input_groups": ledger.groups,
+                "lifecycle_observed": ledger.lifecycle_observed,
+                "pending_result": result_data,
                 "has_usable_output": converter.has_usable_output,
             }
 
@@ -1135,7 +1230,10 @@ async def tail_ssh_output(
                 "is_done": False,
                 "result_data": None,
                 "status": "monitoring",
-                "consumed_steer_ids": consumed_steer_ids,
+                "delivery_states": ledger.states,
+                "input_groups": ledger.groups,
+                "lifecycle_observed": ledger.lifecycle_observed,
+                "pending_result": result_data,
                 "has_usable_output": converter.has_usable_output,
             }
 
@@ -1157,7 +1255,10 @@ async def tail_ssh_output(
                     "is_done": False,
                     "result_data": None,
                     "status": "monitoring",
-                    "consumed_steer_ids": consumed_steer_ids,
+                    "delivery_states": ledger.states,
+                    "input_groups": ledger.groups,
+                    "lifecycle_observed": ledger.lifecycle_observed,
+                    "pending_result": result_data,
                     "has_usable_output": converter.has_usable_output,
                 }
             if no_result_session_alive:
@@ -1176,7 +1277,10 @@ async def tail_ssh_output(
                     "is_done": False,
                     "result_data": None,
                     "status": "monitoring",
-                    "consumed_steer_ids": consumed_steer_ids,
+                    "delivery_states": ledger.states,
+                    "input_groups": ledger.groups,
+                    "lifecycle_observed": ledger.lifecycle_observed,
+                    "pending_result": result_data,
                     "has_usable_output": converter.has_usable_output,
                 }
             # tmux session exited without ever emitting a stream-json `result`
@@ -1220,7 +1324,9 @@ async def tail_ssh_output(
             "is_done": True,
             "result_data": result_data,
             "status": status,
-            "consumed_steer_ids": consumed_steer_ids,
+            "delivery_states": ledger.states,
+            "input_groups": ledger.groups,
+            "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
             # True only where Claude Code itself named the session id as the
             # cause — in the error result event's `errors` list, or in this run's
@@ -1243,6 +1349,8 @@ async def tail_ssh_output(
             "is_done": False,
             "result_data": None,
             "status": "error",
-            "consumed_steer_ids": consumed_steer_ids,
+            "delivery_states": ledger.states,
+            "input_groups": ledger.groups,
+            "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
         }

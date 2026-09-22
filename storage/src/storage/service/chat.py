@@ -301,21 +301,56 @@ def _replay_identity(message: Message):
     return (message.id, message.tool_call_id)
 
 
-def append_message_sync(chat_id: str, message: Message) -> Chat:
-    """Append a single message to a chat (sync, for worker display_callback)."""
-    from storage.repository.chat import _get_chat_by_id_sync, _save_chat_by_id_sync
-    chat = _get_chat_by_id_sync(chat_id)
+def append_message_sync(chat_id: str, message: Message, *, user_id: int = None) -> Chat:
+    """Append a single stream message to a chat (sync, for worker callbacks).
+
+    Read, replay-dedup and write happen inside one row lock: the unlocked
+    read/dedup/save this used to do could drop a user message accepted between
+    its read and its save, and could admit a replayed event twice when two
+    stream writes interleaved.
+    """
+    from storage.repository.chat import mutate_chat_locked
+
+    def mutate(chat):
+        incoming = _replay_identity(message)
+        if incoming is not None and any(
+                _replay_identity(existing) == incoming for existing in chat.messages):
+            logger.warning(
+                "skip duplicate message id: chat_id={} message_id={} tool_call_id={}",
+                chat_id, message.id, message.tool_call_id,
+            )
+            return
+        chat.messages.append(message)
+
+    chat, _ = mutate_chat_locked(chat_id, mutate, user_id=user_id)
     if not chat:
         raise ValueError(f"Chat with id {chat_id} not found")
-    incoming = _replay_identity(message)
-    if incoming is not None and any(_replay_identity(existing) == incoming for existing in chat.messages):
-        logger.warning(
-            "skip duplicate message id: chat_id={} message_id={} tool_call_id={}",
-            chat_id, message.id, message.tool_call_id,
-        )
-        return chat
-    chat.messages.append(message)
-    return _save_chat_by_id_sync(chat)
+    return chat
+
+
+def apply_message_patch_sync(chat_id: str, patch: dict, *, user_id: int = None) -> None:
+    """Carry per-message field updates onto the current row under its lock.
+
+    Turn-end hooks (image consolidation, Telegram delivery bookkeeping) mutate a
+    few fields on this turn's own messages. Saving their whole snapshot back
+    would erase a user message accepted since the hook read it, which on the
+    closeout path is exactly the message the closeout just decided to answer.
+    """
+    from storage.repository.chat import mutate_chat_locked
+
+    if not patch:
+        return
+
+    def mutate(chat):
+        by_id = {m.id: m for m in chat.messages if m.id}
+        for message_id, fields in patch.items():
+            target = by_id.get(message_id)
+            if target is None:
+                continue
+            for name, value in fields.items():
+                setattr(target, name, value)
+
+    mutate_chat_locked(chat_id, mutate, user_id=user_id)
 
 
 def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
@@ -452,9 +487,14 @@ def enqueue_chat_run(
     backend: Optional[str] = None,
     **_ignored,
 ) -> None:
-    """Hand the accepted chat to the worker (SQS in prod, Celery locally)."""
+    """Hand the accepted chat to the worker (SQS in prod, Celery locally).
+
+    The chat's reserved `run_seq` rides along so the worker entry can refuse a
+    duplicate delivery of this same reservation.
+    """
     send_chat_message(
         chat.id,
+        run_seq=chat.run_seq,
         bot_name=bot_name,
         bot_tier=bot_tier,
         user_id=user_id,
@@ -583,7 +623,7 @@ def _get_celery_app():
     return app
 
 
-def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None):
+def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, run_seq: int = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -610,6 +650,8 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         payload["skill"] = skill
     if backend:
         payload["backend"] = backend
+    if run_seq:
+        payload["run_seq"] = run_seq
 
     queue_url = os.environ.get("SQS_QUEUE_URL")
     if queue_url:
@@ -621,7 +663,7 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "topic": topic, "skill": skill, "backend": backend})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "topic": topic, "skill": skill, "backend": backend, "run_seq": run_seq})
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:

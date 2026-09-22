@@ -462,7 +462,11 @@ mode (`-i`) serves a human at a terminal.
   enqueues a queue task (SQS in production, Celery filesystem broker in dev)
   carrying the chat id plus routing hints. If the chat is already running, no
   task is enqueued; the running worker's steer polling picks the message up
-  (mechanics owned by the chat-steer PRD).
+  (mechanics owned by the chat-steer PRD). Todo 3643 adds a reserved run
+  identity and locked closeout arbitration shared with acceptance: closeout
+  either retains busy ownership for pending input or exposes idle before the
+  next acceptance queues its run. Native input acknowledgment, result boundaries,
+  and whole-run recovery remain authoritative in `docs/prd/chat-steer.md`.
 - **One accept-body primitive, one authoritative route (todo 3167).**
   `storage.service.chat.deliver_user_message` is the single place that builds
   the user `Message` (handoff reminder folded in), appends it, saves the chat
@@ -766,8 +770,8 @@ mode (`-i`) serves a human at a terminal.
 
 ## Out of Scope
 
-- **Mid-turn message delivery mechanics** (claim/unclaim, turn-end drain,
-  backend kill-and-resume, exactly-once guarantees): owned by the chat-steer PRD.
+- **Mid-turn message delivery mechanics** (claim/unclaim, native input ledger,
+  result-boundary teardown, serialized continuation): owned by the chat-steer PRD.
   This PRD owns only the dispatch-side rule that a running chat gets an append
   with no new task.
 - **Bot and tier selection policy** (which bot a dispatch resolves to, tier

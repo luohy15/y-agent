@@ -1,3 +1,11 @@
+---
+title: Mid-turn message delivery
+type: prd
+project: y-agent
+feature: chat-steer
+status: active
+---
+
 # Steer: Mid-Turn Message Delivery to a Running Session
 
 ## Problem Statement
@@ -16,11 +24,13 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. The only
-agentic backend (Claude Code print mode) accepts mid-run input, so every steer
-is delivered live into the running session. Delivery is exactly-once: a
-claim/unclaim protocol plus a turn-end drain and a post-turn reconciliation
-pass guarantee a steer message is neither delivered twice nor silently dropped,
-even across Lambda handoffs and turn-end races.
+agentic backend (Claude Code print mode) accepts mid-run input. An accepted
+message is either completed by that session or assigned to one serialized
+continuation. A successful stdin-file write is not evidence of consumption.
+Native per-input lifecycle events, persisted delivery state, and a locked
+busy-to-idle transition protect closeout and ordinary Lambda handoffs. This
+is not a distributed exactly-once side-effect guarantee across arbitrary
+worker/VM crashes.
 
 ## User Stories
 
@@ -67,72 +77,74 @@ even across Lambda handoffs and turn-end races.
   the message by polling the database. Only an idle chat gets a new worker
   task. All ingestion surfaces (web/API send, cross-skill notify, Telegram)
   share this append-or-steer rule.
-- **Steer detection is set-difference on message IDs.** At session start the
-  worker records the initial message count; the steer checker returns user
-  messages whose IDs are neither in the initial set nor already consumed.
-  Detection runs inside a unified poll loop (single daemon thread, ~2 s
-  cadence) that also checks for interrupts. Interrupt is checked first and
-  takes priority: an interrupted chat kills the session and skips steer.
-- **Claim on discovery, unclaim on failed delivery.** The checker marks a
-  message consumed the moment it is returned, so two concurrent consumers (the
-  poll loop and the turn-end drain) cannot both pick it up. Claiming is not
-  delivery: if the delivery callback reports failure, the caller invokes the
-  checker's unclaim hook so the message is re-surfaced to the next mechanism.
-  Delivery callbacks return three-valued status: success, unknown (treated as
-  success for backends that cannot confirm), or explicit failure (triggers
-  unclaim).
-- **One delivery mechanism: live injection.** Claude Code print mode appends a
-  stream-json user message to a remote stdin file that is piped into the
-  process via a follow-tail, with the SSH write's exit status as delivery
-  confirmation. The kill-and-resume family (first steer kills the tmux session,
-  the tailer returns a steer status, the monitor restarts the run with the
-  steer text as the new prompt) existed only for the codex / gemini_cli /
-  grok_build / pi_cli backends and was retired with them in todo 2930, along
-  with the restart-offset bookkeeping it required.
-- **Turn-end race is closed by a shared lock plus final drain.** Live steer
-  writes and session teardown are serialized by one lock. Teardown first drains
-  the checker one last time and delivers any straggler before killing the
-  session; after teardown, delivery attempts return failure (and unclaim)
-  instead of silently no-opping against a dead session.
-- **Reconciliation safety net after completion.** When a live-injection turn
-  completes, the monitor checks for trailing user messages whose delivery was
-  never confirmed; if any exist, the turn is not finalized and a continuation
-  turn is relaunched. Symmetrically, any new turn folds all unanswered trailing
-  user messages into its prompt, so a message dropped by an earlier race is
-  recovered at the next turn boundary.
-- **Consumed IDs survive Lambda handoff.** The set of confirmed-delivered steer
-  IDs is persisted in the per-process lease record and merged (not overwritten)
-  on each handoff, so a later invocation neither re-delivers a consumed message
-  nor forgets one confirmed earlier.
-- **Steer teardown owns process exit for stream-json mode.** Because the stdin
-  pipe never reaches EOF, the process does not exit on its own after the result
-  event; the tailer kills the tmux session and removes the temp files itself.
-- **Images ride along.** Steer tuples carry the message's image list; live
-  backends deliver them as image content blocks, and restart backends include
-  them in the resume prompt.
-- **Telegram root-topic steer only.** Steering an incoming topic message into a
-  busy chat applies to root topics (the long-lived inbox); non-root topics
-  serialize naturally because each is scoped to a single task.
+- **Discovery is not consumption.** The checker claims stable message IDs so
+  one ordered writer submits each input once. A failed SSH append releases the
+  claim. Teardown never drains or submits new work. Interrupt remains the first
+  poll-loop check and suppresses automatic continuation.
+- **Native input identity is explicit (todo 3643).** Every stdin write carries
+  a UUID. The launch write maps that UUID to its ordered input IDs; live steers
+  map one UUID to one ID. Claude Code 2.1.259's `command_lifecycle` schema echoes
+  it as `command_uuid`: `queued` / `started` acknowledge native admission;
+  `completed` marks the consuming turn ended; `cancelled`, `discarded`, and
+  `refused` do not prove an answer. Native bookkeeping is not another user
+  bubble. Missing events never fall back to write-confirmation.
+- **Result and input completion are distinct.** Standalone command completion
+  follows its result; a folded command may complete before its result. A new
+  `started` invalidates an older cached result. The tailer requires a result
+  and no outstanding submitted/acknowledged input before teardown, under the
+  same lock as submission. A broken tail with an outstanding input and live
+  process resumes monitoring rather than launching a second process.
+- **Handoff keeps the ledger and result boundary.** The process record carries
+  initial message IDs, input groups, submitted/acknowledged/completed states,
+  lifecycle observation, and the pending result alongside the stdout offset.
+  Forced cancellation joins both the shielded stdout reader and input writer
+  before taking one coherent checkpoint; the retired reader cannot tear down
+  the native session afterward. Already-written input is not written again
+  after an ordinary handoff.
+- **Whole-run reconciliation replaces the trailing suffix.** Closeout selects
+  all unhandled user IDs from the run's explicit first input, including
+  `U0,U1,A0` where old assistant output follows the unanswered question. The
+  continuation uses only the ordered pending subset, preserving text, images,
+  and effort; completed peers remain excluded across successive continuations.
+  Pre-upgrade process records without an anchor retain only their old recovery
+  scope, not a retroactive repair guarantee.
+- **Acceptance and closeout share a row lock.** After native teardown, a durable
+  `closeout_pending` phase fences further tailing before SQL exposes idle. The
+  process record remains discoverable as recovery work until arbitration and
+  successor queue delivery succeed. A SQL receipt commits the decision and
+  input subset with the new reservation; retry returns that same receipt rather
+  than reserving twice. Queue-send failure retries from the receipt, and repeated
+  sends carry the same claimed-once run sequence. Input accepted after idle owns
+  its own next queue send. Blob-only `run_seq` / `run_claimed_seq` fence duplicate
+  worker entry. Runtime stream append/dedup and hook patches mutate current
+  state, not a stale whole chat.
+- **Images ride along.** Live stdin content includes image blocks; a continuation
+  combines the images of its selected pending inputs with their text.
+- **Protocol limits are explicit.** The native schema documents that cancelled
+  folds in a failed turn can already have caused work, and completion on
+  max-turn/hook/deferred exits is not proof of semantic fulfillment. Unknown
+  UUIDs do not retire our inputs. No transport ledger proves exactly-once model
+  side effects under all failures, and this task does not add a queue outbox
+  or repair historical messages.
+- **Ingress is topic-agnostic.** Web, CLI/dispatch and Telegram use the same
+  acceptance primitive. A busy non-root chat steers too; root-topic policy
+  governs Telegram reply delivery, not input serialization.
 
 ## Testing Decisions
 
-- Test external behavior at the seam of "messages appended to the chat while a
-  session runs": given a running session and a newly appended user message,
-  assert the message reaches the backend (live write, paste, or resume prompt)
-  exactly once, in order, with images intact. Do not assert on poll cadence or
-  internal thread structure.
-- The race protocol is the highest-value target: claim-then-unclaim on failed
-  delivery, the turn-end drain delivering a straggler before teardown,
-  post-teardown delivery returning failure, and the completion-time
-  reconciliation relaunching a turn for an unconfirmed trailing message.
-- Handoff behavior: consumed IDs recorded before a handoff must suppress
-  re-delivery after it, and a completion that consumed nothing new must not
-  erase previously confirmed IDs.
-- Monitor tests cover live delivery, interrupt priority, and Lambda-handoff
-  offset continuity.
-- Prior art: the agent and worker packages already have dedicated tests for the
-  poll-loop unclaim contract, steer race drain, steer images, and race
-  reconciliation; extend those rather than inventing a new harness.
+- Deterministic gated fake SSH channels cover write-without-read, ack after an
+  old result, standalone/folded completion ordering, failed-write unclaim,
+  teardown refusal, rapid ordered inputs, images, interruption, and handoff.
+- Worker fixtures cover `U0,U1,A0`, mixed handled/pending subsets, persisted
+  ledger state and result boundaries, retired-generation rejection, and retry
+  budget continuity. A successful file append alone must never pass a
+  consumption assertion.
+- An isolated throwaway PostgreSQL cluster uses independent connections and
+  barriers to exercise acceptance/closeout serialization and locked runtime
+  mutation. Production rows are never test fixtures. Existing stream replay
+  identity remains `(id, tool_call_id)`.
+- Tests remain local-only. Verification commands and any shared-test baseline
+  drift belong in the delivery implementation note; no browser is needed.
 
 ## Out of Scope
 
@@ -149,3 +161,9 @@ even across Lambda handoffs and turn-end races.
   the surface that sends it is the `chat` module's `shell`. See
   `docs/prd/module-system.md` ("Chat: a control-plane module over the runtime
   kernel").
+
+## Delivery Records
+
+| Todo | Outcome | Design | Plan | Decisions | Review | Status |
+|------|---------|--------|------|-----------|--------|--------|
+| 3643 | Native input ledger, serialized closeout ownership, and whole-run pending-input recovery | - | `pages/plan-3643.md` | `pages/impl-3643.md` | - | implemented; review pending; not published |

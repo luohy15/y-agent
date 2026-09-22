@@ -11,9 +11,10 @@ import time
 
 from loguru import logger
 
+from agent.input_ledger import COMPLETED, InputLedger
 from worker.process_manager import (
     get_running_processes, get_process, try_acquire_lease, renew_lease,
-    update_process_offset, complete_process, release_lease,
+    update_process_offset, complete_process, complete_current_process, release_lease,
 )
 from worker.runner import message_callback, check_interrupted
 
@@ -70,7 +71,8 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
 
                         # Hard timeout check: if process has been running too long, stop it
                         started_at = fresh.get("started_at", 0)
-                        if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
+                        if (not fresh.get("closeout_pending") and started_at
+                                and time.time() - started_at > HARD_TIMEOUT_SECONDS):
                             logger.warning("hard timeout: chat_id={} started_at={} elapsed={}s", cid, started_at, int(time.time() - started_at))
                             await _handle_timeout(cid, fresh, ssh_pool)
                             continue
@@ -98,6 +100,14 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                         logger.warning("tail task {} retryable error (attempt {}/{}): {}", cid, error_counts[cid], MAX_TAIL_RETRIES, e)
                 except Exception as e:
                     tail_tasks.pop(cid, None)
+                    current = get_process(cid)
+                    if current.get("closeout_pending") and current.get("status") == "running":
+                        # A durable arbitration/send retry is not a dead native
+                        # process. Keep it discoverable across invocations.
+                        logger.warning("closeout retry retained chat_id={}: {}", cid, e)
+                        error_counts.pop(cid, None)
+                        proc_meta.pop(cid, None)
+                        continue
                     error_counts[cid] = error_counts.get(cid, 0) + 1
                     if error_counts[cid] >= MAX_TAIL_RETRIES:
                         logger.error("tail task {} exceeded max retries ({}), marking as error: {}", cid, MAX_TAIL_RETRIES, e)
@@ -130,7 +140,9 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
                     for task in pending:
                         task.cancel()
                     if pending:
-                        await asyncio.wait(pending, timeout=5)
+                        # Tail cancellation must join its reader/writer before
+                        # another invocation can acquire the checkpoint.
+                        await asyncio.gather(*pending, return_exceptions=True)
                     # Release leases for cancelled tasks so continuation Lambda can acquire them
                     for task in pending:
                         cid = task_to_cid.get(task)
@@ -154,6 +166,51 @@ async def _monitor_loop(deadline_at: float, lambda_req_id: str):
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     finally:
         ssh_pool.close_all()
+
+
+def _load_json_field(proc: dict, key: str):
+    raw = proc.get(key)
+    if not raw:
+        return {}
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _load_input_ledger(chat_id: str, proc: dict) -> InputLedger:
+    """Rebuild this run's input ledger from its process record.
+
+    A record written before todo 3643 carries only `consumed_steer_ids`, whose
+    meaning was "the SSH write returned 0". Those ids are seeded as completed so
+    a run already in flight across the upgrade behaves exactly as it did before
+    rather than being replayed.
+    """
+    states = _load_json_field(proc, "delivery_states")
+    groups = _load_json_field(proc, "input_groups")
+    if not states:
+        legacy = _load_json_field(proc, "consumed_steer_ids")
+        if isinstance(legacy, list):
+            states = {message_id: COMPLETED for message_id in legacy if message_id}
+    return InputLedger(chat_id, states, groups, bool(proc.get("lifecycle_observed")))
+
+
+
+
+def _turn_message_patch(fresh) -> dict:
+    """Per-message fields this turn's completion hooks may have changed."""
+    patch = {}
+    for msg in reversed(fresh.messages):
+        if msg.role == "user":
+            break
+        if msg.id:
+            patch[msg.id] = {
+                "images": list(msg.images or []),
+                "telegram_delivered_images": list(msg.telegram_delivered_images or []),
+            }
+    return patch
 
 
 async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
@@ -189,29 +246,30 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         return check_interrupted(chat_id)
 
     def _msg_callback(msg):
-        message_callback(chat_id, msg)
+        message_callback(chat_id, msg, user_id=user_id)
 
     # Build steer checker. claude_code injects steer into the live stdin pipe,
     # which is the only delivery path now that the kill-and-resume backends are
     # gone.
     chat = await chat_service.get_chat(user_id, chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
-    initial_msg_ids = {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id}
-    # Load previously consumed steer IDs from prior Lambda
-    prev_consumed = set()
-    raw_consumed = proc.get("consumed_steer_ids")
-    if raw_consumed:
-        try:
-            prev_consumed = set(json.loads(raw_consumed) if isinstance(raw_consumed, str) else raw_consumed)
-        except (json.JSONDecodeError, TypeError):
-            pass
+    initial_msg_ids = (set(_load_json_field(proc, "initial_message_ids"))
+                       if "initial_message_ids" in proc else
+                       {msg.id for msg in (chat.messages[:initial_msg_count] if chat else []) if msg.id})
+    # Rebuild this run's input ledger from the process record, so a handoff
+    # resumes the same per-input state instead of re-deriving it. Everything
+    # already written stays claimed (never write an input twice); only the
+    # ledger's own terminal states decide what still needs answering.
+    ledger = _load_input_ledger(chat_id, proc)
     from worker.runner import make_steer_checker
-    steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=prev_consumed)
+    steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
     from agent.claude_code import tail_ssh_output
-    if proc.get("resume_pending"):
+    if proc.get("closeout_pending"):
+        result = _load_json_field(proc, "closeout_pending")
+    elif proc.get("resume_pending"):
         result = json.loads(proc["resume_pending"])
     else:
         result = await tail_ssh_output(
@@ -224,22 +282,35 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_deadline_fn=_check_deadline,
             ssh_client=client,
             check_steer_fn=steer_fn,
+            input_ledger=ledger,
+            pending_result=_load_json_field(proc, "pending_result") or None,
         )
+
+    if result["is_done"] and result["status"] != "error":
+        from worker.process_manager import begin_closeout
+        if not begin_closeout(chat_id, proc, result):
+            return
+        proc["closeout_pending"] = json.dumps(result)
 
     # Save offset to DynamoDB
     # Defensive: keep prior session_id when this tail did not observe a fresh one.
     updated_session_id = result.get("session_id") or session_id
-    # Merge with prior-Lambda-handoff consumed ids: update_process_offset
-    # overwrites rather than merges, so a plain completion that skips this would
-    # forget ids confirmed in an earlier handoff and risk re-delivering them on a
-    # later one.
-    all_consumed_steer_ids = list(prev_consumed) + list(result.get("consumed_steer_ids") or [])
+    # The ledger the tail mutated is this run's authoritative delivery state; a
+    # resume_pending replay carries none, so fall back to what was loaded.
+    delivery_states = result.get("delivery_states") or ledger.states
+    input_groups = result.get("input_groups") or ledger.groups
+    lifecycle_observed = bool(result.get("lifecycle_observed", ledger.lifecycle_observed))
+    settled = InputLedger(chat_id, delivery_states, input_groups, lifecycle_observed)
     update_process_offset(
         chat_id=chat_id,
         offset=result["offset"],
         last_message_id=result.get("last_message_id"),
         session_id=updated_session_id,
-        consumed_steer_ids=all_consumed_steer_ids,
+        delivery_states=delivery_states,
+        input_groups=input_groups,
+        lifecycle_observed=lifecycle_observed,
+        pending_result=result.get("pending_result"),
+        proc=proc,
         updates_offset=result.get("updates_offset"),
         has_usable_output=result.get("has_usable_output"),
     )
@@ -277,6 +348,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             await _relaunch_claude_code_turn(
                 chat_id, user_id, proc, backend=backend_type,
                 resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)) + 1,
+                run_seq=fresh.run_seq,
+                continuation_from_id=proc.get("scope_first_id"),
+                handled_input_ids=settled.handled_ids(),
             )
             return
 
@@ -286,52 +360,61 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 await deliver_death(chat_id, proc, "error", (result.get("result_data") or {}).get("result"))
             return
 
-        # Mark chat as no longer running
+        # One closeout: retire this run's generation, then decide busy-vs-idle
+        # under the chat row lock.
         if fresh:
-            fresh.running = False
-            await chat_repo.save_chat_by_id(fresh)
+            # closeout_pending already fences native tailing and remains
+            # discoverable until arbitration and queue delivery succeed.
+            def _apply_metadata(chat):
+                try:
+                    _apply_completion_metadata(
+                        fresh=chat,
+                        result=result,
+                        result_data=result.get("result_data"),
+                        proc=proc,
+                        chat_id=chat_id,
+                    )
+                except Exception as e:
+                    logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
 
-            try:
-                await _apply_completion_metadata(
-                    fresh=fresh,
-                    result=result,
-                    result_data=result.get("result_data"),
-                    proc=proc,
-                    chat_id=chat_id,
+            fresh, pending_ids, run_seq = chat_repo.close_out_chat_run(
+                user_id, chat_id,
+                trace_id=proc.get("trace_id"),
+                handled_ids=settled.handled_ids(),
+                # New runs always reconcile the whole explicit input scope.
+                # Only pre-upgrade records lack an anchor.
+                scope_first_id=proc.get("scope_first_id"),
+                scope_trailing=not proc.get("scope_first_id"),
+                continuation_allowed=result["status"] != "error",
+                apply_metadata=_apply_metadata,
+                expected_run_seq=proc.get("run_seq"),
+                closeout_id=str(proc["started_at"]),
+                resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)),
+                post_hooks=proc.get("post_hooks"),
+            )
+            if not fresh:
+                complete_current_process(chat_id, proc, result["status"])
+                logger.info("closeout skipped chat_id={}: chat is not this run's to close", chat_id)
+                return
+
+            # The SQL receipt keeps this reservation and input subset durable.
+            # Queue delivery may be retried; run claiming admits one backend.
+            if pending_ids:
+                logger.warning(
+                    "closeout continuation: chat_id={} pending_inputs={} relaunching turn",
+                    chat_id, pending_ids,
                 )
-                await chat_repo.save_chat_by_id(fresh)
-            except Exception as e:
-                logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
+                chat_service.send_chat_message(
+                    chat_id, user_id=user_id, bot_name=proc.get("bot_name"),
+                    vm_name=proc.get("vm_name"), work_dir=proc.get("work_dir"),
+                    trace_id=proc.get("trace_id"), topic=proc.get("topic"),
+                    backend=backend_type, run_seq=run_seq,
+                )
+                complete_current_process(chat_id, proc, result["status"])
+                return
 
-            # Safety net: a turn can end with a trailing user message that was
-            # never confirmed delivered via the live steer path (e.g. it raced
-            # turn-end teardown and _on_steer / _on_steer_detached returned
-            # False). Don't finalize as done — relaunch a continuation turn so
-            # the message isn't silently dropped forever (see
-            # plan-2662-steer-race.md, plan-2704-steer-prd-gap.md).
-            if result["status"] != "error" and not fresh.interrupted:
-                confirmed_delivered = initial_msg_ids | set(all_consumed_steer_ids)
-                has_undelivered_trailing = False
-                for msg in reversed(fresh.messages):
-                    if msg.role != "user":
-                        break
-                    if msg.id not in confirmed_delivered:
-                        has_undelivered_trailing = True
-                        break
-
-                if has_undelivered_trailing:
-                    logger.warning(
-                        "steer reconciliation: chat_id={} undelivered trailing user message(s), relaunching turn",
-                        chat_id,
-                    )
-                    complete_process(chat_id, status=result["status"])
-                    await _relaunch_claude_code_turn(
-                        chat_id, user_id, proc, backend=backend_type,
-                        resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)),
-                    )
-                    return
-
-            complete_process(chat_id, status=result["status"])
+            if not complete_current_process(chat_id, proc, result["status"]):
+                return
 
             # Mark as unread on successful completion, unless the turn already
             # signaled needs_attention (a stronger state a completion hook must
@@ -343,17 +426,23 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             if not fresh.interrupted and result["status"] != "error":
                 try:
                     from worker.runner import _consolidate_turn_images
-                    if _consolidate_turn_images(fresh):
-                        await chat_repo.save_chat_by_id(fresh)
+                    _consolidate_turn_images(fresh)
                 except Exception as e:
                     logger.exception("turn image consolidation failed: {}", e)
 
                 try:
                     from worker.runner import _send_telegram_reply
-                    if _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=vm_config, ssh_client=client):
-                        await chat_repo.save_chat_by_id(fresh)
+                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=vm_config, ssh_client=client)
                 except Exception as e:
                     logger.exception("telegram reply failed: {}", e)
+
+                # Both hooks only touch fields on this turn's own messages, so
+                # carry those across instead of writing the whole snapshot back
+                # over whatever has been accepted since the closeout.
+                try:
+                    chat_service.apply_message_patch_sync(chat_id, _turn_message_patch(fresh), user_id=user_id)
+                except Exception as e:
+                    logger.exception("turn message patch failed: chat_id={} error={}", chat_id, e)
 
                 post_hooks = proc.get("post_hooks")
                 if post_hooks:
@@ -394,7 +483,7 @@ def _should_resume_5xx(result: dict, proc: dict) -> bool:
     return _is_retryable_api_error_text(result_data.get("result"))
 
 
-async def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
+def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
     """Persist backend completion metadata after running=False is durable."""
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -508,10 +597,10 @@ def _int_value(value):
 
 
 async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code",
-                                     resume_5xx_retries: int = 0) -> None:
-    """Re-invoke the normal launch path for a leftover trailing user message
-    that the steer race failed to deliver, instead of finalizing the turn as
-    done (safety net, see plan-2662-steer-race.md, plan-2704-steer-prd-gap.md).
+                                     resume_5xx_retries: int = 0, run_seq: int = None,
+                                     continuation_from_id: str = None,
+                                     handled_input_ids=None) -> None:
+    """Re-invoke the normal launch path for input the finished run still owes.
 
     Reuses `run_chat` so this goes through the same resume-detection,
     tmux launch, and DynamoDB registration as any other turn — `resume` is
@@ -519,6 +608,9 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
     `_apply_completion_metadata` above) and `chat.work_dir`. `backend`
     defaults to `claude_code` but callers pass the actual backend_type so
     the relaunch stays on the same backend.
+
+    `run_seq` is the reservation the closeout took, so this launch and a
+    duplicate queue delivery cannot both become the successor.
     """
     from worker.runner import run_chat
 
@@ -537,6 +629,9 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
         topic=proc.get("topic"),
         backend=backend,
         resume_5xx_retries=resume_5xx_retries,
+        run_seq=run_seq,
+        continuation_from_id=continuation_from_id,
+        handled_input_ids=handled_input_ids,
     )
 
 

@@ -54,7 +54,9 @@ async def persist_terminal(chat_id, proc, result, outcome="error"):
             return None
         chat = _entity_to_chat(row)
         chat.running = outcome is None and not chat.interrupted
-        await _apply_completion_metadata(chat, result, result.get("result_data"), proc, chat_id)
+        if chat.running:
+            chat.run_seq = (chat.run_seq or 0) + 1
+        _apply_completion_metadata(chat, result, result.get("result_data"), proc, chat_id)
         chat.update_time = get_utc_iso8601_timestamp()
         row.json_content = json.dumps(chat.to_dict())
         row.external_id = chat.external_id

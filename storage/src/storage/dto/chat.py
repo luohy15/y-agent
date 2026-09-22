@@ -144,6 +144,14 @@ class Chat:
     work_dir: Optional[str] = None
     interrupted: bool = False
     running: bool = False
+    # Run reservation identity. `run_seq` is bumped by whoever makes this chat
+    # busy (an idle acceptance, or a closeout that still owes a continuation);
+    # `run_claimed_seq` is set by the worker that actually entered that run. A
+    # duplicate queue delivery therefore finds the sequence already claimed
+    # instead of starting a second backend behind a `running` check.
+    run_seq: int = 0
+    run_claimed_seq: int = 0
+    closeout_receipt: Optional[Dict] = None
     post_hooks: Optional[List[Dict]] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
@@ -176,6 +184,9 @@ class Chat:
             work_dir=data.get('work_dir'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
+            run_seq=data.get('run_seq', 0),
+            run_claimed_seq=data.get('run_claimed_seq', 0),
+            closeout_receipt=data.get('closeout_receipt'),
             post_hooks=data.get('post_hooks'),
             input_tokens=data.get('input_tokens'),
             output_tokens=data.get('output_tokens'),
@@ -221,6 +232,12 @@ class Chat:
             result['interrupted'] = self.interrupted
         if self.running:
             result['running'] = self.running
+        if self.run_seq:
+            result['run_seq'] = self.run_seq
+        if self.run_claimed_seq:
+            result['run_claimed_seq'] = self.run_claimed_seq
+        if self.closeout_receipt is not None:
+            result['closeout_receipt'] = self.closeout_receipt
         if self.post_hooks:
             result['post_hooks'] = self.post_hooks
         if self.input_tokens is not None:

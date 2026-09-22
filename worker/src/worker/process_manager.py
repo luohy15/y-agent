@@ -47,7 +47,12 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      work_dir: str = None, session_id: str = None,
                      backend_type: str = None,
                      initial_msg_count: int = None,
-                     resume_5xx_retries: int = 0) -> None:
+                     resume_5xx_retries: int = 0,
+                     input_groups: dict = None,
+                     delivery_states: dict = None,
+                     scope_first_id: str = None,
+                     initial_message_ids: list = None,
+                     run_seq: int = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -81,6 +86,20 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["initial_msg_count"] = {"N": str(initial_msg_count)}
     if resume_5xx_retries:
         item["resume_5xx_retries"] = {"N": str(resume_5xx_retries)}
+    # Native input identity for this run: which message ids were folded into
+    # which stdin write, what their delivery state is, and where the run's own
+    # inputs start in the chat. Carried per-record so a Lambda handoff resumes
+    # the same bookkeeping instead of re-deriving it from a message count.
+    if input_groups:
+        item["input_groups"] = {"S": json.dumps(input_groups)}
+    if delivery_states:
+        item["delivery_states"] = {"S": json.dumps(delivery_states)}
+    if scope_first_id:
+        item["scope_first_id"] = {"S": scope_first_id}
+    if initial_message_ids is not None:
+        item["initial_message_ids"] = {"S": json.dumps(initial_message_ids)}
+    if run_seq:
+        item["run_seq"] = {"N": str(run_seq)}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 
@@ -205,21 +224,31 @@ def renew_lease(chat_id: str, owner_id: str, lease_duration: int = 900) -> None:
 
 
 def update_process_offset(chat_id: str, offset: int, last_message_id: str = None,
-                          session_id: str = None, consumed_steer_ids: list = None,
+                          session_id: str = None, delivery_states: dict = None,
+                          input_groups: dict = None,
+                          lifecycle_observed: bool = False,
+                          pending_result: dict = None,
+                          proc: dict = None,
                           updates_offset: int = None,
                           has_usable_output: bool = None) -> None:
-    """Update the read offset for a process."""
-    expr_parts = ["stdout_offset = :offset"]
-    values = {":offset": {"N": str(offset)}}
+    """Update the read offset and input ledger for a process."""
+    expr_parts = ["stdout_offset = :offset", "lifecycle_observed = :lifecycle",
+                  "pending_result = :result"]
+    values = {":offset": {"N": str(offset)},
+              ":lifecycle": {"BOOL": lifecycle_observed},
+              ":result": {"S": json.dumps(pending_result)}}
     if last_message_id:
         expr_parts.append("last_message_id = :lmid")
         values[":lmid"] = {"S": last_message_id}
     if session_id:
         expr_parts.append("session_id = :sid")
         values[":sid"] = {"S": session_id}
-    if consumed_steer_ids:
-        expr_parts.append("consumed_steer_ids = :csids")
-        values[":csids"] = {"S": json.dumps(consumed_steer_ids)}
+    if delivery_states:
+        expr_parts.append("delivery_states = :dstates")
+        values[":dstates"] = {"S": json.dumps(delivery_states)}
+    if input_groups:
+        expr_parts.append("input_groups = :igroups")
+        values[":igroups"] = {"S": json.dumps(input_groups)}
     if updates_offset is not None:
         expr_parts.append("updates_offset = :uoffset")
         values[":uoffset"] = {"N": str(updates_offset)}
@@ -227,11 +256,21 @@ def update_process_offset(chat_id: str, offset: int, last_message_id: str = None
         expr_parts.append("has_usable_output = :usable")
         values[":usable"] = {"BOOL": True}
 
+    condition = {}
+    if proc is not None:
+        condition = {
+            "ConditionExpression": "user_id = :uid AND started_at = :started AND #s = :running",
+            "ExpressionAttributeNames": {"#s": "status"},
+        }
+        values.update({":uid": {"N": str(proc["user_id"])},
+                       ":started": {"N": str(proc["started_at"])},
+                       ":running": {"S": "running"}})
     _get_dynamodb().update_item(
         TableName=TABLE_NAME,
         Key={"id": {"S": f"proc-{chat_id}"}},
         UpdateExpression="SET " + ", ".join(expr_parts),
         ExpressionAttributeValues=values,
+        **condition,
     )
 
 
@@ -242,6 +281,26 @@ def release_lease(chat_id: str) -> None:
         Key={"id": {"S": f"proc-{chat_id}"}},
         UpdateExpression="REMOVE monitor_owner, monitor_lease",
     )
+
+
+def begin_closeout(chat_id: str, proc: dict, result: dict) -> bool:
+    """Fence native tailing while retaining a discoverable recovery record."""
+    try:
+        _get_dynamodb().update_item(
+            TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+            UpdateExpression="SET closeout_pending = :result",
+            ConditionExpression="user_id = :uid AND started_at = :started AND #s = :running",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":uid": {"N": str(proc["user_id"])}, ":started": {"N": str(proc["started_at"])},
+                ":running": {"S": "running"}, ":result": {"S": json.dumps(result)},
+            },
+        )
+        return True
+    except Exception as e:
+        if "ConditionalCheckFailedException" in type(e).__name__:
+            return False
+        raise
 
 
 def complete_current_process(chat_id: str, proc: dict, status: str) -> bool:

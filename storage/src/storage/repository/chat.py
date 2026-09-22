@@ -538,8 +538,14 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
         chat.trace_id = effective_trace
         chat.topic = effective_topic
         chat.skill = chat.skill or skill or (effective_topic if effective_topic != "manager" else None)
+        if message is not None and not already_running:
+            # Idle acceptance is what reserves the next run, and it owns exactly
+            # one queue send for it. A send into a busy chat reserves nothing:
+            # the live run's closeout sees the message and keeps the chat busy.
+            chat.run_seq = (chat.run_seq or 0) + 1
         chat.running = True
-        chat.interrupted = False
+        if message is not None:
+            chat.interrupted = False
         chat.update_time = get_utc_iso8601_timestamp()
         row.trace_id = effective_trace
         row.topic = effective_topic
@@ -552,6 +558,93 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             resume_locked(session, todo)
         session.flush()
         return chat, already_running
+
+
+def _trailing_user_run_start(chat: Chat):
+    """Index of the first message in the chat's trailing run of user messages."""
+    start = None
+    for index in range(len(chat.messages) - 1, -1, -1):
+        if chat.messages[index].role != "user":
+            break
+        start = index
+    return start
+
+
+def pending_run_inputs(chat: Chat, handled_ids, scope_first_id, scope_trailing=False) -> list:
+    """User message ids belonging to this run that it did not answer.
+
+    Scoped by position, not by being at the tail: the incident shape is
+    `initial user, late user, old assistant`, where the unanswered message is
+    followed by output, so a trailing-suffix scan reports nothing to recover.
+    `scope_first_id` is the run's own first input; everything user-role from
+    there on is either handled or still owed.
+
+    `scope_trailing` is limited to pre-upgrade process records with no input
+    anchor. New runs never infer handled input from transcript tail shape.
+    """
+    if scope_trailing:
+        start = _trailing_user_run_start(chat)
+    elif scope_first_id:
+        start = next((i for i, m in enumerate(chat.messages) if m.id == scope_first_id), None)
+    else:
+        start = None
+    if start is None:
+        return []
+    handled = set(handled_ids or ())
+    return [m.id for m in chat.messages[start:]
+            if m.role == "user" and m.id and m.id not in handled]
+
+
+def close_out_chat_run(user_id: int, chat_id: str, *, trace_id=None, handled_ids=None,
+                       scope_first_id=None, scope_trailing=False,
+                       continuation_allowed=True, apply_metadata=None, expected_run_seq=None,
+                       closeout_id=None, resume_5xx_retries=0, post_hooks=None):
+    """The single busy-to-idle decision for a finished run.
+
+    Shares acceptance's lock ordering (todo before chat) so the two transitions
+    serialize: a message accepted before this runs is visible here and keeps the
+    chat busy under a freshly reserved run the caller must launch; a message
+    accepted after finds the chat idle and owns its own queue send. Completion
+    metadata is applied inside the same transaction, so no stale whole-chat
+    snapshot follows the transition.
+
+    Returns `(chat, pending_ids, run_seq)`; `(None, [], None)` when the chat is
+    gone or is no longer this run's to close.
+    """
+    from storage.repository.todo import lock_todo
+    from storage.util import get_utc_iso8601_timestamp
+
+    with get_db() as session:
+        lock_todo(session, user_id, trace_id)
+        row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
+               .populate_existing().with_for_update().first())
+        if row is None or (row.topic != "manager" and row.trace_id != trace_id):
+            return None, [], None
+        chat = _entity_to_chat(row)
+        receipt = chat.closeout_receipt or {}
+        if closeout_id and receipt.get("id") == closeout_id:
+            return chat, receipt["pending_ids"], receipt["run_seq"]
+        if expected_run_seq is not None and chat.run_seq != expected_run_seq:
+            return None, [], None
+        if apply_metadata is not None:
+            apply_metadata(chat)
+        pending = ([] if chat.interrupted or not continuation_allowed
+                   else pending_run_inputs(chat, handled_ids, scope_first_id, scope_trailing))
+        if pending:
+            chat.running = True
+            chat.run_seq = (chat.run_seq or 0) + 1
+        else:
+            chat.running = False
+        if closeout_id:
+            chat.closeout_receipt = {
+                "id": closeout_id, "pending_ids": pending, "run_seq": chat.run_seq,
+                "handled_ids": list(handled_ids or ()),
+                "resume_5xx_retries": resume_5xx_retries, "post_hooks": post_hooks,
+            }
+        chat.update_time = get_utc_iso8601_timestamp()
+        _write_chat_to_row(row, chat)
+        session.flush()
+        return chat, pending, chat.run_seq
 
 
 async def save_chat(user_id: int, chat: Chat) -> Chat:
@@ -571,40 +664,98 @@ def _get_chat_by_id_sync(chat_id: str) -> Optional[Chat]:
             return None
 
 
+def _write_chat_to_row(entity: ChatEntity, chat: Chat) -> None:
+    """Persist a DTO onto an already-loaded row. The single row-write rule.
+
+    Promoted columns are written here and nowhere else, so any path that mutates
+    a chat (snapshot save or locked mutation) keeps the blob and the columns in
+    step.
+    """
+    entity.json_content = json.dumps(chat.to_dict())
+    entity.title = _extract_title(chat)
+    entity.search_text = _extract_search_text(chat)
+    entity.origin_chat_id = chat.origin_chat_id
+    entity.external_id = chat.external_id
+    entity.backend = _resolve_immutable_field(entity, chat, "backend")
+    entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
+    entity.tier = _resolve_routing_field(entity, chat, "tier")
+    entity.topic = _resolve_immutable_field(entity, chat, "topic")
+    entity.skill = _resolve_immutable_field(entity, chat, "skill")
+    entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
+    entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
+    entity.status = _chat_status(chat)
+
+
 def _save_chat_by_id_sync(chat: Chat) -> Chat:
-    """Save chat without user_id filter (for worker use). Sync."""
+    """Save chat without user_id filter (for worker use). Sync.
+
+    Writes back a whole snapshot, so it must not be used on a path where a
+    message may have been accepted since the snapshot was read; use
+    `mutate_chat_locked` there instead.
+    """
     from storage.util import get_utc_iso8601_timestamp
     chat.update_time = get_utc_iso8601_timestamp()
 
     with get_db() as session:
         entity = session.query(ChatEntity).filter_by(chat_id=chat.id).first()
-        content = json.dumps(chat.to_dict())
-        title = _extract_title(chat)
-        search_text = _extract_search_text(chat)
-        # Derive status from DTO
-        if chat.running:
-            status = "running"
-        elif chat.interrupted:
-            status = "interrupted"
-        else:
-            status = "idle"
-        if entity:
-            entity.json_content = content
-            entity.title = title
-            entity.search_text = search_text
-            entity.origin_chat_id = chat.origin_chat_id
-            entity.external_id = chat.external_id
-            entity.backend = _resolve_immutable_field(entity, chat, "backend")
-            entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
-            entity.tier = _resolve_routing_field(entity, chat, "tier")
-            entity.topic = _resolve_immutable_field(entity, chat, "topic")
-            entity.skill = _resolve_immutable_field(entity, chat, "skill")
-            entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
-            entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
-            entity.status = status
-        else:
+        if not entity:
             raise ValueError(f"Chat with id {chat.id} not found")
+        _write_chat_to_row(entity, chat)
         return chat
+
+
+def mutate_chat_locked(chat_id: str, mutate, *, user_id: int = None):
+    """Apply `mutate(chat)` to the current row under its own row lock.
+
+    The runtime append/patch counterpart to `_save_chat_by_id_sync`: the chat is
+    read inside the lock that acceptance also takes, so a user message accepted
+    concurrently is either already visible to `mutate` or lands after this
+    write, and can never be erased by a stale snapshot.
+
+    Returns `(chat, mutate_result)`, or `(None, None)` when the chat is gone.
+    """
+    from storage.util import get_utc_iso8601_timestamp
+
+    with get_db() as session:
+        query = session.query(ChatEntity).filter_by(chat_id=chat_id)
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        row = query.populate_existing().with_for_update().first()
+        if row is None:
+            return None, None
+        chat = _entity_to_chat(row)
+        outcome = mutate(chat)
+        chat.update_time = get_utc_iso8601_timestamp()
+        _write_chat_to_row(row, chat)
+        session.flush()
+        return chat, outcome
+
+
+def claim_chat_run(user_id: int, chat_id: str, run_seq: int = None) -> bool:
+    """Claim a reserved run sequence for this worker entry.
+
+    Returns False when the sequence was already claimed (a duplicate queue
+    delivery, or an old monitor racing the successor), so run entry is fenced by
+    an explicit reservation identity rather than by reading `running`.
+    """
+    def mutate(chat):
+        expected = run_seq
+        if not expected:
+            # Fresh-chat queue producers historically have no reservation.
+            # Only the first such entry can bootstrap it; later unversioned
+            # deliveries must not claim a reserved successor.
+            if chat.run_seq:
+                return False
+            expected = 1
+            chat.run_seq = expected
+        if (not chat.running or chat.run_seq != expected
+                or (chat.run_claimed_seq or 0) >= expected):
+            return False
+        chat.run_claimed_seq = expected
+        return True
+
+    _chat, claimed = mutate_chat_locked(chat_id, mutate, user_id=user_id)
+    return bool(claimed)
 
 
 async def get_chat_by_id(chat_id: str) -> Optional[Chat]:

@@ -51,21 +51,35 @@ def resolve_reasoning_effort(messages, backend: str) -> str | None:
     return reasoning_effort
 
 
-def _pending_user_text_and_images(messages) -> tuple[str, list]:
-    """Return all trailing user messages (since the last non-user message),
-    concatenated text plus merged image paths.
+def select_run_inputs(messages, continuation_from_id=None, handled_input_ids=None) -> list:
+    """The user messages this run is being started to answer, in stored order.
 
-    A single trailing user message behaves exactly like the old
-    latest-message-only lookup. Gathering all of them recovers a message
-    that a prior turn's steer race silently failed to deliver (see
-    plan-2662-steer-race.md): the moment any new turn starts, every
-    unanswered trailing user message is folded into its prompt.
+    Default (a fresh turn): every trailing user message, so anything a previous
+    turn left unanswered at the tail is folded in.
+
+    Continuation (`continuation_from_id` set): every unanswered user message
+    from the previous run's first input onward, *including* ones that already
+    have assistant or tool output after them. The incident shape is
+    `initial user, late user, old assistant`, which a trailing-suffix scan
+    misses entirely. Selection is re-evaluated here, against the chat as loaded
+    at launch, so a message accepted between the closeout decision and this
+    launch is picked up too instead of being treated as pre-existing.
     """
-    trailing = trailing_user_messages(messages)
+    if not continuation_from_id:
+        return list(trailing_user_messages(messages))
+    handled = set(handled_input_ids or ())
+    start = next((i for i, m in enumerate(messages) if m.id == continuation_from_id), None)
+    if start is None:
+        return list(trailing_user_messages(messages))
+    return [m for m in messages[start:]
+            if m.role == "user" and m.id and m.id not in handled]
 
+
+def _prompt_from_inputs(selected) -> tuple[str, list]:
+    """Concatenated text plus merged image paths for one launch prompt."""
     texts = []
     images = []
-    for msg in trailing:
+    for msg in selected:
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
         if content:
             texts.append(content)
@@ -73,9 +87,9 @@ def _pending_user_text_and_images(messages) -> tuple[str, list]:
     return "\n\n".join(texts), images
 
 
-def message_callback(chat_id: str, message: Message):
+def message_callback(chat_id: str, message: Message, user_id: int = None):
     logger.info("Event: role={} tool={} content_length={}", message.role, message.tool, len(message.content) if message.content else 0)
-    chat_service.append_message_sync(chat_id, message)
+    chat_service.append_message_sync(chat_id, message, user_id=user_id)
 
 
 def strip_artifact_fences_for_telegram(text: str) -> str:
@@ -479,20 +493,44 @@ def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, 
     return requested
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
     """Execute a chat round. Inline backends run in-process; claude_code detaches to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
     backend overrides bot_config.backend for routing ('claude_code', or one of the
     inline backends: 'perplexity', 'openai', 'xai_web', 'xai_x').
+
+    `run_seq` is the reservation this entry is claiming (see
+    `chat_repo.claim_chat_run`): a second delivery of the same reservation is
+    dropped here rather than starting a second backend. `continuation_from_id` /
+    `handled_input_ids` scope the prompt when a closeout relaunched this run to
+    answer input the previous one did not.
     """
     logger.info("run_chat start chat_id={} bot_name={} user_id={} vm_name={} work_dir={} post_hooks={}", chat_id, bot_name, user_id, vm_name, work_dir, post_hooks)
+
+    from storage.repository import chat as chat_repo
+
+    # Claim the reservation before touching anything: an unclaimed duplicate
+    # must not even re-persist routing identity.
+    if not chat_repo.claim_chat_run(user_id, chat_id, run_seq):
+        logger.info("run_chat skipped chat_id={}: run_seq={} already claimed", chat_id, run_seq)
+        return "done"
 
     # Load chat from DB (with user_id access check)
     chat = await chat_service.get_chat(user_id, chat_id)
     if not chat:
         logger.error("Chat {} not found", chat_id)
         return "done"
+
+    receipt = chat.closeout_receipt or {}
+    if receipt.get("run_seq") == run_seq and receipt.get("pending_ids"):
+        continuation_from_id = receipt["pending_ids"][0]
+        handled_input_ids = receipt.get("handled_ids", [])
+        resume_5xx_retries = receipt.get("resume_5xx_retries", 0)
+        post_hooks = receipt.get("post_hooks")
+        if isinstance(post_hooks, str):
+            import json
+            post_hooks = json.loads(post_hooks)
 
     # Fallback: read trace_id from chat if not passed via queue
     if not trace_id and chat.trace_id:
@@ -506,12 +544,18 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # we just skip persisting on root and let trace context flow through the
     # per-message metadata instead. A proper many-to-many chat↔trace table is
     # the right long-term shape but is deferred (see plan-1876 §4).
-    from storage.repository import chat as chat_repo
     chat, _ = chat_repo.accept_or_start_chat(
         user_id, chat_id, trace_id=trace_id, topic=topic, skill=skill,
     )
     topic = chat.topic
     skill = chat.skill
+    if chat.interrupted:
+        chat_repo.mutate_chat_locked(
+            chat_id, lambda current: setattr(current, "running", False)
+            if current.run_seq == chat.run_seq and current.interrupted else None,
+            user_id=user_id,
+        )
+        return "done"
 
     # Send user message to Telegram immediately (before agent runs)
     try:
@@ -591,7 +635,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         chat.bot_name = bot_config.name
     if not chat.tier or rebot:
         chat.tier = resolved_tier
-    await chat_repo.save_chat_by_id(chat)
+    def patch_routing(current):
+        current.backend = chat.backend
+        current.bot_name = chat.bot_name
+        current.tier = chat.tier
+    chat, _ = chat_repo.mutate_chat_locked(chat_id, patch_routing, user_id=user_id)
 
     effective_backend = bot_config.backend or bot_config.api_type
     try:
@@ -603,37 +651,36 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         await _start_detached(chat, chat_id, user_id, bot_config,
                                vm_name=vm_name, work_dir=work_dir,
                                post_hooks=post_hooks, trace_id=trace_id, topic=topic,
-                               resume_5xx_retries=resume_5xx_retries)
+                               resume_5xx_retries=resume_5xx_retries,
+                               continuation_from_id=continuation_from_id,
+                               handled_input_ids=handled_input_ids)
         return "detached"
     except Exception as e:
         logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         error_text = f"Backend launch failed: {type(e).__name__}: {str(e)}"
-        fresh = await chat_service.get_chat_by_id(chat_id)
-        if fresh:
-            if fresh.running:
-                fresh.running = False
-                error_msg = Message(
-                    id=generate_message_id(),
-                    role="assistant",
-                    content=error_text,
-                    timestamp=get_utc_iso8601_timestamp(),
-                    unix_timestamp=get_unix_timestamp(),
-                )
-                fresh.messages.append(error_msg)
-                await chat_repo.save_chat_by_id(fresh)
-                logger.info("Set running=False and appended error message for chat {} after launch failure", chat_id)
+        def fail_launch(current):
+            if current.running and current.run_seq == chat.run_seq:
+                current.running = False
+                current.messages.append(Message(
+                    id=generate_message_id(), role="assistant", content=error_text,
+                    timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+                ))
+        chat_repo.mutate_chat_locked(chat_id, fail_launch, user_id=user_id)
         raise
 
 
 
-def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None, work_dir: str = None, trace_id: str = None, topic: str = None) -> dict:
+def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
+                              work_dir: str = None, trace_id: str = None, topic: str = None,
+                              continuation_from_id: str = None,
+                              handled_input_ids=None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
-    # Extract all trailing user messages as the prompt
-    user_prompt, user_images = _pending_user_text_and_images(messages)
-    reasoning_effort = resolve_reasoning_effort(messages, "claude_code")
+    selected_inputs = select_run_inputs(messages, continuation_from_id, handled_input_ids)
+    user_prompt, user_images = _prompt_from_inputs(selected_inputs)
+    reasoning_effort = resolve_reasoning_effort(selected_inputs, "claude_code")
 
     vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
     last_message_id = messages[-1].id if messages else None
@@ -689,6 +736,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     return {
         "prompt": user_prompt,
         "images": user_images,
+        "input_ids": [m.id for m in selected_inputs if m.id],
         "cmd": cmd,
         "env": env,
         "cwd": cwd,
@@ -705,7 +753,9 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
-                           topic: str = None, resume_5xx_retries: int = 0) -> None:
+                           topic: str = None, resume_5xx_retries: int = 0,
+                           continuation_from_id: str = None,
+                           handled_input_ids=None) -> None:
     """Start claude-code as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -725,7 +775,9 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
 
     params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                         vm_name=vm_name, work_dir=work_dir,
-                                        trace_id=trace_id, topic=topic)
+                                        trace_id=trace_id, topic=topic,
+                                        continuation_from_id=continuation_from_id,
+                                        handled_input_ids=handled_input_ids)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)
@@ -734,15 +786,24 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # Set work_dir early
     cwd = params["cwd"]
     if not chat.work_dir:
-        chat.work_dir = cwd
         from storage.repository import chat as chat_repo
-        await chat_repo.save_chat_by_id(chat)
+        chat_repo.mutate_chat_locked(
+            chat_id, lambda current: setattr(current, "work_dir", current.work_dir or cwd),
+            user_id=user_id,
+        )
 
     # Wake EC2 if needed
     ensure_and_touch_vm(params["vm_config"])
 
-    # Start detached tmux session
+    # Start detached tmux session. The launch prompt is one stdin write, so all
+    # the message ids folded into it share its native uuid; the ledger the
+    # monitor rebuilds from this record maps the CLI's lifecycle events back
+    # onto them.
     from agent.claude_code import start_detached_ssh
+    from agent.input_ledger import COMPLETED, SUBMITTED, native_input_uuid
+
+    input_ids = params["input_ids"]
+    launch_uuid = native_input_uuid(chat_id, f"launch:{input_ids[-1] if input_ids else 'none'}")
     session_id = await start_detached_ssh(
         cmd=params["cmd"],
         prompt=params["prompt"],
@@ -751,6 +812,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         vm_config=params["vm_config"],
         env=params["env"],
         images=params.get("images"),
+        input_uuid=launch_uuid,
     )
 
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
@@ -764,21 +826,24 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             backend_type=effective_backend,
             initial_msg_count=len(chat.messages),
             resume_5xx_retries=resume_5xx_retries,
+            input_groups={launch_uuid: input_ids},
+            delivery_states={**{mid: COMPLETED for mid in (handled_input_ids or ())},
+                             **{message_id: SUBMITTED for message_id in input_ids}},
+            scope_first_id=input_ids[0] if input_ids else None,
+            initial_message_ids=[m.id for m in chat.messages if m.id],
+            run_seq=chat.run_seq,
         )
     except Exception as e:
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-        fresh = await chat_service.get_chat_by_id(chat_id)
-        if fresh and fresh.running:
-            fresh.running = False
-            error_msg = Message(
-                id=generate_message_id(),
-                role="assistant",
-                content=f"Process registration failed: {type(e).__name__}: {str(e)}. The backend session may have started but cannot be monitored.",
-                timestamp=get_utc_iso8601_timestamp(),
-                unix_timestamp=get_unix_timestamp(),
-            )
-            fresh.messages.append(error_msg)
-            from storage.repository import chat as chat_repo
-            await chat_repo.save_chat_by_id(fresh)
+        from storage.repository import chat as chat_repo
+        def fail_registration(current):
+            if current.running and current.run_seq == chat.run_seq:
+                current.running = False
+                current.messages.append(Message(
+                    id=generate_message_id(), role="assistant",
+                    content=f"Process registration failed: {type(e).__name__}: {str(e)}. The backend session may have started but cannot be monitored.",
+                    timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+                ))
+        chat_repo.mutate_chat_locked(chat_id, fail_registration, user_id=user_id)
         raise

@@ -96,6 +96,7 @@ async def _process_record(body: dict) -> str:
         topic=body.get("topic"),
         skill=body.get("skill"),
         backend=body.get("backend"),
+        run_seq=body.get("run_seq"),
     )
     return result
 
