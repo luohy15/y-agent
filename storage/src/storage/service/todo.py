@@ -317,7 +317,7 @@ def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
     """
     name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
     lines = [
-        f"Todo {todo.todo_id} needs you",
+        f"【progress】todo {todo.todo_id}",
         name,
     ]
     if extra:
