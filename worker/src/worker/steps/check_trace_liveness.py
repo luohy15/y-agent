@@ -24,7 +24,7 @@ from storage.util import get_unix_timestamp
 from worker.process_manager import get_process, get_running_processes
 
 LOCK_NAME = "check_trace_liveness"
-IDLE_GRACE_SECONDS = 10 * 60
+IDLE_GRACE_SECONDS = 5 * 60
 ZERO_CHAT_BACKSTOP_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 200
 ERROR_TEXT_LIMIT = 1000
@@ -39,7 +39,7 @@ def classify(*, live, chat_count, last_activity_ms, created_at_ms, now_ms) -> Op
     """Pure classifier: the stall reason (idle / backstop) or None.
 
     A live process/chat suppresses; zero-chat todos only ever fall under the
-    24-hour backstop; everything else uses the 10-minute idle grace against
+    24-hour backstop; everything else uses the five-minute idle grace against
     the newer of the todo's own timestamp and its newest chat's activity.
     """
     if live:
