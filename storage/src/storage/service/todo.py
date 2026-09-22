@@ -316,10 +316,7 @@ def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
     from a persisted reason field.
     """
     name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
-    lines = [
-        f"【progress】todo {todo.todo_id}",
-        name,
-    ]
+    lines = [f"【progress】{todo.todo_id} {name}"]
     if extra:
         lines.append(extra[:FAULT_TEXT_LIMIT])
     return "\n".join(lines)

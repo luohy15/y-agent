@@ -298,7 +298,7 @@ y todo list --status awaiting
   pointer. Identical resulting state is a no-op. UI same-status
   re-select / re-drop remains no-write to preserve an existing pointer.
   `--note` / `notice` is entry-only: it is folded into history and sent as
-  the DM third line only when status newly becomes awaiting. An already-
+  the DM second line only when status newly becomes awaiting. An already-
   awaiting row that also carries a nonempty notice is rejected inside the
   locked transition before any pointer or history write, so the writer
   cannot lose a sentence against a stale fault DM. The write does not
@@ -458,20 +458,19 @@ y todo list --status awaiting
 
 ### Agent notice and fault-notice wording
 
-Agent notice is compact: a fixed two-line heading plus optional bounded
+Agent notice is compact: a fixed one-line heading plus optional bounded
 context from the triggering event. The heading is literal lowercase
-`【progress】` and `todo`, then the todo id, then the name on its own line.
-There is still no invented review/question/stalled label, no "needs you",
-and no reply instruction. A missing third line is still valid: the
-two-line notice of heading plus name.
+`【progress】`, then the todo id and name separated by one space. There is still
+no literal `todo`, invented review/question/stalled label, "needs you", or
+reply instruction. Missing context is valid: the notice is just the one-line
+heading.
 
 ```text
-【progress】todo <id>
-<name>
+【progress】<id> <name>
 [<one-line context>]
 ```
 
-The third line is evidence, not a reason enum. It is supplied by the
+The optional second line is evidence, not a reason enum. It is supplied by the
 writer (`y todo status <id> awaiting --note "<sentence>"` /
 `POST /api/todo/status` `notice`) or by a watchdog/death claim's
 structural sentence plus optional error tail. The renderer
@@ -498,8 +497,8 @@ change, labelled `notice:` (fault claims keep `fault:`).
 **No awaiting notice carries a reply instruction.** The notice names the
 todo; it never tells Roy where to type the answer, and it makes no
 distinction between a human-declared await and a fault claim. Shipped in
-`awaiting_notice_text`: the `【progress】todo <id>` heading, bounded name,
-then `extra` when present, and nothing else. The chat pointer is not
+`awaiting_notice_text`: the one-line `【progress】<id> <bounded name>`
+heading, then `extra` when present, and nothing else. The chat pointer is not
 rendered by any writer.
 
 **The `awaiting_chat` pointer and its consumers are retained.** What was
@@ -530,15 +529,18 @@ expressed as a branch:
    it to go. This is a user-directed override of step 1's visible-instruction
    decision; step 2's reasoning is unaffected and now simply has nothing to
    suppress. Record: `pages/impl-3506-awaiting-notice-trim.md`.
-4. Todo 3523 adds the optional third line as writer-supplied or
-   sanitized fault evidence. Deriving it from the newest progress write was
-   rejected: truncation drops the ask, the newest write is often a child
-   phase note, and progress is not authored for this DM.
-5. Todo 3645 replaces the first heading line `Todo <id> needs you` with
-   `【progress】todo <id>`. The name stays the second line, the optional
-   context stays the third, and entry-only / pointer / trigger / dedup
-   semantics are unchanged. `【progress】` is a literal label, not the
-   todo's progress field.
+4. Todo 3523 adds optional writer-supplied or sanitized fault evidence.
+   Deriving it from the newest progress write was rejected: truncation drops
+   the ask, the newest write is often a child phase note, and progress is not
+   authored for this DM.
+5. Todo 3645 iteration 1 replaces the first heading line `Todo <id> needs you` with
+   `【progress】todo <id>`. The name remains on the next line, and entry-only /
+   pointer / trigger / dedup semantics are unchanged. `【progress】` is a
+   literal label, not the todo's progress field.
+6. Todo 3645 iteration 2 combines the label, id, and name as
+   `【progress】<id> <name>`. The literal `todo` and the newline between id and
+   name are removed; optional context follows on the second line. All other
+   notice semantics remain unchanged.
 
 ### Runtime death delivery
 
@@ -834,7 +836,7 @@ Tests are local-only and untracked per repo convention.
   closed work. Pending waiter suppresses; granted / cancelled / rejected
   receipts do not.
 - **Awaiting notice context** is a pure renderer plus validation suite:
-  representative three-line outputs byte-for-byte (ready / publication /
+  representative one- and two-line outputs byte-for-byte (ready / publication /
   blocked / idle fault / credential-omitted fault / missing `--note`);
   200/201 length boundary; each credential shape rejected and hex SHA /
   digest accepted; whitespace collapse; explicit empty note rejected;
@@ -955,4 +957,4 @@ Tests are local-only and untracked per repo convention.
 | 3506 | `awaiting` is a todo **status** (`pending → active ↔ awaiting → completed`) meaning "needs human intervention"; `y todo await <id> [--chat]` / `y todo resume <id>` + `POST /api/todo/await|resume` are the two transitions, inbox is `status=awaiting`, reason enum, `external` and all `--awaiting*` / `--resume-work` write flags removed, optional navigation-only `awaiting_chat` kept, human message in a bound trace chat auto-resumes, watchdog/death claim faults active→awaiting through one locked `claim_fault`, dev_release parks replaced by pending-waiter evidence, todo module UI and host projections on the status model, cyan awaiting hue on both sides | - | `pages/plan-3506.md` | - | `pages/review-3506-awaiting-status.md` (rounds 1-9, all slices approved) | shipped and deployed. Host `8b4fa54` (six 3506 commits, S1-S5, on a `74279e9`-rooted main) plus the notice trim `93da425` (Actions run 34666533639); cutover SQL applied per `pages/migration-3506-todo-awaiting-status.md`. Todo module published through **v20** (v18 the status model, v19 Awaiting first in the status filter row, v20 Awaiting first in the right-click status options); rollback one step `y module activate todo 19`, rollback the whole filter/menu reordering `y module activate todo 18`. S5 agent config applied to AGENTS.md and the dev (9.34) / impl / review skills, committed locally in the home repo as `f71d5fb`, unpushed. Iterative user adjustments after the first deploy: awaiting-first ordering in the status filter row and in the context-menu status options, and removal of the trailing answer-in-chat instruction from awaiting Telegram notices (`pages/impl-3506-awaiting-notice-trim.md`); the underlying `awaiting_chat` pointer and its navigation consumers are retained. Release registers `pages/release-owner-luohy15-y-module.md` (created here) and `pages/release-owner-luohy15-y-agent.md` both closed `DONE`; all worktrees removed. Incident context for the deploy-time worker pause: `pages/audit-3506-worker-sqs-consumption.md`. Requirement prose reconciled against shipped behaviour in a later docs commit on this file: the notice-wording section now records the unconditional removal of the reply instruction plus its two-step history, the module awaiting-first ordering is stated with the host select deliberately left in lifecycle order, and the S4 agent-config activation is recorded as done. Open: y-module `main` still carries unpushed commits across several traces; the `CheckTraceLivenessSchedule` watchdog rule is still deployed disabled |
 | 3514 | Unify status writes: every explicit source-to-target pair is legal, including completed/deleted to awaiting as one atomic reopen-to-inbox write; retire dedicated await/resume CLI and REST; pointer replace/clear stays on `/status`; `--chat` valid only for target awaiting | - | `pages/plan-3514-todo-status-unify.md` | - | `pages/review-3514-todo-status-unify.md` (round 1 module, round 2 host, both approve, no blocking findings) | shipped and deployed across all three surfaces. Host candidate `d31dfe8` rebased to **`33f6125`** on main/production, Actions run 34727450131 success; Deploy Web correctly did not fire (host web sources unchanged). Todo module **v21** published active (UI `6302b079c402fa25da3097f024863b59027b16732f60a8c64e9c11b6b0f47eda`, 131352B, source digest `a42db8cf949e677c3ac36ca6dc2a6e2afc824c58903148b9504857ab788220ab` matching review). Agent config swept in the same delivery (no thin aliases): 11 live call sites across `AGENTS.md` (7), `dev` (2), `impl` (1), `review` (1) migrated to `y todo status <id> <status> [--chat]`, home repo commit `ef7b6a6`, unpushed. Automatic eligibility deliberately unchanged and re-verified: human auto-resume still requires human provenance plus current awaiting, `claim_fault` stays active-only with matching timestamp, liveness scan stays active-only, `death_delivery` routes only through guarded `claim_fault`, so lifting the explicit restriction cannot let the watchdog revive closed work. Verification: 25-pair storage suite 36/36 plus 5, CLI 9/9, API 6/6, worker 34/34 on isolated databases, module router matrix 92/92, independently rerun by review. Production smoke was deliberately limited to non-mutating checks (no-op status write, client-side `--chat` rejection, retired commands absent); closed-to-awaiting was not exercised against production data because that would mean marking user-owned work completed or pushing a real row into the inbox. Digest note: the published UI sha256 differs from the review-recorded worktree build purely because esbuild embeds build-relative path comments (about 17B x 47 modules); first divergence verified to be a comment, and `source_digest` is identical. **Rollback hazard: `y module activate todo 20` is no longer safe now that the host routes are removed, because v20 is the version that calls `/api/todo/await|resume`; a module problem must be fixed forward or rolled back together with the host.** Ordering was module-publish-first then host-deploy, so the live v20 bundle never lost its routes mid-flight. Publication slots: y-module generation 2->4, y-agent generation 5->8 after an enqueue behind trace 3515 (waiter granted, no polling). Open: y-module `main` still carries unpushed commits across several traces (all already published as module versions); the home-repo config commit `ef7b6a6` is unpushed |
 | 3641 | Reduce `CheckTraceLivenessSchedule` idle grace to five minutes (`IDLE_GRACE_SECONDS = 5 * 60`); suppressors, notice dedup, active-only scan, and the 24-hour zero-chat backstop unchanged | - | `pages/plan-3641-liveness-idle-grace.md` | - | `pages/review-3641-liveness-idle-grace.md` | reviewed; 12 unit and 14 integration tests passed; publication pending authorization. Implementation: `pages/impl-3641-liveness-idle-grace.md` |
-| 3645 | Awaiting notice heading is the two-line `【progress】todo <id>` + todo name form; `needs you` removed. Literal lowercase `progress` label and lowercase `todo`; optional entry/fault context stays the third line | - | - | - | `pages/review-3645-awaiting-heading.md` | reviewed round 1, approve, no blocking findings; publication pending authorization. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`, so one line covers every surface; there is no separate web heading. Triggers, post-commit best-effort delivery, dedup, entry-only validation, pointer persistence and transport unchanged; writer-summary bound stays 200 chars, name 120, fault context 1000. Verified by running the real renderer and isolated service-flow assertions with persistence/Telegram mocked; no real send, database mutation, browser check or deployment |
+| 3645 | Awaiting notice heading is the one-line `【progress】<id> <todo name>` form. Iteration 1 shipped the two-line `【progress】todo <id>` + name form and removed `needs you`; iteration 2 removes the literal `todo` and the newline between id and name. Optional entry/fault context follows on the second line | - | - | - | `pages/review-3645-awaiting-heading.md` | iteration 1 shipped, iteration 2 is the superseding candidate. Iteration 1 (`7754fc9`, two-line `【progress】todo <id>` + name) deployed to main/production via Actions run 35689489869; production renders that superseded form until iteration 2 ships. Iteration 2 collapses the heading to one line and is a separate candidate requiring its own authorization. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, dedup, entry-only validation, pointer persistence, escaping through `markdown_to_telegram_html` and transport unchanged; limits stay name 120, fault context 1000, writer summary 200. Review approved at round 3 after a round-2 blocking finding (the local byte-for-byte notice suite still pinned the removed `Todo <id> needs you` while the feature home claimed coverage of the new shape); storage notice suite now 20/20. Named non-blocking cleanup carried forward: `worker/tests/test_watchdog_integration_3458.py:124` still asserts `'Todo t needs you'` and will fail once that suite runs against a database; it is untracked and outside the candidate. Duplicate todo 3647 was stopped and soft-deleted; its preserved edits were used as read-only reference only and its worktree was never adopted in the same worktree; review of iteration 1 does not cover this heading. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, post-commit best-effort delivery, dedup, entry-only validation, pointer persistence, escaping and transport unchanged; writer-summary bound stays 200 chars, name 120, fault context 1000. Prior publication authorization covers only the iteration-1 candidate |
