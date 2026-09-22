@@ -27,6 +27,44 @@ _TG_ROUTE_PREFIX_RE = re.compile(r"^/([0-9a-f]{6})\s+")
 # as chat_id when applicable.
 _TG_ROUTE_TODO_PREFIX_RE = re.compile(r"^/(\d+)\s+")
 
+def _reply_context(message: dict) -> Optional[str]:
+    """Quoted context from an inbound Telegram message, or None.
+
+    Precedence is the explicitly selected quote (`message.quote.text`), then the
+    direct reply target's `text`, then that target's `caption`. Only the direct
+    `reply_to_message` is read: nested replies, `external_reply`, and
+    `reply_to_story` are ignored. Empty or whitespace-only text is None, so a
+    non-text target (sticker, photo without caption, voice) leaves the message
+    unchanged. Never invents placeholder text.
+    """
+    quote = message.get("quote")
+    if isinstance(quote, dict):
+        text = (quote.get("text") or "").strip()
+        if text:
+            return text
+    reply = message.get("reply_to_message")
+    if isinstance(reply, dict):
+        text = (reply.get("text") or "").strip()
+        if text:
+            return text
+        caption = (reply.get("caption") or "").strip()
+        if caption:
+            return caption
+    return None
+
+
+def _with_reply_context(body: str, context: Optional[str]) -> str:
+    """Prepend `context` as a Markdown blockquote, or return `body` unchanged.
+
+    A blank line separates the quote from the body so CommonMark does not treat
+    the next line as a lazy continuation of the blockquote.
+    """
+    if context is None:
+        return body
+    quoted = "\n".join("> " + line for line in context.splitlines())
+    return quoted + "\n\n" + body
+
+
 TELEGRAM_BOT_TOKEN = get_telegram_bot_token()
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
@@ -148,6 +186,11 @@ async def telegram_webhook(request: Request):
         logger.info("telegram webhook: ignoring non-private chat type={}", chat_type)
         return {"ok": True}
 
+    # Direct reply / selected quote only. Commands, route prefixes, and the
+    # empty-text return below stay on the raw typed text; composition happens
+    # at the three delivery hand-offs.
+    reply_context = _reply_context(message)
+
     telegram_chat_id = message["chat"]["id"]
     telegram_user_id = message["from"]["id"]
     text = message.get("text", "").strip()
@@ -200,7 +243,7 @@ async def telegram_webhook(request: Request):
     route_match = _TG_ROUTE_PREFIX_RE.match(text)
     if route_match:
         target_chat_id = route_match.group(1)
-        body = text[route_match.end():]
+        body = _with_reply_context(text[route_match.end():], reply_context)
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat_id, body,
             images=images,
@@ -212,7 +255,7 @@ async def telegram_webhook(request: Request):
     todo_match = _TG_ROUTE_TODO_PREFIX_RE.match(text)
     if todo_match:
         todo_id = todo_match.group(1)
-        body = text[todo_match.end():]
+        body = _with_reply_context(text[todo_match.end():], reply_context)
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
             await _send_message(telegram_chat_id, "Please /bind your account first.")
@@ -227,7 +270,9 @@ async def telegram_webhook(request: Request):
         )
 
     # Regular message — route to chat
-    return await _handle_message(telegram_chat_id, telegram_user_id, text, images=images)
+    return await _handle_message(
+        telegram_chat_id, telegram_user_id, _with_reply_context(text, reply_context), images=images,
+    )
 
 
 async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> List[str]:

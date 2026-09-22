@@ -52,6 +52,10 @@ any photo download, command, or chat write. Private `/bind`, `/unbind`,
 `/start`, `/clear` (which now unconditionally restarts the manager session —
 there is no non-manager forum branch left), explicit `/<chat_id>` and
 `/<todo_id>` routing, images, and append-or-steer delivery are all preserved.
+A private reply or selected quote is prepended to the user's own text as a
+Markdown blockquote (selected `quote.text`, else the direct reply target's
+`text`, else its `caption`; a non-text target leaves the message unchanged)
+before it is stored and handed to the model.
 
 The `tg_topic` binding table, its repository/service/entity/DTO/API
 registration, forum-topic auto-discovery, thread lookup, and General-topic
@@ -85,6 +89,10 @@ best-effort drop.
 6. As an operator, I want `chat.topic` as a named dispatch address to be
    completely unaffected by this change, so that `y chat --topic dev` and
    trace/topic lookup keep working exactly as before.
+7. As a user, I want a Telegram reply or a selected quote to arrive as a `> `
+   blockquote ahead of my own message, so that the assistant sees which earlier
+   message I am referring to. A reply target with no text or caption stays a
+   plain message.
 
 ## Out of Scope
 
@@ -120,3 +128,4 @@ best-effort drop.
 | 3460 | Read-only inventory and removal proposal for the Telegram group and per-topic delivery; corrected to manager-only-DM policy after Roy's scope feedback | - | `pages/plan-3460-telegram-group-removal.md` | - | - | proposal approved |
 | 3468 | Implemented the manager-only gate (worker eligibility, immediate-attachment API path, `deliver_death` topic branch), private-only inbound webhook gate with forum discovery/`/clear`-branch/thread-plumbing removal, and full `tg_topic` API/service/repository/entity/DTO removal and `y telegram send --topic` retirement; routine-caller migration (sub-task 6) delivered separately | - | `pages/plan-3460-telegram-group-removal.md` | - | `pages/review-3468-telegram-removal.md` | shipped |
 | 3474 | Explicit send image transport: uploads posted as bytes (no EC2 store), `images` delivered via `send_telegram_photo_reference` with `require_exists=False`, hard 502 on undeliverable | - | `pages/plan-3474-telegram-send-image.md` | - | `pages/review-3474-telegram-send-image.md` | shipped; verification: `pages/deploy-3474-telegram-send-image.md` |
+| 3648 | Inbound reply / selected-quote context prepended as a `> ` blockquote before persistence and model input; non-text targets and plain messages unchanged | - | `pages/plan-3648-telegram-reply-context.md` | - | `pages/review-3648-telegram-reply-context.md` | reviewed; pending publication authorization |

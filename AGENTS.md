@@ -100,7 +100,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   `check_reminders` on a schedule and pushes matches to Telegram.
 - **Telegram** — private-chat-only webhook (secret verified, non-private chat
   types ignored before any command/chat write; the former forum group and its
-  `tg_topic` binding table are retired). Only the manager session
+  `tg_topic` binding table are retired). Inbound reply / selected-quote context
+  is prepended as a `> ` blockquote. Only the manager session
   (`chat.topic == "manager"`) gets automatic DM delivery (final replies,
   pre-run mirrors, immediate image attachments); non-manager sessions have no
   Telegram reply path, their detail surface is web. Markdown → HTML
