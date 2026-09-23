@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/*
+ * @y/design ships complete utility strings in dist JS (todo 3657).
+ * Tailwind v4 does not scan node_modules, so point at the resolved
+ * package entry explicitly. Do not scan node_modules broadly.
+ */
+@source "../node_modules/@y/design/dist/index.js";
+
 html {
   font-size: 110%;
 }

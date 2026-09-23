@@ -50,7 +50,55 @@ if (!fs.existsSync(tsxPath)) {
 const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 const minHostVersion = Number(contract.version) || 1;
 
+// @y/design is inlined at build time (todo 3657). It is not a runtime
+// external. Resolve from the SDK node_modules so the importer can live
+// under y-module and still hit the locked package. Root entry only.
+function resolveDesignPackage() {
+  const pkgJsonPath = path.join(here, "node_modules", "@y", "design", "package.json");
+  if (!fs.existsSync(pkgJsonPath)) {
+    throw new Error(
+      `@y/design is not installed in ${path.join(here, "node_modules")}; run npm install in the SDK dir`,
+    );
+  }
+  const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
+  const entryRel = pkg.exports?.["."]?.import || pkg.module || pkg.main;
+  if (!entryRel || typeof entryRel !== "string") {
+    throw new Error(`@y/design package.json has no ESM entry: ${pkgJsonPath}`);
+  }
+  const entry = path.resolve(path.dirname(pkgJsonPath), entryRel);
+  if (!fs.existsSync(entry)) {
+    throw new Error(`@y/design entry not found: ${entry}`);
+  }
+  const distDir = path.dirname(entry);
+  const distFiles = fs
+    .readdirSync(distDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(distDir, name))
+    .sort();
+  return {
+    version: String(pkg.version || ""),
+    pkgJsonPath,
+    entry,
+    distFiles,
+  };
+}
+
+const designPkg = resolveDesignPackage();
+
 fs.mkdirSync(outDir, { recursive: true });
+
+// Stage dist JS under .cache so esbuild's path comment does not contain the
+// bare specifier `@y/design`. The alias points at this copy. node_modules
+// stays the digest input. .cache is not part of the SDK content digest.
+const cacheDir = path.join(here, ".cache");
+fs.mkdirSync(cacheDir, { recursive: true });
+const designStage = path.join(cacheDir, "y-design");
+fs.rmSync(designStage, { recursive: true, force: true });
+fs.mkdirSync(designStage, { recursive: true });
+for (const file of designPkg.distFiles) {
+  fs.copyFileSync(file, path.join(designStage, path.basename(file)));
+}
+const designEntry = path.join(designStage, path.basename(designPkg.entry));
 
 // ---------------------------------------------------------------- 1. esbuild
 const shim = (f) => path.join(here, "shims", f);
@@ -70,6 +118,7 @@ try {
     // runs this script with cwd=sdk dir; absWorkingDir is belt-and-suspenders.
     absWorkingDir: here,
     alias: {
+      "@y/design": designEntry,
       react: shim("react.cjs"),
       "react-dom": shim("react-dom.cjs"),
       "react-dom/client": shim("react-dom-client.cjs"),
@@ -110,8 +159,6 @@ if (leftoverImports.length) {
 //
 // The entry file must live under the SDK dir so `tailwindcss/theme.css` resolves
 // via this package's node_modules (resolution walks from the CSS file, not --cwd).
-const cacheDir = path.join(here, ".cache");
-fs.mkdirSync(cacheDir, { recursive: true });
 const cssEntry = path.join(cacheDir, `${slug}.entry.css`);
 const tsxRel = path.relative(cacheDir, tsxPath).split(path.sep).join("/");
 const partsDir = srcDir;
@@ -133,6 +180,19 @@ if (fs.existsSync(sharedUiDir)) {
   sourceLines.push(
     `@source "${sharedRel.startsWith(".") ? sharedRel : `./${sharedRel}`}/**/*.{tsx,ts}";`,
   );
+}
+// Explicit source of the staged @y/design dist JS. Only when this module
+// or shared/ui imports the package, so other modules do not gain its
+// utilities. The list is the staged copies of designPkg.distFiles, the same
+// bytes source_digest hashes. Do not scan node_modules or leftover stage files.
+const designExtraDirs = fs.existsSync(sharedUiDir) ? [sharedUiDir] : [];
+const usesDesign = sourceImportsDesign(tsxPath, partsDir, designExtraDirs);
+if (usesDesign) {
+  for (const file of designPkg.distFiles) {
+    const staged = path.join(designStage, path.basename(file));
+    const distRel = path.relative(cacheDir, staged).split(path.sep).join("/");
+    sourceLines.push(`@source "${distRel.startsWith(".") ? distRel : `./${distRel}`}";`);
+  }
 }
 sourceLines.push("");
 fs.writeFileSync(cssEntry, sourceLines.join("\n"));
@@ -236,6 +296,13 @@ const bundle = `${js}\nexport const css = ${JSON.stringify(css)};\nexport const 
 // source_digest covers the whole UI tree, so editing any sibling file changes
 // this field. The bundle sha256 stays the integrity control, while source_digest
 // reflects whether any source input changed.
+function sourceImportsDesign(entryPath, partsDirPath, extraDirs = []) {
+  const spec = /(?:from\s+|import\s*\(?)\s*["']@y\/design["']/;
+  const files = [entryPath, ...collectPartFiles(partsDirPath)];
+  for (const extra of extraDirs) files.push(...collectPartFiles(extra));
+  return files.some((file) => spec.test(fs.readFileSync(file, "utf8")));
+}
+
 function collectPartFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   const out = [];
@@ -247,7 +314,7 @@ function collectPartFiles(dir) {
   return out.sort();
 }
 
-function computeSourceDigest(entryPath, partsDirPath, extraDirs = []) {
+function computeSourceDigest(entryPath, partsDirPath, extraDirs = [], design = null) {
   const hash = createHash("sha256");
   hash.update(fs.readFileSync(entryPath));
   const files = collectPartFiles(partsDirPath);
@@ -255,7 +322,30 @@ function computeSourceDigest(entryPath, partsDirPath, extraDirs = []) {
     files.push(...collectPartFiles(extra));
   }
   for (const file of files.sort()) {
+    // Basename prefix only when the design package is part of the digest.
+    // Modules that do not import it keep the historical raw-bytes digest.
+    if (design) {
+      hash.update(path.basename(file));
+      hash.update("\0");
+    }
     hash.update(fs.readFileSync(file));
+    if (design) hash.update("\0");
+  }
+  // Package identity + dist JS only. Paths are basenames so the digest does
+  // not embed the machine's SDK directory.
+  if (design) {
+    hash.update("@y/design");
+    hash.update("\0");
+    hash.update(String(design.version));
+    hash.update("\0");
+    hash.update(fs.readFileSync(design.pkgJsonPath));
+    hash.update("\0");
+    for (const file of design.distFiles) {
+      hash.update(path.basename(file));
+      hash.update("\0");
+      hash.update(fs.readFileSync(file));
+      hash.update("\0");
+    }
   }
   return hash.digest("hex");
 }
@@ -265,7 +355,8 @@ const sha256 = createHash("sha256").update(bytes).digest("hex");
 const sourceDigest = computeSourceDigest(
   tsxPath,
   partsDir,
-  fs.existsSync(sharedUiDir) ? [sharedUiDir] : [],
+  designExtraDirs,
+  usesDesign ? designPkg : null,
 );
 
 const bundlePath = path.join(outDir, `${slug}.js`);

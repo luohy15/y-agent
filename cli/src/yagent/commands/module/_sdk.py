@@ -128,6 +128,46 @@ def _copy_sdk_tree(src: Path, dest: Path) -> None:
         shutil.copy2(path, target)
 
 
+def _pinned_design_version(dest: Path) -> str | None:
+    """Version string from the SDK's package.json @y/design pin, if any."""
+    spec = json.loads((dest / "package.json").read_text(encoding="utf-8"))
+    raw = (spec.get("dependencies") or {}).get("@y/design")
+    if not isinstance(raw, str) or not raw.startswith("file:"):
+        return None
+    tarball = (dest / raw.removeprefix("file:")).resolve()
+    if not tarball.is_file():
+        raise RuntimeError(f"@y/design tarball missing: {tarball}")
+    # npm file: deps install the version inside the tarball, not the filename.
+    import tarfile
+
+    with tarfile.open(tarball, "r:gz") as archive:
+        member = next(
+            (m for m in archive.getmembers() if m.name.endswith("package.json")),
+            None,
+        )
+        if member is None:
+            raise RuntimeError(f"@y/design tarball has no package.json: {tarball}")
+        payload = archive.extractfile(member)
+        if payload is None:
+            raise RuntimeError(f"@y/design tarball has no package.json: {tarball}")
+        pinned = json.loads(payload.read().decode("utf-8"))
+    version = pinned.get("version")
+    if not isinstance(version, str) or not version:
+        raise RuntimeError(f"@y/design tarball has no version: {tarball}")
+    return version
+
+
+def _installed_design_version(dest: Path) -> str | None:
+    pkg = dest / "node_modules" / "@y" / "design" / "package.json"
+    if not pkg.is_file():
+        return None
+    try:
+        version = json.loads(pkg.read_text(encoding="utf-8")).get("version")
+    except (OSError, json.JSONDecodeError):
+        return None
+    return version if isinstance(version, str) else None
+
+
 def _ensure_npm_install(dest: Path) -> None:
     marker = dest / "node_modules" / ".bin" / "tailwindcss"
     esbuild = dest / "node_modules" / ".bin" / "esbuild"
@@ -135,8 +175,21 @@ def _ensure_npm_install(dest: Path) -> None:
     # renderer deps (react, react-dom, remark-gfm), which land in the same
     # `npm install` (todo 3371 T1).
     react_markdown = dest / "node_modules" / "react-markdown" / "package.json"
-    if marker.is_file() and esbuild.is_file() and react_markdown.is_file():
+    # Presence is not enough (todo 3657): node_modules is preserved across
+    # SDK refreshes, so a bumped tarball must reinstall when its version
+    # differs from what is already installed.
+    design_matches = _installed_design_version(dest) == _pinned_design_version(dest)
+    if (
+        marker.is_file()
+        and esbuild.is_file()
+        and react_markdown.is_file()
+        and design_matches
+    ):
         return
+    # Same tarball filename keeps the same lockfile integrity, so npm install
+    # reports "up to date" and leaves a stale node_modules/@y/design in place.
+    if not design_matches:
+        shutil.rmtree(dest / "node_modules" / "@y" / "design", ignore_errors=True)
     if not shutil.which("npm"):
         raise RuntimeError(
             "npm is required to bootstrap the UI SDK (need @tailwindcss/cli + esbuild)"

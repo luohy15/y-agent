@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@y/design": "file:../cli/src/yagent/sdk/vendor/y-design-0.1.0.tgz",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",

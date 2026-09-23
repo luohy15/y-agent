@@ -87,5 +87,27 @@ tables into an API zip. Shared UI is compile-time source only; esbuild still
 emits a self-contained per-module bundle, and there is no separately published
 shared UI runtime.
 
+## @y/design (todo 3657)
+
+`@y/design` is a build-time input, not a host external. `package.json` pins
+`file:./vendor/y-design-0.1.0.tgz`, which ships inside this SDK directory so the
+same relative path resolves after `ensure_sdk` copies the tree to
+`y-module/.sdk`. The host pins that same tarball. `build.mjs` aliases the
+package root to a staged copy of the ESM entry (`.cache/y-design/`, rebuilt from
+`node_modules` on every build) so a module under `y-module` does not look the
+package up from its own tree and the blob path comment is not the bare
+specifier. The library is inlined; React stays on the existing shim. The root
+entry is the only one allowed. Do not add `@y/design` to `contract.json`
+externals.
+
+Tailwind `@source` points at those staged `*.js` files, and only when the
+module UI or `shared/ui` imports `@y/design`. It does not scan `node_modules`.
+`source(none)`, `theme(reference)`, and no preflight stay in place. The same
+import check feeds `source_digest`, which then also covers the package version,
+`package.json`, and the `node_modules` dist JS bytes, keyed by basename so the
+digest has no machine path. Modules that do not import it keep the previous
+digest inputs. `ensure_sdk` reinstalls when the installed version differs from
+the tarball version, because `node_modules` is kept across SDK refreshes.
+
 No `contract.json` change is needed for this. It is a build-recipe change, not
 a change to what the host provides.

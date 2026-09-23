@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
     // VITE_API_URL is unset, as in CI). Run under jsdom so the DOM globals exist.
     test: {
       environment: "jsdom",
-      exclude: ["e2e/**", "node_modules/**", "dist/**"],
+      exclude: ["e2e/**", "node_modules/**", "dist/**", "src/fixtures/**"],
     },
     server: {
       port: 5174,
