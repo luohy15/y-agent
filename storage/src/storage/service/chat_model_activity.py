@@ -13,6 +13,7 @@ from storage.util import _time_filter_tz, get_unix_timestamp, local_today
 
 CHAT_MODEL_ALIASES = {
     "grok-4.6": "grok-4.6-build",
+    "grok-4.7": "grok-4.7-build",
 }
 WATERMARK_KEY = "chat_model_activity_watermark"
 COVERAGE_KEY = "chat_model_activity_coverage"

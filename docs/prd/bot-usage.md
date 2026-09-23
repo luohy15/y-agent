@@ -1216,9 +1216,13 @@ expired-login card tells the user to run.
   A model that continues producing output on a later date without a new prompt
   contributes a session with zero turns on that date.
 - **Attribution is explicit.** Empty model ids and Claude Code's `<synthetic>`
-  placeholder are skipped and do not close a pending prompt group. Chat model
-  `grok-4.6` is stored under relay usage id `grok-4.6-build`; other ids currently
-  match. Relay-only models with no attributed y-agent output correctly read as
+  placeholder are skipped and do not close a pending prompt group. The relay
+  records spend under the upstream response model, while the chat client echoes
+  the request model, so two chat ids are stored under the relay usage id:
+  `grok-4.6` as `grok-4.6-build` and `grok-4.7` as `grok-4.7-build` (todo 3662).
+  Already-suffixed ids and every other id pass through unchanged; there is no
+  generic suffix rule. Delivery is this y-agent host, not the bot module.
+  Relay-only models with no attributed y-agent output correctly read as
   zero sessions and zero Turns, with `Avg requests` unavailable (`-`) because
   its denominator is zero. If the activity request itself is unavailable, all
   three activity cells render `-` rather than fabricated zeros.
