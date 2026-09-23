@@ -606,6 +606,13 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["cache_read_input_tokens"] = chat.cache_read_input_tokens
         result["cache_creation_input_tokens"] = chat.cache_creation_input_tokens
         result["context_window"] = chat.context_window
+    # Session spend. Absent on chats completed before cumulative usage was
+    # recorded, and independent of the live context fields above.
+    if chat.cumulative_input_tokens is not None:
+        result["cumulative_input_tokens"] = chat.cumulative_input_tokens
+        result["cumulative_output_tokens"] = chat.cumulative_output_tokens
+        result["cumulative_cache_read_input_tokens"] = chat.cumulative_cache_read_input_tokens
+        result["cumulative_cache_creation_input_tokens"] = chat.cumulative_cache_creation_input_tokens
     return result
 
 

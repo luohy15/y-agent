@@ -474,6 +474,48 @@ def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
 
 RESUME_REFUSED_MARKER = "No conversation found with session ID"
 
+_CONTEXT_USAGE_KEYS = (
+    "input_tokens", "output_tokens",
+    "cache_read_input_tokens", "cache_creation_input_tokens",
+)
+
+
+def _is_context_usage(value) -> bool:
+    if not isinstance(value, dict):
+        return False
+    try:
+        counts = [int(value.get(key) or 0) for key in _CONTEXT_USAGE_KEYS]
+    except (TypeError, ValueError):
+        return False
+    return any(counts)
+
+
+def _context_usage_from_assistant(event: dict):
+    """Return one complete main-model request, or None for a partial event.
+
+    A finished request repeats its usage on every content block and includes
+    its cache counters. A streaming delta, and the `<synthetic>` placeholder
+    emitted before the first request, carries neither a cache counter nor any
+    input tokens. Side-model requests (title, memory, classification) are not
+    part of this stream.
+    """
+    message = event.get("message") if isinstance(event, dict) else None
+    if not isinstance(message, dict) or message.get("model") == "<synthetic>":
+        return None
+    # A subagent request is not the main session's live context.
+    if event.get("parent_tool_use_id"):
+        return None
+    usage = message.get("usage")
+    if not _is_context_usage(usage):
+        return None
+    if "cache_read_input_tokens" not in usage and "cache_creation_input_tokens" not in usage:
+        return None
+    observed = {key: int(usage.get(key) or 0) for key in _CONTEXT_USAGE_KEYS}
+    model = message.get("model")
+    if isinstance(model, str) and model:
+        observed["model"] = model
+    return observed
+
 
 def _result_event_resume_refused(result_data: Optional[Dict]) -> bool:
     """Return True if the run's own `result` event says it refused the handle.
@@ -891,6 +933,7 @@ async def tail_ssh_output(
     check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
     input_ledger: Optional[InputLedger] = None,
     pending_result: Optional[dict] = None,
+    pending_context_usage: Optional[dict] = None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
@@ -932,7 +975,14 @@ async def tail_ssh_output(
     converter = StreamConverter(last_message_id=last_message_id)
     ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
     result_data = pending_result
+    # Latest complete main-model request seen by any tail of this run. A Lambda
+    # handoff resumes from the saved line offset, so the finishing invocation
+    # may not see it again; result.usage only carries the launch total.
+    context_usage = pending_context_usage if _is_context_usage(pending_context_usage) else None
     session_id = None
+    launch_model = result_data.get("model") if isinstance(result_data, dict) else None
+    if not isinstance(launch_model, str):
+        launch_model = None
     current_offset = offset
     stream_error = None
     # Guards the race between a live steer write and turn-end teardown: both
@@ -1066,7 +1116,7 @@ async def tail_ssh_output(
                 return True
 
         def _read_lines():
-            nonlocal result_data, session_id, current_offset, stream_error
+            nonlocal result_data, context_usage, session_id, launch_model, current_offset, stream_error
             try:
                 if result_data is not None and not ledger.outstanding() and _try_finish_turn():
                     return None
@@ -1097,7 +1147,15 @@ async def tail_ssh_output(
 
                     if obj.get("type") == "system":
                         session_id = obj.get("session_id")
+                        if obj.get("subtype") == "init" and isinstance(obj.get("model"), str):
+                            launch_model = obj.get("model")
                         continue
+                    if obj.get("type") == "assistant":
+                        # Record and fall through. The converter below is what
+                        # persists the assistant text, thinking, and tool call.
+                        observed = _context_usage_from_assistant(obj)
+                        if observed is not None:
+                            context_usage = observed
                     if obj.get("type") == "command_lifecycle":
                         with steer_lock:
                             # A newly started command needs a result from that
@@ -1115,6 +1173,8 @@ async def tail_ssh_output(
                         # queued inputs emits one per native turn, and the
                         # monitor persists metadata from the last.
                         result_data = obj
+                        if launch_model and "model" not in result_data:
+                            result_data = {**result_data, "model": launch_model}
                         if _try_finish_turn():
                             return None
                         continue
@@ -1171,7 +1231,8 @@ async def tail_ssh_output(
                 "session_id": session_id, "is_done": False, "result_data": None,
                 "status": "monitoring", "delivery_states": ledger.states,
                 "input_groups": ledger.groups, "lifecycle_observed": ledger.lifecycle_observed,
-                "pending_result": result_data, "has_usable_output": converter.has_usable_output,
+                "pending_result": result_data, "pending_context_usage": context_usage,
+                "has_usable_output": converter.has_usable_output,
             }
 
         # Resolve the no-result outcome while the client is still open: the
@@ -1201,7 +1262,8 @@ async def tail_ssh_output(
                 "session_id": session_id, "is_done": False, "result_data": None,
                 "status": "monitoring", "delivery_states": ledger.states,
                 "input_groups": ledger.groups, "lifecycle_observed": ledger.lifecycle_observed,
-                "pending_result": result_data, "has_usable_output": converter.has_usable_output,
+                "pending_result": result_data, "pending_context_usage": context_usage,
+                "has_usable_output": converter.has_usable_output,
             }
 
         if owns_client:
@@ -1219,6 +1281,7 @@ async def tail_ssh_output(
                 "input_groups": ledger.groups,
                 "lifecycle_observed": ledger.lifecycle_observed,
                 "pending_result": result_data,
+                "pending_context_usage": context_usage,
                 "has_usable_output": converter.has_usable_output,
             }
 
@@ -1234,6 +1297,7 @@ async def tail_ssh_output(
                 "input_groups": ledger.groups,
                 "lifecycle_observed": ledger.lifecycle_observed,
                 "pending_result": result_data,
+                "pending_context_usage": context_usage,
                 "has_usable_output": converter.has_usable_output,
             }
 
@@ -1259,6 +1323,7 @@ async def tail_ssh_output(
                     "input_groups": ledger.groups,
                     "lifecycle_observed": ledger.lifecycle_observed,
                     "pending_result": result_data,
+                    "pending_context_usage": context_usage,
                     "has_usable_output": converter.has_usable_output,
                 }
             if no_result_session_alive:
@@ -1281,6 +1346,7 @@ async def tail_ssh_output(
                     "input_groups": ledger.groups,
                     "lifecycle_observed": ledger.lifecycle_observed,
                     "pending_result": result_data,
+                    "pending_context_usage": context_usage,
                     "has_usable_output": converter.has_usable_output,
                 }
             # tmux session exited without ever emitting a stream-json `result`
@@ -1328,6 +1394,7 @@ async def tail_ssh_output(
             "input_groups": ledger.groups,
             "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
+            "context_usage": context_usage,
             # True only where Claude Code itself named the session id as the
             # cause — in the error result event's `errors` list, or in this run's
             # stderr on the no-result branch. The worker drops the handle on this
@@ -1353,4 +1420,5 @@ async def tail_ssh_output(
             "input_groups": ledger.groups,
             "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
+            "pending_context_usage": context_usage,
         }

@@ -228,15 +228,18 @@ def update_process_offset(chat_id: str, offset: int, last_message_id: str = None
                           input_groups: dict = None,
                           lifecycle_observed: bool = False,
                           pending_result: dict = None,
+                          pending_context_usage: dict = None,
                           proc: dict = None,
                           updates_offset: int = None,
                           has_usable_output: bool = None) -> None:
     """Update the read offset and input ledger for a process."""
     expr_parts = ["stdout_offset = :offset", "lifecycle_observed = :lifecycle",
-                  "pending_result = :result"]
+                  "pending_result = :result",
+                  "pending_context_usage = :context_usage"]
     values = {":offset": {"N": str(offset)},
               ":lifecycle": {"BOOL": lifecycle_observed},
-              ":result": {"S": json.dumps(pending_result)}}
+              ":result": {"S": json.dumps(pending_result)},
+              ":context_usage": {"S": json.dumps(pending_context_usage)}}
     if last_message_id:
         expr_parts.append("last_message_id = :lmid")
         values[":lmid"] = {"S": last_message_id}

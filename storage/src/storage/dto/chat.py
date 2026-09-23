@@ -153,11 +153,21 @@ class Chat:
     run_claimed_seq: int = 0
     closeout_receipt: Optional[Dict] = None
     post_hooks: Optional[List[Dict]] = None
+    # Live context of the latest complete main-model request. These four plus
+    # context_window feed used_tokens() and the handoff reminder; they are not
+    # session spend.
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     cache_read_input_tokens: Optional[int] = None
     cache_creation_input_tokens: Optional[int] = None
     context_window: Optional[int] = None
+    # Cumulative modelUsage for this session. Its scope follows the CLI:
+    # current launch on 2.1.259, prior launches included on 2.1.280. Spend
+    # only, never a context estimate.
+    cumulative_input_tokens: Optional[int] = None
+    cumulative_output_tokens: Optional[int] = None
+    cumulative_cache_read_input_tokens: Optional[int] = None
+    cumulative_cache_creation_input_tokens: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Chat':
@@ -193,6 +203,10 @@ class Chat:
             cache_read_input_tokens=data.get('cache_read_input_tokens'),
             cache_creation_input_tokens=data.get('cache_creation_input_tokens'),
             context_window=data.get('context_window'),
+            cumulative_input_tokens=data.get('cumulative_input_tokens'),
+            cumulative_output_tokens=data.get('cumulative_output_tokens'),
+            cumulative_cache_read_input_tokens=data.get('cumulative_cache_read_input_tokens'),
+            cumulative_cache_creation_input_tokens=data.get('cumulative_cache_creation_input_tokens'),
         )
 
     def to_dict(self) -> Dict:
@@ -250,6 +264,14 @@ class Chat:
             result['cache_creation_input_tokens'] = self.cache_creation_input_tokens
         if self.context_window is not None:
             result['context_window'] = self.context_window
+        if self.cumulative_input_tokens is not None:
+            result['cumulative_input_tokens'] = self.cumulative_input_tokens
+        if self.cumulative_output_tokens is not None:
+            result['cumulative_output_tokens'] = self.cumulative_output_tokens
+        if self.cumulative_cache_read_input_tokens is not None:
+            result['cumulative_cache_read_input_tokens'] = self.cumulative_cache_read_input_tokens
+        if self.cumulative_cache_creation_input_tokens is not None:
+            result['cumulative_cache_creation_input_tokens'] = self.cumulative_cache_creation_input_tokens
         return result
 
     def used_tokens(self) -> int:

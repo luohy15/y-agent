@@ -284,6 +284,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             check_steer_fn=steer_fn,
             input_ledger=ledger,
             pending_result=_load_json_field(proc, "pending_result") or None,
+            pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
         )
 
     if result["is_done"] and result["status"] != "error":
@@ -310,6 +311,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         input_groups=input_groups,
         lifecycle_observed=lifecycle_observed,
         pending_result=result.get("pending_result"),
+        pending_context_usage=result.get("pending_context_usage"),
         proc=proc,
         updates_offset=result.get("updates_offset"),
         has_usable_output=result.get("has_usable_output"),
@@ -545,7 +547,7 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
             )
 
     if result_data:
-        _apply_claude_usage(fresh, result_data)
+        _apply_claude_usage(fresh, result_data, result.get("context_usage"))
 
         if result["status"] == "error":
             error_text = result_data.get("result") or "Claude Code exited with an error."
@@ -561,32 +563,130 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
 
 def _iter_model_usage_entries(model_usage):
     if isinstance(model_usage, dict):
-        values = model_usage.values()
+        values = model_usage.items()
     elif isinstance(model_usage, list):
-        values = model_usage
+        values = ((None, entry) for entry in model_usage)
     else:
         return []
-    return [entry for entry in values if isinstance(entry, dict)]
+    return [
+        (name, entry) for name, entry in values if isinstance(entry, dict)
+    ]
 
 
-def _apply_claude_usage(fresh, result_data: dict):
+def _usage_iterations(result_data: dict):
+    usage = result_data.get("usage")
+    if not isinstance(usage, dict):
+        return []
+    iterations = usage.get("iterations")
+    if not isinstance(iterations, list):
+        return []
+    return [entry for entry in iterations if isinstance(entry, dict)]
+
+
+def _context_window_for_usage(result_data: dict, usage: dict):
+    """Window of the model that served this request.
+
+    A side model such as the title model has the smaller window, so the max
+    would overstate a request the main model served. Prefer the request's own
+    model name, then the launch's declared model. On a cumulative 2.1.280
+    result a side model's running total can outgrow one main request, so an
+    unmatched request keeps the largest window rather than no window: no
+    window disables the handoff reminder.
+    """
+    entries = _iter_model_usage_entries(result_data.get("modelUsage"))
+    if not entries:
+        return None
+    for candidate in (usage.get("model"), result_data.get("model")):
+        if not isinstance(candidate, str):
+            continue
+        for name, entry in entries:
+            if name == candidate or entry.get("canonicalModel") == candidate:
+                window = _int_value(entry.get("contextWindow"))
+                if window:
+                    return window
+    return max(
+        (_int_value(entry.get("contextWindow")) for _, entry in entries),
+        default=0,
+    ) or None
+
+
+def _launch_average_usage(result_data: dict):
+    """Average of this launch when no single request was observed.
+
+    Relay-backed models stream assistant usage as zeroes and leave
+    result.usage.iterations empty, so there is no per-request record.
+    result.usage is the current launch on both 2.1.259 and 2.1.280, unlike
+    modelUsage, which 2.1.280 accumulates across resumed launches. Dividing
+    it by this launch's num_turns is an average, not the live context, but
+    it stays on the right side of the handoff line for these models.
+    """
+    usage = result_data.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    counts = {
+        "input_tokens": _int_value(usage.get("input_tokens")),
+        "output_tokens": _int_value(usage.get("output_tokens")),
+        "cache_read_input_tokens": _int_value(usage.get("cache_read_input_tokens")),
+        "cache_creation_input_tokens": _int_value(usage.get("cache_creation_input_tokens")),
+    }
+    if not any(counts.values()):
+        return None
+    turns = result_data.get("num_turns")
+    if isinstance(turns, bool) or not isinstance(turns, int) or turns <= 0:
+        turns = 1
+    return {key: value // turns for key, value in counts.items()}
+
+
+def _latest_complete_request(result_data: dict, observed_usage: dict):
+    """Latest complete main-model request, independent of modelUsage scope.
+
+    Claude Code 2.1.259 scopes modelUsage to the current launch; 2.1.280 can
+    make it cumulative across resumed launches while usage and num_turns stay
+    launch-scoped. Neither modelUsage aggregate divided by num_turns is the
+    live context. The result event's final usage iteration is that request
+    when the CLI emits one. Otherwise it is the last complete main-model
+    assistant event, which the tail carries across a handoff because the
+    finishing invocation only reads the unread tail of stdout. A launch with
+    neither falls back to the launch-scoped average above.
+    """
+    iterations = _usage_iterations(result_data)
+    if iterations:
+        return iterations[-1]
+    from agent.claude_code import _is_context_usage
+    if _is_context_usage(observed_usage):
+        return observed_usage
+    return _launch_average_usage(result_data)
+
+
+def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
     if not isinstance(result_data, dict):
         return
 
-    model_usage = result_data.get("modelUsage", {})
-    usage_entries = _iter_model_usage_entries(model_usage)
-    if not usage_entries:
+    entries = _iter_model_usage_entries(result_data.get("modelUsage"))
+    if entries:
+        # Cumulative modelUsage is session spend, and its scope depends on the
+        # CLI version. Keep it apart from the live context below.
+        fresh.cumulative_input_tokens = sum(
+            _int_value(entry.get("inputTokens")) for _, entry in entries
+        )
+        fresh.cumulative_output_tokens = sum(
+            _int_value(entry.get("outputTokens")) for _, entry in entries
+        )
+        fresh.cumulative_cache_read_input_tokens = sum(
+            _int_value(entry.get("cacheReadInputTokens")) for _, entry in entries
+        )
+        fresh.cumulative_cache_creation_input_tokens = sum(
+            _int_value(entry.get("cacheCreationInputTokens")) for _, entry in entries
+        )
+
+    latest = _latest_complete_request(result_data, observed_usage)
+    if latest is None:
         return
-
-    num_turns = result_data.get("num_turns") or 1
-    if not isinstance(num_turns, int) or num_turns <= 0:
-        num_turns = 1
-
-    fresh.input_tokens = sum(_int_value(entry.get("inputTokens")) for entry in usage_entries) // num_turns
-    fresh.output_tokens = sum(_int_value(entry.get("outputTokens")) for entry in usage_entries) // num_turns
-    fresh.cache_read_input_tokens = sum(_int_value(entry.get("cacheReadInputTokens")) for entry in usage_entries) // num_turns
-    fresh.cache_creation_input_tokens = sum(_int_value(entry.get("cacheCreationInputTokens")) for entry in usage_entries) // num_turns
-    fresh.context_window = max((_int_value(entry.get("contextWindow")) for entry in usage_entries), default=None)
+    fresh.input_tokens = _int_value(latest.get("input_tokens"))
+    fresh.output_tokens = _int_value(latest.get("output_tokens"))
+    fresh.cache_read_input_tokens = _int_value(latest.get("cache_read_input_tokens"))
+    fresh.cache_creation_input_tokens = _int_value(latest.get("cache_creation_input_tokens"))
+    fresh.context_window = _context_window_for_usage(result_data, latest)
 
 
 def _int_value(value):
