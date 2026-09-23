@@ -13,6 +13,10 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Registered chat wakeups (3655)**: `y chat --at` schedules a durable, owner-scoped message to an existing traced chat; pending wakeups count as watchdog liveness evidence until delivery or the grace deadline.
+- **Telegram reply context (3648)**: inbound replies and selected quotes include the referenced message as a blockquote for the agent.
+- **Food diary module icon (3659)**: the module catalog supports a utensils icon.
+- **Shared design package in SDK builds (3657)**: host and module builds inline the vendored `@y/design` package.
 - **Visibility-triggered chat images (3612)**: message attachments and
   markdown images in a chat transcript start loading only on positive
   overlap with the chat scrollport (`@y/host` contract v15:
@@ -56,6 +60,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   contract bumped to v15 so modules can read a tag's note creation time.
 
 ### Changed
+- **Awaiting notice heading (3645)**: todo notices use a concise single-line heading.
+- **Trace liveness detection (3641)**: the idle grace period is five minutes.
+- **Faster VM wake and trace reads (3616, 3626, 3627)**: concurrent VM wake requests share one stale-wake prelude, cold-wake polling is reduced, no-wake module execution is available, and authenticated trace reads omit unused message bodies.
 - **Todo await/resume unified into status (3514)**: every explicit
   source/target status transition is now legal through the single
   `update_status` writer; the dedicated `await_todo`/`resume_todo` wrappers,
@@ -68,6 +75,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
   immediate image attachments).
 
 ### Fixed
+- **Grok usage attribution (3662)**: grok-4.7 chat activity is attributed to its relay usage ID.
+- **Live context accounting (3660)**: context usage derives from the latest complete request rather than incomplete stream data.
+- **Messages during turn closeout (3643)**: user messages accepted while a turn finishes are delivered instead of being stranded.
 - **Awaiting notices drop the reply-in-chat hint (3506)**: fault and
   awaiting notice text no longer tells the owner to answer inside a chat
   that may already be dead.
