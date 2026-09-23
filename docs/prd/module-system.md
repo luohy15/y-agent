@@ -913,7 +913,7 @@ only a UI part" true in the schema rather than only in prose.
 **`icon` is a validated host registry key.** `module.json` declares the icon
 stored on every immutable `module_version`; `y module publish` rejects unknown
 keys before building. The valid keys are `chart`, `calendar`, `list`, `bot`,
-`todo`, `file`, `file-text`, `package`, `box`, and `message`. `box` is the
+`todo`, `file`, `file-text`, `package`, `box`, `message`, and `utensils`. `box` is the
 `y module create --icon` default and the host rendering fallback for unknown
 legacy persisted values. The host owns the SVG registry so every module stays
 small and existing published versions can gain a corrected glyph through an
