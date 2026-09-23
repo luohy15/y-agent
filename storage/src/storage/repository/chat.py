@@ -1,6 +1,7 @@
 """Chat repository using SQLAlchemy ORM."""
 
 import json
+from contextlib import nullcontext
 from typing import Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -493,7 +494,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, topic=None, skill=None,
-                         event_id=None):
+                         event_id=None, session=None):
     """Lock todo before chat; append/start and conditional resume commit together.
 
     Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
@@ -508,12 +509,13 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
     authenticated Telegram input): an accepted human reply in a bound trace chat
     auto-resumes an awaiting todo to active in this same transaction. A callback,
     dispatch or worker run-entry (`human_reply=False`) never resumes.
+    A supplied session makes acceptance part of the durable sender's transaction.
     """
     from storage.repository.todo import lock_todo
     from storage.service.todo import resume_locked
     from storage.util import get_utc_iso8601_timestamp
 
-    with get_db() as session:
+    with (nullcontext(session) if session is not None else get_db()) as session:
         identity = session.query(ChatEntity.trace_id, ChatEntity.topic).filter_by(
             user_id=user_id, chat_id=chat_id).first()
         if identity is None:
@@ -1137,7 +1139,7 @@ def set_chat_attention(user_id: int, chat_id: str, needs_attention: bool) -> Non
         )
 
 
-def clear_attention_and_unread(user_id: int, chat_id: str) -> None:
+def clear_attention_and_unread(user_id: int, chat_id: str, *, session=None) -> None:
     """Clear both needs_attention and unread without touching updated_at.
 
     Used when a new user message is accepted into an existing chat: replying
@@ -1145,7 +1147,7 @@ def clear_attention_and_unread(user_id: int, chat_id: str) -> None:
     reset atomically in one statement rather than two separate writes.
     user_id is required for the same reason as set_chat_attention above.
     """
-    with get_db() as session:
+    with (nullcontext(session) if session is not None else get_db()) as session:
         session.execute(
             text(
                 "UPDATE chat SET needs_attention = false, unread = false "

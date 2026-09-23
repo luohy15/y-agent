@@ -64,6 +64,23 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Topic** — every chat has an optional `topic` (named persistent address). The
   conventional root topic is `manager`; the API rejects dispatch callbacks aimed at
   root topics (they are conversations, not function calls).
+- **Scheduled chat wakeup (todo 3655)** — `chat_wakeup` kernel table: a durable,
+  owner-scoped alternative to a tmux sleep timer for a pure time wait. `y chat
+  --chat-id <id> -m "..." --at <+Ns/m/h/d | ISO8601>` registers a wakeup (rejects
+  the manager root topic, an untraced target chat, a trace_id mismatch, a past
+  due_at, and a due_at beyond the 7-day max horizon); `y chat wakeup list|cancel`
+  read/cancel it (cancel only from `pending`). `POST/GET /api/chat/wakeup`,
+  `POST /api/chat/wakeup/cancel`. A per-minute worker schedule
+  (`deliver_chat_wakeups`) delivers a due wakeup as an ordinary dispatch, reusing
+  the todo 3493 outbox pattern (`accept_dispatch` deduped by `event_id=wakeup_id`,
+  `pending` → `accepted` → `delivered`); it is a machine event and never
+  auto-resumes an awaiting todo. While a wakeup is `pending`/`accepted` and
+  `now < due_at + grace`, `check_trace_liveness` treats it as liveness evidence on
+  that trace (batched `pending_wakeup_traces` plus the under-lock
+  `has_pending_wakeup` recheck), the same way a pending `dev_release_waiter`
+  already does; delivery bumps the chat's activity so ordinary idle detection
+  resumes on its own, and a wakeup stuck undelivered past the grace stops
+  suppressing.
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
   JSON `front_matter`; it is used for plan / requirement / decision / journal
@@ -253,7 +270,7 @@ By category (all entities get a Repository in `repository/` and a Service in `se
 exceptions noted):
 
 - **Identity / chat**: `user`, `chat`
-- **Tasks / time**: `todo`, `calendar_event`, `reminder`
+- **Tasks / time**: `todo`, `calendar_event`, `reminder`, `chat_wakeup` (todo 3655)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
@@ -279,7 +296,9 @@ Grouped by feature area:
 
 - **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (create + SSE streaming +
   stop + steer + trace read-state + public share read + the union send/dispatch
-  route `POST /api/chat/message` + host `GET /api/chat/bot-options`; browse
+  route `POST /api/chat/message` + host `GET /api/chat/bot-options` + the
+  registered-wakeup routes `POST/GET /api/chat/wakeup` + `POST
+  /api/chat/wakeup/cancel` (todo 3655); browse
   `list` / `content` and share *creation* are module-owned), `trace.py`
   (listing, share, lookup by chat_id), `git.py` (status/diff/discard, VM
   execution via `agent.vm_command`), `terminal.py` (shell exec)
@@ -329,7 +348,8 @@ Grouped by feature area:
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB
 - `steps/` — RSS feed fetch, link batch download, provider-status reconciliation,
-  publication-grant wakeup recovery (`recover_release_grants`)
+  publication-grant wakeup recovery (`recover_release_grants`), registered
+  scheduled chat wakeup delivery (`deliver_chat_wakeups`, todo 3655)
 - `downloaders/` — SSH wrapper that runs `y link fetch --json` on the user's VM
 - `link_downloader.py`, `process_manager.py`
 - `handler.py` — Lambda SQS event handler (in worker root)
@@ -354,7 +374,7 @@ Grouped by feature area:
 
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group
-- Built-in `commands/`: hybrid `chat` (dispatch/stop/attach stay built-in; browse
+- Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
   falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`, `email`,
   `dev`, `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
   `logout`. Domain groups (`y finance`, `y bot`, `y file`, `y note`, …) resolve

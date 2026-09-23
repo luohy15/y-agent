@@ -10,7 +10,7 @@ from yagent.api_client import api_request
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
-from yagent.time_util import utc_to_local
+from yagent.time_util import resolve_due_at, utc_to_local
 from yagent.util.images import stage_image_path
 from yagent.commands.module._local import import_local_cli
 from yagent.commands.module._paths import source_dir
@@ -315,6 +315,52 @@ def _fire_and_forget(
         raise SystemExit(1)
 
 
+def _schedule_wakeup(
+    message: str,
+    chat_id: str,
+    at: str,
+    trace_id: Optional[str],
+    from_topic: Optional[str],
+    from_chat_id: Optional[str],
+):
+    """POST a durable wakeup registration to /api/chat/wakeup (todo 3655).
+
+    Same trace_id / from_topic / from_chat_id precedence as `_fire_and_forget`:
+    nonempty explicit flag > nonempty environment value > terminal default.
+    """
+    try:
+        due_at = resolve_due_at(at)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(2)
+
+    if not trace_id:
+        trace_id = os.environ.get('Y_TRACE_ID') or None
+    if not from_topic:
+        from_topic = os.environ.get('Y_TOPIC') or 'manager'
+    if not from_chat_id:
+        from_chat_id = os.environ.get('Y_CHAT_ID')
+
+    payload = {"chat_id": chat_id, "message": message, "due_at": due_at, "from_topic": from_topic}
+    if trace_id:
+        payload["trace_id"] = trace_id
+    if from_chat_id:
+        payload["from_chat_id"] = from_chat_id
+
+    try:
+        resp = api_request("POST", "/api/chat/wakeup", json=payload)
+        data = resp.json()
+        click.echo(f"{data['wakeup_id']} due {utc_to_local(due_at)}")
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = e.response.json().get("detail", "")
+        except Exception:
+            detail = e.response.text
+        click.echo(f"Error: {detail}", err=True)
+        raise SystemExit(1)
+
+
 def _interactive(
     chat_id: Optional[str],
     latest: bool,
@@ -403,6 +449,7 @@ def _interactive(
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
+@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--topic/--skill/--wait/--image/-i/--work-dir/--bot/--tier. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
@@ -426,6 +473,7 @@ def chat_group(
     from_chat_id: Optional[str],
     wait: bool,
     wait_timeout: int,
+    at: Optional[str],
     interactive: bool,
     latest: bool,
     bot: Optional[str],
@@ -453,11 +501,36 @@ def chat_group(
         y chat -i -c <id>                        resume a specific chat
         y chat -i -p "..."                       one-off query and exit
 
+    \b
+      Scheduled wakeup (todo 3655, a durable alternative to a tmux sleep timer):
+        y chat --chat-id <id> -m "..." --at +30m       relative offset
+        y chat --chat-id <id> -m "..." --at 2026-09-24T10:00
+        y chat wakeup list / y chat wakeup cancel <id>
+
     Browse subcommands (`get`, `list`, `search`, `share`) are loaded from the
     local chat module. Runtime subcommands (`attach`, `attention`, `import`,
-    `import-claude`, `stop`) remain built in.
+    `import-claude`, `stop`, `wakeup`) remain built in.
     """
     if ctx.invoked_subcommand is not None:
+        return
+
+    if at is not None:
+        if message is None or chat_id is None:
+            click.echo("Error: --at requires both --chat-id and -m.", err=True)
+            raise SystemExit(2)
+        incompatible = {
+            '--new': force_new, '--topic': topic, '--skill': skill, '--wait': wait,
+            '--image': images, '-i': interactive, '--work-dir': work_dir,
+            '--bot': bot, '--tier': tier,
+        }
+        conflicts = [flag for flag, value in incompatible.items() if value]
+        if conflicts:
+            click.echo(f"Error: --at is incompatible with {', '.join(conflicts)}.", err=True)
+            raise SystemExit(2)
+        _schedule_wakeup(
+            message=message, chat_id=chat_id, at=at, trace_id=trace_id,
+            from_topic=from_topic, from_chat_id=from_chat_id,
+        )
         return
 
     if message is not None and interactive:
@@ -499,7 +572,9 @@ from .import_claude import import_claude
 from .stop import stop_chat
 from .attach import attach_images
 from .attention import chat_attention
+from .wakeup import chat_wakeup_group
 
+chat_group.add_command(chat_wakeup_group)
 chat_group.add_command(import_chats)
 chat_group.add_command(import_claude)
 chat_group.add_command(stop_chat)

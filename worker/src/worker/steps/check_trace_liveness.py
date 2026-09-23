@@ -17,6 +17,7 @@ from sqlalchemy import case, func
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.todo import TodoEntity
+from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as dev_release_repo
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import todo as todo_service
@@ -104,6 +105,8 @@ def _claim_fault(todo, reason) -> str:
     def recheck(session, row):
         if dev_release_repo.has_pending_waiter(session, user_id, todo_id):
             return None
+        if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, get_unix_timestamp()):
+            return None
         chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix)
                  .filter_by(user_id=user_id, trace_id=todo_id)
                  .order_by(ChatEntity.updated_at_unix.desc()).all())
@@ -175,12 +178,14 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
                 break
             last_id = todos[-1].id
             aggregates = _chat_aggregates(session, {t.user_id for t in todos}, {t.todo_id for t in todos})
+            wakeup_traces = wakeup_repo.pending_wakeup_traces(
+                session, {t.user_id for t in todos}, {t.todo_id for t in todos}, now_ms)
         counts["scanned"] += len(todos)
         for todo in todos:
             key = (todo.user_id, todo.todo_id)
             chat_count, chat_max, running = aggregates.get(key, (0, None, 0))
             reason = classify(
-                live=key in live_traces or running > 0, chat_count=chat_count,
+                live=key in live_traces or running > 0 or key in wakeup_traces, chat_count=chat_count,
                 last_activity_ms=_last_activity(todo.updated_at_unix, chat_max),
                 created_at_ms=todo.created_at_unix, now_ms=now_ms,
             )

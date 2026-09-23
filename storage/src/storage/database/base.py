@@ -92,6 +92,7 @@ def init_tables():
     import storage.entity.dev_worktree  # noqa: F401
     import storage.entity.dev_release  # noqa: F401
     import storage.entity.dev_release_waiter  # noqa: F401
+    import storage.entity.chat_wakeup  # noqa: F401
     import storage.entity.trace_share  # noqa: F401
     import storage.entity.note_share  # noqa: F401
     import storage.entity.link_todo_relation  # noqa: F401

@@ -209,36 +209,43 @@ live work exists; enablement remains a separate rollout step.
     that a broken trace costs me one message, not one every five minutes.
 33. As Roy, I want a trace that is already awaiting to be left alone by the
     watchdog, so that legitimate waits never trigger a stall.
-34. As Roy, I want an active todo older than twenty-four hours with zero
+34. As a session that registered a durable wakeup instead of a tmux sleep
+    timer (todo 3655), I want a pending wakeup on my trace to suppress the
+    watchdog until its due time plus grace, so that a scheduled server-side
+    timer is treated as real evidence the same way a publication-queue
+    receipt already is, and I want that suppression to end on its own once
+    the wakeup delivers or goes stale, so that a wakeup that never fires is
+    still caught.
+35. As Roy, I want an active todo older than twenty-four hours with zero
     chats to enter the inbox once as awaiting, so that a todo whose dispatch
     never happened is not invisible to a trace-level check.
-35. As Roy, I want the watchdog to never write progress on a session's
+36. As Roy, I want the watchdog to never write progress on a session's
     behalf or re-run any work, so that the only thing it can ever do is make
     a fault visible by moving active to awaiting.
-36. As Roy, I want a session that ends a turn without declaring done or
+37. As Roy, I want a session that ends a turn without declaring done or
     blocked to be caught by the watchdog exactly like a death, so that the
     forbidden third ending is detectable rather than merely prohibited.
 
 ### Contract alignment
 
-37. As a reporting session, I want the three-state contract in the agent
+38. As a reporting session, I want the three-state contract in the agent
     configuration to name the exact command for the two legal trace-level
     endings (`y todo status <id> awaiting` with optional `--chat`), so that
     "put the todo in the inbox" is executable and not a paraphrase.
-38. As Roy, I want the existing chat attention flag left untouched and
+39. As Roy, I want the existing chat attention flag left untouched and
     unused by this feature, so that no removal migration or contract bump is
     spent on dead code here.
-39. As a leaf session, I never declare the whole trace awaiting for
+40. As a leaf session, I never declare the whole trace awaiting for
     verification; my legal turn ending is the callback, so that a finished
     phase does not put the whole trace in the inbox.
-40. As the reporting session, I want to write `status=awaiting` with a
+41. As the reporting session, I want to write `status=awaiting` with a
     pointer to my own chat when the trace ends on a decision only Roy can
     make, so that a genuine block is not labelled as verification in the
     progress/note even though the machine status is the same.
-41. As Roy, I want no API guard on which session may write awaiting for
+42. As Roy, I want no API guard on which session may write awaiting for
     now, so that the correction stays in contract text until premature writes
     are shown to recur.
-42. As Roy, I want to be notified once when a todo newly enters awaiting,
+43. As Roy, I want to be notified once when a todo newly enters awaiting,
     so that a genuine inbox entry reaches me without polling and without a
     second message for progress-only edits or pointer-only changes.
 
@@ -638,16 +645,32 @@ expressed as a branch:
   Its existing recovery can wake the coordinator; otherwise ordinary
   active-trace fault detection can put it in awaiting. That does not
   release or transfer publication ownership.
-- **Untracked tmux-only waits lose the old grace exemption.** A detached
-  tmux job without a live existing process record or durable queue receipt
-  can be classified as idle even if its eventual callback is configured.
-  Progress text is not machine evidence. Do not promise that merely naming
-  tmux or setting a callback prevents this. Prefer already-monitored
-  execution for long tasks. An awaiting notice in this case requests
-  inspection, not proof the job died. Do not use fake running flags,
-  periodic progress heartbeats, pending status or new timeout flags to hide
-  it. If maintaining arbitrary tmux grace is mandatory, that requires a
-  separately approved real process-liveness integration, not silently
+- **Registered scheduled wakeup is the durable evidence for a pure time
+  wait (todo 3655).** A session with a pure time wait registers a
+  `chat_wakeup` row (`y chat --chat-id <id> -m "..." --at ...`) instead of a
+  tmux sleep timer. A same-owner trace's `chat_wakeup` with status `pending`
+  or `accepted` and `now < due_at + grace` suppresses idle fault
+  classification the same way a pending `dev_release_waiter` does, including
+  under-lock recheck (`has_pending_wakeup`, folded into the same batch pass
+  as `pending_wakeup_traces`). Its own scheduled delivery pass
+  (`deliver_chat_wakeups`, every minute) appends the message as an ordinary
+  dispatch and enqueues the worker; that append bumps the chat's activity, so
+  ordinary idle detection resumes on its own once delivered. A wakeup stuck
+  undelivered past due_at plus grace stops suppressing, so a stall in the
+  delivery path itself is still caught, not hidden behind an unbounded wait.
+  The maximum registrable horizon is 7 days.
+- **Untracked tmux-only waits lose the old grace exemption for anything
+  that is not a pure time wait covered by a registered wakeup.** A detached
+  tmux job without a live existing process record, durable queue receipt, or
+  registered wakeup can be classified as idle even if its eventual callback
+  is configured. Progress text is not machine evidence. Do not promise that
+  merely naming tmux or setting a callback prevents this. Prefer
+  already-monitored execution for long tasks. An awaiting notice in this
+  case requests inspection, not proof the job died. Do not use fake running
+  flags, periodic progress heartbeats, pending status or new timeout flags
+  to hide it. If maintaining arbitrary tmux grace for a real long-running
+  job (not a pure time wait) is mandatory, that requires a separately
+  approved real process-liveness integration, not silently
   restoring `external` under another name.
 - **Claiming.** Each candidate goes through `claim_fault`: under the todo
   lock it re-reads the trace's chats, rejects any SQL-running chat, performs
@@ -958,3 +981,4 @@ Tests are local-only and untracked per repo convention.
 | 3514 | Unify status writes: every explicit source-to-target pair is legal, including completed/deleted to awaiting as one atomic reopen-to-inbox write; retire dedicated await/resume CLI and REST; pointer replace/clear stays on `/status`; `--chat` valid only for target awaiting | - | `pages/plan-3514-todo-status-unify.md` | - | `pages/review-3514-todo-status-unify.md` (round 1 module, round 2 host, both approve, no blocking findings) | shipped and deployed across all three surfaces. Host candidate `d31dfe8` rebased to **`33f6125`** on main/production, Actions run 34727450131 success; Deploy Web correctly did not fire (host web sources unchanged). Todo module **v21** published active (UI `6302b079c402fa25da3097f024863b59027b16732f60a8c64e9c11b6b0f47eda`, 131352B, source digest `a42db8cf949e677c3ac36ca6dc2a6e2afc824c58903148b9504857ab788220ab` matching review). Agent config swept in the same delivery (no thin aliases): 11 live call sites across `AGENTS.md` (7), `dev` (2), `impl` (1), `review` (1) migrated to `y todo status <id> <status> [--chat]`, home repo commit `ef7b6a6`, unpushed. Automatic eligibility deliberately unchanged and re-verified: human auto-resume still requires human provenance plus current awaiting, `claim_fault` stays active-only with matching timestamp, liveness scan stays active-only, `death_delivery` routes only through guarded `claim_fault`, so lifting the explicit restriction cannot let the watchdog revive closed work. Verification: 25-pair storage suite 36/36 plus 5, CLI 9/9, API 6/6, worker 34/34 on isolated databases, module router matrix 92/92, independently rerun by review. Production smoke was deliberately limited to non-mutating checks (no-op status write, client-side `--chat` rejection, retired commands absent); closed-to-awaiting was not exercised against production data because that would mean marking user-owned work completed or pushing a real row into the inbox. Digest note: the published UI sha256 differs from the review-recorded worktree build purely because esbuild embeds build-relative path comments (about 17B x 47 modules); first divergence verified to be a comment, and `source_digest` is identical. **Rollback hazard: `y module activate todo 20` is no longer safe now that the host routes are removed, because v20 is the version that calls `/api/todo/await|resume`; a module problem must be fixed forward or rolled back together with the host.** Ordering was module-publish-first then host-deploy, so the live v20 bundle never lost its routes mid-flight. Publication slots: y-module generation 2->4, y-agent generation 5->8 after an enqueue behind trace 3515 (waiter granted, no polling). Open: y-module `main` still carries unpushed commits across several traces (all already published as module versions); the home-repo config commit `ef7b6a6` is unpushed |
 | 3641 | Reduce `CheckTraceLivenessSchedule` idle grace to five minutes (`IDLE_GRACE_SECONDS = 5 * 60`); suppressors, notice dedup, active-only scan, and the 24-hour zero-chat backstop unchanged | - | `pages/plan-3641-liveness-idle-grace.md` | - | `pages/review-3641-liveness-idle-grace.md` | reviewed; 12 unit and 14 integration tests passed; publication pending authorization. Implementation: `pages/impl-3641-liveness-idle-grace.md` |
 | 3645 | Awaiting notice heading is the one-line `【progress】<id> <todo name>` form. Iteration 1 shipped the two-line `【progress】todo <id>` + name form and removed `needs you`; iteration 2 removes the literal `todo` and the newline between id and name. Optional entry/fault context follows on the second line | - | - | - | `pages/review-3645-awaiting-heading.md` | iteration 1 shipped, iteration 2 is the superseding candidate. Iteration 1 (`7754fc9`, two-line `【progress】todo <id>` + name) deployed to main/production via Actions run 35689489869; production renders that superseded form until iteration 2 ships. Iteration 2 collapses the heading to one line and is a separate candidate requiring its own authorization. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, dedup, entry-only validation, pointer persistence, escaping through `markdown_to_telegram_html` and transport unchanged; limits stay name 120, fault context 1000, writer summary 200. Review approved at round 3 after a round-2 blocking finding (the local byte-for-byte notice suite still pinned the removed `Todo <id> needs you` while the feature home claimed coverage of the new shape); storage notice suite now 20/20. Named non-blocking cleanup carried forward: `worker/tests/test_watchdog_integration_3458.py:124` still asserts `'Todo t needs you'` and will fail once that suite runs against a database; it is untracked and outside the candidate. Duplicate todo 3647 was stopped and soft-deleted; its preserved edits were used as read-only reference only and its worktree was never adopted in the same worktree; review of iteration 1 does not cover this heading. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, post-commit best-effort delivery, dedup, entry-only validation, pointer persistence, escaping and transport unchanged; writer-summary bound stays 200 chars, name 120, fault context 1000. Prior publication authorization covers only the iteration-1 candidate |
+| 3655 | Registered scheduled chat wakeups (`chat_wakeup` kernel table) replace tmux sleep timers for pure time waits: `y chat --chat-id <id> -m "..." --at <+Ns/m/h/d \| ISO8601>` registers a durable wakeup (owner-scoped, no manager root, target chat must carry a trace_id, 7-day max horizon), `y chat wakeup list\|cancel` manage it, a new per-minute `deliver_chat_wakeups` worker schedule delivers it as an ordinary machine dispatch (never auto-resumes awaiting) reusing the todo 3493 outbox pattern, and `check_trace_liveness` folds a pending/accepted wakeup within `due_at + grace` into its liveness evidence (batched `pending_wakeup_traces` plus the under-lock `has_pending_wakeup` recheck), so a registered wait suppresses the watchdog the same way a pending publication-queue receipt already does | - | `pages/plan-3655-scheduled-chat-wakeup.md` | - | `pages/review-3655-scheduled-chat-wakeup.md` | reviewed (round 2 approve) and frozen as a candidate, not yet published. Worktree `/Users/roy/luohy15/code/y-agent-scheduled-wakeup-3655` (branch `candidate-scheduled-wakeup-3655`, rooted at origin/main `4747cd8`). Migration `migration/3655_chat_wakeup.sql` (expand-only, idempotent, verified twice against a scratch cluster) is maintainer-applied SQL, not yet run; both `CheckTraceLivenessSchedule` (now reads `chat_wakeup`) and the new `DeliverChatWakeupsSchedule` (enabled by default, `rate(1 minute)`) require it applied before this candidate deploys. Storage/worker/API/CLI tests: 32 storage (scratch PostgreSQL, `CHAT_WAKEUP_PG_3655=1`), 4 watchdog-evidence integration (same cluster), 6 worker-step mocked, 10 API mocked, 15 CLI all green; pre-existing baseline drift noted, not touched: two stale hardcoded-grace assertions and a cwd-relative handler-path load in `worker/tests/test_check_trace_liveness.py` (unrelated to this candidate, same class of issue already logged against this file under todo 3645's row). Round 1 requested changes on one blocking finding (cancellation and delivery shared no atomic state authority, so a cancelled receipt could still be delivered from a stale batch snapshot, an accepted retry could be re-cancelled after its message was appended, and the API raised instead of returning 409 when a cancel lost the race); round 2 approved the repair, which locks the owner-scoped receipt for both transitions and commits append, run reservation, attention clear, accepted state and the enqueue obligation in one transaction, keeping `accepted` monotonic across retries (`pages/impl-3655-wakeup-r1.md`). Optional caller-owned session plumbing in `storage/repository/chat.py` and `storage/service/chat.py` exists to make that acceptance atomic; normal callers keep their own transactions and the existing todo-before-chat lock order is preserved. Both round-1 non-blocking suggestions are addressed: the 300-second grace is asserted equal across storage and worker, and the fixed future fixture dates are now clock-relative. Round 2 verification: 73/73 focused tests plus 4 ordinary delivery tests, zero unexpected database connections, race coverage for stale-snapshot cancellation, cancellation blocking behind in-flight acceptance, rollback on injected append failure and accepted-retry cancellation rejection. Not yet done: publication authorization, production migration, integration, deploy |

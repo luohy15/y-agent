@@ -431,6 +431,7 @@ async def accept_user_message(
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     event_id: Optional[str] = None,
+    session=None,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
     skill: Optional[str] = None,
@@ -466,9 +467,12 @@ async def accept_user_message(
     chat, already_running = chat_repo.accept_or_start_chat(
         user_id, chat.id, message=user_msg, human_reply=human_reply,
         trace_id=trace_id, topic=topic, skill=skill,
-        event_id=event_id,
+        event_id=event_id, session=session,
     )
-    clear_attention_on_reply(user_id, chat.id)
+    if session is None:
+        clear_attention_on_reply(user_id, chat.id)
+    else:
+        chat_repo.clear_attention_and_unread(user_id, chat.id, session=session)
     return DispatchAcceptance(chat=chat, already_running=already_running)
 
 

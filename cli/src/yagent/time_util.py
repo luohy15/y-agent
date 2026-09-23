@@ -1,6 +1,7 @@
 """Timezone conversion utilities for CLI display."""
 
 import os
+import re
 from datetime import datetime, timezone, timedelta
 
 
@@ -53,6 +54,40 @@ def local_to_utc(local_str: str) -> str:
         except ValueError:
             continue
     raise ValueError(f"Cannot parse datetime: {local_str}")
+
+
+_RELATIVE_AT = re.compile(r'^\+(\d+)([smhd])$')
+_RELATIVE_UNITS = {'s': 'seconds', 'm': 'minutes', 'h': 'hours', 'd': 'days'}
+
+
+def resolve_due_at(at: str) -> str:
+    """Resolve a `y chat --at` value to a UTC ISO 8601 instant (todo 3655).
+
+    Accepts a relative offset (`+30m`, `+2h`, `+1d`, `+90s`) resolved against
+    the current instant, or an absolute ISO 8601 value. An absolute value with
+    an explicit offset (or `Z`) is converted directly; a naive absolute value
+    is read in the configured timezone via `local_to_utc`.
+    """
+    value = at.strip()
+    match = _RELATIVE_AT.match(value)
+    if match:
+        amount, unit = match.groups()
+        delta = timedelta(**{_RELATIVE_UNITS[unit]: int(amount)})
+        due = datetime.now(timezone.utc) + delta
+        return due.strftime("%Y-%m-%dT%H:%M:%S.") + f"{due.microsecond // 1000:03d}Z"
+
+    probe = value.replace("Z", "+00:00") if value.endswith("Z") else value
+    try:
+        dt = datetime.fromisoformat(probe)
+    except ValueError:
+        raise ValueError(
+            f"Cannot parse --at value: {at!r}. Use +<N>{{s,m,h,d}} (e.g. +30m) or ISO 8601."
+        )
+    if dt.tzinfo is None:
+        # Naive: delegate to local_to_utc for the configured-timezone reading.
+        return local_to_utc(value)
+    utc_dt = dt.astimezone(timezone.utc)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc_dt.microsecond // 1000:03d}Z"
 
 
 def local_date_to_utc_range(date_str: str) -> tuple[str, str]:

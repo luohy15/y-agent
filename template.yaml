@@ -507,11 +507,27 @@ Resources:
           # Trace liveness watchdog plus periodic orphan-running-chat
           # maintenance (todo 3458 phase 4). Staged-rollout gates are met
           # (todo 3527); Enabled is omitted so the rule defaults on. Disable
-          # the rule first when rolling the host back.
+          # the rule first when rolling the host back. Since todo 3655 this
+          # pass also reads chat_wakeup as liveness evidence, so
+          # migration/3655_chat_wakeup.sql must be applied before this
+          # deploys (same ordering requirement as DeliverChatWakeupsSchedule
+          # below).
           Type: Schedule
           Properties:
             Schedule: rate(5 minutes)
             Input: '{"action": "check_trace_liveness"}'
+        DeliverChatWakeupsSchedule:
+          # Outbox delivery for registered scheduled chat wakeups (todo
+          # 3655): a durable alternative to a tmux sleep timer. Runs every
+          # minute (finer than the watchdog's 5-minute tick, which would add
+          # too much jitter for a session waiting on a timer). Enabled by
+          # default like CheckTraceLivenessSchedule above: an empty table
+          # means a no-op step, so there is no ordering hazard as long as
+          # migration/3655_chat_wakeup.sql is applied before this deploys.
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Input: '{"action": "deliver_chat_wakeups"}'
 
   # -----------------------------------------------------------------------
   # Admin — database init / migrations

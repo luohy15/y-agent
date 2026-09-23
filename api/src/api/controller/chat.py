@@ -9,7 +9,9 @@ from sse_starlette.sse import EventSourceResponse
 
 from storage.service import bot_config as bot_service
 from storage.service import chat as chat_service
+from storage.service import chat_wakeup as wakeup_service
 from storage.service.chat import send_chat_message
+from storage.service.chat_wakeup import ChatWakeupInvalid
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from storage.entity.dto import Chat, Message
 from storage.repository.chat import ChatIdCollision
@@ -709,4 +711,62 @@ async def get_chat_messages(
             await asyncio.sleep(1)
 
     return EventSourceResponse(event_stream())
+
+
+class CreateChatWakeupRequest(BaseModel):
+    chat_id: str
+    message: str
+    due_at: str
+    trace_id: Optional[str] = None
+    from_chat_id: Optional[str] = None
+    from_topic: Optional[str] = None
+
+
+class CancelChatWakeupRequest(BaseModel):
+    wakeup_id: str
+
+
+@router.post("/wakeup")
+async def post_create_chat_wakeup(req: CreateChatWakeupRequest, request: Request):
+    """Register a durable server-side wakeup (todo 3655): delivered into the
+    target chat as an ordinary dispatch at due_at, and treated as
+    trace-liveness watchdog evidence until then."""
+    user_id = _get_user_id(request)
+    try:
+        wakeup = await wakeup_service.create_wakeup(
+            user_id, req.chat_id, req.message, req.due_at,
+            trace_id=req.trace_id, from_chat_id=req.from_chat_id, from_topic=req.from_topic,
+        )
+    except ChatWakeupInvalid as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return wakeup.to_dict()
+
+
+@router.get("/wakeup")
+async def get_list_chat_wakeups(
+    request: Request,
+    trace_id: Optional[str] = Query(None),
+    show_all: bool = Query(False, alias="all"),
+    limit: int = Query(50),
+):
+    user_id = _get_user_id(request)
+    wakeups = wakeup_service.list_wakeups(user_id, trace_id=trace_id, all_statuses=show_all, limit=limit)
+    return [w.to_dict() for w in wakeups]
+
+
+@router.post("/wakeup/cancel")
+async def post_cancel_chat_wakeup(req: CancelChatWakeupRequest, request: Request):
+    user_id = _get_user_id(request)
+    existing = wakeup_service.get_wakeup(user_id, req.wakeup_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="wakeup not found")
+    if existing.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"wakeup is '{existing.status}', only a pending wakeup can be cancelled",
+        )
+    cancelled = wakeup_service.cancel_wakeup(user_id, req.wakeup_id)
+    if cancelled is None:
+        raise HTTPException(status_code=409, detail="wakeup is no longer pending")
+    return cancelled.to_dict()
 

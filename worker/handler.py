@@ -31,6 +31,9 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "recover_release_grants":
         from worker.steps.recover_release_grants import handle_recover_release_grants
         return asyncio.run(handle_recover_release_grants())
+    if action == "deliver_chat_wakeups":
+        from worker.steps.deliver_chat_wakeups import handle_deliver_chat_wakeups
+        return asyncio.run(handle_deliver_chat_wakeups())
     if action == "fetch_rss_links":
         from worker.steps.fetch_rss_links import handle_fetch_rss_links
         return asyncio.run(handle_fetch_rss_links())
