@@ -2,6 +2,9 @@
 dev_docs
 .DS_Store
 tmp
+
+# @y/design host consumption check build output (todo 3657/3666)
+dist-design-fixture/
 # Logs
 
 logs

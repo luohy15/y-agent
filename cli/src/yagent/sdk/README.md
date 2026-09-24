@@ -90,7 +90,7 @@ shared UI runtime.
 ## @y/design (todo 3657)
 
 `@y/design` is a build-time input, not a host external. `package.json` pins
-`file:./vendor/y-design-0.1.0.tgz`, which ships inside this SDK directory so the
+`file:./vendor/y-design-0.2.0.tgz`, which ships inside this SDK directory so the
 same relative path resolves after `ensure_sdk` copies the tree to
 `y-module/.sdk`. The host pins that same tarball. `build.mjs` aliases the
 package root to a staged copy of the ESM entry (`.cache/y-design/`, rebuilt from
