@@ -78,9 +78,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   `now < due_at + grace`, `check_trace_liveness` treats it as liveness evidence on
   that trace (batched `pending_wakeup_traces` plus the under-lock
   `has_pending_wakeup` recheck), the same way a pending `dev_release_waiter`
-  already does; delivery bumps the chat's activity so ordinary idle detection
-  resumes on its own, and a wakeup stuck undelivered past the grace stops
-  suppressing.
+  already does; delivery leaves the chat SQL-running, which is itself
+  evidence, and once the run finishes a delivered wakeup no longer suppresses.
+  A wakeup stuck undelivered past the grace stops suppressing.
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
   JSON `front_matter`; it is used for plan / requirement / decision / journal

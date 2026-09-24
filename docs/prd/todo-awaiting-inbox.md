@@ -198,10 +198,11 @@ live work exists; enablement remains a separate rollout step.
 29. As Roy, I want a scheduled server-side job, not a session, to check
     every active todo every five minutes, so that liveness is guaranteed by
     the system and the no-poll rule for agents stays exactly as it is.
-30. As Roy, I want a trace with no running process record, no chat marked
-    running, no pending publication-queue receipt, and no activity for five
-    minutes to be moved from active to awaiting, so that a silent death or a
-    session that stopped without declaring anything is caught within minutes.
+30. As Roy, I want a trace that already has a chat, and that has no running
+    process record, no chat marked running, and no pending publication-queue
+    receipt, to be moved from active to awaiting at the next five-minute scan,
+    so that a silent death or a session that stopped without declaring
+    anything is caught without an extra idle wait.
 31. As Roy, I want the stall message to name the trace, the last session,
     its exit status, and its error text, so that I can decide the next action
     from the message alone.
@@ -622,19 +623,23 @@ expressed as a branch:
   the orphan maintenance below before classification and reports both
   results. This task has not checked live AWS state or enabled it. Do not
   claim runtime recovery guarantees from design-only checks.
-- **Classification is a pure function** over (live, chat count, last
-  activity, created time, now) returning idle, backstop, or nothing. It no
-  longer reads a reason field or `awaiting_until`. Each suppressor stands
-  alone. Zero-chat todos fall only under the 24-hour backstop, never the
-  five-minute idle rule. The pass scans `status == "active"` only.
+- **Classification is a pure function** over (live, chat count, created
+  time, now) returning idle, backstop, or nothing. It no longer reads a
+  reason field, `awaiting_until`, or last activity. Each suppressor stands
+  alone. A trace that already has chats is idle as soon as live evidence is
+  absent; there is no extra idle duration. Zero-chat todos fall only under
+  the 24-hour backstop. The pass scans `status == "active"` only. The
+  schedule itself stays every five minutes, so a finished-but-undeclared
+  trace is claimed on the next tick.
 - **Evidence.** The pass first takes a fully paginated process snapshot
   keyed by owner (live by owner plus trace id, and by owner plus chat id
   mapped back to the chat's persisted trace). A snapshot failure aborts the
   pass before any SQL read or write, because a partial snapshot is unknown,
   not empty. Active todos are read across all owners in keyset batches with
-  one grouped chat aggregate per batch (count, newest chat update, running
-  count). Last activity is the newer of the todo's update time and the
-  newest chat update on the trace.
+  one grouped chat aggregate per batch (count, running count). Chat recency
+  is not an input. The under-lock recheck still orders chats by
+  `updated_at_unix` descending so the notice pointer and outcome come from
+  the newest chat.
 - **Publication queue is existing real dependency, not a todo flag.** Todo
   3493's park/unpark writes of `external` are removed. A same-owner trace's
   pending `dev_release_waiter` suppresses idle fault classification,
@@ -654,8 +659,9 @@ expressed as a branch:
   under-lock recheck (`has_pending_wakeup`, folded into the same batch pass
   as `pending_wakeup_traces`). Its own scheduled delivery pass
   (`deliver_chat_wakeups`, every minute) appends the message as an ordinary
-  dispatch and enqueues the worker; that append bumps the chat's activity, so
-  ordinary idle detection resumes on its own once delivered. A wakeup stuck
+  dispatch and enqueues the worker; that append leaves the chat SQL-running,
+  which is itself evidence, and once the run finishes a delivered wakeup no
+  longer suppresses. A wakeup stuck
   undelivered past due_at plus grace stops suppressing, so a stall in the
   delivery path itself is still caught, not hidden behind an unbounded wait.
   The maximum registrable horizon is 7 days.
@@ -702,7 +708,10 @@ expressed as a branch:
   nothing; a per-candidate lookup failure leaves that chat running, is
   counted, and marks the sweep `degraded`. A start that lands between the
   page read and the locked clear wins. No direct death delivery was added
-  for orphans or tail exhaustion.
+  for orphans or tail exhaustion. Crash detection stays bounded by this
+  sweep: a crashed run leaves its chat SQL-running, which suppresses the
+  evidence-only classifier until the 15-minute orphan grace clears it. This
+  change only speeds up cleanly finished runs.
 
 ### Contract text and trace-terminal ownership
 
@@ -883,10 +892,11 @@ Tests are local-only and untracked per repo convention.
   once; post hooks are asserted absent on every arm; the timeout handler
   reaches the same arms.
 - **Watchdog classification** is a pure function over (live, chat count,
-  last activity age, todo age) tested as a table, with a row per suppressor
-  proving it alone prevents a stall. Two consecutive passes produce one
-  push. The backstop row fires once. A mutation test asserts the pass never
-  writes progress or a chat.
+  todo age) tested as a table, with a row per suppressor proving it alone
+  prevents a stall. A trace with chats and no live evidence is idle on the
+  same scan, including one whose chats were just updated. Two consecutive
+  passes produce one push. The backstop row fires once. A mutation test
+  asserts the pass never writes progress or a chat.
 - **Owner scoping** follows the chat-core precedent: two todos sharing a
   public id under different users, asserting every awaiting read and write
   touches only the owner's row.
@@ -912,8 +922,9 @@ Tests are local-only and untracked per repo convention.
 - **Orphan maintenance** tests prove a stale successful scan cannot clear a
   chat whose fresh consistent read is running, another owner's identical
   public id is not evidence, a lookup failure preserves that row while the
-  sweep continues, and a swept chat is detected exactly at the following
-  five-minute grace.
+  sweep continues, and a swept chat (no longer SQL-running, no other live
+  evidence) is claimed on the next scan with no extra idle wait. Crash
+  detection itself stays bounded by the 15-minute orphan grace above.
 - The suites actually run and their counts are recorded per slice in the
   review notes listed under Delivery Records.
 
@@ -931,8 +942,8 @@ Tests are local-only and untracked per repo convention.
 - **Removing `chat.needs_attention`** and its API, CLI, module wiring, and
   contract version. Left as dead code for a later cleanup.
 - **Direct delivery for the tail-retry-exhausted and orphan-running-chat
-  paths.** Covered by the watchdog's five-minute grace, not by targeted
-  messages.
+  paths.** Covered by the watchdog once the orphan sweep clears the
+  SQL-running row, not by targeted messages.
 - **Multiple simultaneous questions on one trace.** `awaiting_chat` holds
   one pointer; leaf sessions are expected to route questions through their
   parent, so one question per trace at a time is the contract. Widen to a
@@ -984,3 +995,4 @@ Tests are local-only and untracked per repo convention.
 | 3641 | Reduce `CheckTraceLivenessSchedule` idle grace to five minutes (`IDLE_GRACE_SECONDS = 5 * 60`); suppressors, notice dedup, active-only scan, and the 24-hour zero-chat backstop unchanged | - | `pages/plan-3641-liveness-idle-grace.md` | - | `pages/review-3641-liveness-idle-grace.md` | reviewed; 12 unit and 14 integration tests passed; publication pending authorization. Implementation: `pages/impl-3641-liveness-idle-grace.md` |
 | 3645 | Awaiting notice heading is the one-line `【progress】<id> <todo name>` form. Iteration 1 shipped the two-line `【progress】todo <id>` + name form and removed `needs you`; iteration 2 removes the literal `todo` and the newline between id and name. Optional entry/fault context follows on the second line | - | - | - | `pages/review-3645-awaiting-heading.md` | iteration 1 shipped, iteration 2 is the superseding candidate. Iteration 1 (`7754fc9`, two-line `【progress】todo <id>` + name) deployed to main/production via Actions run 35689489869; production renders that superseded form until iteration 2 ships. Iteration 2 collapses the heading to one line and is a separate candidate requiring its own authorization. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, dedup, entry-only validation, pointer persistence, escaping through `markdown_to_telegram_html` and transport unchanged; limits stay name 120, fault context 1000, writer summary 200. Review approved at round 3 after a round-2 blocking finding (the local byte-for-byte notice suite still pinned the removed `Todo <id> needs you` while the feature home claimed coverage of the new shape); storage notice suite now 20/20. Named non-blocking cleanup carried forward: `worker/tests/test_watchdog_integration_3458.py:124` still asserts `'Todo t needs you'` and will fail once that suite runs against a database; it is untracked and outside the candidate. Duplicate todo 3647 was stopped and soft-deleted; its preserved edits were used as read-only reference only and its worktree was never adopted in the same worktree; review of iteration 1 does not cover this heading. Single renderer `awaiting_notice_text` in `storage/src/storage/service/todo.py` serves both `update_status` entry notices and `claim_fault` fault notices via `_maybe_notice`; there is no separate web heading. Triggers, post-commit best-effort delivery, dedup, entry-only validation, pointer persistence, escaping and transport unchanged; writer-summary bound stays 200 chars, name 120, fault context 1000. Prior publication authorization covers only the iteration-1 candidate |
 | 3655 | Registered scheduled chat wakeups (`chat_wakeup` kernel table) replace tmux sleep timers for pure time waits: `y chat --chat-id <id> -m "..." --at <+Ns/m/h/d \| ISO8601>` registers a durable wakeup (owner-scoped, no manager root, target chat must carry a trace_id, 7-day max horizon), `y chat wakeup list\|cancel` manage it, a new per-minute `deliver_chat_wakeups` worker schedule delivers it as an ordinary machine dispatch (never auto-resumes awaiting) reusing the todo 3493 outbox pattern, and `check_trace_liveness` folds a pending/accepted wakeup within `due_at + grace` into its liveness evidence (batched `pending_wakeup_traces` plus the under-lock `has_pending_wakeup` recheck), so a registered wait suppresses the watchdog the same way a pending publication-queue receipt already does | - | `pages/plan-3655-scheduled-chat-wakeup.md` | - | `pages/review-3655-scheduled-chat-wakeup.md` | reviewed (round 2 approve) and frozen as a candidate, not yet published. Worktree `/Users/roy/luohy15/code/y-agent-scheduled-wakeup-3655` (branch `candidate-scheduled-wakeup-3655`, rooted at origin/main `4747cd8`). Migration `migration/3655_chat_wakeup.sql` (expand-only, idempotent, verified twice against a scratch cluster) is maintainer-applied SQL, not yet run; both `CheckTraceLivenessSchedule` (now reads `chat_wakeup`) and the new `DeliverChatWakeupsSchedule` (enabled by default, `rate(1 minute)`) require it applied before this candidate deploys. Storage/worker/API/CLI tests: 32 storage (scratch PostgreSQL, `CHAT_WAKEUP_PG_3655=1`), 4 watchdog-evidence integration (same cluster), 6 worker-step mocked, 10 API mocked, 15 CLI all green; pre-existing baseline drift noted, not touched: two stale hardcoded-grace assertions and a cwd-relative handler-path load in `worker/tests/test_check_trace_liveness.py` (unrelated to this candidate, same class of issue already logged against this file under todo 3645's row). Round 1 requested changes on one blocking finding (cancellation and delivery shared no atomic state authority, so a cancelled receipt could still be delivered from a stale batch snapshot, an accepted retry could be re-cancelled after its message was appended, and the API raised instead of returning 409 when a cancel lost the race); round 2 approved the repair, which locks the owner-scoped receipt for both transitions and commits append, run reservation, attention clear, accepted state and the enqueue obligation in one transaction, keeping `accepted` monotonic across retries (`pages/impl-3655-wakeup-r1.md`). Optional caller-owned session plumbing in `storage/repository/chat.py` and `storage/service/chat.py` exists to make that acceptance atomic; normal callers keep their own transactions and the existing todo-before-chat lock order is preserved. Both round-1 non-blocking suggestions are addressed: the 300-second grace is asserted equal across storage and worker, and the fixed future fixture dates are now clock-relative. Round 2 verification: 73/73 focused tests plus 4 ordinary delivery tests, zero unexpected database connections, race coverage for stale-snapshot cancellation, cancellation blocking behind in-flight acceptance, rollback on injected append failure and accepted-retry cancellation rejection. Not yet done: publication authorization, production migration, integration, deploy |
+| 3677 | Watchdog claims an `active` trace that already has chats on evidence alone: delete `IDLE_GRACE_SECONDS` and last-activity from `classify`, keep the five-minute scan cadence, all four suppressors, the under-lock recheck, and the 24-hour zero-chat backstop. `chat_wakeup.EVIDENCE_GRACE_SECONDS` stays 300 as its own late-delivery tolerance. Crash detection stays bounded by the 15-minute orphan sweep. Idle fault sentence is `No running session.` with the same chat suffix and redacted excerpt. Tracked `AGENTS.md` wakeup sentence now says delivery leaves the chat SQL-running rather than restarting an idle clock | - | `pages/plan-3677-watchdog-evidence-only.md` | `pages/root-cause-3677-trace-3672-awaiting.md` | `pages/review-3677-watchdog-evidence-only.md` | reviewed locally (round 2 approve), not published. Global `AGENTS.md` "机器等待与看门狗" still says a five-minute idle wait; correcting that one runtime sentence is a reported follow-up, not part of this candidate |

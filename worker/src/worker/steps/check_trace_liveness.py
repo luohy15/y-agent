@@ -1,12 +1,13 @@
 """Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2).
 
-Observation plus one conditional transition. A trace that is not live and
-silent past its grace becomes `awaiting` once, with a bounded fault detail
-folded into the shared owner-notice history entry. The pass only claims
-`active` todos (the query already excludes anything already in the awaiting
-inbox); it never touches progress or chats, and never enqueues work. Periodic
-orphan-running-chat maintenance is a separate step run by the scheduled
-dispatcher before this one.
+Observation plus one conditional transition. An `active` trace with no live
+machine evidence becomes `awaiting` once, with a bounded fault detail folded
+into the shared owner-notice history entry. A trace that already has chats
+needs no extra idle duration; a zero-chat trace still waits out the 24-hour
+backstop. The pass only claims `active` todos (the query already excludes
+anything already in the awaiting inbox); it never touches progress or chats,
+and never enqueues work. Periodic orphan-running-chat maintenance is a
+separate step run by the scheduled dispatcher before this one.
 """
 
 from typing import Optional
@@ -25,23 +26,17 @@ from storage.util import get_unix_timestamp
 from worker.process_manager import get_process, get_running_processes
 
 LOCK_NAME = "check_trace_liveness"
-IDLE_GRACE_SECONDS = 5 * 60
 ZERO_CHAT_BACKSTOP_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 200
 ERROR_TEXT_LIMIT = 1000
 
 
-def _last_activity(todo_updated_ms, chat_max_ms) -> Optional[int]:
-    values = [v for v in (todo_updated_ms, chat_max_ms) if v]
-    return max(values) if values else None
-
-
-def classify(*, live, chat_count, last_activity_ms, created_at_ms, now_ms) -> Optional[str]:
+def classify(*, live, chat_count, created_at_ms, now_ms) -> Optional[str]:
     """Pure classifier: the stall reason (idle / backstop) or None.
 
-    A live process/chat suppresses; zero-chat todos only ever fall under the
-    24-hour backstop; everything else uses the five-minute idle grace against
-    the newer of the todo's own timestamp and its newest chat's activity.
+    A live process/chat suppresses. Zero-chat todos only ever fall under the
+    24-hour backstop. A trace that already has chats is idle as soon as that
+    evidence is gone; there is no extra idle duration.
     """
     if live:
         return None
@@ -49,9 +44,7 @@ def classify(*, live, chat_count, last_activity_ms, created_at_ms, now_ms) -> Op
         if not created_at_ms:
             return None
         return "backstop" if now_ms - created_at_ms >= ZERO_CHAT_BACKSTOP_SECONDS * 1000 else None
-    if last_activity_ms is None:
-        return None
-    return "idle" if now_ms - last_activity_ms >= IDLE_GRACE_SECONDS * 1000 else None
+    return "idle"
 
 
 def _process_snapshot():
@@ -70,16 +63,15 @@ def _process_snapshot():
 
 def _chat_aggregates(session, user_ids, trace_ids) -> dict:
     rows = (session.query(ChatEntity.user_id, ChatEntity.trace_id, func.count(ChatEntity.id),
-                          func.max(ChatEntity.updated_at_unix),
                           func.sum(case((ChatEntity.status == "running", 1), else_=0)))
             .filter(ChatEntity.user_id.in_(user_ids), ChatEntity.trace_id.in_(trace_ids))
             .group_by(ChatEntity.user_id, ChatEntity.trace_id).all())
-    return {(r[0], r[1]): (r[2], r[3], int(r[4] or 0)) for r in rows}
+    return {(r[0], r[1]): (r[2], int(r[3] or 0)) for r in rows}
 
 
 def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     detail = {
-        "idle": f"No running session and no activity for {IDLE_GRACE_SECONDS // 60}+ minutes.",
+        "idle": "No running session.",
         "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the trace.",
     }[reason]
     if chat_id:
@@ -126,7 +118,6 @@ def _claim_fault(todo, reason) -> str:
                 newest_record = record
         current = classify(
             live=False, chat_count=len(chats),
-            last_activity_ms=_last_activity(row.updated_at_unix, chats[0].updated_at_unix if chats else None),
             created_at_ms=row.created_at_unix, now_ms=get_unix_timestamp(),
         )
         if current is None:
@@ -183,10 +174,9 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
         counts["scanned"] += len(todos)
         for todo in todos:
             key = (todo.user_id, todo.todo_id)
-            chat_count, chat_max, running = aggregates.get(key, (0, None, 0))
+            chat_count, running = aggregates.get(key, (0, 0))
             reason = classify(
                 live=key in live_traces or running > 0 or key in wakeup_traces, chat_count=chat_count,
-                last_activity_ms=_last_activity(todo.updated_at_unix, chat_max),
                 created_at_ms=todo.created_at_unix, now_ms=now_ms,
             )
             if reason is None:

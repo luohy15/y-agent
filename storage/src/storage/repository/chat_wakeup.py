@@ -12,8 +12,9 @@ from storage.entity.chat_wakeup import ChatWakeupEntity
 from storage.entity.user import UserEntity
 from storage.util import get_unix_timestamp
 
-# Kept equal to worker.steps.check_trace_liveness.IDLE_GRACE_SECONDS;
-# worker/tests/test_watchdog_wakeup_evidence_3655.py asserts this contract.
+# Tolerance for a wakeup that is due but not yet delivered. Independent of
+# the watchdog classifier: a registered wait suppresses until due_at plus this
+# window, then a stuck delivery is claimed like any other missing evidence.
 EVIDENCE_GRACE_SECONDS = 5 * 60
 
 
