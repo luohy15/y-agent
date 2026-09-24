@@ -303,6 +303,10 @@ not React hook structure or a particular debounce implementation.
   authenticated preference store satisfies the requirement.
 - Hardening unrelated File operation contracts, including the existing move
   route's note-pointer hazard.
+- When web data is automatically re-read, and the centre tab's own refresh
+  chrome - owned by [web-refresh-policy](web-refresh-policy.md). This PRD's
+  "explicit refresh" is the tree's own re-list action over persisted navigation
+  state, not a centre-tab revalidation policy.
 
 ## Delivery Records
 

@@ -16,6 +16,7 @@ import {
 } from "./loader";
 import { DetailContextProvider } from "./detailContext";
 import { PanelLocationProvider } from "./panelLocation";
+import { TabRefreshProvider, type TabRefreshEntry } from "./tabRefresh";
 
 type FailureKind = ArtifactLoadErrorKind | "render";
 
@@ -206,6 +207,10 @@ interface ArtifactMountProps {
   // Contract v8: host-only per-detail-mount context, exposed through
   // `useDetailContext()` on surface="detail". Ignored on panel/shell.
   detailContext?: unknown;
+  // Contract v16: reports the refresh handler the mounted detail surface
+  // registered (or null when it unregisters / unmounts). Held in a ref so an
+  // inline arrow does not re-render the mount. Ignored on panel/shell.
+  onRefreshChange?: (entry: TabRefreshEntry | null) => void;
 }
 
 export default function ArtifactMount({
@@ -219,6 +224,7 @@ export default function ArtifactMount({
   fallback,
   panelLocation,
   detailContext,
+  onRefreshChange,
 }: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
 
@@ -226,6 +232,8 @@ export default function ArtifactMount({
   // load effect on every host re-render.
   const onDetailAvailableRef = useRef(onDetailAvailable);
   onDetailAvailableRef.current = onDetailAvailable;
+  const onRefreshChangeRef = useRef(onRefreshChange);
+  onRefreshChangeRef.current = onRefreshChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -329,7 +337,13 @@ export default function ArtifactMount({
     return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
   }
   if (surface === "detail") {
-    return <DetailContextProvider value={detailContext ?? null}>{body}</DetailContextProvider>;
+    return (
+      <DetailContextProvider value={detailContext ?? null}>
+        <TabRefreshProvider onChange={(entry) => onRefreshChangeRef.current?.(entry)}>
+          {body}
+        </TabRefreshProvider>
+      </DetailContextProvider>
+    );
   }
   return body;
 }

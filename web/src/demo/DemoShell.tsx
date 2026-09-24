@@ -8,6 +8,9 @@
 //
 // In-shell navigation is local React state and resets on full page load.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import type { TabRefreshEntry } from "../host/tabRefresh";
+import TabRefreshButton from "../components/shell/TabRefreshButton";
+import { runTabRefresh } from "../components/shell/tabRefreshState";
 import ActivityBar, {
   BUILT_IN_PANEL_ITEMS,
   type SidebarPanel,
@@ -71,12 +74,14 @@ function SlotMount({
   surface,
   panelLocation,
   detailContext,
+  onRefreshChange,
 }: {
   demos: Map<string, PublicDemoRef | null>;
   demoKey: string;
   surface: "panel" | "detail" | "shell";
   panelLocation?: "left" | "right";
   detailContext?: unknown;
+  onRefreshChange?: (entry: TabRefreshEntry | null) => void;
 }) {
   const demo = demos.get(demoKey);
   if (!demo) return <DemoUnavailable />;
@@ -87,6 +92,7 @@ function SlotMount({
       surface={surface}
       panelLocation={panelLocation}
       detailContext={detailContext}
+      onRefreshChange={onRefreshChange}
     />
   );
 }
@@ -108,6 +114,14 @@ export default function DemoShell() {
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
   const leftResizeRef = useRef(false);
   const rightResizeRef = useRef(false);
+  const [detailRefresh, setDetailRefresh] = useState<TabRefreshEntry | null>(null);
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+
+  const onDetailRefresh = useCallback(() => {
+    if (!detailRefresh || detailRefreshing) return;
+    setDetailRefreshing(true);
+    runTabRefresh(() => detailRefresh.handler(), () => setDetailRefreshing(false));
+  }, [detailRefresh, detailRefreshing]);
 
   useEffect(() => {
     let cancelled = false;
@@ -400,7 +414,20 @@ export default function DemoShell() {
             onClose={() => {
               host.setDetailTab(null);
             }}
-            breadcrumb={<FileBreadcrumb path={crumb} />}
+            breadcrumb={
+              <FileBreadcrumb
+                path={crumb}
+                trailing={
+                  detailRefresh ? (
+                    <TabRefreshButton
+                      title={detailRefresh.title || "Refresh"}
+                      spinning={detailRefreshing}
+                      onClick={onDetailRefresh}
+                    />
+                  ) : undefined
+                }
+              />
+            }
           />
           <div className="flex-1 min-h-0 overflow-hidden">
             <SlotMount
@@ -408,6 +435,7 @@ export default function DemoShell() {
               demoKey="todo"
               surface="detail"
               detailContext={todoDetailContext}
+              onRefreshChange={setDetailRefresh}
             />
           </div>
         </div>

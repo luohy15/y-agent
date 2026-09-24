@@ -22,6 +22,7 @@ import { runHostCommand } from "./commands";
 import { openArtifactDetail, useArtifactIntent } from "./intents";
 import { useDetailContext } from "./detailContext";
 import { usePanelLocation } from "./panelLocation";
+import { useTabRefresh } from "./tabRefresh";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
 import { optimisticListMutate } from "../utils/optimisticMutate";
@@ -95,6 +96,10 @@ export const hostSdk = {
 
   // detailContext.ts (contract v8) — per-detail-mount host context.
   useDetailContext,
+
+  // tabRefresh.ts (contract v17) — detail surface registers the handler the
+  // host tab refresh control calls. Pure registration, no network.
+  useTabRefresh,
 
   // commands.ts (contract v4) — artifact -> host named command channel
   runHostCommand,

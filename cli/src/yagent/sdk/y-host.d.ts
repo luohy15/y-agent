@@ -289,6 +289,19 @@ declare module "@y/host" {
   /** Read the host-only context for this detail mount (generic; shape is host-defined). */
   export function useDetailContext<T = unknown>(): T | null;
 
+  // tabRefresh.ts (contract v17) — register this detail surface's refresh
+  // handler with the host tab chrome. No-op outside a detail surface that
+  // provides the channel (panel, shell, and mounts without tab chrome).
+  // `title` is the control's hover text. The host owns the spinner by awaiting
+  // a returned promise. PromiseLike<unknown> accepts a handler that returns
+  // SWR's mutate promise without voiding it.
+  /** Register the handler the host tab refresh control should call.
+   * Null clears the registration so the control is not offered. */
+  export function useTabRefresh(
+    handler: (() => void | PromiseLike<unknown>) | null,
+    options?: { title?: string },
+  ): void;
+
   // commands.ts — artifact->host named command channel (contract v4). An
   // unregistered name is a silent no-op. Registration is host-internal and
   // not exported here (same partition as setArtifactIntent).

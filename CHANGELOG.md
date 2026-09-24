@@ -13,6 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Tab-level refresh registration (3674)**: `@y/host` browser contract v17 exports `useTabRefresh` so a module detail surface registers the handler the centre-tab chrome calls, instead of shipping its own refresh button.
 - **Per-user activity-bar visibility (3676)**: hide or show modules on the left rail without disabling them or changing order; a Modules recovery action stays in the account menu. Browser contract v16.
 - **Registered chat wakeups (3655)**: `y chat --at` schedules a durable, owner-scoped message to an existing traced chat; pending wakeups count as watchdog liveness evidence until delivery or the grace deadline.
 - **Telegram reply context (3648)**: inbound replies and selected quotes include the referenced message as a blockquote for the agent.

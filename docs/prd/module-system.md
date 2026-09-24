@@ -1121,7 +1121,15 @@ megabytes and hands them to the module as component values on `@y/host`:
 primitive, (since todo 3068 / contract v7) `CodeEditor` (CodeMirror with
 host-lazy language grammars), and (since todo 3179 / contract v10) `TraceView`
 (the authoritative authenticated todo detail / public-trace leaf, including
-waterfall and share). The rule of thumb: **the module owns everything that
+waterfall and share). Browser contract **v16 → v17** (todo 3674) adds
+`useTabRefresh(handler, { title })`: a detail surface registers the one handler
+the host centre-tab refresh control should call. The host renders that control
+only when the active tab's mounted detail has registered one, awaits the
+returned promise, and owns the spinner. The hook is pure registration with no
+network access, so it is on the public demo's allowlist; a module published at
+v17 refuses to mount on an older host. v16 is the activity-bar visibility
+bridge and does not include this hook. Requirements and which per-module buttons
+move live in [web-refresh-policy](web-refresh-policy.md). The rule of thumb: **the module owns everything that
 decides what a message looks like; the host owns every leaf measured in
 megabytes.**
 

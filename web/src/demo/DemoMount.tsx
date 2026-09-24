@@ -6,10 +6,11 @@
 //  - every failure renders one generic state with no version, slug, message,
 //    rollback action, management call, or sign-in path;
 //  - it refuses to load at all unless the restricted runtime is installed.
-import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, useRef, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { loadDemoArtifact, type ArtifactVersionRef, type LoadedArtifact } from "../host/loader";
 import { DetailContextProvider } from "../host/detailContext";
 import { PanelLocationProvider } from "../host/panelLocation";
+import { TabRefreshProvider, type TabRefreshEntry } from "../host/tabRefresh";
 import { isPublicDemoRuntimeInstalled } from "./runtime";
 import { DemoUnavailable } from "./DemoStates";
 
@@ -49,6 +50,7 @@ export interface DemoMountProps {
   surface?: "panel" | "detail" | "shell";
   panelLocation?: "left" | "right";
   detailContext?: unknown;
+  onRefreshChange?: (entry: TabRefreshEntry | null) => void;
 }
 
 export default function DemoMount({
@@ -57,8 +59,11 @@ export default function DemoMount({
   surface = "panel",
   panelLocation,
   detailContext,
+  onRefreshChange,
 }: DemoMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
+  const onRefreshChangeRef = useRef(onRefreshChange);
+  onRefreshChangeRef.current = onRefreshChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +135,13 @@ export default function DemoMount({
     return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
   }
   if (surface === "detail") {
-    return <DetailContextProvider value={detailContext ?? null}>{body}</DetailContextProvider>;
+    return (
+      <DetailContextProvider value={detailContext ?? null}>
+        <TabRefreshProvider onChange={(entry) => onRefreshChangeRef.current?.(entry)}>
+          {body}
+        </TabRefreshProvider>
+      </DetailContextProvider>
+    );
   }
   return body;
 }

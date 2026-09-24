@@ -66,7 +66,9 @@ plus the visibility-gated chat image leaves (`ChatImageScope`, `ChatImage`,
 adds no new export. It adds the host-owned activity-bar visibility bridge:
 the `module` intent carries `activityBarVisibility: {hiddenSlugs, loaded, saving, error}`,
 and the module calls `module.setActivityBarVisibility` (`{slug, visible}`) and
-`module.retryActivityBarVisibility` through the existing `runHostCommand`. See `docs/prd/module-system.md`, *The `shell`
+`module.retryActivityBarVisibility` through the existing `runHostCommand`.
+Contract v17 adds `useTabRefresh`, the registration a detail surface uses so the
+host centre-tab chrome can refresh it. See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in
 `docs/prd/public-module-demos.md`.

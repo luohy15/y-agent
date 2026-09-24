@@ -266,6 +266,9 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "useArtifactIntent",
   "usePanelLocation",
   "useDetailContext",
+  // tabRefresh.ts (contract v17) — pure registration, no network. Omitting it
+  // makes the public demo throw once a module published at v17 loads there.
+  "useTabRefresh",
   "runHostCommand",
   "openArtifactDetail",
   // optimisticMutate.ts — patches the in-memory SWR cache only.

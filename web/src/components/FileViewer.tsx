@@ -11,6 +11,9 @@ import EnglishView from "./EnglishView";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
+import type { TabRefreshEntry } from "../host/tabRefresh";
+import TabRefreshButton from "./shell/TabRefreshButton";
+import { nextTabRefreshMap, runTabRefresh, tabRefreshAction, tabRefreshTitle, tabRefreshVisible } from "./shell/tabRefreshState";
 import { fileDetailContext, type FocusRequest, type OrdinaryFileTab, type TabHistoryMap } from "../utils/fileWorkspace";
 import { closeTabShortcutLabel, isApplePlatform } from "../utils/platform";
 import FileTabStrip, { FileBreadcrumb } from "./shell/FileTabStrip";
@@ -615,6 +618,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
+  // Per-tab refresh handlers registered by mounted detail surfaces (todo 3674).
+  // Keyed by tab key, not slug: every open tab stays mounted while hidden.
+  const [tabRefresh, setTabRefresh] = useState<Record<string, TabRefreshEntry>>({});
+  const storedTitle = useRef<Record<string, string | undefined>>({});
+  // Spin is per tab. One shared flag would disable a different tab's control
+  // while this one is still finishing.
+  const [refreshingTabs, setRefreshingTabs] = useState<Record<string, boolean>>({});
   const blobUrls = useRef<Set<string>>(new Set());
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
@@ -626,6 +636,23 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isEnglishPreview = !isDiff && activeFileName === "english.md";
   const isDev = !isDiff && activeFileName.endsWith("dev.md");
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
+
+  // Drop refresh registrations for tabs that are no longer open.
+  useEffect(() => {
+    setTabRefresh((prev) => {
+      const next: Record<string, TabRefreshEntry> = {};
+      let changed = false;
+      for (const path of openFiles) {
+        if (prev[path]) next[path] = prev[path];
+      }
+      if (Object.keys(next).length !== Object.keys(prev).length) changed = true;
+      return changed ? next : prev;
+    });
+  }, [openFiles]);
+
+  const setTabRefreshEntry = useCallback((path: string, entry: TabRefreshEntry | null) => {
+    setTabRefresh((prev) => nextTabRefreshMap(prev, path, entry, storedTitle.current));
+  }, []);
 
   // Clean up blob URLs and cache for closed files (link previews still use cache).
   useEffect(() => {
@@ -681,6 +708,27 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       return;
     }
   }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
+
+  const activeRegisteredRefresh = activeFile ? tabRefresh[activeFile] : undefined;
+  const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
+  const showRefresh = tabRefreshVisible(hostRefreshable, activeRegisteredRefresh);
+  const refreshing = !!(activeFile && refreshingTabs[activeFile]);
+
+  const onRefreshClick = useCallback(() => {
+    if (!activeFile || refreshingTabs[activeFile]) return;
+    const run = tabRefreshAction(tabRefresh[activeFile], hostRefreshable ? handleRefresh : null);
+    if (!run) return;
+    const path = activeFile;
+    setRefreshingTabs((prev) => ({ ...prev, [path]: true }));
+    runTabRefresh(run, () => {
+      setRefreshingTabs((prev) => {
+        if (!prev[path]) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
+    });
+  }, [activeFile, refreshingTabs, tabRefresh, hostRefreshable, handleRefresh]);
 
   if (mode === "public") {
     return (
@@ -823,15 +871,13 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     </button>
                   );
                 })()}
-                {!isArtifact && !isUiArtifact && <button
-                  onClick={handleRefresh}
-                  className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
-                  title="Refresh file"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V5L4.5 2 8 -1v2zm0 14a7 7 0 0 1-7-7h1.5A5.5 5.5 0 0 0 8 13.5V11l3.5 3L8 17v-2z" />
-                  </svg>
-                </button>}
+                {showRefresh && (
+                  <TabRefreshButton
+                    title={tabRefreshTitle(activeRegisteredRefresh, hostRefreshable)}
+                    spinning={refreshing}
+                    onClick={onRefreshClick}
+                  />
+                )}
                 {!isArtifact && !isUiArtifact && <button
                   onClick={() => {
                     const pathToCopy = isLinkPreview && selectedLinkContentKey && defaultWorkDir
@@ -905,6 +951,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     surface="detail"
                     detailContext={{ active: isActive }}
                     onRolledBack={onUiArtifactRolledBack}
+                    onRefreshChange={(entry) => setTabRefreshEntry(filePath, entry)}
                   />
                 </div>
               ) : fileUiArtifactSlug ? (
