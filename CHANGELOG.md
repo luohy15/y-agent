@@ -13,6 +13,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Per-user activity-bar visibility (3676)**: hide or show modules on the left rail without disabling them or changing order; a Modules recovery action stays in the account menu. Browser contract v16.
 - **Registered chat wakeups (3655)**: `y chat --at` schedules a durable, owner-scoped message to an existing traced chat; pending wakeups count as watchdog liveness evidence until delivery or the grace deadline.
 - **Telegram reply context (3648)**: inbound replies and selected quotes include the referenced message as a blockquote for the agent.
 - **Food diary module icon (3659)**: the module catalog supports a utensils icon.
@@ -61,7 +62,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Changed
 - **Awaiting notice heading (3645)**: todo notices use a concise single-line heading.
-- **Trace liveness detection (3641)**: the idle grace period is five minutes.
+- **Trace liveness detection (3641, 3677)**: a trace that already has chats is idle as soon as live machine evidence is gone; zero-chat traces still wait out the 24-hour backstop.
 - **Faster VM wake and trace reads (3616, 3626, 3627)**: concurrent VM wake requests share one stale-wake prelude, cold-wake polling is reduced, no-wake module execution is available, and authenticated trace reads omit unused message bodies.
 - **Todo await/resume unified into status (3514)**: every explicit
   source/target status transition is now legal through the single
